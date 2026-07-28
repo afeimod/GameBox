@@ -1,25 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base brand colors (mirror of the Compose neon palette) -->
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-
-    <!-- Cyberpunk neon palette -->
-    <color name="neon_purple">#FFB14AED</color>
-    <color name="neon_violet">#FF7B2FBE</color>
-    <color name="neon_cyan">#FF00F0FF</color>
-    <color name="neon_pink">#FFFF3D81</color>
-    <color name="neon_magenta">#FFFF0080</color>
-    <color name="neon_blue">#FF3B82F6</color>
-    <color name="neon_green">#FF39FF14</color>
-
-    <!-- Dark surfaces -->
-    <color name="cyber_background">#FF0B0B14</color>
-    <color name="cyber_surface">#FF12101F</color>
-    <color name="cyber_surface_variant">#FF1B1830</color>
-    <color name="cyber_outline">#FF2A2740</color>
-
-    <!-- Launcher icon -->
-    <color name="ic_launcher_background">#FF0B0B14</color>
-    <color name="ic_launcher_foreground">#FFB14AED</color>
+    <color name="sky">#B7D7F2</color>
+    <color name="sky_deep">#8DB8E0</color>
+    <color name="grass">#7BB36A</color>
+    <color name="grass_deep">#4F8C4A</color>
+    <color name="accent_red">#E74C3C</color>
+    <color name="accent_purple">#8E44AD</color>
+    <color name="ink">#1E2A3A</color>
+    <color name="ink_soft">#4A5568</color>
+    <color name="cloud">#F5F7FB</color>
+    <color name="amber">#FFD66B</color>
 </resources>

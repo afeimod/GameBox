@@ -1,0 +1,6 @@
+[submodule "core/fceumm"]
+	path = core/fceumm
+	url = https://github.com/libretro/libretro-fceumm.git
+[submodule "core/fceumm-dependencies"]
+	path = core/fceumm-dependencies
+	url = https://github.com/libretro/libretro-fceumm-dependencies.git

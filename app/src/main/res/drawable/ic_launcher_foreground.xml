@@ -4,23 +4,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Controller body -->
+    <!-- NES-style controller silhouette + pixel halo -->
     <path
-        android:fillColor="#FFB14AED"
-        android:pathData="M36,44 h36 a10,10 0 0 1 10,10 v4 a10,10 0 0 1 -10,10 h-36 a10,10 0 0 1 -10,-10 v-4 a10,10 0 0 1 10,-10 z" />
-
-    <!-- D-pad (neon cyan) -->
+        android:fillColor="#1E2A3A"
+        android:pathData="M30,46 L30,72 C30,76 32,78 36,78 L72,78 C76,78 78,76 78,72 L78,46 C78,42 76,40 72,40 L36,40 C32,40 30,42 30,46 Z" />
     <path
-        android:fillColor="#FF00F0FF"
-        android:pathData="M30,54 h12 v4 h-12 z M34,50 h4 v12 h-4 z" />
-
-    <!-- Action buttons (neon pink / green) -->
+        android:fillColor="#FFD66B"
+        android:pathData="M40,56 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
     <path
-        android:fillColor="#FFFF3D81"
-        android:pathData="M71,56 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+        android:fillColor="#E74C3C"
+        android:pathData="M68,56 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
     <path
-        android:fillColor="#FF39FF14"
-        android:pathData="M76,51 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
-
+        android:fillColor="#B7D7F2"
+        android:pathData="M50,68 h8 v3 h-8 z" />
 </vector>

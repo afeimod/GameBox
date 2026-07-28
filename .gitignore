@@ -1,29 +1,35 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle
+.gradle/
+build/
+**/build/
 local.properties
+gradle-app.setting
+.gradletasknamecache
+.kotlin/
 
-# APK / build outputs
+# IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Android
+captures/
 *.apk
 *.aab
 *.ap_
 *.dex
+.cxx/
 
-# Keystore
-*.jks
-*.keystore
+# OS
+.DS_Store
+Thumbs.db
 
-# Google Services
-google-services.json
+# Logs
+*.log
+hs_err_pid*
+replay_pid*
 
-# NDK build outputs
-*.so
-
-# Gradle
-.gradletasknamecache
+# NDK
+obj/

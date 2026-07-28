@@ -17,9 +17,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
     }
 }
 
-rootProject.name = "RetroBox"
+rootProject.name = "NesStation"
 include(":app")
