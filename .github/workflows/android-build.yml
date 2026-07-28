@@ -1,0 +1,89 @@
+name: Android Build
+
+# Only manual runs — no auto trigger on push / pull_request.
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Build variant"
+        required: true
+        type: choice
+        default: debug
+        options:
+          - debug
+          - release
+      abi_filter:
+        description: "ABI filter (empty = all)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.variant || 'debug' }} APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Enable Gradle caching
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+            core/fceumm/build
+            **/build
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'core/cmake/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set up NDK
+        id: ndk
+        uses: android-actions/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Build (debug or release)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          set -e
+          VARIANT="${{ github.event.inputs.variant || 'debug' }}"
+          ABI_FILTER="${{ github.event.inputs.abi_filter }}"
+          if [ -n "$ABI_FILTER" ]; then
+            echo "Building with ABI filter: $ABI_FILTER"
+            ./gradlew :app:assemble${VARIANT^} -PabiFilter=$ABI_FILTER --stacktrace
+          else
+            ./gradlew :app:assemble${VARIANT^} --stacktrace
+          fi
+
+      - name: Locate APK(s)
+        id: locate
+        run: |
+          mkdir -p out
+          find app/build/outputs/apk -name "*.apk" -exec cp -v {} out/ \;
+          ls -la out
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NesStation-${{ github.event.inputs.variant || 'debug' }}-APK
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
