@@ -109,7 +109,10 @@ android {
     // is found under core/. The path is relative to app/ (the module dir).
     //   -PuseStubCore=true   (built-in stub, no real gameplay)
     //   -PuseStubCore=false  (real FCEUmm core; requires submodule)
-    val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: true
+    // Default to the REAL FCEUmm core (useStubCore=false). The stub doesn't
+    // exist in this repo, so the previous default of `true` was misleading.
+    // CI can still override with -PuseStubCore=true if a stub is added later.
+    val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: false
     val stubPath = file("../core/native-stub/CMakeLists.txt")
     val realPath = file("../core/cmake/CMakeLists.txt")
     val cmakePath = when {

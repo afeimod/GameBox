@@ -69,18 +69,18 @@ jobs:
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleDebug -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false --no-daemon --stacktrace
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleRelease -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
           else
-            ./gradlew assembleRelease --no-daemon --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false --no-daemon --stacktrace
           fi
 
       - name: Upload APK
