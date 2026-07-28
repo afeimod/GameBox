@@ -16,6 +16,7 @@ import java.security.MessageDigest
 class AppContainer(private val context: Context) {
     private val db = AppDatabase.get(context)
     val roms = db.roms()
+    val assets = AssetRepository(context)
 
     fun observeAll(): Flow<List<GameEntry>> = roms.observeAll().map { list ->
         list.map { it.toModel() }

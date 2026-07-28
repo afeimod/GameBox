@@ -114,7 +114,7 @@ private fun DrawScope.drawSparkles(s: BackdropState, timeMs: Long) {
     val h = size.height
     s.sparkles.forEach { sp ->
         val blink = (sin((timeMs / 1000.0 + sp.phase) * 2.0).toFloat() + 1f) / 2f
-        val alpha = (60 + (blink * 195).toInt()).coerceIn(60, 255)
+        val alpha = (60 + (blink * 195).toInt()).coerceIn(60, 255) / 255f
         val cx = sp.x * w
         val cy = sp.y * h
         val sz = sp.size

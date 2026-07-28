@@ -26,6 +26,8 @@ object SettingsRepository {
     private val keyFastForwardTap = booleanPreferencesKey("fast_forward_on_tap")
     private val keyLastRomPath    = stringPreferencesKey("last_rom_path")
     private val keyControllerMap  = stringPreferencesKey("controller_map_json")
+    // DataStore cannot store null directly; use empty string as "no value"
+    // and convert at the read/write site.
     private val keyTheme          = stringPreferencesKey("theme") // system/light/dark
     private val keyAudioVolume    = intPreferencesKey("audio_volume") // 0..100
 
@@ -36,8 +38,8 @@ object SettingsRepository {
     val showScanlines: Flow<Boolean>  = appContext.dataStore.data.map { it[keyShowScanlines] ?: false }
     val showScreenPad: Flow<Boolean>  = appContext.dataStore.data.map { it[keyScreenPad] ?: true }
     val fastForwardOnTap: Flow<Boolean> = appContext.dataStore.data.map { it[keyFastForwardTap] ?: false }
-    val lastRomPath: Flow<String?>    = appContext.dataStore.data.map { it[keyLastRomPath] }
-    val controllerMapJson: Flow<String?> = appContext.dataStore.data.map { it[keyControllerMap] }
+    val lastRomPath: Flow<String?>    = appContext.dataStore.data.map { it[keyLastRomPath]?.ifBlank { null } }
+    val controllerMapJson: Flow<String?> = appContext.dataStore.data.map { it[keyControllerMap]?.ifBlank { null } }
     val theme: Flow<String>           = appContext.dataStore.data.map { it[keyTheme] ?: "system" }
     val audioVolume: Flow<Int>        = appContext.dataStore.data.map { it[keyAudioVolume] ?: 90 }
 
@@ -48,8 +50,8 @@ object SettingsRepository {
     suspend fun setShowScanlines(v: Boolean) = appContext.dataStore.edit { it[keyShowScanlines] = v }
     suspend fun setShowScreenPad(v: Boolean) = appContext.dataStore.edit { it[keyScreenPad] = v }
     suspend fun setFastForwardOnTap(v: Boolean) = appContext.dataStore.edit { it[keyFastForwardTap] = v }
-    suspend fun setLastRomPath(v: String?) = appContext.dataStore.edit { it[keyLastRomPath] = v }
-    suspend fun setControllerMapJson(v: String?) = appContext.dataStore.edit { it[keyControllerMap] = v }
+    suspend fun setLastRomPath(v: String?) = appContext.dataStore.edit { it[keyLastRomPath] = (v ?: "") }
+    suspend fun setControllerMapJson(v: String?) = appContext.dataStore.edit { it[keyControllerMap] = (v ?: "") }
     suspend fun setTheme(v: String) = appContext.dataStore.edit { it[keyTheme] = v }
     suspend fun setAudioVolume(v: Int) = appContext.dataStore.edit { it[keyAudioVolume] = v }
 }

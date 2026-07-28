@@ -77,15 +77,15 @@ fun EmulatorScreen(
     }
 
     // Drive fake frame ticks for the placeholder render.
+    // In a real integration, `engine.loadRom(rom) { idx -> ... }` runs the
+    // emulation loop and invokes the callback once per produced frame. For
+    // dev builds we just draw a colored frame to the bitmap every tick.
     LaunchedEffect(Unit) {
         var i = 0
         while (true) {
             engine.setPad1(padBits)
             if (!running) { delay(33); continue }
-            // For real: engine.runFrame() would update the bitmap; we draw
-            // a colored frame directly to the bitmap so dev builds look nice.
             drawPlaceholderFrame(bitmap, i)
-            engine.runFrame()
             engine.setFastForward(fastForward)
             lastFrameTick = System.nanoTime()
             i++
