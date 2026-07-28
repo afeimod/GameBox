@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -28,9 +27,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,92 +41,131 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.model.GameEntry
 import kotlinx.coroutines.delay
 
 /**
  * The in-game surface — full-bleed framebuffer, on-screen D-pad + A/B/Start/Select,
  * top overlay with pause / save / screenshot / fast-forward / settings.
+ *
+ * On entry, loads the ROM via [NesEngine] and starts the 60Hz emulation loop.
+ * The frame buffer is polled from the engine and blitted to a Compose Canvas.
  */
 @Composable
 fun EmulatorScreen(
     game: GameEntry,
     onExit: () -> Unit
 ) {
-    val engine = remember { com.nesstation.app.core.engine.NesEngine.get() }
+    val engine = remember { NesEngine.get() }
+    val context = LocalContext.current
     var running by remember { mutableStateOf(true) }
     var fastForward by remember { mutableStateOf(false) }
-    var lastFrameTick by remember { mutableLongStateOf(0L) }
+    var loaded by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var frameTick by remember { mutableIntStateOf(0) }
     var padBits by remember { mutableStateOf(0) }
     var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
     val bitmap = remember { Bitmap.createBitmap(256, 240, Bitmap.Config.ARGB_8888) }
     val imageBitmap = remember { bitmap.asImageBitmap() }
 
+    // Load ROM on entry
     LaunchedEffect(game) {
-        // engine.loadRom returns true if started; we render a placeholder
-        // framebuffer via a synthetic animation so the screen has life.
-        engine.setSampleRate(44100)
-        engine.setRegion(0)
-        engine.setFastForward(fastForward)
+        val romPath = game.romPath
+        if (romPath.isNullOrEmpty()) {
+            errorMsg = "该游戏未关联 ROM 文件"
+            return@LaunchedEffect
+        }
+        val romFile = java.io.File(romPath)
+        if (!romFile.exists()) {
+            errorMsg = "ROM 文件不存在: $romPath"
+            return@LaunchedEffect
+        }
+        val filesDir = context.filesDir.absolutePath
+        val ok = engine.loadRom(romFile, filesDir, filesDir) { }
+        if (!ok) {
+            errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+        } else {
+            loaded = true
+        }
     }
 
-    // Drive fake frame ticks for the placeholder render.
-    // In a real integration, `engine.loadRom(rom) { idx -> ... }` runs the
-    // emulation loop and invokes the callback once per produced frame. For
-    // dev builds we just draw a colored frame to the bitmap every tick.
-    LaunchedEffect(Unit) {
-        var i = 0
+    // Cleanup on dispose
+    DisposableEffect(Unit) {
+        onDispose { engine.unload() }
+    }
+
+    // Apply fast-forward / running state to engine
+    LaunchedEffect(fastForward) { engine.setFastForward(fastForward) }
+
+    // Frame polling loop — copy engine's frame buffer to the Bitmap at ~60Hz
+    LaunchedEffect(loaded) {
+        if (!loaded) return@LaunchedEffect
         while (true) {
             engine.setPad1(padBits)
-            if (!running) { delay(33); continue }
-            drawPlaceholderFrame(bitmap, i)
-            engine.setFastForward(fastForward)
-            lastFrameTick = System.nanoTime()
-            i++
+            if (running) {
+                // Copy the 256x240 ARGB pixels from the engine's shared buffer
+                bitmap.setPixels(engine.frameBuffer, 0, 256, 0, 0, 256, 240)
+                frameTick++ // trigger recomposition
+            }
             delay(if (fastForward) 8 else 16)
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Game surface
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(onDoubleTap = { fastForward = !fastForward })
+        // Game surface or error message
+        if (loaded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = { fastForward = !fastForward })
+                    }
+                    .onSizeChanged { surfaceSize = it }
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val arGame = 256f / 240f
+                    val arScreen = size.width / size.height
+                    val (w, h) = if (arScreen > arGame) {
+                        size.height * arGame to size.height
+                    } else {
+                        size.width to size.width / arGame
+                    }
+                    val x = (size.width - w) / 2
+                    val y = (size.height - h) / 2
+                    // Letterbox
+                    drawRect(Color.Black, topLeft = Offset.Zero, size = size)
+                    drawImage(
+                        image = imageBitmap,
+                        dstOffset = androidx.compose.ui.unit.IntOffset(x.toInt(), y.toInt()),
+                        dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
+                    )
+                    // Scanline overlay (subtle)
+                    val scanColor = Color(0x14000000)
+                    var sy = y
+                    while (sy < y + h) {
+                        drawRect(scanColor, topLeft = Offset(x, sy), size = Size(w, 1f))
+                        sy += 2
+                    }
                 }
-                .onSizeChanged { surfaceSize = it }
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val arGame = 256f / 240f
-                val arScreen = size.width / size.height
-                val (w, h) = if (arScreen > arGame) {
-                    size.height * arGame to size.height
-                } else {
-                    size.width to size.width / arGame
-                }
-                val x = (size.width - w) / 2
-                val y = (size.height - h) / 2
-                // Letterbox
-                drawRect(Color.Black, topLeft = Offset.Zero, size = size)
-                drawImage(
-                    image = imageBitmap,
-                    dstOffset = androidx.compose.ui.unit.IntOffset(x.toInt(), y.toInt()),
-                    dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
+            }
+        } else {
+            // Loading / error state
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = errorMsg ?: "正在加载…",
+                    color = Color.White,
+                    fontSize = 16.sp
                 )
-                // Scanline overlay (subtle)
-                val scanColor = Color(0x14000000)
-                var sy = y
-                while (sy < y + h) {
-                    drawRect(scanColor, topLeft = Offset(x, sy), size = Size(w, 1f))
-                    sy += 2
-                }
             }
         }
 
@@ -146,11 +185,13 @@ fun EmulatorScreen(
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { running = !running }) {
-                Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
-            }
-            IconButton(onClick = { fastForward = !fastForward }) {
-                Icon(Icons.Rounded.FastForward, contentDescription = null, tint = if (fastForward) Color(0xFFFFD66B) else Color.White)
+            if (loaded) {
+                IconButton(onClick = { running = !running }) {
+                    Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
+                }
+                IconButton(onClick = { fastForward = !fastForward }) {
+                    Icon(Icons.Rounded.FastForward, contentDescription = null, tint = if (fastForward) Color(0xFFFFD66B) else Color.White)
+                }
             }
             IconButton(onClick = { /* TODO: takeScreenshot */ }) {
                 Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = Color.White)
@@ -166,36 +207,38 @@ fun EmulatorScreen(
             }
         }
 
-        // Bottom on-screen pad
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            DPad(
-                onChange = { bits -> padBits = (padBits and 0x0F) or bits },
-                modifier = Modifier.size(160.dp)
-            )
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        // Bottom on-screen pad (only show when loaded)
+        if (loaded) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    PadButton("A", Color(0xFFE74C3C), size = 64) { bit ->
-                        padBits = if (bit) padBits or 0x01 else padBits and 0xFE
+                DPad(
+                    onChange = { bits -> padBits = (padBits and 0x0F) or bits },
+                    modifier = Modifier.size(160.dp)
+                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        PadButton("A", Color(0xFFE74C3C), size = 64) { bit ->
+                            padBits = if (bit) padBits or 0x01 else padBits and 0xFE
+                        }
+                        PadButton("B", Color(0xFFE67E22), size = 64) { bit ->
+                            padBits = if (bit) padBits or 0x02 else padBits and 0xFD
+                        }
                     }
-                    PadButton("B", Color(0xFFE67E22), size = 64) { bit ->
-                        padBits = if (bit) padBits or 0x02 else padBits and 0xFD
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    PadButton("SEL", Color(0xFF1E2A3A), size = 56) { bit ->
-                        padBits = if (bit) padBits or 0x04 else padBits and 0xFB
-                    }
-                    PadButton("STA", Color(0xFF1E2A3A), size = 56) { bit ->
-                        padBits = if (bit) padBits or 0x08 else padBits and 0xF7
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        PadButton("SEL", Color(0xFF1E2A3A), size = 56) { bit ->
+                            padBits = if (bit) padBits or 0x04 else padBits and 0xFB
+                        }
+                        PadButton("STA", Color(0xFF1E2A3A), size = 56) { bit ->
+                            padBits = if (bit) padBits or 0x08 else padBits and 0xF7
+                        }
                     }
                 }
             }
@@ -293,20 +336,4 @@ private fun PadButton(
     ) {
         Text(label, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
-}
-
-private fun drawPlaceholderFrame(bitmap: Bitmap, frame: Int) {
-    val w = bitmap.width
-    val h = bitmap.height
-    val phase = (frame * 4) and 0xFF
-    val pixels = IntArray(w * h)
-    for (y in 0 until h) {
-        for (x in 0 until w) {
-            val r = (40 + (x * 200 / w) + phase / 4) and 0xFF
-            val g = (60 + (y * 100 / h)) and 0xFF
-            val b = (200 - phase) and 0xFF
-            pixels[y * w + x] = 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
-        }
-    }
-    bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
 }

@@ -1,87 +1,150 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("nesstation-core" C CXX)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# --- libretro-fceumm sources ---
-# We use the upstream libretro-fceumm as a source-only dependency: drop the
-# libretro_* frontend, keep the core, and use our own JNI/IO/Audio glue.
-set(FCEUMM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fceumm")
+# ---------------------------------------------------------------------------
+# libretro-fceumm (the best-in-class NES/Famicom core) is consumed as a
+# source-only dependency. We drive it through the standard libretro API
+# (retro_init / retro_load_game / retro_run ...) from our own JNI frontend
+# in core/jni/rom_loader.cpp. This mirrors what upstream's jni/Android.mk
+# produces, so the resulting libnescore.so behaves like the real FCEUmm core.
+# ---------------------------------------------------------------------------
 
-if(NOT EXISTS "${FCEUMM_DIR}/src/fceu.c")
+set(FCEUMM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fceumm")
+set(FCEUMM_SRC  "${FCEUMM_DIR}/src")
+
+if(NOT EXISTS "${FCEUMM_SRC}/drivers/libretro/libretro.c")
     message(FATAL_ERROR
-        "FCEUmm sources not found at ${FCEUMM_DIR}. "
-        "Either `git submodule update --init --recursive` or set "
-        "`-PuseStubCore=true` in gradle.properties to use the built-in stub core.")
+        "FCEUmm sources not found at ${FCEUMM_DIR}.\n"
+        "Fix with:\n"
+        "  git clone --depth 1 https://github.com/libretro/libretro-fceumm.git core/fceumm\n"
+        "or build with the stub core: -PuseStubCore=true")
 endif()
 
-file(GLOB FCEUMM_C_SOURCES CONFIGURE_DEPENDS
-    "${FCEUMM_DIR}/src/*.c"
-)
-file(GLOB FCEUMM_CPP_SOURCES CONFIGURE_DEPENDS
-    "${FCEUMM_DIR}/src/*.cpp"
-)
-file(GLOB FCEUMM_BOARD_SOURCES CONFIGURE_DEPENDS
-    "${FCEUMM_DIR}/src/boards/*.c"
+set(LIBRETRO_COMM "${FCEUMM_SRC}/drivers/libretro/libretro-common")
+
+# --- Source set, copied 1:1 from Makefile.common (Android profile) ----------
+# boards/ and input/ are wildcard-globbed exactly like the Makefile.
+file(GLOB FCEUMM_BOARD_SOURCES CONFIGURE_DEPENDS "${FCEUMM_SRC}/boards/*.c")
+file(GLOB FCEUMM_INPUT_SOURCES CONFIGURE_DEPENDS "${FCEUMM_SRC}/input/*.c")
+
+# Core .c files are an explicit list in Makefile.common (NOT a glob), so we
+# keep them explicit too in case upstream adds a non-compiled root file later.
+set(FCEUMM_CORE_SOURCES
+    "${FCEUMM_SRC}/cart.c"
+    "${FCEUMM_SRC}/cheat.c"
+    "${FCEUMM_SRC}/crc32.c"
+    "${FCEUMM_SRC}/fceu-endian.c"
+    "${FCEUMM_SRC}/fceu-memory.c"
+    "${FCEUMM_SRC}/fceu.c"
+    "${FCEUMM_SRC}/fds.c"
+    "${FCEUMM_SRC}/fds_apu.c"
+    "${FCEUMM_SRC}/file.c"
+    "${FCEUMM_SRC}/filter.c"
+    "${FCEUMM_SRC}/general.c"
+    "${FCEUMM_SRC}/input.c"
+    "${FCEUMM_SRC}/md5.c"
+    "${FCEUMM_SRC}/nsf.c"
+    "${FCEUMM_SRC}/palette.c"
+    "${FCEUMM_SRC}/ppu.c"
+    "${FCEUMM_SRC}/sound.c"
+    "${FCEUMM_SRC}/state.c"
+    "${FCEUMM_SRC}/video.c"
+    "${FCEUMM_SRC}/vsuni.c"
+    "${FCEUMM_SRC}/ines.c"
+    "${FCEUMM_SRC}/unif.c"
+    "${FCEUMM_SRC}/x6502.c"
+    # NTSC filter (HAVE_NTSC_FILTER)
+    "${FCEUMM_SRC}/ntsc/nes_ntsc.c"
+    # libretro frontend (provides retro_init / retro_load_game / retro_run ...)
+    "${FCEUMM_SRC}/drivers/libretro/libretro.c"
+    "${FCEUMM_SRC}/drivers/libretro/libretro_dipswitch.c"
 )
 
-# Exclude the libretro frontend (we have our own).
-list(REMOVE_ITEM FCEUMM_C_SOURCES
-    "${FCEUMM_DIR}/src/libretro.c"
-    "${FCEUMM_DIR}/src/libretro-common.c"
-    "${FCEUMM_DIR}/src/libretro_callbacks.c"
+# libretro-common helpers. memory_stream is always linked (used by savestate
+# code). The rest are the non-static frontend helpers (STATIC_LINKING=0).
+# NOTE: HAVE_HDPACK is intentionally OFF — it matches upstream's Android.mk
+# (only unix/osx/ios enable HD pack) and removes the risky image-format
+# decoders (rpng/rwebp/rvp8/...) from the build.
+set(FCEUMM_LIBRETRO_COMMON_SOURCES
+    "${LIBRETRO_COMM}/streams/memory_stream.c"
+    "${LIBRETRO_COMM}/compat/compat_posix_string.c"
+    "${LIBRETRO_COMM}/compat/compat_snprintf.c"
+    "${LIBRETRO_COMM}/compat/compat_strcasestr.c"
+    "${LIBRETRO_COMM}/compat/compat_strl.c"
+    "${LIBRETRO_COMM}/compat/fopen_utf8.c"
+    "${LIBRETRO_COMM}/encodings/encoding_utf.c"
+    "${LIBRETRO_COMM}/file/file_path.c"
+    "${LIBRETRO_COMM}/file/file_path_io.c"
+    "${LIBRETRO_COMM}/streams/file_stream.c"
+    "${LIBRETRO_COMM}/streams/file_stream_transforms.c"
+    "${LIBRETRO_COMM}/string/stdstring.c"
+    "${LIBRETRO_COMM}/time/rtime.c"
+    "${LIBRETRO_COMM}/vfs/vfs_implementation.c"
 )
 
+# --- Our JNI bridge + libretro frontend -------------------------------------
 set(APP_JNI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../jni")
 set(APP_JNI_SOURCES
-    ${APP_JNI_DIR}/bridge.cpp
-    ${APP_JNI_DIR}/audio_backend.cpp
-    ${APP_JNI_DIR}/input_backend.cpp
-    ${APP_JNI_DIR}/video_backend.cpp
-    ${APP_JNI_DIR}/rom_loader.cpp
+    "${APP_JNI_DIR}/bridge.cpp"
+    "${APP_JNI_DIR}/rom_loader.cpp"
 )
 
 add_library(nescore SHARED
-    ${FCEUMM_C_SOURCES}
-    ${FCEUMM_CPP_SOURCES}
+    ${FCEUMM_CORE_SOURCES}
     ${FCEUMM_BOARD_SOURCES}
+    ${FCEUMM_INPUT_SOURCES}
+    ${FCEUMM_LIBRETRO_COMMON_SOURCES}
     ${APP_JNI_SOURCES}
 )
 
 target_include_directories(nescore PRIVATE
-    ${FCEUMM_DIR}/src
-    ${FCEUMM_DIR}/src/boards
-    ${APP_JNI_DIR}
+    "${FCEUMM_SRC}"
+    "${FCEUMM_SRC}/drivers/libretro"
+    "${LIBRETRO_COMM}/include"
+    "${FCEUMM_SRC}/boards"
+    "${FCEUMM_SRC}/input"
+    "${FCEUMM_SRC}/ntsc"
+    "${APP_JNI_DIR}"
 )
 
+# Defines mirror upstream's COREDEFINES (Android profile) plus our 32-bpp
+# choice. FRONTEND_SUPPORTS_RGB888 makes the core emit XRGB8888 frames, which
+# map to Android's Bitmap.Config.ARGB_8888 with a single | 0xFF000000.
 target_compile_definitions(nescore PRIVATE
-    FCEU_USE_LIBRETRO=0
-    FCEU_NO_LIBRESSL=1
-    HAVE_STDINT_H=1
-    HAVE_INTTYPES_H=1
-    _GNU_SOURCE=1
-    NDEBUG=1
+    __LIBRETRO__
+    PATH_MAX=1024
+    FCEU_VERSION_NUMERIC=9813
+    PSS_STYLE=1
+    FRONTEND_SUPPORTS_RGB888
+    HAVE_NTSC_FILTER
+    GIT_VERSION=\"local\"
+    NDEBUG
 )
 
-# Strip logging
 target_compile_options(nescore PRIVATE
-    -O2 -fvisibility=hidden
+    -O2
+    -fvisibility=hidden
     -ffunction-sections -fdata-sections
-    -Wno-unused-parameter -Wno-unused-variable
+    -Wno-unused-parameter
+    -Wno-unused-variable
     -Wno-unused-but-set-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-missing-prototypes
 )
 
-target_link_libraries(nescore
-    log
-    android
-    OpenSLES
-    GLESv2
-)
+# Only the Android log backend is needed: video goes through a Bitmap blitted
+# from JNI (no GLES), audio is pulled by Kotlin's AudioTrack (no OpenSL ES).
+target_link_libraries(nescore log)
 
-# Output to app's jniLibs
+# Drop the .so straight into the app's jniLibs so AGP packages it.
+# CMAKE_SOURCE_DIR is core/cmake/ → ../../ reaches the project root where app/ lives.
 set_target_properties(nescore PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../app/src/main/jniLibs/${ANDROID_ABI}"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../../app/src/main/jniLibs/${ANDROID_ABI}"
 )
-

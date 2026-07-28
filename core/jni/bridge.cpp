@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: MIT
 // JNI bridge for FCEUmm core
 //
-// Wraps FCEUmm (FCEUX core) behind a minimal stable C++ interface, exposing
-// it to the JVM via JNI. We deliberately hide the libretro-specific bits so
-// the Kotlin side can stay clean.
+// Thin wrapper around the libretro frontend in rom_loader.cpp. Kotlin owns
+// the emulation thread and pulls frames / audio on demand — no native-side
+// threads or callbacks, which keeps the lifecycle simple and crash-free.
 
 #include "bridge.h"
-#include "video_backend.h"
-#include "audio_backend.h"
 #include "rom_loader.h"
 
 #include <jni.h>
 #include <android/log.h>
 #include <cstring>
-#include <memory>
-#include <mutex>
 
 #define TAG "nescore"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -27,205 +23,169 @@ Engine& Engine::instance() {
     return e;
 }
 
-static std::mutex g_stateMtx;
-
 bool Engine::loadRom(const std::string& path) {
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    if (running_.exchange(true)) {
-        // already running -> reset
-        running_ = false;
-    }
-
-    auto err = rom::loadFromFile(path, region_);
+    int region = 0;
+    auto err = rom::loadFromFile(path, region);
     if (!err.empty()) {
         lastError_ = err;
-        running_ = false;
+        LOGE("loadRom failed: %s", err.c_str());
         return false;
     }
     lastError_.clear();
-
-    if (!frameBuffer_) {
-        frameBuffer_ = new uint8_t[256 * 240 * 4]; // RGBA
-    }
-    std::memset(frameBuffer_, 0, 256 * 240 * 4);
-
-    if (audioCb_) {
-        audioThread_ = std::thread([this] { audioThread(); });
-    }
-    LOGI("ROM loaded: %s region=%d", path.c_str(), region_);
+    LOGI("ROM loaded OK: %s (region=%d, rate=%d)",
+         path.c_str(), region, rom::audioSampleRate());
     return true;
 }
 
-void Engine::unload() {
-    {
-        std::lock_guard<std::mutex> lk(g_stateMtx);
-        running_ = false;
-    }
-    if (audioThread_.joinable()) audioThread_.join();
-    rom::unload();
-    lastError_.clear();
+void Engine::unload()       { rom::unload(); }
+void Engine::reset(bool h)  { rom::resetEmulation(h); }
+void Engine::runFrame()     { rom::stepFrame(); }
+void Engine::shutdown()     { rom::unload(); }
+
+void Engine::setPad1(int bits)        { rom::setControllerInput(0, (uint8_t)bits); }
+void Engine::setRegion(int region)    { rom::applyRegion(region); }
+void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
+void Engine::setFastForward(bool on)  { rom::applySpeed(on ? 4.0f : 1.0f); }
+
+void Engine::saveState(int slot, const std::string& path) {
+    rom::saveStateToPath(slot, path);
 }
 
-void Engine::reset(bool hard) {
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    rom::resetEmulation(hard);
+bool Engine::loadState(int slot, const std::string& path) {
+    return rom::loadStateFromPath(slot, path);
 }
 
-void Engine::shutdown() {
-    unload();
-    if (frameBuffer_) {
-        delete[] frameBuffer_;
-        frameBuffer_ = nullptr;
-    }
+bool Engine::getFrameBuffer(uint32_t* out, int w, int h) {
+    return rom::copyFramebufferARGB(out, w, h);
 }
 
-void Engine::setPad1(const NesPad& pad) {
-    pad1_ = pad;
-    rom::setControllerInput(0, *reinterpret_cast<const uint8_t*>(&pad));
+int Engine::readAudio(int16_t* out, int maxFrames) {
+    return rom::readAudio(out, maxFrames);
 }
 
-void Engine::setRegion(int region) {
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    region_ = region;
-    rom::applyRegion(region);
+int Engine::audioSampleRate() {
+    return rom::audioSampleRate();
 }
 
-void Engine::setSampleRate(int hz) {
-    sampleRate_ = hz;
-    rom::applySampleRate(hz);
-}
-
-void Engine::setFastForward(bool on) {
-    fastForward_ = on;
-    rom::applySpeed(on ? 4.0f : 1.0f);
-}
-
-void Engine::runFrame() {
-    if (!running_.load()) return;
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    rom::stepFrame();
-    renderFrameToBuffer();
-    if (videoCb_) {
-        videoCb_(frameBuffer_, 256, 240, 256 * 4, /*pts*/0);
-    }
-}
-
-void Engine::renderFrameToBuffer() {
-    // In a real integration we'd pull a BGRA buffer from FCEUmm's
-    // PPU emulation (XBuf). For now we keep a placeholder so the
-    // JNI surface stays compilable; the Kotlin side blits a stub frame
-    // when the engine signals "not yet rendering".
-    rom::copyFramebufferBGRA(frameBuffer_, 256, 240);
-}
-
-void Engine::saveState(int slot, const std::string& dstPath) {
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    rom::saveStateToPath(slot, dstPath);
-}
-
-bool Engine::loadState(int slot, const std::string& srcPath) {
-    std::lock_guard<std::mutex> lk(g_stateMtx);
-    return rom::loadStateFromPath(slot, srcPath);
-}
-
-void Engine::audioThread() {
-    constexpr int kBufFrames = 1024;
-    int16_t buffer[kBufFrames * 2];
-    while (running_.load()) {
-        fillAudioBuffer(buffer, kBufFrames);
-        if (audioCb_) {
-            audioCb_(buffer, kBufFrames, sampleRate_, /*pts*/0);
-        }
-    }
-}
-
-void Engine::fillAudioBuffer(int16_t* out, int frames) {
-    rom::mixAudio(out, frames);
+void Engine::setPaths(const std::string& systemDir, const std::string& saveDir) {
+    rom::setPaths(systemDir, saveDir);
 }
 
 } // namespace nescore
 
 // ---------------------------------------------------------------------------
-// JNI surface
+// JNI surface — mirrors NesNative.kt exactly
 // ---------------------------------------------------------------------------
 
 extern "C" {
 
 JNIEXPORT jint JNICALL
-JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
+JNI_OnLoad(JavaVM* /*vm*/, void* /*reserved*/) {
     return JNI_VERSION_1_6;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_nesstation_app_core_jni_NesNative_loadRom(JNIEnv* env, jclass /*clazz*/, jstring path) {
+Java_com_nesstation_app_core_jni_NesNative_loadRom(JNIEnv* env, jclass, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = nescore::Engine::instance().loadRom(cpath);
-    env->ReleaseStringUTFChars(path, cpath);
+    bool ok = nescore::Engine::instance().loadRom(cpath ? cpath : "");
+    if (cpath) env->ReleaseStringUTFChars(path, cpath);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_unload(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_nesstation_app_core_jni_NesNative_unload(JNIEnv*, jclass) {
     nescore::Engine::instance().unload();
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_reset(JNIEnv* /*env*/, jclass /*clazz*/, jboolean hard) {
+Java_com_nesstation_app_core_jni_NesNative_reset(JNIEnv*, jclass, jboolean hard) {
     nescore::Engine::instance().reset(hard == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_runFrame(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_nesstation_app_core_jni_NesNative_runFrame(JNIEnv*, jclass) {
     nescore::Engine::instance().runFrame();
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_setPad1(JNIEnv* /*env*/, jclass /*clazz*/, jint bits) {
-    nescore::NesPad pad{};
-    pad.a      = (bits >> 0) & 1;
-    pad.b      = (bits >> 1) & 1;
-    pad.select = (bits >> 2) & 1;
-    pad.start  = (bits >> 3) & 1;
-    pad.up     = (bits >> 4) & 1;
-    pad.down   = (bits >> 5) & 1;
-    pad.left   = (bits >> 6) & 1;
-    pad.right  = (bits >> 7) & 1;
-    nescore::Engine::instance().setPad1(pad);
+Java_com_nesstation_app_core_jni_NesNative_setPad1(JNIEnv*, jclass, jint bits) {
+    nescore::Engine::instance().setPad1(bits);
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_setRegion(JNIEnv* /*env*/, jclass /*clazz*/, jint region) {
+Java_com_nesstation_app_core_jni_NesNative_setRegion(JNIEnv*, jclass, jint region) {
     nescore::Engine::instance().setRegion(region);
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_setSampleRate(JNIEnv* /*env*/, jclass /*clazz*/, jint rate) {
+Java_com_nesstation_app_core_jni_NesNative_setSampleRate(JNIEnv*, jclass, jint rate) {
     nescore::Engine::instance().setSampleRate(rate);
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_setFastForward(JNIEnv* /*env*/, jclass /*clazz*/, jboolean on) {
+Java_com_nesstation_app_core_jni_NesNative_setFastForward(JNIEnv*, jclass, jboolean on) {
     nescore::Engine::instance().setFastForward(on == JNI_TRUE);
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_nesstation_app_core_jni_NesNative_saveState(JNIEnv* env, jclass /*clazz*/, jint slot, jstring path) {
+Java_com_nesstation_app_core_jni_NesNative_saveState(JNIEnv* env, jclass, jint slot, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    nescore::Engine::instance().saveState(slot, cpath);
-    env->ReleaseStringUTFChars(path, cpath);
+    nescore::Engine::instance().saveState(slot, cpath ? cpath : "");
+    if (cpath) env->ReleaseStringUTFChars(path, cpath);
     return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_nesstation_app_core_jni_NesNative_loadState(JNIEnv* env, jclass /*clazz*/, jint slot, jstring path) {
+Java_com_nesstation_app_core_jni_NesNative_loadState(JNIEnv* env, jclass, jint slot, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = nescore::Engine::instance().loadState(slot, cpath);
-    env->ReleaseStringUTFChars(path, cpath);
+    bool ok = nescore::Engine::instance().loadState(slot, cpath ? cpath : "");
+    if (cpath) env->ReleaseStringUTFChars(path, cpath);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_nesstation_app_core_jni_NesNative_getFrameBuffer(JNIEnv* env, jclass, jintArray out) {
+    if (!out) return JNI_FALSE;
+    jsize len = env->GetArrayLength(out);
+    if (len < 256 * 240) return JNI_FALSE;
+    jint* px = env->GetIntArrayElements(out, nullptr);
+    if (!px) return JNI_FALSE;
+    bool fresh = nescore::Engine::instance().getFrameBuffer(
+        reinterpret_cast<uint32_t*>(px), 256, 240);
+    env->ReleaseIntArrayElements(out, px, 0); // commit back
+    return fresh ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NesNative_readAudio(JNIEnv* env, jclass, jshortArray out) {
+    if (!out) return 0;
+    jsize len = env->GetArrayLength(out);
+    if (len < 2) return 0;
+    int maxFrames = len / 2;
+    jshort* buf = env->GetShortArrayElements(out, nullptr);
+    if (!buf) return 0;
+    int n = nescore::Engine::instance().readAudio(
+        reinterpret_cast<int16_t*>(buf), maxFrames);
+    env->ReleaseShortArrayElements(out, buf, 0);
+    return n;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NesNative_audioSampleRate(JNIEnv*, jclass) {
+    return nescore::Engine::instance().audioSampleRate();
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NesNative_setPaths(JNIEnv* env, jclass, jstring systemDir, jstring saveDir) {
+    const char* sys = systemDir ? env->GetStringUTFChars(systemDir, nullptr) : nullptr;
+    const char* sav = saveDir   ? env->GetStringUTFChars(saveDir,   nullptr) : nullptr;
+    nescore::Engine::instance().setPaths(sys ? sys : "", sav ? sav : "");
+    if (sys) env->ReleaseStringUTFChars(systemDir, sys);
+    if (sav) env->ReleaseStringUTFChars(saveDir, sav);
+}
+
 JNIEXPORT jstring JNICALL
-Java_com_nesstation_app_core_jni_NesNative_lastError(JNIEnv* env, jclass /*clazz*/) {
+Java_com_nesstation_app_core_jni_NesNative_lastError(JNIEnv* env, jclass) {
     return env->NewStringUTF(nescore::Engine::instance().lastError().c_str());
 }
 
