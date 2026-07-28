@@ -36,6 +36,10 @@ class NesEngine private constructor() {
         private set
 
     @Volatile var fastForward = false
+        set(value) {
+            field = value
+            NesNative.setFastForward(value)
+        }
 
     fun ensureLoaded(): Boolean = runCatching { System.loadLibrary("nescore") }.isSuccess
 
@@ -152,7 +156,6 @@ class NesEngine private constructor() {
     fun setPad1(bits: Int) = NesNative.setPad1(bits)
     fun setRegion(region: Int) = NesNative.setRegion(region)
     fun setSampleRate(rate: Int) = NesNative.setSampleRate(rate)
-    fun setFastForward(on: Boolean) { fastForward = on; NesNative.setFastForward(on) }
     fun saveState(slot: Int, dst: File) = NesNative.saveState(slot, dst.absolutePath)
     fun loadState(slot: Int, src: File) = NesNative.loadState(slot, src.absolutePath)
     fun lastError(): String = NesNative.lastError()
