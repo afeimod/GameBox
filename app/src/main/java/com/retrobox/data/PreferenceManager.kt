@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.io.File
 
 /**
  * 应用偏好设置管理器
@@ -17,8 +18,10 @@ import com.google.gson.reflect.TypeToken
  */
 class PreferenceManager(context: Context) {
 
+    private val appContext: Context = context.applicationContext
+
     private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val gson = Gson()
     private val mapType = object : TypeToken<Map<String, String>>() {}.type
@@ -32,9 +35,21 @@ class PreferenceManager(context: Context) {
 
     // ===== 下载路径 =====
 
-    /** ROM 下载根目录 */
+    /**
+     * ROM 下载根目录
+     *
+     * 默认 /sdcard/RetroBox/ROMs，需要 MANAGE_EXTERNAL_STORAGE 权限。
+     * 如果权限未授予，fallback 到应用专属目录。
+     */
     var downloadPath: String
-        get() = prefs.getString(KEY_DOWNLOAD_PATH, "/sdcard/RetroBox/ROMs") ?: "/sdcard/RetroBox/ROMs"
+        get() {
+            val saved = prefs.getString(KEY_DOWNLOAD_PATH, null)
+            val path = saved ?: DEFAULT_ROM_DIR
+            // 确保目录存在
+            val dir = File(path)
+            if (!dir.exists()) dir.mkdirs()
+            return path
+        }
         set(value) = prefs.edit().putString(KEY_DOWNLOAD_PATH, value).apply()
 
     // ===== Gitee 仓库配置 =====
@@ -133,6 +148,9 @@ class PreferenceManager(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "retrobox_prefs"
+
+        /** 默认 ROM 目录（需要 MANAGE_EXTERNAL_STORAGE 权限） */
+        const val DEFAULT_ROM_DIR = "/sdcard/RetroBox/ROMs"
 
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_DOWNLOAD_PATH = "download_path"
