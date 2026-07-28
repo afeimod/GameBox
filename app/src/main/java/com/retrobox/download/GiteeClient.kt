@@ -1,5 +1,6 @@
 package com.retrobox.download
 
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -24,11 +25,17 @@ import java.util.concurrent.TimeUnit
  * @property downloadUrl 原始文件下载地址（可能为空）
  */
 data class GiteeContent(
+    @SerializedName("name")
     val name: String = "",
+    @SerializedName("path")
     val path: String = "",
+    @SerializedName("type")
     val type: String = "",
+    @SerializedName("size")
     val size: Long = 0L,
+    @SerializedName("url")
     val url: String = "",
+    @SerializedName("download_url")
     val download_url: String? = null
 )
 

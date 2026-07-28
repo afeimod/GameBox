@@ -1,5 +1,9 @@
 package com.retrobox.ui.screens
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,13 +24,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -40,12 +48,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,7 +73,7 @@ import com.retrobox.ui.viewmodel.GameViewModel
 /**
  * 游戏库主界面
  *
- * 展示本地游戏列表，支持平台筛选与搜索。
+ * 展示本地游戏列表，支持平台筛选、搜索，以及导入本地 ROM 文件。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,7 +86,31 @@ fun LibraryScreen(
 ) {
     val games by viewModel.games.collectAsState()
     val selectedPlatform by viewModel.selectedPlatform.collectAsState()
+    val downloadMessage by viewModel.downloadMessage.collectAsState()
     var searchText by remember { mutableStateOf("") }
+    var showImportMenu by remember { mutableStateOf(false) }
+    var showSnackbar by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // ===== 文件选择器：选择单个 ROM 文件 =====
+    val singleFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // 从 Uri 获取文件名
+            val fileName = queryFileName(context, uri) ?: "imported_rom"
+            viewModel.importLocalRom(uri, fileName) { _ -> }
+        }
+    }
+
+    // ===== 目录选择器：选择整个文件夹批量扫描 =====
+    val dirPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.scanCustomDirectory(uri) { _ -> }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -94,12 +128,52 @@ fun LibraryScreen(
                 )
             },
             actions = {
+                // 导入本地游戏（下拉菜单）
+                Box {
+                    IconButton(onClick = { showImportMenu = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "导入游戏", tint = NeonCyan)
+                    }
+                    DropdownMenu(
+                        expanded = showImportMenu,
+                        onDismissRequest = { showImportMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("选择 ROM 文件") },
+                            onClick = {
+                                showImportMenu = false
+                                // 支持的 ROM 扩展名作为 MIME 过滤
+                                singleFilePicker.launch(arrayOf(
+                                    "application/octet-stream",
+                                    "application/zip",
+                                    "application/x-7z-compressed",
+                                    "*/*"
+                                ))
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = NeonCyan)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("扫描文件夹") },
+                            onClick = {
+                                showImportMenu = false
+                                dirPicker.launch(null)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null, tint = NeonCyan)
+                            }
+                        )
+                    }
+                }
+                // 在线下载
                 IconButton(onClick = onDownloadClick) {
                     Icon(Icons.Default.Download, contentDescription = "下载", tint = NeonCyan)
                 }
+                // 刷新
                 IconButton(onClick = { viewModel.refreshGames() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = NeonCyan)
                 }
+                // 设置
                 IconButton(onClick = onSettingsClick) {
                     Icon(Icons.Default.Settings, contentDescription = "设置", tint = NeonCyan)
                 }
@@ -121,6 +195,18 @@ fun LibraryScreen(
             shape = RoundedCornerShape(12.dp),
             singleLine = true
         )
+
+        // 操作提示条
+        if (downloadMessage != null) {
+            Text(
+                text = downloadMessage!!,
+                color = NeonCyan,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+            )
+        }
 
         // 平台筛选标签
         Row(
@@ -156,6 +242,25 @@ fun LibraryScreen(
             }
         }
     }
+}
+
+/**
+ * 从 Uri 查询文件名
+ */
+private fun queryFileName(context: android.content.Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0 && cursor.moveToFirst()) {
+                result = cursor.getString(nameIndex)
+            }
+        }
+    }
+    if (result == null) {
+        result = uri.lastPathSegment
+    }
+    return result
 }
 
 @Composable
@@ -256,7 +361,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Medium
         )
         Text(
-            text = "点击右上角下载按钮获取游戏",
+            text = "点击右上角 + 导入本地游戏，或下载按钮在线获取",
             color = Color.White.copy(alpha = 0.3f),
             fontSize = 14.sp,
             modifier = Modifier.padding(top = 8.dp)

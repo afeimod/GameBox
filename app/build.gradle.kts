@@ -26,6 +26,12 @@ android {
         }
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // 使用默认 debug 签名
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -34,9 +40,11 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             isDebuggable = false
+            // 使用 debug 签名以便直接安装测试（发布时替换为正式签名）
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

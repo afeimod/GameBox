@@ -1,5 +1,7 @@
 package com.retrobox.data
 
+import com.google.gson.annotations.SerializedName
+
 /**
  * 游戏平台枚举
  *
@@ -43,16 +45,27 @@ enum class Platform(val displayName: String, val extensions: List<String>) {
  * @property coverUrl      封面图远程地址
  */
 data class GameInfo(
+    @SerializedName("id")
     val id: Long,
+    @SerializedName("name")
     val name: String,
+    @SerializedName("platform")
     val platform: Platform,
+    @SerializedName("romPath")
     val romPath: String,
+    @SerializedName("coverPath")
     val coverPath: String? = null,
+    @SerializedName("lastPlayed")
     val lastPlayed: Long = 0L,
+    @SerializedName("playCount")
     val playCount: Int = 0,
+    @SerializedName("saveStatePath")
     val saveStatePath: String? = null,
+    @SerializedName("fileSize")
     val fileSize: Long = 0L,
+    @SerializedName("downloadUrl")
     val downloadUrl: String? = null,
+    @SerializedName("coverUrl")
     val coverUrl: String? = null
 ) {
     /** 是否曾游玩过 */

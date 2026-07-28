@@ -1,6 +1,7 @@
 package com.retrobox.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.retrobox.RetroBoxApp
@@ -34,10 +35,33 @@ import java.io.File
  */
 class GameViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val prefs: PreferenceManager = (app as RetroBoxApp).preferenceManager
-    private val repo: GameRepository = (app as RetroBoxApp).gameRepository
-    private val coreManager: CoreManager = (app as RetroBoxApp).coreManager
-    private val downloadManager: DownloadManager = (app as RetroBoxApp).downloadManager
+    private val prefs: PreferenceManager = try {
+        (app as RetroBoxApp).preferenceManager
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to get PreferenceManager", e)
+        PreferenceManager(app)
+    }
+
+    private val repo: GameRepository = try {
+        (app as RetroBoxApp).gameRepository
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to get GameRepository", e)
+        GameRepository(app)
+    }
+
+    private val coreManager: CoreManager = try {
+        (app as RetroBoxApp).coreManager
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to get CoreManager", e)
+        CoreManager()
+    }
+
+    private val downloadManager: DownloadManager = try {
+        (app as RetroBoxApp).downloadManager
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to get DownloadManager", e)
+        DownloadManager(app)
+    }
 
     // ===== 游戏库 =====
     private val _games = MutableStateFlow<List<GameInfo>>(emptyList())
@@ -111,6 +135,129 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 repo.getAllGames()
             } else {
                 repo.searchByName(keyword)
+            }
+        }
+    }
+
+    // ===== 导入本地 ROM =====
+
+    /**
+     * 导入本地 ROM 文件（通过系统文件选择器选取的 Uri）
+     *
+     * 将选中的文件复制到 ROM 目录下对应平台子目录，并入库。
+     *
+     * @param uri       文件 Uri（由 SAF 返回）
+     * @param fileName  原始文件名（用于保留扩展名）
+     * @param onResult  回调：成功返回 GameInfo，失败返回 null + 错误信息
+     */
+    fun importLocalRom(uri: android.net.Uri, fileName: String, onResult: (GameInfo?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val ext = fileName.substringAfterLast('.', "").lowercase()
+                val platform = Platform.fromExtension(ext)
+                if (platform == null) {
+                    _downloadMessage.value = "不支持的文件格式: .$ext"
+                    withContext(Dispatchers.Main) { onResult(null) }
+                    return@launch
+                }
+
+                // 目标目录: ROM根目录/平台名/
+                val destDir = File(prefs.downloadPath, platform.displayName.lowercase())
+                destDir.mkdirs()
+                val destFile = File(destDir, fileName)
+
+                // 复制文件
+                val resolver = getApplication<RetroBoxApp>().contentResolver
+                resolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: run {
+                    _downloadMessage.value = "无法读取文件"
+                    withContext(Dispatchers.Main) { onResult(null) }
+                    return@launch
+                }
+
+                // 扫描入库
+                val added = repo.scanRoms(destDir)
+                _games.value = if (_selectedPlatform.value != null) {
+                    repo.getGamesByPlatform(_selectedPlatform.value!!)
+                } else {
+                    repo.getAllGames()
+                }
+
+                val imported = added.firstOrNull { it.romPath == destFile.absolutePath }
+                _downloadMessage.value = if (imported != null) {
+                    "导入成功: ${imported.name}"
+                } else {
+                    "文件已添加: ${destFile.name}"
+                }
+                withContext(Dispatchers.Main) { onResult(imported) }
+            } catch (e: Exception) {
+                Log.e(TAG, "importLocalRom failed", e)
+                _downloadMessage.value = "导入失败: ${e.message}"
+                withContext(Dispatchers.Main) { onResult(null) }
+            }
+        }
+    }
+
+    /**
+     * 扫描自定义目录（用户通过 SAF 选择的目录 Uri）
+     *
+     * @param treeUri  目录 Uri（由 SAF 返回的 DocumentsContract tree Uri）
+     * @param onResult 回调：新增游戏数量
+     */
+    fun scanCustomDirectory(treeUri: android.net.Uri, onResult: (Int) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val resolver = getApplication<RetroBoxApp>().contentResolver
+                val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(treeUri)
+                val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId)
+
+                val addedCount = mutableListOf<GameInfo>()
+                resolver.query(childrenUri, arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+                ), null, null, null)?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val docId = cursor.getString(0)
+                        val name = cursor.getString(1)
+                        val ext = name.substringAfterLast('.', "").lowercase()
+                        val platform = Platform.fromExtension(ext) ?: continue
+
+                        // 复制到 ROM 目录
+                        val destDir = File(prefs.downloadPath, platform.displayName.lowercase())
+                        destDir.mkdirs()
+                        val destFile = File(destDir, name)
+
+                        val fileUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                        resolver.openInputStream(fileUri)?.use { input ->
+                            destFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+
+                // 统一扫描入库
+                val romRoot = File(prefs.downloadPath)
+                if (romRoot.exists()) {
+                    repo.scanRoms(romRoot)
+                }
+                _games.value = if (_selectedPlatform.value != null) {
+                    repo.getGamesByPlatform(_selectedPlatform.value!!)
+                } else {
+                    repo.getAllGames()
+                }
+
+                val count = _games.value.size
+                _downloadMessage.value = "扫描完成，共 ${count} 个游戏"
+                withContext(Dispatchers.Main) { onResult(count) }
+            } catch (e: Exception) {
+                Log.e(TAG, "scanCustomDirectory failed", e)
+                _downloadMessage.value = "扫描失败: ${e.message}"
+                withContext(Dispatchers.Main) { onResult(0) }
             }
         }
     }
@@ -386,6 +533,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     // ===== 常量 =====
 
     companion object {
+        private const val TAG = "GameViewModel"
         private const val KEY_GAMEPAD_CONFIG = "gamepad_config_json"
         private const val KEY_GAMEPAD_PRESET = "gamepad_preset"
     }
