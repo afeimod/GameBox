@@ -105,13 +105,38 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: false
-            path = if (useStub) file("../../core/native-stub/CMakeLists.txt")
-                   else file("../../core/cmake/CMakeLists.txt")
-            version = "3.22.1"
+    // Native build is opt-in: we only configure externalNativeBuild when
+    // a CMakeLists.txt is actually present next to the project. This makes
+    // the project buildable on its own (without core/), and is what people
+    // who only want the UI / Kotlin code get. To enable the native core,
+    // either drop core/ next to app/ or set:
+    //   -PuseStubCore=true   (use the built-in stub, no real gameplay)
+    //   -PuseStubCore=false  (use the real FCEUmm core; requires submodule)
+    val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: true
+    val stubPath = file("../../core/native-stub/CMakeLists.txt")
+    val realPath = file("../../core/cmake/CMakeLists.txt")
+    val cmakePath = when {
+        useStub && stubPath.exists() -> stubPath
+        !useStub && realPath.exists() -> realPath
+        stubPath.exists() -> stubPath   // fall back to stub even if not requested
+        realPath.exists() -> realPath
+        else -> null
+    }
+    if (cmakePath != null) {
+        externalNativeBuild {
+            cmake {
+                path = cmakePath
+                version = "3.22.1"
+            }
         }
+    } else {
+        // No native core available — make sure nothing tries to look for it.
+        logger.warn(
+            "NesStation: no CMakeLists.txt found at core/native-stub/ or core/cmake/. " +
+            "Building without a native core — emulator will throw UnsatisfiedLinkError " +
+            "at loadLibrary(\"nescore\") time. To fix, populate core/ or pass " +
+            "-PuseStubCore=true once you do."
+        )
     }
 
     buildTypes {
@@ -128,6 +153,12 @@ android {
     }
 
     packaging {
+        // Equivalent of android:extractNativeLibs="false" — keeps .so inside
+        // the APK instead of extracting at install time. This used to be set
+        // in AndroidManifest.xml but AGP 8+ wants it in the build file.
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += setOf(
                 "META-INF/{AL2.0,LGPL2.1}",
