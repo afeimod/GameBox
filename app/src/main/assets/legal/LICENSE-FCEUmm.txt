@@ -1,0 +1,36 @@
+GPL Cooperation Commitment
+Version 1.0
+October 28, 2010
+
+Copyright (C) 2010 Free Software Foundation, Inc. (http://fsf.org/)
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+Preamble
+
+The GNU General Public License (GPL) is the most widely used free software
+license. The original GPL was created by Richard Stallman and is sometimes
+referred to as "GPL v2 only" to distinguish it from version 3.
+
+The FCEUmm core (libretro-fceumm) is distributed under the GNU General Public
+License version 2 (or, at your option, any later version). When this core is
+linked into the NesStation application, the resulting binary is subject to
+the same GPLv2 terms.
+
+What this means for NesStation users:
+
+  1. The NesStation application code is licensed under MIT. The FCEUmm
+     core is licensed under GPLv2. The combined work (the installed APK
+     with the FCEUmm core linked in) is therefore governed by GPLv2.
+  2. If you redistribute the APK, you must also make available the
+     complete corresponding source code, including any modifications
+     you made to the FCEUmm core or to the NesStation JNI glue in
+     `core/jni/`.
+  3. You may not add additional restrictions on the rights granted by
+     GPLv2 to downstream users.
+
+For the full text of GPLv2, see https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+For the upstream FCEUmm source code, see https://github.com/libretro/libretro-fceumm
