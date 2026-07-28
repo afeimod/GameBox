@@ -1,31 +1,35 @@
-name: Android Build
+name: Build APK
 
-# Only manual runs — no auto trigger on push / pull_request.
 on:
   workflow_dispatch:
     inputs:
-      variant:
-        description: "Build variant"
+      build_type:
+        description: '构建类型'
         required: true
+        default: 'debug'
         type: choice
-        default: debug
         options:
           - debug
           - release
       abi_filter:
-        description: "ABI filter (empty = all)"
+        description: 'ABI 过滤（留空=全部），如 arm64-v8a 或 arm64-v8a,armeabi-v7a'
         required: false
+        default: ''
         type: string
-        default: ""
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build ${{ github.event.inputs.variant || 'debug' }} APK
+    name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
+
+    env:
+      ANDROID_PLATFORM: "android-34"
+      ANDROID_BUILD_TOOLS: "34.0.0"
+      NDK_VERSION: "26.3.11579264"
 
     steps:
       - name: Checkout
@@ -37,53 +41,54 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: 'temurin'
+          java-version: '17'
+          cache: gradle
 
-      - name: Enable Gradle caching
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            .gradle
-            core/fceumm/build
-            **/build
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'core/cmake/CMakeLists.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Set up NDK
-        id: ndk
-        uses: android-actions/setup-ndk@v1
-        with:
-          ndk-version: r26d
-
-      - name: Build (debug or release)
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+      - name: Set up Android SDK + NDK
         run: |
-          set -e
-          VARIANT="${{ github.event.inputs.variant || 'debug' }}"
-          ABI_FILTER="${{ github.event.inputs.abi_filter }}"
-          if [ -n "$ABI_FILTER" ]; then
-            echo "Building with ABI filter: $ABI_FILTER"
-            ./gradlew :app:assemble${VARIANT^} -PabiFilter=$ABI_FILTER --stacktrace
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          sdkmanager --list_installed 2>/dev/null || true
+          # 幂等安装：ubuntu-latest 自带 cmdline-tools / build-tools，但不一定带 NDK / cmake
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager \
+            "platforms;${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;3.22.1" \
+            > /dev/null 2>&1 || true
+          # 显式导出 NDK 路径给 Gradle 用
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        if: ${{ github.event.inputs.build_type == 'debug' }}
+        run: |
+          if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
+            ./gradlew assembleDebug -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
           else
-            ./gradlew :app:assemble${VARIANT^} --stacktrace
+            ./gradlew assembleDebug --no-daemon --stacktrace
           fi
 
-      - name: Locate APK(s)
-        id: locate
+      - name: Build Release APK
+        if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
-          mkdir -p out
-          find app/build/outputs/apk -name "*.apk" -exec cp -v {} out/ \;
-          ls -la out
+          if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
+            ./gradlew assembleRelease -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+          else
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          fi
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NesStation-${{ github.event.inputs.variant || 'debug' }}-APK
-          path: out/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: NesStation-${{ github.event.inputs.build_type }}-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
+          retention-days: 30
