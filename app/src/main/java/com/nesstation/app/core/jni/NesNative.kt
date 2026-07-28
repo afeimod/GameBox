@@ -4,11 +4,33 @@ package com.nesstation.app.core.jni
  * Raw JNI surface to libnescore.so. Kept intentionally tiny and side-effect free.
  * All heavy work happens on the engine thread (see [NesEngine]).
  *
+ * IMPORTANT: [ensureLoaded] must be called once at app startup before any
+ * external method is invoked. The native library is NOT loaded in the init
+ * block to avoid ExceptionInInitializerError crashing the whole app.
+ *
  * Pull model: Kotlin calls [runFrame] to step the core, [getFrameBuffer] to
  * read the latest ARGB frame, and [readAudio] to pull stereo PCM for AudioTrack.
  */
 object NesNative {
-    init { System.loadLibrary("nescore") }
+
+    @Volatile private var loaded = false
+
+    /**
+     * Load libnescore.so. Returns true on success.
+     * Safe to call multiple times.
+     */
+    fun ensureLoaded(): Boolean {
+        if (loaded) return true
+        loaded = try {
+            System.loadLibrary("nescore")
+            true
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        } catch (e: SecurityException) {
+            false
+        }
+        return loaded
+    }
 
     @JvmStatic external fun loadRom(path: String): Boolean
     @JvmStatic external fun unload()

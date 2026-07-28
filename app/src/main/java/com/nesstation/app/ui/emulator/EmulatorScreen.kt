@@ -102,7 +102,7 @@ fun EmulatorScreen(
     }
 
     // Apply fast-forward / running state to engine
-    LaunchedEffect(fastForward) { engine.fastForward = fastForward }
+    LaunchedEffect(fastForward) { engine.setFastForward(fastForward) }
 
     // Frame polling loop — copy engine's frame buffer to the Bitmap at ~60Hz
     LaunchedEffect(loaded) {

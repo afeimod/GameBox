@@ -13,15 +13,10 @@ import kotlin.concurrent.thread
  * AudioTrack for sound, and a shared frame buffer that the UI reads.
  *
  * Lifecycle:
+ *  - [ensureLoaded] loads the native library (call once at app startup).
  *  - [loadRom] boots a native session and starts the emulation thread.
  *  - [unload] / [shutdown] stop the thread and release audio.
  *  - [setPad1] pushes controller state to the core for the next frame.
- *
- * The emulation loop (60 Hz):
- *  1. [NesNative.runFrame] — step the FCEUmm core one frame.
- *  2. [NesNative.getFrameBuffer] — pull 256×240 ARGB into [frameBuffer].
- *  3. [NesNative.readAudio] — pull stereo PCM and feed [AudioTrack].
- *  4. Fire [onFrame] callback so the UI can recompose.
  */
 class NesEngine private constructor() {
 
@@ -36,12 +31,8 @@ class NesEngine private constructor() {
         private set
 
     @Volatile var fastForward = false
-        set(value) {
-            field = value
-            NesNative.setFastForward(value)
-        }
 
-    fun ensureLoaded(): Boolean = runCatching { System.loadLibrary("nescore") }.isSuccess
+    fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
     /**
      * Load a ROM and start the emulation thread.
@@ -57,6 +48,8 @@ class NesEngine private constructor() {
         saveDir: String,
         onFrame: () -> Unit
     ): Boolean {
+        if (!ensureLoaded()) return false
+
         if (running.getAndSet(true)) {
             stop()
         }
@@ -69,11 +62,13 @@ class NesEngine private constructor() {
         }
         isLoaded = true
 
+        // Apply current fast-forward state
+        NesNative.setFastForward(fastForward)
+
         // Set up AudioTrack at the core's native sample rate.
         startAudio(NesNative.audioSampleRate().takeIf { it > 0 } ?: 44100)
 
         thread = thread(name = "nescore-loop", isDaemon = true) {
-            var frameCount = 0L
             while (running.get()) {
                 val t0 = System.nanoTime()
 
@@ -87,7 +82,6 @@ class NesEngine private constructor() {
                 }
 
                 onFrame()
-                frameCount++
 
                 // Pace to ~60fps (NTSC) unless fast-forward
                 val targetNs = if (fastForward) 1_000_000L else 1_000_000_000L / 60
@@ -103,6 +97,11 @@ class NesEngine private constructor() {
             }
         }
         return true
+    }
+
+    fun setFastForward(on: Boolean) {
+        fastForward = on
+        if (isLoaded) NesNative.setFastForward(on)
     }
 
     private fun startAudio(sampleRate: Int) {
@@ -147,8 +146,10 @@ class NesEngine private constructor() {
     fun unload() {
         stop()
         stopAudio()
-        NesNative.unload()
-        isLoaded = false
+        if (isLoaded) {
+            NesNative.unload()
+            isLoaded = false
+        }
     }
 
     fun shutdown() = unload()
