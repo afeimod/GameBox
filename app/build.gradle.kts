@@ -62,6 +62,39 @@ android {
         )
     }
 
+    // Pin Compose to the BOM 2024.06 family and force Core / Activity /
+    // Lifecycle to the 1.13 / 1.8 / 1.9 line. This stops transitive
+    // upgrades pulling in Compose 1.10 / Core 1.16 which require
+    // compileSdk 35 and AGP 8.6+.
+    configurations.all {
+        resolutionStrategy {
+            force(
+                "androidx.compose.ui:ui:1.6.8",
+                "androidx.compose.ui:ui-graphics:1.6.8",
+                "androidx.compose.ui:ui-text:1.6.8",
+                "androidx.compose.ui:ui-tooling-preview:1.6.8",
+                "androidx.compose.foundation:foundation:1.6.8",
+                "androidx.compose.foundation:foundation-layout:1.6.8",
+                "androidx.compose.animation:animation:1.6.8",
+                "androidx.compose.animation:animation-core:1.6.8",
+                "androidx.compose.material3:material3:1.2.1",
+                "androidx.compose.material:material-icons-core:1.6.8",
+                "androidx.compose.material:material-icons-extended:1.6.8",
+                "androidx.compose.runtime:runtime:1.6.8",
+                "androidx.core:core:1.13.1",
+                "androidx.core:core-ktx:1.13.1",
+                "androidx.activity:activity:1.9.0",
+                "androidx.activity:activity-compose:1.9.0",
+                "androidx.lifecycle:lifecycle-runtime:2.8.2",
+                "androidx.lifecycle:lifecycle-runtime-ktx:2.8.2",
+                "androidx.lifecycle:lifecycle-viewmodel:2.8.2",
+                "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2",
+                "androidx.lifecycle:lifecycle-runtime-compose:2.8.2",
+                "androidx.transition:transition:1.5.1"
+            )
+        }
+    }
+
     sourceSets {
         getByName("main") {
             // `jniLibs` is still supported. `jni` is deprecated and will be
@@ -128,8 +161,12 @@ dependencies {
     // TV support — these deps are always present. The UI switches between
     // phone and TV layouts at runtime via LocalContext.packageManager
     // (see ui/NesApp.kt), so we don't need separate `tv` flavor configs.
-    implementation("androidx.tv:tv-foundation:1.0.0")
-    implementation("androidx.tv:tv-material:1.0.0")
+    //
+    // We pin to the last alpha of tv-foundation that still works with
+    // compileSdk 34 / AGP 8.5.x. tv-foundation 1.0.0 stable pulled in
+    // Compose 1.10 which forces compileSdk 35.
+    implementation("androidx.tv:tv-foundation:1.0.0-alpha10")
+    implementation("androidx.tv:tv-material:1.0.0-alpha10")
 
     // Lifecycle / ViewModel
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
