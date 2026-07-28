@@ -1,0 +1,80 @@
+<resources>
+    <string name="app_name">RetroBox 模拟器</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">首页</string>
+    <string name="nav_library">游戏库</string>
+    <string name="nav_emulators">模拟器</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_discover">发现</string>
+
+    <!-- Home -->
+    <string name="home_welcome">欢迎来到 RetroBox</string>
+    <string name="home_subtitle">复古游戏，一键开玩</string>
+    <string name="home_recent">最近游玩</string>
+    <string name="home_recommended">为你推荐</string>
+
+    <!-- Library -->
+    <string name="library_title">游戏库</string>
+    <string name="library_search_hint">搜索游戏…</string>
+    <string name="library_empty">还没有游戏，去发现页添加吧</string>
+    <string name="library_favorite">收藏</string>
+    <string name="library_sort">排序</string>
+
+    <!-- Emulators -->
+    <string name="emulators_title">模拟器核心</string>
+    <string name="emulator_status_installed">已安装</string>
+    <string name="emulator_status_not_installed">未安装</string>
+    <string name="emulator_install">安装</string>
+    <string name="emulator_launch">启动</string>
+    <string name="emulator_config">配置</string>
+    <string name="emulator_core_version">核心版本</string>
+
+    <!-- Discover -->
+    <string name="discover_title">发现</string>
+    <string name="discover_download">下载</string>
+    <string name="download_started">开始下载</string>
+    <string name="download_completed">下载完成</string>
+    <string name="download_failed">下载失败</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_display">显示</string>
+    <string name="settings_audio">音频</string>
+    <string name="settings_input">输入</string>
+    <string name="settings_storage">存储</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_dark_theme">深色主题</string>
+    <string name="settings_keep_screen_on">保持屏幕常亮</string>
+    <string name="settings_haptic_feedback">触感反馈</string>
+    <string name="settings_bios_dir">BIOS 目录</string>
+    <string name="settings_save_dir">存档目录</string>
+    <string name="settings_rom_dir">ROM 目录</string>
+    <string name="settings_scan_roms">扫描 ROM</string>
+    <string name="settings_clear_cache">清除缓存</string>
+
+    <!-- Player -->
+    <string name="player_resume">继续游戏</string>
+    <string name="player_save_state">保存状态</string>
+    <string name="player_load_state">读取状态</string>
+    <string name="player_fast_forward">加速</string>
+    <string name="player_pause">暂停</string>
+    <string name="player_exit">退出</string>
+
+    <!-- Common -->
+    <string name="action_ok">确定</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_apply">应用</string>
+    <string name="action_close">关闭</string>
+    <string name="action_retry">重试</string>
+    <string name="action_back">返回</string>
+    <string name="loading">加载中…</string>
+    <string name="error_generic">出错了，请稍后再试</string>
+    <string name="error_no_network">无网络连接</string>
+    <string name="permission_required">需要存储权限以访问游戏文件</string>
+    <string name="grant_permission">授予权限</string>
+
+    <!-- About -->
+    <string name="about_version">版本</string>
+    <string name="about_description">RetroBox 是一款开源的复古游戏模拟器合集，集成多种核心，带你在掌上重温经典。</string>
+</resources>

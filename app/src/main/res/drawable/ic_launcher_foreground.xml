@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Controller body -->
+    <path
+        android:fillColor="#FFB14AED"
+        android:pathData="M36,44 h36 a10,10 0 0 1 10,10 v4 a10,10 0 0 1 -10,10 h-36 a10,10 0 0 1 -10,-10 v-4 a10,10 0 0 1 10,-10 z" />
+
+    <!-- D-pad (neon cyan) -->
+    <path
+        android:fillColor="#FF00F0FF"
+        android:pathData="M30,54 h12 v4 h-12 z M34,50 h4 v12 h-4 z" />
+
+    <!-- Action buttons (neon pink / green) -->
+    <path
+        android:fillColor="#FFFF3D81"
+        android:pathData="M71,56 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path
+        android:fillColor="#FF39FF14"
+        android:pathData="M76,51 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+
+</vector>

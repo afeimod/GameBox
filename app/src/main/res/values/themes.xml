@@ -1,0 +1,23 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme. The actual UI styling lives in Jetpack Compose
+         (see ui/theme/Theme.kt); this XML theme only provides the window/splash
+         chrome for the Activity before Compose takes over. -->
+    <style name="Theme.RetroBox" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/cyber_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowTranslucentStatus">false</item>
+    </style>
+
+    <!-- Splash style (lightweight, drawn before Compose). -->
+    <style name="Theme.RetroBox.Splash" parent="Theme.RetroBox">
+        <item name="android:windowBackground">@color/cyber_background</item>
+    </style>
+
+</resources>

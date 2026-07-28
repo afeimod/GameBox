@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base brand colors (mirror of the Compose neon palette) -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Cyberpunk neon palette -->
+    <color name="neon_purple">#FFB14AED</color>
+    <color name="neon_violet">#FF7B2FBE</color>
+    <color name="neon_cyan">#FF00F0FF</color>
+    <color name="neon_pink">#FFFF3D81</color>
+    <color name="neon_magenta">#FFFF0080</color>
+    <color name="neon_blue">#FF3B82F6</color>
+    <color name="neon_green">#FF39FF14</color>
+
+    <!-- Dark surfaces -->
+    <color name="cyber_background">#FF0B0B14</color>
+    <color name="cyber_surface">#FF12101F</color>
+    <color name="cyber_surface_variant">#FF1B1830</color>
+    <color name="cyber_outline">#FF2A2740</color>
+
+    <!-- Launcher icon -->
+    <color name="ic_launcher_background">#FF0B0B14</color>
+    <color name="ic_launcher_foreground">#FFB14AED</color>
+</resources>
