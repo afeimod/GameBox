@@ -1,0 +1,18 @@
+NesStation does NOT ship with any Nintendo Entertainment System (NES) or
+Famicom ROM files. The user is solely responsible for obtaining legally
+dumpable ROMs (i.e. ROMs from cartridges they personally own, or ROMs
+explicitly released into the public domain by their rights-holders).
+
+Common sources of legally distributable NES homebrew / public-domain ROMs:
+
+  * https://pdroms.de/         (Public-Domain ROMs)
+  * https://www.nesdev.org/    (NESdev community homebrew hub)
+  * itch.io  (search "NES homebrew")
+
+By installing this application you agree that:
+
+  1. You will not download or distribute copyrighted ROMs you do not own.
+  2. The NesStation authors and contributors assume no responsibility for
+     the ROMs you choose to load.
+  3. NES / Famicom is a trademark of Nintendo Co., Ltd. This project is
+     not affiliated with, endorsed by, or sponsored by Nintendo.

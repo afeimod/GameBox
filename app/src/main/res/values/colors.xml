@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="sky">#B7D7F2</color>
+    <color name="sky_deep">#8DB8E0</color>
+    <color name="grass">#7BB36A</color>
+    <color name="grass_deep">#4F8C4A</color>
+    <color name="accent_red">#E74C3C</color>
+    <color name="accent_purple">#8E44AD</color>
+    <color name="ink">#1E2A3A</color>
+    <color name="ink_soft">#4A5568</color>
+    <color name="cloud">#F5F7FB</color>
+    <color name="amber">#FFD66B</color>
+</resources>
