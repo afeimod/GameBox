@@ -125,12 +125,11 @@ dependencies {
     // runtime AbstractMethodError, bump to 2.8.x + Kotlin 2.0.
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // TV
-    "tvImplementation"("androidx.compose.material3:material3:1.2.1")
-    "tvImplementation"("androidx.compose.material:material-icons-extended:1.6.7")
-    "tvImplementation"("androidx.compose.ui:ui:1.6.8")
-    "tvImplementation"("androidx.tv:tv-foundation:1.0.0")
-    "tvImplementation"("androidx.tv:tv-material:1.0.0")
+    // TV support — these deps are always present. The UI switches between
+    // phone and TV layouts at runtime via LocalContext.packageManager
+    // (see ui/NesApp.kt), so we don't need separate `tv` flavor configs.
+    implementation("androidx.tv:tv-foundation:1.0.0")
+    implementation("androidx.tv:tv-material:1.0.0")
 
     // Lifecycle / ViewModel
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
@@ -152,9 +151,9 @@ dependencies {
     // Image
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // Leanback (TV launcher)
-    "tvImplementation"("androidx.leanback:leanback:1.0.0")
-    "tvImplementation"("androidx.leanback:leanback-preference:1.0.0")
+    // Leanback (TV launcher integration)
+    implementation("androidx.leanback:leanback:1.0.0")
+    implementation("androidx.leanback:leanback-preference:1.0.0")
 
     // Documents (SAF)
     implementation("androidx.documentfile:documentfile:1.0.1")
