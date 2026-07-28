@@ -30,7 +30,7 @@ class NesEngine private constructor() {
     @Volatile var isLoaded = false
         private set
 
-    @Volatile var fastForward = false
+    @Volatile private var _fastForward = false
 
     fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
@@ -63,7 +63,7 @@ class NesEngine private constructor() {
         isLoaded = true
 
         // Apply current fast-forward state
-        NesNative.setFastForward(fastForward)
+        NesNative.setFastForward(_fastForward)
 
         // Set up AudioTrack at the core's native sample rate.
         startAudio(NesNative.audioSampleRate().takeIf { it > 0 } ?: 44100)
@@ -84,7 +84,7 @@ class NesEngine private constructor() {
                 onFrame()
 
                 // Pace to ~60fps (NTSC) unless fast-forward
-                val targetNs = if (fastForward) 1_000_000L else 1_000_000_000L / 60
+                val targetNs = if (_fastForward) 1_000_000L else 1_000_000_000L / 60
                 val elapsed = System.nanoTime() - t0
                 val sleep = targetNs - elapsed
                 if (sleep > 0) {
@@ -100,7 +100,7 @@ class NesEngine private constructor() {
     }
 
     fun setFastForward(on: Boolean) {
-        fastForward = on
+        _fastForward = on
         if (isLoaded) NesNative.setFastForward(on)
     }
 
