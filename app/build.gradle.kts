@@ -14,6 +14,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+        // Pin NDK to match the version CI installs; can be overridden via
+        // -PndkVersion=26.3.11579264 if you have a different one locally.
+        ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "26.3.11579264"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -61,8 +64,11 @@ android {
 
     sourceSets {
         getByName("main") {
+            // `jniLibs` is still supported. `jni` is deprecated and will be
+            // removed in AGP 9.0 — we keep the JNI sources inside the
+            // CMake build via `externalNativeBuild` instead, so no `jni`
+            // source set is needed.
             jniLibs.srcDirs("src/main/jniLibs")
-            jni.srcDirs("src/main/jni", "../../core/jni")
         }
     }
 
@@ -114,6 +120,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.activity:activity-compose:1.9.0")
+    // Navigation 2.8.x requires Kotlin 2.0; pinned to 2.7.7 to stay on K1.9.
+    // 2.7.7 works fine with Compose 1.6.8 (BOM 2024.06) — but if you see a
+    // runtime AbstractMethodError, bump to 2.8.x + Kotlin 2.0.
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // TV
