@@ -55,7 +55,6 @@
         android:appCategory="game"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
-        android:extractNativeLibs="false"
         tools:targetApi="31">
 
         <activity
