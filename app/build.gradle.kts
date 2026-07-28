@@ -105,16 +105,13 @@ android {
         }
     }
 
-    // Native build is opt-in: we only configure externalNativeBuild when
-    // a CMakeLists.txt is actually present next to the project. This makes
-    // the project buildable on its own (without core/), and is what people
-    // who only want the UI / Kotlin code get. To enable the native core,
-    // either drop core/ next to app/ or set:
-    //   -PuseStubCore=true   (use the built-in stub, no real gameplay)
-    //   -PuseStubCore=false  (use the real FCEUmm core; requires submodule)
+    // Native build: we configure externalNativeBuild when a CMakeLists.txt
+    // is found under core/. The path is relative to app/ (the module dir).
+    //   -PuseStubCore=true   (built-in stub, no real gameplay)
+    //   -PuseStubCore=false  (real FCEUmm core; requires submodule)
     val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: true
-    val stubPath = file("../../core/native-stub/CMakeLists.txt")
-    val realPath = file("../../core/cmake/CMakeLists.txt")
+    val stubPath = file("../core/native-stub/CMakeLists.txt")
+    val realPath = file("../core/cmake/CMakeLists.txt")
     val cmakePath = when {
         useStub && stubPath.exists() -> stubPath
         !useStub && realPath.exists() -> realPath
@@ -130,12 +127,10 @@ android {
             }
         }
     } else {
-        // No native core available — make sure nothing tries to look for it.
-        logger.warn(
+        logger.error(
             "NesStation: no CMakeLists.txt found at core/native-stub/ or core/cmake/. " +
-            "Building without a native core — emulator will throw UnsatisfiedLinkError " +
-            "at loadLibrary(\"nescore\") time. To fix, populate core/ or pass " +
-            "-PuseStubCore=true once you do."
+            "Building without a native core — emulator will crash at loadLibrary(\"nescore\"). " +
+            "Fix: ensure core/ exists next to app/, or pass -PuseStubCore=true."
         )
     }
 

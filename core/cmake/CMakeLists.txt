@@ -143,8 +143,5 @@ target_compile_options(nescore PRIVATE
 # from JNI (no GLES), audio is pulled by Kotlin's AudioTrack (no OpenSL ES).
 target_link_libraries(nescore log)
 
-# Drop the .so straight into the app's jniLibs so AGP packages it.
-# CMAKE_SOURCE_DIR is core/cmake/ → ../../ reaches the project root where app/ lives.
-set_target_properties(nescore PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../../app/src/main/jniLibs/${ANDROID_ABI}"
-)
+# AGP's externalNativeBuild automatically picks up the .so from CMake's
+# build output — no manual LIBRARY_OUTPUT_DIRECTORY needed.
