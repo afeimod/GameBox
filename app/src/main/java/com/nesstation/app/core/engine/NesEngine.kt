@@ -50,14 +50,12 @@ class NesEngine private constructor() {
     ): Boolean {
         if (!ensureLoaded()) return false
 
-        if (running.getAndSet(true)) {
-            stop()
-        }
+        // Stop any existing emulation thread first.
+        stop()
 
         NesNative.setPaths(systemDir, saveDir)
 
         if (!NesNative.loadRom(rom.absolutePath)) {
-            running.set(false)
             return false
         }
         isLoaded = true
@@ -68,6 +66,7 @@ class NesEngine private constructor() {
         // Set up AudioTrack at the core's native sample rate.
         startAudio(NesNative.audioSampleRate().takeIf { it > 0 } ?: 44100)
 
+        running.set(true)
         thread = thread(name = "nescore-loop", isDaemon = true) {
             while (running.get()) {
                 val t0 = System.nanoTime()
