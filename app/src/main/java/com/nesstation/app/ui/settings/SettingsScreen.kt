@@ -66,10 +66,12 @@ fun SettingsScreen(
         // Apply core options immediately
         val engine = NesEngine.get()
         engine.setCoreOption("fceumm_ntsc_filter", new.ntscFilter)
-        engine.setCoreOption("fceumm_aspect", new.aspectRatio)
         engine.setCoreOption("fceumm_palette", new.palette)
         engine.setCoreOption("fceumm_region", new.region)
-        engine.setCoreOption("fceumm_sndquality", new.soundQuality)
+        // Audio options (sndquality, sndlowpass, sndvolume) are NOT set —
+        // FCEUmm uses its own built-in defaults for correct audio.
+        // Aspect ratio (fceumm_aspect) is NOT set — the frontend controls
+        // display aspect ratio via videoScale (SurfaceView layout).
         val cropVal = if (new.cropOverscan == "enabled") "8" else "0"
         engine.setCoreOption("fceumm_overscan_h_left", cropVal)
         engine.setCoreOption("fceumm_overscan_h_right", cropVal)
@@ -152,13 +154,14 @@ fun SettingsScreen(
                             padLayout.ntscFilter
                         ) { updateLayout(padLayout.copy(ntscFilter = it)) }
 
-                        DropdownRow("画面比例",
-                            listOf("8:7 PAR" to "8:7 (原始)", "4:3" to "4:3 (电视)", "PP" to "像素完美"),
-                            padLayout.aspectRatio
-                        ) { updateLayout(padLayout.copy(aspectRatio = it)) }
-
                         DropdownRow("调色板",
-                            listOf("default" to "默认", "dq" to "Dragon Quest", "nx" to "Nestopia", "asq" to "AspiringSquire", "rp2" to "Real"),
+                            listOf(
+                                "default" to "默认", "asqrealc" to "AspiringSquire", "wii-vc" to "Wii VC",
+                                "rgb" to "Nintendo RGB", "yuv-v3" to "FBX YUV-V3", "unsaturated-final" to "Unsaturated",
+                                "sony-cxa2025as-us" to "Sony CXA", "pal" to "PAL", "bmf-final2" to "BMF Final 2",
+                                "smooth-fbx" to "FBX Smooth", "composite-direct-fbx" to "FBX Composite",
+                                "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
+                            ),
                             padLayout.palette
                         ) { updateLayout(padLayout.copy(palette = it)) }
 
@@ -186,16 +189,6 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
-                    }
-                }
-
-                // === 音频 ===
-                item {
-                    SettingsSection("音频") {
-                        DropdownRow("音质",
-                            listOf("Low" to "低", "High" to "高", "Very High" to "非常高"),
-                            padLayout.soundQuality
-                        ) { updateLayout(padLayout.copy(soundQuality = it)) }
                     }
                 }
 

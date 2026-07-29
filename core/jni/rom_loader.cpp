@@ -99,29 +99,48 @@ static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
 
 // Initialize FCEUmm core options with sensible defaults.
-// These mirror the option keys registered by FCEUmm's retro_set_variables().
+// Values MUST match FCEUmm's libretro_core_options.h defaults exactly.
+// Audio options (sndquality, sndlowpass, sndvolume, sndrate_hint) are
+// intentionally NOT set here — when the core calls GET_VARIABLE for a key
+// that doesn't exist in our map, our callback returns false and the core
+// falls back to its own built-in defaults from option_defs[]. This ensures
+// audio always uses FCEUmm's native defaults without any frontend interference.
 static void initDefaultOptions() {
-    s_options["fceumm_region"]            = "Auto";
-    s_options["fceumm_ntsc_filter"]       = "disabled";
-    s_options["fceumm_palette"]           = "default";
-    s_options["fceumm_aspect"]            = "8:7 PAR";   // MUST match FCEUmm's option values exactly
-    s_options["fceumm_sndquality"]        = "Low";
-    s_options["fceumm_sndlowpass"]        = "enabled";
-    s_options["fceumm_sndvolume"]         = "150";
-    s_options["fceumm_turbo_enable"]      = "None";
-    s_options["fceumm_turbo_delay"]       = "3";
-    s_options["fceumm_show_adv_graphic"]  = "enabled";
-    s_options["fceumm_overclocking"]      = "disabled";
-    s_options["fceumm_nospritelimit"]     = "disabled";
-    s_options["fceumm_show_crosshair"]    = "enabled";
-    s_options["fceumm_aspect_orient"]     = "horizontal";
-    s_options["fceumm_su_swap"]           = "disabled";
-    s_options["fceumm_disable_swap"]      = "disabled";
-    // Non-PSP overscan: 4 individual crop options (0/4/8/12/16)
-    s_options["fceumm_overscan_h_left"]   = "0";
-    s_options["fceumm_overscan_h_right"]  = "0";
-    s_options["fceumm_overscan_v_top"]    = "0";
-    s_options["fceumm_overscan_v_bottom"] = "0";
+    // --- System ---
+    s_options["fceumm_region"]                  = "Auto";
+    s_options["fceumm_game_genie"]              = "disabled";
+    s_options["fceumm_show_adv_system_options"]  = "disabled";
+
+    // --- Video ---
+    s_options["fceumm_ntsc_filter"]             = "disabled";
+    s_options["fceumm_palette"]                 = "default";
+    s_options["fceumm_aspect"]                  = "8:7 PAR";
+    s_options["fceumm_overscan_h_left"]         = "0";
+    s_options["fceumm_overscan_h_right"]        = "0";
+    s_options["fceumm_overscan_v_top"]          = "0";
+    s_options["fceumm_overscan_v_bottom"]       = "0";
+
+    // --- Audio (NOT set — let FCEUmm use its built-in defaults) ---
+    // fceumm_sndrate_hint   default = "Auto"
+    // fceumm_sndquality     default = "Low"
+    // fceumm_sndlowpass     default = "disabled"
+    // fceumm_sndvolume      default = "7" (70%)
+    // fceumm_show_adv_sound_options default = "disabled"
+    s_options["fceumm_show_adv_sound_options"]  = "disabled";
+
+    // --- Input ---
+    s_options["fceumm_turbo_enable"]            = "None";
+    s_options["fceumm_turbo_delay"]             = "3";
+
+    // --- Hacks ---
+    s_options["fceumm_overclocking"]            = "disabled";
+    s_options["fceumm_nospritelimit"]           = "disabled";
+
+    // --- Other (matched from libretro_core_options.h) ---
+    s_options["fceumm_show_crosshair"]          = "enabled";
+    s_options["fceumm_aspect_orient"]           = "horizontal";
+    s_options["fceumm_su_swap"]                 = "disabled";
+    s_options["fceumm_disable_swap"]            = "disabled";
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +268,6 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
         return;
     }
 
-    // Determine destination parameters
     const uint32_t dstW = (uint32_t)buf.width;
     const uint32_t dstH = (uint32_t)buf.height;
     if (dstW == 0 || dstH == 0) {
@@ -257,127 +275,73 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
         return;
     }
 
-    // Scale source to destination (nearest-neighbor, preserve aspect ratio)
-    float sx = (float)w / (float)dstW;
-    float sy = (float)h / (float)dstH;
-    float scale = sx > sy ? sx : sy; // use larger scale = fit inside
-    // Actually we want to fill the surface; let the Kotlin layer set the
-    // SurfaceView layout to match the aspect ratio. Here we just stretch.
-    sx = (float)w / (float)dstW;
-    sy = (float)h / (float)dstH;
+    const float sx = (float)w / (float)dstW;
+    const float sy = (float)h / (float)dstH;
 
-    // The buffer format is typically WINDOW_FORMAT_RGBA_8888 (4 bytes/pixel)
-    // or WINDOW_FORMAT_RGB_565. Handle RGBA_8888 (most common on modern devices).
-    int filterType = s_videoFilter.load(std::memory_order_relaxed);
+    // filterType 4 = xbr → use bilinear interpolation for smooth scaling.
+    // All other filter types (scanline/crt/dot) use nearest-neighbor here;
+    // the visual effect is applied as a GPU-accelerated Compose overlay.
+    const int filterType = s_videoFilter.load(std::memory_order_relaxed);
+    const bool useBilinear = (filterType == 4);
 
     if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
         buf.format == WINDOW_FORMAT_RGBX_8888) {
         uint8_t* dst = static_cast<uint8_t*>(buf.bits);
-        const uint32_t dstStride = buf.stride * 4; // bytes per row
-        for (uint32_t y = 0; y < dstH; ++y) {
-            uint32_t srcY = (uint32_t)(y * sy);
-            if (srcY >= h) srcY = h - 1;
-            uint8_t* drow = dst + y * dstStride;
-            const uint32_t* srow = src + srcY * srcStride;
-            for (uint32_t x = 0; x < dstW; ++x) {
-                uint32_t srcX = (uint32_t)(x * sx);
-                if (srcX >= w) srcX = w - 1;
-                uint32_t px = srow[srcX];
-                // XRGB8888 -> RGBA8888
-                uint8_t r = (px >> 16) & 0xFF;
-                uint8_t g = (px >> 8) & 0xFF;
-                uint8_t b = px & 0xFF;
+        const uint32_t dstStride = buf.stride * 4;
 
-                // Apply video filter post-processing
-                if (filterType == 1) {
-                    // Scanline: darken every other row by 30%
-                    if (y & 1) { r = r * 7 / 10; g = g * 7 / 10; b = b * 7 / 10; }
-                } else if (filterType == 2) {
-                    // CRT: scanline + slight horizontal blur + vignette
-                    if (y & 1) { r = r * 6 / 10; g = g * 6 / 10; b = b * 6 / 10; }
-                    // Subtle vignette darkening at edges
-                    float edgeX = (float)x / dstW;
-                    float edgeY = (float)y / dstH;
-                    float vignette = 1.0f;
-                    float dx = edgeX - 0.5f, dy = edgeY - 0.5f;
-                    float dist = dx*dx + dy*dy;
-                    if (dist > 0.15f) vignette = 1.0f - (dist - 0.15f) * 0.5f;
-                    if (vignette < 0.7f) vignette = 0.7f;
-                    r = (uint8_t)(r * vignette);
-                    g = (uint8_t)(g * vignette);
-                    b = (uint8_t)(b * vignette);
-                } else if (filterType == 3) {
-                    // Dot grid: darken pixels at regular intervals to simulate LCD dot mask
-                    if ((x % 3 == 2) || (y % 3 == 2)) {
-                        r = r * 7 / 10; g = g * 7 / 10; b = b * 7 / 10;
-                    }
-                } else if (filterType == 4) {
-                    // XBR: edge-preserving smooth scaling
-                    // Compute exact source position for bilinear + edge detection
-                    float fx = (float)x * sx;
-                    float fy = (float)y * sy;
-                    int ix = (int)fx;
-                    int iy = (int)fy;
-                    float dx = fx - ix;
-                    float dy = fy - iy;
-                    if (ix < 0) ix = 0;
-                    if (iy < 0) iy = 0;
-                    if (ix >= (int)w) ix = (int)w - 1;
-                    if (iy >= (int)h) iy = (int)h - 1;
-                    int ix1 = (ix + 1 < (int)w) ? ix + 1 : ix;
-                    int iy1 = (iy + 1 < (int)h) ? iy + 1 : iy;
-
-                    uint32_t p00 = src[iy  * srcStride + ix];
-                    uint32_t p01 = src[iy  * srcStride + ix1];
-                    uint32_t p10 = src[iy1 * srcStride + ix];
-                    uint32_t p11 = src[iy1 * srcStride + ix1];
-
-                    // Bilinear weights
-                    float w00 = (1.0f - dx) * (1.0f - dy);
-                    float w01 = dx * (1.0f - dy);
-                    float w10 = (1.0f - dx) * dy;
-                    float w11 = dx * dy;
-
-                    // Edge detection via squared color distance
-                    auto sqDist = [](uint32_t a, uint32_t b) -> int {
-                        int dr = ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF);
-                        int dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
-                        int db = (a & 0xFF) - (b & 0xFF);
-                        return dr * dr + dg * dg + db * db;
-                    };
-                    int dvert = sqDist(p00, p10) + sqDist(p01, p11);
-                    int dhorz = sqDist(p00, p01) + sqDist(p10, p11);
-
-                    // Reduce weight across detected edges
-                    if (dvert > 9000) {
-                        if (dy < 0.5f) { w10 *= 0.15f; w11 *= 0.15f; }
-                        else           { w00 *= 0.15f; w01 *= 0.15f; }
-                    }
-                    if (dhorz > 9000) {
-                        if (dx < 0.5f) { w01 *= 0.15f; w11 *= 0.15f; }
-                        else           { w00 *= 0.15f; w10 *= 0.15f; }
-                    }
-
-                    float ws = w00 + w01 + w10 + w11;
-                    if (ws > 0.0f) {
-                        r = (uint8_t)((((p00 >> 16) & 0xFF) * w00 + ((p01 >> 16) & 0xFF) * w01 +
-                                       ((p10 >> 16) & 0xFF) * w10 + ((p11 >> 16) & 0xFF) * w11) / ws + 0.5f);
-                        g = (uint8_t)((((p00 >> 8) & 0xFF) * w00 + ((p01 >> 8) & 0xFF) * w01 +
-                                       ((p10 >> 8) & 0xFF) * w10 + ((p11 >> 8) & 0xFF) * w11) / ws + 0.5f);
-                        b = (uint8_t)(((p00 & 0xFF) * w00 + (p01 & 0xFF) * w01 +
-                                       (p10 & 0xFF) * w10 + (p11 & 0xFF) * w11) / ws + 0.5f);
-                    }
+        if (useBilinear) {
+            // Bilinear interpolation — smooth scaling for XBR mode
+            for (uint32_t y = 0; y < dstH; ++y) {
+                float fy = y * sy;
+                uint32_t sy0 = (uint32_t)fy;
+                if (sy0 >= h) sy0 = h - 1;
+                uint32_t sy1 = (sy0 + 1 < h) ? sy0 + 1 : sy0;
+                float ty = fy - sy0;
+                uint8_t* drow = dst + y * dstStride;
+                const uint32_t* sr0 = src + sy0 * srcStride;
+                const uint32_t* sr1 = src + sy1 * srcStride;
+                for (uint32_t x = 0; x < dstW; ++x) {
+                    float fx = x * sx;
+                    uint32_t sx0 = (uint32_t)fx;
+                    if (sx0 >= w) sx0 = w - 1;
+                    uint32_t sx1 = (sx0 + 1 < w) ? sx0 + 1 : sx0;
+                    float tx = fx - sx0;
+                    float w00 = (1.f - tx) * (1.f - ty);
+                    float w01 = tx * (1.f - ty);
+                    float w10 = (1.f - tx) * ty;
+                    float w11 = tx * ty;
+                    uint32_t p00 = sr0[sx0], p01 = sr0[sx1];
+                    uint32_t p10 = sr1[sx0], p11 = sr1[sx1];
+                    drow[x * 4 + 0] = (uint8_t)((((p00 >> 16) & 0xFF) * w00 + ((p01 >> 16) & 0xFF) * w01 +
+                                                 ((p10 >> 16) & 0xFF) * w10 + ((p11 >> 16) & 0xFF) * w11) + 0.5f);
+                    drow[x * 4 + 1] = (uint8_t)((((p00 >> 8) & 0xFF) * w00 + ((p01 >> 8) & 0xFF) * w01 +
+                                                 ((p10 >> 8) & 0xFF) * w10 + ((p11 >> 8) & 0xFF) * w11) + 0.5f);
+                    drow[x * 4 + 2] = (uint8_t)(((p00 & 0xFF) * w00 + (p01 & 0xFF) * w01 +
+                                                 (p10 & 0xFF) * w10 + (p11 & 0xFF) * w11) + 0.5f);
+                    drow[x * 4 + 3] = 0xFF;
                 }
-
-                drow[x * 4 + 0] = r;   // R
-                drow[x * 4 + 1] = g;   // G
-                drow[x * 4 + 2] = b;   // B
-                drow[x * 4 + 3] = 0xFF; // A
+            }
+        } else {
+            // Nearest-neighbor — fast, pixel-perfect
+            for (uint32_t y = 0; y < dstH; ++y) {
+                uint32_t srcY = (uint32_t)(y * sy);
+                if (srcY >= h) srcY = h - 1;
+                uint8_t* drow = dst + y * dstStride;
+                const uint32_t* srow = src + srcY * srcStride;
+                for (uint32_t x = 0; x < dstW; ++x) {
+                    uint32_t srcX = (uint32_t)(x * sx);
+                    if (srcX >= w) srcX = w - 1;
+                    uint32_t px = srow[srcX];
+                    drow[x * 4 + 0] = (px >> 16) & 0xFF;
+                    drow[x * 4 + 1] = (px >> 8) & 0xFF;
+                    drow[x * 4 + 2] = px & 0xFF;
+                    drow[x * 4 + 3] = 0xFF;
+                }
             }
         }
     } else if (buf.format == WINDOW_FORMAT_RGB_565) {
         uint16_t* dst = static_cast<uint16_t*>(buf.bits);
-        const uint32_t dstStride = buf.stride; // pixels per row
+        const uint32_t dstStride = buf.stride;
         for (uint32_t y = 0; y < dstH; ++y) {
             uint32_t srcY = (uint32_t)(y * sy);
             if (srcY >= h) srcY = h - 1;
@@ -387,9 +351,9 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
                 uint32_t srcX = (uint32_t)(x * sx);
                 if (srcX >= w) srcX = w - 1;
                 uint32_t px = srow[srcX];
-                uint16_t r = ((px >> 16) & 0xF8) >> 3; // 5 bits
-                uint16_t g = ((px >> 8) & 0xFC) >> 2;  // 6 bits
-                uint16_t b = (px & 0xF8) >> 3;          // 5 bits
+                uint16_t r = ((px >> 16) & 0xF8) >> 3;
+                uint16_t g = ((px >> 8) & 0xFC) >> 2;
+                uint16_t b = (px & 0xF8) >> 3;
                 drow[x] = (r << 11) | (g << 5) | b;
             }
         }

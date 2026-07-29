@@ -1,5 +1,8 @@
 package com.nesstation.app.ui.emulator
 
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Shader
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -42,14 +45,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
@@ -108,8 +115,8 @@ fun EmulatorScreen(
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
     // Apply core options on load and when they change
-    LaunchedEffect(padLayout.ntscFilter, padLayout.aspectRatio, padLayout.palette,
-                   padLayout.region, padLayout.soundQuality, padLayout.cropOverscan,
+    LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
+                   padLayout.region, padLayout.cropOverscan,
                    padLayout.videoFilter) {
         applyCoreOptions(engine, padLayout)
         // Apply video filter (frontend post-processing, not a core option)
@@ -192,6 +199,7 @@ fun EmulatorScreen(
             GameSurfaceView(
                 engine = engine,
                 videoScale = padLayout.videoScale,
+                videoFilter = padLayout.videoFilter,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -262,11 +270,12 @@ fun EmulatorScreen(
 // ---------------------------------------------------------------------------
 private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
     engine.setCoreOption("fceumm_ntsc_filter", layout.ntscFilter)
-    engine.setCoreOption("fceumm_aspect", layout.aspectRatio)
     engine.setCoreOption("fceumm_palette", layout.palette)
     engine.setCoreOption("fceumm_region", layout.region)
-    engine.setCoreOption("fceumm_sndquality", layout.soundQuality)
-    // Overscan: map "enabled"/"disabled" to the 4 individual crop keys
+    // Audio options (sndquality, sndlowpass, sndvolume) are NOT set —
+    // FCEUmm uses its own built-in defaults for correct audio.
+    // Aspect ratio (fceumm_aspect) is NOT set — the frontend controls
+    // display aspect ratio via videoScale (SurfaceView layout).
     val cropVal = if (layout.cropOverscan == "enabled") "8" else "0"
     engine.setCoreOption("fceumm_overscan_h_left", cropVal)
     engine.setCoreOption("fceumm_overscan_h_right", cropVal)
@@ -281,6 +290,7 @@ private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
 private fun GameSurfaceView(
     engine: NesEngine,
     videoScale: String,
+    videoFilter: String,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -307,7 +317,82 @@ private fun GameSurfaceView(
             },
             modifier = surfaceModifier
         )
+        // GPU-accelerated filter overlay — scanline/CRT/dot drawn by Compose
+        if (videoFilter in listOf("scanline", "crt", "dot")) {
+            FilterOverlay(videoFilter, surfaceModifier)
+        }
     }
+}
+
+// GPU-accelerated filter overlay using BitmapShader — a single GPU texture
+// draw instead of hundreds of individual drawLine calls.
+// The pattern bitmap is small (1x3 or 3x3) and tiled via REPEAT mode.
+@Composable
+private fun FilterOverlay(
+    filterType: String,
+    modifier: Modifier = Modifier
+) {
+    // Pre-create the pattern bitmap once per filter type
+    val patternBitmap = remember(filterType) {
+        when (filterType) {
+            "scanline" -> createScanlinePattern()
+            "crt" -> createCrtPattern()
+            "dot" -> createDotPattern()
+            else -> null
+        }
+    }
+
+    Canvas(modifier = modifier) {
+        patternBitmap?.let { bmp ->
+            drawIntoCanvas { canvas ->
+                val shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                val paint = android.graphics.Paint().apply { this.shader = shader }
+                canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+            }
+        }
+        // CRT vignette — radial gradient darkening at edges
+        if (filterType == "crt") {
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)),
+                    center = Offset(size.width / 2, size.height / 2),
+                    radius = minOf(size.width, size.height) * 0.7f
+                )
+            )
+        }
+    }
+}
+
+// Scanline pattern: 1px transparent, 1px transparent, 1px dark — every 3rd
+// row is darkened, simulating CRT scanlines.
+private fun createScanlinePattern(): Bitmap {
+    val bmp = Bitmap.createBitmap(1, 3, Bitmap.Config.ARGB_8888)
+    bmp.setPixel(0, 0, 0x00000000)
+    bmp.setPixel(0, 1, 0x00000000)
+    bmp.setPixel(0, 2, 0x59000000) // ~35% black
+    return bmp
+}
+
+// CRT pattern: same as scanline but slightly darker lines
+private fun createCrtPattern(): Bitmap {
+    val bmp = Bitmap.createBitmap(1, 3, Bitmap.Config.ARGB_8888)
+    bmp.setPixel(0, 0, 0x00000000)
+    bmp.setPixel(0, 1, 0x00000000)
+    bmp.setPixel(0, 2, 0x66000000) // ~40% black
+    return bmp
+}
+
+// Dot pattern: 3x3 crosshatch — center row and center column darkened,
+// simulating LCD dot grid.
+private fun createDotPattern(): Bitmap {
+    val bmp = Bitmap.createBitmap(3, 3, Bitmap.Config.ARGB_8888)
+    for (y in 0..2) {
+        for (x in 0..2) {
+            val isDark = (x == 1 || y == 1)
+            bmp.setPixel(x, y, if (isDark) 0x33000000 else 0x00000000)
+        }
+    }
+    return bmp
 }
 
 // ---------------------------------------------------------------------------
@@ -861,6 +946,15 @@ private fun EditableRoundBtn(
     var layoutStartX by remember { mutableStateOf(0f) }
     var layoutStartY by remember { mutableStateOf(0f) }
 
+    // CRITICAL: use rememberUpdatedState so the gesture handler (which has
+    // pointerInput(Unit) and doesn't restart) always reads the LATEST values.
+    // Without this, moving button A then dragging button B would use stale
+    // padLayout (captured at initial composition), resetting A's position.
+    val currentLayout by rememberUpdatedState(layout)
+    val currentOnMove by rememberUpdatedState(onMove)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    val currentSurfaceSize by rememberUpdatedState(surfaceSize)
+
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
@@ -868,24 +962,22 @@ private fun EditableRoundBtn(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    onSelect()
+                    currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
-                    layoutStartX = layout.x
-                    layoutStartY = layout.y
+                    layoutStartX = currentLayout.x
+                    layoutStartY = currentLayout.y
 
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
                         if (change.positionChanged()) {
-                            // Compute total drag in pixels, convert to fraction of screen
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
-                            val dxFrac = dxPx / surfaceSize.width
-                            val dyFrac = dyPx / surfaceSize.height
-                            // Pass ABSOLUTE target position (initial + drag offset)
-                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            val dxFrac = dxPx / currentSurfaceSize.width
+                            val dyFrac = dyPx / currentSurfaceSize.height
+                            currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
                         }
                     }
                 }
@@ -918,6 +1010,11 @@ private fun EditableDpad(
     var layoutStartX by remember { mutableStateOf(0f) }
     var layoutStartY by remember { mutableStateOf(0f) }
 
+    val currentLayout by rememberUpdatedState(layout)
+    val currentOnMove by rememberUpdatedState(onMove)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    val currentSurfaceSize by rememberUpdatedState(surfaceSize)
+
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
@@ -925,11 +1022,11 @@ private fun EditableDpad(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    onSelect()
+                    currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
-                    layoutStartX = layout.x
-                    layoutStartY = layout.y
+                    layoutStartX = currentLayout.x
+                    layoutStartY = currentLayout.y
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -938,9 +1035,9 @@ private fun EditableDpad(
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
-                            val dxFrac = dxPx / surfaceSize.width
-                            val dyFrac = dyPx / surfaceSize.height
-                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            val dxFrac = dxPx / currentSurfaceSize.width
+                            val dyFrac = dyPx / currentSurfaceSize.height
+                            currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
                         }
                     }
                 }
@@ -978,6 +1075,11 @@ private fun EditablePillBtn(
     var layoutStartX by remember { mutableStateOf(0f) }
     var layoutStartY by remember { mutableStateOf(0f) }
 
+    val currentLayout by rememberUpdatedState(layout)
+    val currentOnMove by rememberUpdatedState(onMove)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    val currentSurfaceSize by rememberUpdatedState(surfaceSize)
+
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
@@ -985,11 +1087,11 @@ private fun EditablePillBtn(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    onSelect()
+                    currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
-                    layoutStartX = layout.x
-                    layoutStartY = layout.y
+                    layoutStartX = currentLayout.x
+                    layoutStartY = currentLayout.y
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -998,9 +1100,9 @@ private fun EditablePillBtn(
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
-                            val dxFrac = dxPx / surfaceSize.width
-                            val dyFrac = dyPx / surfaceSize.height
-                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            val dxFrac = dxPx / currentSurfaceSize.width
+                            val dyFrac = dyPx / currentSurfaceSize.height
+                            currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
                         }
                     }
                 }
@@ -1047,13 +1149,14 @@ private fun SettingsPanel(
             padLayout.ntscFilter
         ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
 
-        DropdownSetting("画面比例",
-            listOf("8:7 PAR" to "8:7 (原始)", "4:3" to "4:3 (电视)", "PP" to "像素完美"),
-            padLayout.aspectRatio
-        ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
-
         DropdownSetting("调色板",
-            listOf("default" to "默认", "dq" to "Dragon Quest", "nx" to "Nestopia", "asq" to "AspiringSquire", "rp2" to "Real"),
+            listOf(
+                "default" to "默认", "asqrealc" to "AspiringSquire", "wii-vc" to "Wii VC",
+                "rgb" to "Nintendo RGB", "yuv-v3" to "FBX YUV-V3", "unsaturated-final" to "Unsaturated",
+                "sony-cxa2025as-us" to "Sony CXA", "pal" to "PAL", "bmf-final2" to "BMF Final 2",
+                "smooth-fbx" to "FBX Smooth", "composite-direct-fbx" to "FBX Composite",
+                "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
+            ),
             padLayout.palette
         ) { onLayoutChange(padLayout.copy(palette = it)) }
 
@@ -1061,11 +1164,6 @@ private fun SettingsPanel(
             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
             padLayout.region
         ) { onLayoutChange(padLayout.copy(region = it)) }
-
-        DropdownSetting("音质",
-            listOf("Low" to "低", "High" to "高", "Very High" to "非常高"),
-            padLayout.soundQuality
-        ) { onLayoutChange(padLayout.copy(soundQuality = it)) }
 
         DropdownSetting("裁剪过扫描",
             listOf("disabled" to "关闭", "enabled" to "开启"),
