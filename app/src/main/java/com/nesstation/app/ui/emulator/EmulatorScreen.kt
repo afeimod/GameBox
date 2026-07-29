@@ -149,10 +149,34 @@ fun EmulatorScreen(
         }
         val romFile = java.io.File(romPath)
         if (romFile.exists()) {
+            // FDS games need the BIOS (disksys.rom) in the app's filesDir.
+            // Re-deploy from assets if missing (safety net in case the
+            // initial deploy in NesApp.onCreate failed).
+            val isFds = romPath.endsWith(".fds", ignoreCase = true)
+            if (isFds) {
+                val biosFile = java.io.File(context.filesDir, "disksys.rom")
+                if (!biosFile.exists() || biosFile.length() != 8192L) {
+                    try {
+                        context.assets.open("disksys.rom").use { input ->
+                            biosFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    } catch (e: Exception) {
+                        errorMsg = "FDS BIOS部署失败: ${e.message}"
+                        return@LaunchedEffect
+                    }
+                }
+            }
             val filesDir = context.filesDir.absolutePath
             val ok = engine.loadRom(romFile, filesDir, filesDir) { }
             if (!ok) {
-                errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+                val err = engine.lastError()
+                errorMsg = if (isFds && err.contains("BIOS", ignoreCase = true)) {
+                    "FDS BIOS缺失，请确保disksys.rom(8KB)位于: $filesDir"
+                } else if (isFds && err.contains("loading failed", ignoreCase = true)) {
+                    "FDS游戏加载失败 — 可能是BIOS(disksys.rom)缺失或ROM文件损坏"
+                } else {
+                    err.ifEmpty { "ROM 加载失败" }
+                }
             } else {
                 loaded = true
             }
@@ -172,10 +196,30 @@ fun EmulatorScreen(
                     val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
+                    val isFds = ext == ".fds"
+                    // Ensure FDS BIOS is deployed before loading FDS games
+                    if (isFds) {
+                        val biosFile = java.io.File(context.filesDir, "disksys.rom")
+                        if (!biosFile.exists() || biosFile.length() != 8192L) {
+                            try {
+                                context.assets.open("disksys.rom").use { biosInput ->
+                                    biosFile.outputStream().use { output -> biosInput.copyTo(output) }
+                                }
+                            } catch (e: Exception) {
+                                errorMsg = "FDS BIOS部署失败: ${e.message}"
+                                return@LaunchedEffect
+                            }
+                        }
+                    }
                     val filesDir = context.filesDir.absolutePath
                     val ok = engine.loadRom(tempFile, filesDir, filesDir) { }
                     if (!ok) {
-                        errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+                        val err = engine.lastError()
+                        errorMsg = if (isFds && (err.contains("BIOS", ignoreCase = true) || err.contains("loading failed", ignoreCase = true))) {
+                            "FDS游戏加载失败 — 可能是BIOS(disksys.rom)缺失或ROM文件损坏"
+                        } else {
+                            err.ifEmpty { "ROM 加载失败" }
+                        }
                     } else {
                         loaded = true
                     }

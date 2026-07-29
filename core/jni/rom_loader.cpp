@@ -181,6 +181,7 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
             if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
+            LOGI("GET_SYSTEM_DIRECTORY -> %s", s_systemDir.c_str());
             return !s_systemDir.empty();
 
         case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
@@ -327,41 +328,117 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
     ANativeWindow_unlockAndPost(s_window);
 }
 
-// XBR-style 2x bilinear upscale: produces a 512x480 frame from 256x240.
-// Uses integer-only arithmetic (shifts and adds) for each channel.
-// At even pixel positions, copies the original; at odd positions, averages
-// with neighbours. This softens pixel edges, giving a smoother "HD" look
-// compared to raw nearest-neighbor — at negligible CPU cost.
+// ---------------------------------------------------------------------------
+// XBR2X — edge-preserving 2x upscale
+//
+// Classic XBR detects diagonal edges by comparing the colour distance
+// between the centre pixel and its diagonal neighbour (e.g. up-left) with
+// the distance between the two orthogonal neighbours (up and left).
+//
+//   If dist(centre, diagonal) < dist(orthogonal1, orthogonal2):
+//       no edge → copy the centre pixel (stays sharp)
+//   If dist(centre, diagonal) > dist(orthogonal1, orthogonal2):
+//       edge detected → blend the two orthogonal neighbours (smooths edge)
+//
+// This produces visibly rounded diagonals and smoothed colour boundaries,
+// unlike simple bilinear which just blurs everything uniformly.
+// ---------------------------------------------------------------------------
+
+// YUV colour-distance weight (per XBR reference): luminance matters most
+static inline unsigned yuvDiff(uint32_t a, uint32_t b) {
+    int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+    int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+    // Quick YUV approximation: Y = 0.299R + 0.587G + 0.114B
+    int ay = (ar * 2104 + ag * 4130 + ab * 802) >> 12;
+    int by = (br * 2104 + bg * 4130 + bb * 802) >> 12;
+    int du = ar - ag, dv = ab - ag;
+    int eu = br - bg, ev = bb - bg;
+    unsigned dy = (unsigned)(ay > by ? ay - by : by - ay);
+    unsigned duv = (unsigned)((du - eu) >= 0 ? (du - eu) : (eu - du))
+                 + (unsigned)((dv - ev) >= 0 ? (dv - ev) : (ev - dv));
+    return dy * 4 + duv;  // weighted: luminance 4x, chrominance 1x
+}
+
+// 50/50 blend of two ARGB pixels (alpha preserved from first)
+static inline uint32_t blend2(uint32_t a, uint32_t b) {
+    return (((a & 0x00FF00FF) + (b & 0x00FF00FF)) >> 1 & 0x00FF00FF)
+         | (((a & 0x0000FF00) + (b & 0x0000FF00)) >> 1 & 0x0000FF00)
+         | (a & 0xFF000000u);
+}
+
 static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
                           size_t srcStride, uint32_t* dst) {
     const unsigned dw = sw * 2;
+
     for (unsigned y = 0; y < sh; ++y) {
         const unsigned y2 = y * 2;
-        const unsigned yn = (y + 1 < sh) ? y + 1 : y;
-        const uint32_t* r0 = src + y  * srcStride;
-        const uint32_t* r1 = src + yn * srcStride;
-        uint32_t* d0 = dst + y2     * dw;
-        uint32_t* d1 = dst + (y2+1) * dw;
+        const bool hasUp = (y > 0);
+        const bool hasDn = (y + 1 < sh);
+        const uint32_t* row  = src + y * srcStride;
+        const uint32_t* up   = hasUp ? src + (y - 1) * srcStride : row;
+        const uint32_t* dn   = hasDn ? src + (y + 1) * srcStride : row;
 
         for (unsigned x = 0; x < sw; ++x) {
             const unsigned x2 = x * 2;
-            const unsigned xn = (x + 1 < sw) ? x + 1 : x;
-            const uint32_t p00 = r0[x],  p01 = r0[xn];
-            const uint32_t p10 = r1[x],  p11 = r1[xn];
+            const bool hasLt = (x > 0);
+            const bool hasRt = (x + 1 < sw);
 
-            // Even-even: original pixel
-            d0[x2] = p00;
-            // Odd-even: average horizontally
-            d0[x2+1] = (((p00 & 0x00FF00FF) + (p01 & 0x00FF00FF)) >> 1 & 0x00FF00FF)
-                     | (((p00 & 0x0000FF00) + (p01 & 0x0000FF00)) >> 1 & 0x0000FF00);
-            // Even-odd: average vertically
-            d1[x2] = (((p00 & 0x00FF00FF) + (p10 & 0x00FF00FF)) >> 1 & 0x00FF00FF)
-                   | (((p00 & 0x0000FF00) + (p10 & 0x0000FF00)) >> 1 & 0x0000FF00);
-            // Odd-odd: average all four
-            d1[x2+1] = (((p00 & 0x00FF00FF) + (p01 & 0x00FF00FF)
-                       + (p10 & 0x00FF00FF) + (p11 & 0x00FF00FF)) >> 2 & 0x00FF00FF)
-                     | (((p00 & 0x0000FF00) + (p01 & 0x0000FF00)
-                       + (p10 & 0x0000FF00) + (p11 & 0x0000FF00)) >> 2 & 0x0000FF00);
+            // 3x3 neighbourhood (clamp at borders by repeating edge pixel)
+            const uint32_t P  = row[x];                              // centre
+            const uint32_t U  = hasUp ? up[x]  : P;                 // up
+            const uint32_t D  = hasDn ? dn[x]  : P;                 // down
+            const uint32_t L  = hasLt ? row[x - 1] : P;             // left
+            const uint32_t R  = hasRt ? row[x + 1] : P;             // right
+            const uint32_t UL = (hasUp && hasLt) ? up[x - 1]  : P;  // up-left
+            const uint32_t UR = (hasUp && hasRt) ? up[x + 1]  : P;  // up-right
+            const uint32_t DL = (hasDn && hasLt) ? dn[x - 1]  : P;  // down-left
+            const uint32_t DR = (hasDn && hasRt) ? dn[x + 1]  : P;  // down-right
+
+            uint32_t* d0 = dst + y2 * dw;       // top row of output
+            uint32_t* d1 = dst + (y2 + 1) * dw; // bottom row
+
+            // --- Top-left output pixel ---
+            // Compare dist(P, UL) vs dist(U, L).
+            // If P~UL (small distance): no diagonal edge → copy P.
+            // If U~L (small distance, smaller than P~UL): edge → blend U,L.
+            {
+                unsigned d_diag = yuvDiff(P, UL);
+                unsigned d_orth = yuvDiff(U, L);
+                if (d_diag > d_orth && d_orth < 120)
+                    d0[x2] = blend2(U, L);   // smooth edge
+                else
+                    d0[x2] = P;              // keep sharp
+            }
+
+            // --- Top-right output pixel ---
+            {
+                unsigned d_diag = yuvDiff(P, UR);
+                unsigned d_orth = yuvDiff(U, R);
+                if (d_diag > d_orth && d_orth < 120)
+                    d0[x2 + 1] = blend2(U, R);
+                else
+                    d0[x2 + 1] = P;
+            }
+
+            // --- Bottom-left output pixel ---
+            {
+                unsigned d_diag = yuvDiff(P, DL);
+                unsigned d_orth = yuvDiff(D, L);
+                if (d_diag > d_orth && d_orth < 120)
+                    d1[x2] = blend2(D, L);
+                else
+                    d1[x2] = P;
+            }
+
+            // --- Bottom-right output pixel ---
+            {
+                unsigned d_diag = yuvDiff(P, DR);
+                unsigned d_orth = yuvDiff(D, R);
+                if (d_diag > d_orth && d_orth < 120)
+                    d1[x2 + 1] = blend2(D, R);
+                else
+                    d1[x2 + 1] = P;
+            }
         }
     }
 }
@@ -515,9 +592,52 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     // sets InDisk=0, meaning the disk is already inserted after loading)
     s_isFdsGame.store(false, std::memory_order_relaxed);
 
+    // --- FDS BIOS pre-check ---
+    // If this is an FDS game, verify the BIOS file (disksys.rom) exists in
+    // the system directory BEFORE calling retro_load_game. The FCEUmm core
+    // looks for it at {systemDir}/disksys.rom. If it's missing, FDSLoad()
+    // fails silently (returns 0) and the core tries other loaders, all of
+    // which fail for .fds files, resulting in a generic "ROM loading failed"
+    // error that doesn't mention the BIOS.
+    {
+        std::string ext;
+        size_t dot = path.find_last_of('.');
+        if (dot != std::string::npos) {
+            ext = path.substr(dot);
+            std::transform(ext.begin(), ext.end(), ext.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+        }
+        if (ext == ".fds") {
+            std::string biosPath = s_systemDir + "/disksys.rom";
+            FILE* biosF = std::fopen(biosPath.c_str(), "rb");
+            if (!biosF) {
+                LOGE("FDS BIOS NOT FOUND at: %s (systemDir=%s)",
+                     biosPath.c_str(), s_systemDir.c_str());
+                // Try alternative locations
+                std::string altPath = s_systemDir + "/disksys.rom";
+                LOGE("FDS games require disksys.rom in the system directory. "
+                     "Expected at: %s", biosPath.c_str());
+            } else {
+                std::fseek(biosF, 0, SEEK_END);
+                long biosSize = std::ftell(biosF);
+                std::fclose(biosF);
+                LOGI("FDS BIOS found at: %s (%ld bytes)", biosPath.c_str(), biosSize);
+                if (biosSize != 8192) {
+                    LOGE("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
+                }
+            }
+            LOGI("Loading FDS game: %s", path.c_str());
+        }
+    }
+
+    LOGI("About to call retro_load_game for: %s (systemDir=%s)",
+         path.c_str(), s_systemDir.c_str());
+
     if (!retro_load_game(&game)) {
         retro_unload_game();
         retro_deinit();
+        LOGE("retro_load_game FAILED for: %s", path.c_str());
+        LOGE("Core message: %s", s_coreMessage.c_str());
         // Return the core's own error message if available (e.g. FDS BIOS missing)
         if (!s_coreMessage.empty()) {
             std::string err = s_coreMessage;
@@ -527,6 +647,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         return "FCEUmm rejected the ROM (unsupported mapper or corrupt file)";
     }
     s_loaded = true;
+    LOGI("retro_load_game SUCCEEDED for: %s", path.c_str());
 
     // Detect FDS games by file extension for logging.
     // NOTE: No R button auto-press is needed. The FCEUmm core's retro_load_game
@@ -736,11 +857,13 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
-    LOGI("Video filter set: %d", filter);
+    LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr)", filter);
     // No buffer geometry changes needed. The buffer is always at 0x0 (window
-    // default). For XBR (filter 4), the 2x bilinear upscale happens in
-    // cb_video before blitting. For scanline/CRT/dot, the visual effect is
-    // a GPU-accelerated Compose overlay drawn on top of the SurfaceView.
+    // default). For XBR (filter 4), the edge-preserving 2x upscale happens in
+    // cb_video before blitting — it detects diagonal edges via YUV colour
+    // distance and blends along them, producing visibly smoother pixel art.
+    // For scanline/CRT/dot, the visual effect is a GPU-accelerated Compose
+    // overlay drawn on top of the SurfaceView.
 }
 
 } // namespace nescore::rom
