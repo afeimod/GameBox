@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.emulator.EmulatorScreen
 import com.nesstation.app.ui.home.HomeScreen
 import com.nesstation.app.ui.home.HomeSamples
@@ -101,7 +102,10 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             arguments = listOf(navArgument("gameId") { type = NavType.StringType })
         ) { entry ->
             val id = entry.arguments?.getString("gameId") ?: ""
-            val game = games.firstOrNull { it.id == id } ?: GameEntry(id, "未知游戏")
+            val ctx = LocalContext.current
+            val game = games.firstOrNull { it.id == id }
+                ?: RomStore.loadAll(ctx).firstOrNull { it.id == id }
+                ?: GameEntry(id, "未知游戏")
             EmulatorScreen(game = game, onExit = { nav.popBackStack() })
         }
     }
@@ -145,7 +149,10 @@ private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<Ga
             arguments = listOf(navArgument("gameId") { type = NavType.StringType })
         ) { entry ->
             val id = entry.arguments?.getString("gameId") ?: ""
-            val game = games.firstOrNull { it.id == id } ?: GameEntry(id, "未知游戏")
+            val ctx = LocalContext.current
+            val game = games.firstOrNull { it.id == id }
+                ?: RomStore.loadAll(ctx).firstOrNull { it.id == id }
+                ?: GameEntry(id, "未知游戏")
             EmulatorScreen(game = game, onExit = { nav.popBackStack() })
         }
     }

@@ -148,30 +148,9 @@ fun LibraryScreen(
     }
 
     fun importFiles() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                val entries = scanForRoms(context)
-                if (entries.isNotEmpty()) {
-                    RomStore.addAll(context, entries)
-                    refreshList()
-                }
-            }
-            filePickerLauncher.launch(arrayOf("*/*"))
-        } else {
-            val granted = ContextCompat.checkSelfPermission(
-                context, Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                val entries = scanForRoms(context)
-                if (entries.isNotEmpty()) {
-                    RomStore.addAll(context, entries)
-                    refreshList()
-                }
-                filePickerLauncher.launch(arrayOf("*/*"))
-            } else {
-                permissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
-            }
-        }
+        // SAF file picker works without storage permission on all Android versions.
+        // Just open the picker — no directory scanning.
+        filePickerLauncher.launch(arrayOf("*/*"))
     }
 
     fun importFolder() {
