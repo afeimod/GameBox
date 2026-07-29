@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -438,13 +440,13 @@ private fun ModernDpad(
 ) {
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize)
+    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
 
     var activeDir by remember { mutableStateOf(0) }
 
     Box(
         modifier = Modifier
             .offset {
-                val sizePx = sizeDp.toPx()
                 IntOffset(
                     (px - sizePx / 2).toInt(),
                     (py - sizePx / 2).toInt()
@@ -575,11 +577,11 @@ private fun ActionButton(
 ) {
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize)
+    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
 
     Box(
         modifier = Modifier
             .offset {
-                val sizePx = sizeDp.toPx()
                 IntOffset(
                     (px - sizePx / 2).toInt(),
                     (py - sizePx / 2).toInt()
@@ -645,11 +647,11 @@ private fun TurboButton(
 ) {
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize)
+    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
 
     Box(
         modifier = Modifier
             .offset {
-                val sizePx = sizeDp.toPx()
                 IntOffset(
                     (px - sizePx / 2).toInt(),
                     (py - sizePx / 2).toInt()
@@ -711,12 +713,13 @@ private fun PillButton(
     val widthDp = sizeDp * 2.2f
     val heightDp = sizeDp * 0.7f
     val (px, py) = buttonOffset(layout, surfaceSize)
+    val density = LocalDensity.current
+    val wPx = with(density) { widthDp.toPx() }
+    val hPx = with(density) { heightDp.toPx() }
 
     Box(
         modifier = Modifier
             .offset {
-                val wPx = widthDp.toPx()
-                val hPx = heightDp.toPx()
                 IntOffset(
                     (px - wPx / 2).toInt(),
                     (py - hPx / 2).toInt()
@@ -1016,11 +1019,11 @@ private fun EditableButton(
 ) {
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize)
+    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
 
     Box(
         modifier = Modifier
             .offset {
-                val sizePx = sizeDp.toPx()
                 IntOffset(
                     (px - sizePx / 2).toInt(),
                     (py - sizePx / 2).toInt()
