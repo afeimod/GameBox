@@ -1,6 +1,7 @@
 package com.nesstation.app.ui.emulator
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,11 +60,12 @@ import com.nesstation.app.core.storage.PadLayoutStore
 import kotlinx.coroutines.delay
 
 /**
- * The in-game surface — full-bleed framebuffer, on-screen D-pad + A/B/Start/Select,
- * top overlay with pause / save / screenshot / fast-forward / settings.
+ * The in-game surface — full-bleed framebuffer, on-screen D-pad + A/B/Start/Select.
+ *
+ * No permanent top bar. Press the device Back button (or tap the screen edge)
+ * to bring up a menu overlay with pause / save / screenshot / fast-forward / settings.
  *
  * Controller layout (position, size, opacity) is fully configurable via [PadLayoutStore].
- * A settings sheet lets the user drag pads to reposition and adjust scale/opacity.
  */
 @Composable
 fun EmulatorScreen(
@@ -71,6 +74,7 @@ fun EmulatorScreen(
 ) {
     val engine = remember { NesEngine.get() }
     val context = LocalContext.current
+    val density = LocalDensity.current
     var running by remember { mutableStateOf(true) }
     var fastForward by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
@@ -81,9 +85,20 @@ fun EmulatorScreen(
     val bitmap = remember { Bitmap.createBitmap(256, 240, Bitmap.Config.ARGB_8888) }
     val imageBitmap = remember { bitmap.asImageBitmap() }
 
+    // Menu overlay state — hidden by default, shown via Back button
+    var showMenu by remember { mutableStateOf(false) }
+
     // Pad layout — loaded from persistent storage
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
     var showLayoutEditor by remember { mutableStateOf(false) }
+
+    // Handle Back button: first press opens menu, second press exits
+    BackHandler(enabled = !showMenu) {
+        showMenu = true
+    }
+    BackHandler(enabled = showMenu && !showLayoutEditor) {
+        showMenu = false
+    }
 
     // Load ROM on entry
     LaunchedEffect(game) {
@@ -92,7 +107,6 @@ fun EmulatorScreen(
             errorMsg = "该游戏未关联 ROM 文件"
             return@LaunchedEffect
         }
-        // Handle both file paths and content URIs
         val romFile = java.io.File(romPath)
         if (romFile.exists()) {
             val filesDir = context.filesDir.absolutePath
@@ -103,7 +117,6 @@ fun EmulatorScreen(
                 loaded = true
             }
         } else {
-            // Try content URI
             try {
                 val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
                 if (input != null) {
@@ -148,13 +161,16 @@ fun EmulatorScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Game surface
+        // === Game surface — full bleed, no overlay ===
         if (loaded) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
-                        detectTapGestures(onDoubleTap = { fastForward = !fastForward })
+                        detectTapGestures(
+                            onDoubleTap = { fastForward = !fastForward },
+                            onLongPress = { showMenu = true }
+                        )
                     }
                     .onSizeChanged { surfaceSize = it }
             ) {
@@ -174,13 +190,6 @@ fun EmulatorScreen(
                         dstOffset = androidx.compose.ui.unit.IntOffset(x.toInt(), y.toInt()),
                         dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
                     )
-                    // Scanline overlay
-                    val scanColor = Color(0x14000000)
-                    var sy = y
-                    while (sy < y + h) {
-                        drawRect(scanColor, topLeft = Offset(x, sy), size = Size(w, 1f))
-                        sy += 2
-                    }
                 }
             }
         } else {
@@ -193,58 +202,35 @@ fun EmulatorScreen(
             }
         }
 
-        // Top overlay controls
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(Color(0x66000000), RoundedCornerShape(16.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = game.title,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-            )
-            Spacer(Modifier.weight(1f))
-            if (loaded) {
-                IconButton(onClick = { running = !running }) {
-                    Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
-                }
-                IconButton(onClick = { fastForward = !fastForward }) {
-                    Icon(Icons.Rounded.FastForward, contentDescription = null, tint = if (fastForward) Color(0xFFFFD66B) else Color.White)
-                }
-            }
-            IconButton(onClick = { /* TODO: screenshot */ }) {
-                Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = Color.White)
-            }
-            IconButton(onClick = { /* TODO: save state */ }) {
-                Icon(Icons.Rounded.Save, contentDescription = null, tint = Color.White)
-            }
-            IconButton(onClick = { showLayoutEditor = !showLayoutEditor }) {
-                Icon(Icons.Rounded.Tune, contentDescription = "手柄布局", tint = if (showLayoutEditor) Color(0xFFFFD66B) else Color.White)
-            }
-            IconButton(onClick = { /* TODO: settings */ }) {
-                Icon(Icons.Rounded.Settings, contentDescription = null, tint = Color.White)
-            }
-            IconButton(onClick = { onExit() }) {
-                Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White)
-            }
-        }
-
-        // On-screen controller — only show when loaded and pad is visible
-        if (loaded && padLayout.showPad && !showLayoutEditor) {
+        // === On-screen controller — show when loaded, pad visible, no menu ===
+        if (loaded && padLayout.showPad && !showMenu && !showLayoutEditor && surfaceSize != IntSize.Zero) {
             OnScreenController(
                 padLayout = padLayout,
                 padBits = padBits,
                 onPadBitsChange = { padBits = it },
-                surfaceSize = surfaceSize
+                surfaceSize = surfaceSize,
+                density = density.density
             )
         }
 
-        // Layout editor mode — draggable pads + sliders
+        // === Menu overlay — shown via Back button or long-press ===
+        if (loaded && showMenu && !showLayoutEditor) {
+            MenuOverlay(
+                gameTitle = game.title,
+                running = running,
+                fastForward = fastForward,
+                onTogglePause = { running = !running },
+                onToggleFastForward = { fastForward = !fastForward },
+                onScreenshot = { /* TODO */ },
+                onSaveState = { /* TODO */ },
+                onLayoutEditor = { showLayoutEditor = true },
+                onSettings = { /* TODO */ },
+                onClose = { showMenu = false },
+                onExit = { onExit() }
+            )
+        }
+
+        // === Layout editor mode ===
         if (loaded && showLayoutEditor) {
             PadLayoutEditor(
                 padLayout = padLayout,
@@ -253,38 +239,119 @@ fun EmulatorScreen(
                     PadLayoutStore.save(context, newLayout)
                 },
                 surfaceSize = surfaceSize,
+                density = density.density,
                 onClose = { showLayoutEditor = false }
             )
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Menu overlay — semi-transparent panel, does NOT block the game screen
+// ---------------------------------------------------------------------------
+@Composable
+private fun MenuOverlay(
+    gameTitle: String,
+    running: Boolean,
+    fastForward: Boolean,
+    onTogglePause: () -> Unit,
+    onToggleFastForward: () -> Unit,
+    onScreenshot: () -> Unit,
+    onSaveState: () -> Unit,
+    onLayoutEditor: () -> Unit,
+    onSettings: () -> Unit,
+    onClose: () -> Unit,
+    onExit: () -> Unit
+) {
+    // Dimmed full-screen background — tap to close
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x88000000))
+            .pointerInput(Unit) {
+                detectTapGestures { onClose() }
+            }
+    )
+
+    // Menu panel at top
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = gameTitle,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onTogglePause) {
+            Icon(
+                if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = "暂停/继续",
+                tint = Color.White
+            )
+        }
+        IconButton(onClick = onToggleFastForward) {
+            Icon(
+                Icons.Rounded.FastForward,
+                contentDescription = "快进",
+                tint = if (fastForward) Color(0xFFFFD66B) else Color.White
+            )
+        }
+        IconButton(onClick = onScreenshot) {
+            Icon(Icons.Rounded.CameraAlt, contentDescription = "截图", tint = Color.White)
+        }
+        IconButton(onClick = onSaveState) {
+            Icon(Icons.Rounded.Save, contentDescription = "存档", tint = Color.White)
+        }
+        IconButton(onClick = onLayoutEditor) {
+            Icon(Icons.Rounded.Tune, contentDescription = "手柄布局", tint = Color.White)
+        }
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Rounded.Settings, contentDescription = "设置", tint = Color.White)
+        }
+        IconButton(onClick = onExit) {
+            Icon(Icons.Rounded.Close, contentDescription = "退出", tint = Color(0xFFFF6B6B))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// On-screen controller — fixed pixel-to-dp conversion
+// ---------------------------------------------------------------------------
 @Composable
 private fun OnScreenController(
     padLayout: PadLayout,
     padBits: Int,
     onPadBitsChange: (Int) -> Unit,
-    surfaceSize: IntSize
+    surfaceSize: IntSize,
+    density: Float
 ) {
     val dpadSize = (130 * padLayout.dpadScale).dp
     val btnSize = (60 * padLayout.btnScale).dp
     val selSize = (52 * padLayout.btnScale).dp
     val opacity = padLayout.opacity
 
-    // D-pad on the left
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-    ) {
+    // Convert fractional positions to dp using actual pixel dimensions
+    val dpadOffsetXDp = (surfaceSize.width * padLayout.dpadX / density).dp
+    val dpadOffsetYDp = (surfaceSize.height * padLayout.dpadY / density).dp
+    val btnOffsetXDp = (surfaceSize.width * padLayout.btnX / density).dp
+    val btnOffsetYDp = (surfaceSize.height * padLayout.btnY / density).dp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // D-pad on the left
         DPad(
             onChange = { bits -> onPadBitsChange((padBits and 0x0F) or bits) },
             modifier = Modifier
                 .size(dpadSize)
                 .align(Alignment.TopStart)
-                .padding(
-                    start = (surfaceSize.width * padLayout.dpadX).dp,
-                    top = (surfaceSize.height * padLayout.dpadY).dp
-                ),
+                .padding(start = dpadOffsetXDp, top = dpadOffsetYDp),
             opacity = opacity
         )
 
@@ -292,10 +359,7 @@ private fun OnScreenController(
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(
-                    start = (surfaceSize.width * padLayout.btnX).dp,
-                    top = (surfaceSize.height * padLayout.btnY).dp
-                ),
+                .padding(start = btnOffsetXDp, top = btnOffsetYDp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -319,11 +383,15 @@ private fun OnScreenController(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Pad layout editor
+// ---------------------------------------------------------------------------
 @Composable
 private fun PadLayoutEditor(
     padLayout: PadLayout,
     onLayoutChange: (PadLayout) -> Unit,
     surfaceSize: IntSize,
+    density: Float,
     onClose: () -> Unit
 ) {
     // Dimmed background
@@ -344,7 +412,6 @@ private fun PadLayoutEditor(
         Text("手柄布局设置", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Spacer(Modifier.size(12.dp))
 
-        // D-pad scale
         Text("方向键大小: ${"%.1f".format(padLayout.dpadScale)}x", color = Color.White, fontSize = 12.sp)
         Slider(
             value = padLayout.dpadScale,
@@ -353,7 +420,6 @@ private fun PadLayoutEditor(
             steps = 14
         )
 
-        // Button scale
         Text("按键大小: ${"%.1f".format(padLayout.btnScale)}x", color = Color.White, fontSize = 12.sp)
         Slider(
             value = padLayout.btnScale,
@@ -362,7 +428,6 @@ private fun PadLayoutEditor(
             steps = 14
         )
 
-        // Opacity
         Text("透明度: ${"%.0f".format(padLayout.opacity * 100)}%", color = Color.White, fontSize = 12.sp)
         Slider(
             value = padLayout.opacity,
@@ -371,8 +436,7 @@ private fun PadLayoutEditor(
             steps = 13
         )
 
-        // D-pad position
-        Text("方向键位置 (拖动方向键调整)", color = Color.White, fontSize = 12.sp)
+        Text("方向键位置 (或拖动方向键调整)", color = Color.White, fontSize = 12.sp)
         Row {
             Text("X: ${"%.2f".format(padLayout.dpadX)}", color = Color(0xFFFFD66B), fontSize = 11.sp, modifier = Modifier.padding(end = 16.dp))
             Text("Y: ${"%.2f".format(padLayout.dpadY)}", color = Color(0xFFFFD66B), fontSize = 11.sp)
@@ -388,8 +452,7 @@ private fun PadLayoutEditor(
             valueRange = 0.3f..0.95f
         )
 
-        // Button position
-        Text("按键位置 (拖动按键调整)", color = Color.White, fontSize = 12.sp)
+        Text("按键位置 (或拖动按键调整)", color = Color.White, fontSize = 12.sp)
         Row {
             Text("X: ${"%.2f".format(padLayout.btnX)}", color = Color(0xFFFFD66B), fontSize = 11.sp, modifier = Modifier.padding(end = 16.dp))
             Text("Y: ${"%.2f".format(padLayout.btnY)}", color = Color(0xFFFFD66B), fontSize = 11.sp)
@@ -405,7 +468,6 @@ private fun PadLayoutEditor(
             valueRange = 0.3f..0.95f
         )
 
-        // Show/hide toggle
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("显示手柄", color = Color.White, fontSize = 12.sp)
             Spacer(Modifier.weight(1f))
@@ -417,9 +479,7 @@ private fun PadLayoutEditor(
 
         Spacer(Modifier.size(8.dp))
         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = {
-                onLayoutChange(PadLayout())
-            }) {
+            IconButton(onClick = { onLayoutChange(PadLayout()) }) {
                 Text("重置", color = Color(0xFFFFD66B), fontSize = 13.sp)
             }
             IconButton(onClick = onClose) {
@@ -428,21 +488,21 @@ private fun PadLayoutEditor(
         }
     }
 
-    // Preview pads (draggable)
+    // Preview pads (draggable) — use proper pixel-to-dp conversion
     val dpadSize = (130 * padLayout.dpadScale).dp
     val btnSize = (60 * padLayout.btnScale).dp
     val selSize = (52 * padLayout.btnScale).dp
+    val dpadOffsetXDp = if (surfaceSize.width > 0) (surfaceSize.width * padLayout.dpadX / density).dp else 0.dp
+    val dpadOffsetYDp = if (surfaceSize.height > 0) (surfaceSize.height * padLayout.dpadY / density).dp else 0.dp
+    val btnOffsetXDp = if (surfaceSize.width > 0) (surfaceSize.width * padLayout.btnX / density).dp else 0.dp
+    val btnOffsetYDp = if (surfaceSize.height > 0) (surfaceSize.height * padLayout.btnY / density).dp else 0.dp
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Draggable D-pad preview
         Box(
             modifier = Modifier
                 .size(dpadSize)
                 .align(Alignment.TopStart)
-                .padding(
-                    start = (surfaceSize.width * padLayout.dpadX).dp,
-                    top = (surfaceSize.height * padLayout.dpadY).dp
-                )
+                .padding(start = dpadOffsetXDp, top = dpadOffsetYDp)
                 .background(Color(0x66FFD66B), RoundedCornerShape(20.dp))
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
@@ -457,14 +517,10 @@ private fun PadLayoutEditor(
             Text("D-Pad", color = Color.White, fontSize = 10.sp)
         }
 
-        // Draggable button group preview
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(
-                    start = (surfaceSize.width * padLayout.btnX).dp,
-                    top = (surfaceSize.height * padLayout.btnY).dp
-                )
+                .padding(start = btnOffsetXDp, top = btnOffsetYDp)
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
@@ -488,6 +544,9 @@ private fun PadLayoutEditor(
     }
 }
 
+// ---------------------------------------------------------------------------
+// D-pad component
+// ---------------------------------------------------------------------------
 @Composable
 private fun DPad(
     onChange: (Int) -> Unit,
@@ -552,6 +611,9 @@ private fun DPad(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Action button component
+// ---------------------------------------------------------------------------
 @Composable
 private fun PadButton(
     label: String,
