@@ -30,10 +30,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,9 +54,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
 import java.io.File
+
+/// ROM file extensions we support
+val ROM_EXTENSIONS = listOf("nes", "fds", "unf", "unif", "zip", "7z", "gz")
 
 @Composable
 fun LibraryScreen(
@@ -65,95 +71,105 @@ fun LibraryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val importedGames = remember { mutableStateListOf<GameEntry>() }
+    // Load persisted ROMs on first composition
+    val importedGames = remember { mutableStateListOf<GameEntry>().apply { addAll(RomStore.loadAll(context)) } }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var dialogMsg by remember { mutableStateOf<String?>(null) }
+
+    fun refreshList() {
+        importedGames.clear()
+        importedGames.addAll(RomStore.loadAll(context))
+    }
 
     // SAF file picker for importing individual ROM files
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val entries = mutableListOf<Pair<String, String>>()
         uris.forEach { uri ->
             try {
-                // Take persistable URI permission so we can read it later
                 context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) { }
             val name = queryDisplayName(uri) ?: "unknown.nes"
-            importedGames.add(
-                GameEntry(
-                    id = "import_${System.currentTimeMillis()}_${name}",
-                    title = name.substringBeforeLast('.'),
-                    romPath = uri.toString()
-                )
-            )
+            val ext = name.substringAfterLast('.', "").lowercase()
+            if (ext in ROM_EXTENSIONS) {
+                entries.add(name.substringBeforeLast('.') to uri.toString())
+            }
         }
-        dialogMsg = "已导入 ${uris.size} 个ROM文件"
+        if (entries.isNotEmpty()) {
+            RomStore.addAll(context, entries)
+            refreshList()
+            dialogMsg = "已导入 ${entries.size} 个ROM文件"
+        }
     }
 
-    // SAF folder picker for importing an entire folder of ROMs
+    // SAF folder picker — recursively scan selected folder
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         try {
             context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         } catch (_: Exception) { }
 
-        // Scan the selected folder for ROM files
-        val romFiles = scanUriForRoms(context, uri)
+        // Recursively scan the selected folder for ROM files
+        val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
         if (romFiles.isEmpty()) {
-            dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .fds .unf .unif）"
+            dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .fds .zip .7z .gz）"
         } else {
-            romFiles.forEach { (name, fileUri) ->
-                importedGames.add(
-                    GameEntry(
-                        id = "folder_${fileUri.hashCode()}",
-                        title = name,
-                        romPath = fileUri.toString()
-                    )
-                )
-            }
-            dialogMsg = "从文件夹导入 ${romFiles.size} 个ROM文件"
+            val entries = romFiles.map { it.first to it.second.toString() }
+            RomStore.addAll(context, entries)
+            refreshList()
+            dialogMsg = "从文件夹导入 ${entries.size} 个ROM文件"
         }
     }
 
-    // Storage permission launcher (for Android <= 10)
+    // Storage permission launcher (Android <= 10)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result.values.any { it }) {
-            scanForRoms(context, importedGames)
-            dialogMsg = "权限已授予，已扫描本地ROM文件"
+            val entries = scanForRoms(context)
+            if (entries.isNotEmpty()) {
+                RomStore.addAll(context, entries)
+                refreshList()
+                dialogMsg = "权限已授予，扫描到 ${entries.size} 个ROM文件"
+            } else {
+                dialogMsg = "权限已授予，但未在常见目录找到ROM文件"
+            }
         } else {
             showPermissionDialog = true
         }
     }
 
     fun importFiles() {
-        // On Android 11+, SAF doesn't need storage permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Also scan common directories if we have MANAGE_EXTERNAL_STORAGE
             if (Environment.isExternalStorageManager()) {
-                scanForRoms(context, importedGames)
+                val entries = scanForRoms(context)
+                if (entries.isNotEmpty()) {
+                    RomStore.addAll(context, entries)
+                    refreshList()
+                }
             }
             filePickerLauncher.launch(arrayOf("*/*"))
         } else {
-            val perm = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
             val granted = ContextCompat.checkSelfPermission(
                 context, Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
             if (granted) {
-                scanForRoms(context, importedGames)
+                val entries = scanForRoms(context)
+                if (entries.isNotEmpty()) {
+                    RomStore.addAll(context, entries)
+                    refreshList()
+                }
                 filePickerLauncher.launch(arrayOf("*/*"))
             } else {
-                permissionLauncher.launch(perm)
+                permissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
             }
         }
     }
@@ -175,12 +191,17 @@ fun LibraryScreen(
                     context.startActivity(intent)
                 }
             } else {
-                scanForRoms(context, importedGames)
-                dialogMsg = "已有所有文件访问权限，已扫描本地ROM"
+                val entries = scanForRoms(context)
+                if (entries.isNotEmpty()) {
+                    RomStore.addAll(context, entries)
+                    refreshList()
+                    dialogMsg = "已扫描到 ${entries.size} 个ROM文件"
+                } else {
+                    dialogMsg = "未在常见目录找到ROM文件"
+                }
             }
         } else {
-            val perm = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-            permissionLauncher.launch(perm)
+            permissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }
 
@@ -188,9 +209,7 @@ fun LibraryScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // Header
             Row(
                 modifier = Modifier
@@ -242,6 +261,9 @@ fun LibraryScreen(
                 FilterChip("最近", false)
                 FilterChip("收藏", false)
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { refreshList() }) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = Color(0xFF1E2A3A), modifier = Modifier.size(18.dp))
+                }
                 SearchPill(onClick = onSearch)
             }
 
@@ -257,7 +279,7 @@ fun LibraryScreen(
                         .padding(12.dp)
                 ) {
                     Text(
-                        text = "点击此处授予「所有文件访问权限」，可自动扫描本地ROM。也可直接点击上方按钮通过系统文件选择器导入。",
+                        text = "点击此处授予「所有文件访问权限」可自动扫描本地ROM。也可直接点击上方按钮通过系统文件选择器导入。",
                         color = Color(0xFFE65100),
                         fontSize = 11.sp
                     )
@@ -276,7 +298,7 @@ fun LibraryScreen(
                         title = g.title,
                         accent = g.accent,
                         onClick = { onOpenGame(g) },
-                        modifier = Modifier.height(145.dp)
+                        modifier = Modifier.height(130.dp)
                     )
                 }
             }
@@ -326,26 +348,39 @@ private fun queryDisplayName(uri: Uri): String? {
     }
 }
 
-/** Scan a SAF folder URI for ROM files using DocumentsContract */
-private fun scanUriForRoms(
+/**
+ * Recursively scan a SAF folder URI for ROM files using DocumentsContract.
+ * Traverses subdirectories up to [maxDepth] levels deep.
+ */
+private fun scanUriForRomsRecursive(
     context: android.content.Context,
-    folderUri: Uri
+    treeUri: Uri,
+    folderUri: Uri,
+    maxDepth: Int
 ): List<Pair<String, Uri>> {
     val results = mutableListOf<Pair<String, Uri>>()
-    val extensions = listOf("nes", "fds", "unf", "unif")
+    if (maxDepth <= 0) return results
     try {
-        val treeDocId = DocumentsContract.getTreeDocumentId(folderUri)
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(folderUri, treeDocId)
+        val folderDocId = if (folderUri == treeUri) {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } else {
+            DocumentsContract.getDocumentId(folderUri)
+        }
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, folderDocId)
         context.contentResolver.query(childrenUri, null, null, null, null)?.use { cursor ->
             while (cursor.moveToNext()) {
                 val docId = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
                 val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
                 val mimeType = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE))
-                // Only look at files (not subdirectories)
-                if (mimeType != DocumentsContract.Document.MIME_TYPE_DIR) {
+
+                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    // Recurse into subdirectory
+                    val subUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                    results.addAll(scanUriForRomsRecursive(context, treeUri, subUri, maxDepth - 1))
+                } else {
                     val ext = name.substringAfterLast('.', "").lowercase()
-                    if (ext in extensions) {
-                        val fileUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
+                    if (ext in ROM_EXTENSIONS) {
+                        val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                         results.add(name.substringBeforeLast('.') to fileUri)
                     }
                 }
@@ -355,37 +390,30 @@ private fun scanUriForRoms(
     return results
 }
 
-/** Scan common directories for .nes files (requires storage permission) */
-private fun scanForRoms(
-    context: android.content.Context,
-    list: androidx.compose.runtime.snapshots.SnapshotStateList<GameEntry>
-) {
+/** Scan common directories for ROM files (requires storage permission) */
+private fun scanForRoms(context: android.content.Context): List<Pair<String, String>> {
+    val results = mutableListOf<Pair<String, String>>()
     val dirs = mutableListOf<File>()
-    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q || Environment.isExternalStorageManager()) {
         dirs.add(Environment.getExternalStorageDirectory())
         dirs.add(File(Environment.getExternalStorageDirectory(), "Download"))
         dirs.add(File(Environment.getExternalStorageDirectory(), "ROMs"))
         dirs.add(File(Environment.getExternalStorageDirectory(), "NES"))
+        dirs.add(File(Environment.getExternalStorageDirectory(), "Games"))
     }
     dirs.add(context.getExternalFilesDir(null) ?: context.filesDir)
     dirs.add(File(context.filesDir, "roms"))
 
     dirs.forEach { dir ->
         if (dir.exists() && dir.isDirectory) {
-            dir.walkTopDown().take(100).forEach { file ->
-                if (file.isFile && file.extension.lowercase() in listOf("nes", "fds", "unf", "unif")) {
-                    val entry = GameEntry(
-                        id = "scan_${file.absolutePath.hashCode()}",
-                        title = file.nameWithoutExtension,
-                        romPath = file.absolutePath
-                    )
-                    if (list.none { it.romPath == entry.romPath }) {
-                        list.add(entry)
-                    }
+            dir.walkTopDown().take(500).forEach { file ->
+                if (file.isFile && file.extension.lowercase() in ROM_EXTENSIONS) {
+                    results.add(file.nameWithoutExtension to file.absolutePath)
                 }
             }
         }
     }
+    return results
 }
 
 @Composable

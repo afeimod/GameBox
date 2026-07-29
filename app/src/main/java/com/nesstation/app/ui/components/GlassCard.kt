@@ -119,24 +119,24 @@ fun GameCard(
     Box(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.65f))
             .border(
                 width = if (focused) 3.dp else 1.5.dp,
                 color = if (focused) accent else accent.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedCornerShape(20.dp)
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            horizontalAlignment = Alignment.Start
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .height(85.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -144,16 +144,16 @@ fun GameCard(
                     imageVector = Icons.Rounded.SportsEsports,
                     contentDescription = null,
                     tint = accent,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
             Text(
                 text = title,
                 color = Color(0xFF1E2A3A),
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
+                fontSize = 12.sp,
                 maxLines = 1,
-                modifier = Modifier.padding(top = 10.dp)
+                modifier = Modifier.padding(top = 6.dp)
             )
         }
     }

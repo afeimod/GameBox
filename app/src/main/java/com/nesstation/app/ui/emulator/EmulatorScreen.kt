@@ -3,6 +3,7 @@ package com.nesstation.app.ui.emulator
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,8 +24,11 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,14 +53,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.storage.PadLayoutStore
 import kotlinx.coroutines.delay
 
 /**
  * The in-game surface — full-bleed framebuffer, on-screen D-pad + A/B/Start/Select,
  * top overlay with pause / save / screenshot / fast-forward / settings.
  *
- * On entry, loads the ROM via [NesEngine] and starts the 60Hz emulation loop.
- * The frame buffer is polled from the engine and blitted to a Compose Canvas.
+ * Controller layout (position, size, opacity) is fully configurable via [PadLayoutStore].
+ * A settings sheet lets the user drag pads to reposition and adjust scale/opacity.
  */
 @Composable
 fun EmulatorScreen(
@@ -75,6 +81,10 @@ fun EmulatorScreen(
     val bitmap = remember { Bitmap.createBitmap(256, 240, Bitmap.Config.ARGB_8888) }
     val imageBitmap = remember { bitmap.asImageBitmap() }
 
+    // Pad layout — loaded from persistent storage
+    var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
+    var showLayoutEditor by remember { mutableStateOf(false) }
+
     // Load ROM on entry
     LaunchedEffect(game) {
         val romPath = game.romPath
@@ -82,17 +92,37 @@ fun EmulatorScreen(
             errorMsg = "该游戏未关联 ROM 文件"
             return@LaunchedEffect
         }
+        // Handle both file paths and content URIs
         val romFile = java.io.File(romPath)
-        if (!romFile.exists()) {
-            errorMsg = "ROM 文件不存在: $romPath"
-            return@LaunchedEffect
-        }
-        val filesDir = context.filesDir.absolutePath
-        val ok = engine.loadRom(romFile, filesDir, filesDir) { }
-        if (!ok) {
-            errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+        if (romFile.exists()) {
+            val filesDir = context.filesDir.absolutePath
+            val ok = engine.loadRom(romFile, filesDir, filesDir) { }
+            if (!ok) {
+                errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+            } else {
+                loaded = true
+            }
         } else {
-            loaded = true
+            // Try content URI
+            try {
+                val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
+                if (input != null) {
+                    val tempFile = java.io.File(context.cacheDir, "temp_rom.nes")
+                    tempFile.outputStream().use { out -> input.copyTo(out) }
+                    input.close()
+                    val filesDir = context.filesDir.absolutePath
+                    val ok = engine.loadRom(tempFile, filesDir, filesDir) { }
+                    if (!ok) {
+                        errorMsg = engine.lastError().ifEmpty { "ROM 加载失败" }
+                    } else {
+                        loaded = true
+                    }
+                } else {
+                    errorMsg = "无法读取ROM文件: $romPath"
+                }
+            } catch (e: Exception) {
+                errorMsg = "ROM 加载失败: ${e.message}"
+            }
         }
     }
 
@@ -104,22 +134,21 @@ fun EmulatorScreen(
     // Apply fast-forward / running state to engine
     LaunchedEffect(fastForward) { engine.setFastForward(fastForward) }
 
-    // Frame polling loop — copy engine's frame buffer to the Bitmap at ~60Hz
+    // Frame polling loop
     LaunchedEffect(loaded) {
         if (!loaded) return@LaunchedEffect
         while (true) {
             engine.setPad1(padBits)
             if (running) {
-                // Copy the 256x240 ARGB pixels from the engine's shared buffer
                 bitmap.setPixels(engine.frameBuffer, 0, 256, 0, 0, 256, 240)
-                frameTick++ // trigger recomposition
+                frameTick++
             }
             delay(if (fastForward) 8 else 16)
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Game surface or error message
+        // Game surface
         if (loaded) {
             Box(
                 modifier = Modifier
@@ -139,14 +168,13 @@ fun EmulatorScreen(
                     }
                     val x = (size.width - w) / 2
                     val y = (size.height - h) / 2
-                    // Letterbox
                     drawRect(Color.Black, topLeft = Offset.Zero, size = size)
                     drawImage(
                         image = imageBitmap,
                         dstOffset = androidx.compose.ui.unit.IntOffset(x.toInt(), y.toInt()),
                         dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
                     )
-                    // Scanline overlay (subtle)
+                    // Scanline overlay
                     val scanColor = Color(0x14000000)
                     var sy = y
                     while (sy < y + h) {
@@ -156,11 +184,7 @@ fun EmulatorScreen(
                 }
             }
         } else {
-            // Loading / error state
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = errorMsg ?: "正在加载…",
                     color = Color.White,
@@ -193,13 +217,16 @@ fun EmulatorScreen(
                     Icon(Icons.Rounded.FastForward, contentDescription = null, tint = if (fastForward) Color(0xFFFFD66B) else Color.White)
                 }
             }
-            IconButton(onClick = { /* TODO: takeScreenshot */ }) {
+            IconButton(onClick = { /* TODO: screenshot */ }) {
                 Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = Color.White)
             }
             IconButton(onClick = { /* TODO: save state */ }) {
                 Icon(Icons.Rounded.Save, contentDescription = null, tint = Color.White)
             }
-            IconButton(onClick = { /* TODO: open settings sheet */ }) {
+            IconButton(onClick = { showLayoutEditor = !showLayoutEditor }) {
+                Icon(Icons.Rounded.Tune, contentDescription = "手柄布局", tint = if (showLayoutEditor) Color(0xFFFFD66B) else Color.White)
+            }
+            IconButton(onClick = { /* TODO: settings */ }) {
                 Icon(Icons.Rounded.Settings, contentDescription = null, tint = Color.White)
             }
             IconButton(onClick = { onExit() }) {
@@ -207,40 +234,255 @@ fun EmulatorScreen(
             }
         }
 
-        // Bottom on-screen pad (only show when loaded)
-        if (loaded) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                DPad(
-                    onChange = { bits -> padBits = (padBits and 0x0F) or bits },
-                    modifier = Modifier.size(160.dp)
-                )
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        PadButton("A", Color(0xFFE74C3C), size = 64) { bit ->
-                            padBits = if (bit) padBits or 0x01 else padBits and 0xFE
-                        }
-                        PadButton("B", Color(0xFFE67E22), size = 64) { bit ->
-                            padBits = if (bit) padBits or 0x02 else padBits and 0xFD
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        PadButton("SEL", Color(0xFF1E2A3A), size = 56) { bit ->
-                            padBits = if (bit) padBits or 0x04 else padBits and 0xFB
-                        }
-                        PadButton("STA", Color(0xFF1E2A3A), size = 56) { bit ->
-                            padBits = if (bit) padBits or 0x08 else padBits and 0xF7
-                        }
-                    }
+        // On-screen controller — only show when loaded and pad is visible
+        if (loaded && padLayout.showPad && !showLayoutEditor) {
+            OnScreenController(
+                padLayout = padLayout,
+                padBits = padBits,
+                onPadBitsChange = { padBits = it },
+                surfaceSize = surfaceSize
+            )
+        }
+
+        // Layout editor mode — draggable pads + sliders
+        if (loaded && showLayoutEditor) {
+            PadLayoutEditor(
+                padLayout = padLayout,
+                onLayoutChange = { newLayout ->
+                    padLayout = newLayout
+                    PadLayoutStore.save(context, newLayout)
+                },
+                surfaceSize = surfaceSize,
+                onClose = { showLayoutEditor = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OnScreenController(
+    padLayout: PadLayout,
+    padBits: Int,
+    onPadBitsChange: (Int) -> Unit,
+    surfaceSize: IntSize
+) {
+    val dpadSize = (130 * padLayout.dpadScale).dp
+    val btnSize = (60 * padLayout.btnScale).dp
+    val selSize = (52 * padLayout.btnScale).dp
+    val opacity = padLayout.opacity
+
+    // D-pad on the left
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+    ) {
+        DPad(
+            onChange = { bits -> onPadBitsChange((padBits and 0x0F) or bits) },
+            modifier = Modifier
+                .size(dpadSize)
+                .align(Alignment.TopStart)
+                .padding(
+                    start = (surfaceSize.width * padLayout.dpadX).dp,
+                    top = (surfaceSize.height * padLayout.dpadY).dp
+                ),
+            opacity = opacity
+        )
+
+        // A/B/Start/Select on the right
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(
+                    start = (surfaceSize.width * padLayout.btnX).dp,
+                    top = (surfaceSize.height * padLayout.btnY).dp
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PadButton("B", Color(0xFFE67E22), btnSize, opacity) { bit ->
+                    onPadBitsChange(if (bit) padBits or 0x02 else padBits and 0xFD)
                 }
+                PadButton("A", Color(0xFFE74C3C), btnSize, opacity) { bit ->
+                    onPadBitsChange(if (bit) padBits or 0x01 else padBits and 0xFE)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PadButton("SEL", Color(0xFF1E2A3A), selSize, opacity) { bit ->
+                    onPadBitsChange(if (bit) padBits or 0x04 else padBits and 0xFB)
+                }
+                PadButton("STA", Color(0xFF1E2A3A), selSize, opacity) { bit ->
+                    onPadBitsChange(if (bit) padBits or 0x08 else padBits and 0xF7)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PadLayoutEditor(
+    padLayout: PadLayout,
+    onLayoutChange: (PadLayout) -> Unit,
+    surfaceSize: IntSize,
+    onClose: () -> Unit
+) {
+    // Dimmed background
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x88000000))
+    )
+
+    // Editor panel at top
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text("手柄布局设置", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Spacer(Modifier.size(12.dp))
+
+        // D-pad scale
+        Text("方向键大小: ${"%.1f".format(padLayout.dpadScale)}x", color = Color.White, fontSize = 12.sp)
+        Slider(
+            value = padLayout.dpadScale,
+            onValueChange = { onLayoutChange(padLayout.copy(dpadScale = it)) },
+            valueRange = 0.5f..2.0f,
+            steps = 14
+        )
+
+        // Button scale
+        Text("按键大小: ${"%.1f".format(padLayout.btnScale)}x", color = Color.White, fontSize = 12.sp)
+        Slider(
+            value = padLayout.btnScale,
+            onValueChange = { onLayoutChange(padLayout.copy(btnScale = it)) },
+            valueRange = 0.5f..2.0f,
+            steps = 14
+        )
+
+        // Opacity
+        Text("透明度: ${"%.0f".format(padLayout.opacity * 100)}%", color = Color.White, fontSize = 12.sp)
+        Slider(
+            value = padLayout.opacity,
+            onValueChange = { onLayoutChange(padLayout.copy(opacity = it)) },
+            valueRange = 0.3f..1.0f,
+            steps = 13
+        )
+
+        // D-pad position
+        Text("方向键位置 (拖动方向键调整)", color = Color.White, fontSize = 12.sp)
+        Row {
+            Text("X: ${"%.2f".format(padLayout.dpadX)}", color = Color(0xFFFFD66B), fontSize = 11.sp, modifier = Modifier.padding(end = 16.dp))
+            Text("Y: ${"%.2f".format(padLayout.dpadY)}", color = Color(0xFFFFD66B), fontSize = 11.sp)
+        }
+        Slider(
+            value = padLayout.dpadX,
+            onValueChange = { onLayoutChange(padLayout.copy(dpadX = it)) },
+            valueRange = 0f..0.4f
+        )
+        Slider(
+            value = padLayout.dpadY,
+            onValueChange = { onLayoutChange(padLayout.copy(dpadY = it)) },
+            valueRange = 0.3f..0.95f
+        )
+
+        // Button position
+        Text("按键位置 (拖动按键调整)", color = Color.White, fontSize = 12.sp)
+        Row {
+            Text("X: ${"%.2f".format(padLayout.btnX)}", color = Color(0xFFFFD66B), fontSize = 11.sp, modifier = Modifier.padding(end = 16.dp))
+            Text("Y: ${"%.2f".format(padLayout.btnY)}", color = Color(0xFFFFD66B), fontSize = 11.sp)
+        }
+        Slider(
+            value = padLayout.btnX,
+            onValueChange = { onLayoutChange(padLayout.copy(btnX = it)) },
+            valueRange = 0.4f..0.95f
+        )
+        Slider(
+            value = padLayout.btnY,
+            onValueChange = { onLayoutChange(padLayout.copy(btnY = it)) },
+            valueRange = 0.3f..0.95f
+        )
+
+        // Show/hide toggle
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("显示手柄", color = Color.White, fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            Switch(
+                checked = padLayout.showPad,
+                onCheckedChange = { onLayoutChange(padLayout.copy(showPad = it)) }
+            )
+        }
+
+        Spacer(Modifier.size(8.dp))
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = {
+                onLayoutChange(PadLayout())
+            }) {
+                Text("重置", color = Color(0xFFFFD66B), fontSize = 13.sp)
+            }
+            IconButton(onClick = onClose) {
+                Text("完成", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+        }
+    }
+
+    // Preview pads (draggable)
+    val dpadSize = (130 * padLayout.dpadScale).dp
+    val btnSize = (60 * padLayout.btnScale).dp
+    val selSize = (52 * padLayout.btnScale).dp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Draggable D-pad preview
+        Box(
+            modifier = Modifier
+                .size(dpadSize)
+                .align(Alignment.TopStart)
+                .padding(
+                    start = (surfaceSize.width * padLayout.dpadX).dp,
+                    top = (surfaceSize.height * padLayout.dpadY).dp
+                )
+                .background(Color(0x66FFD66B), RoundedCornerShape(20.dp))
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val newX = (padLayout.dpadX + dragAmount.x / surfaceSize.width).coerceIn(0f, 0.4f)
+                        val newY = (padLayout.dpadY + dragAmount.y / surfaceSize.height).coerceIn(0.3f, 0.95f)
+                        onLayoutChange(padLayout.copy(dpadX = newX, dpadY = newY))
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("D-Pad", color = Color.White, fontSize = 10.sp)
+        }
+
+        // Draggable button group preview
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(
+                    start = (surfaceSize.width * padLayout.btnX).dp,
+                    top = (surfaceSize.height * padLayout.btnY).dp
+                )
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val newX = (padLayout.btnX + dragAmount.x / surfaceSize.width).coerceIn(0.4f, 0.95f)
+                        val newY = (padLayout.btnY + dragAmount.y / surfaceSize.height).coerceIn(0.3f, 0.95f)
+                        onLayoutChange(padLayout.copy(btnX = newX, btnY = newY))
+                    }
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(btnSize).background(Color(0x66E67E22), CircleShape), Alignment.Center) { Text("B", Color.White, 12.sp) }
+                Box(Modifier.size(btnSize).background(Color(0x66E74C3C), CircleShape), Alignment.Center) { Text("A", Color.White, 12.sp) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("SEL", Color.White, 10.sp) }
+                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("STA", Color.White, 10.sp) }
             }
         }
     }
@@ -249,12 +491,13 @@ fun EmulatorScreen(
 @Composable
 private fun DPad(
     onChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    opacity: Float = 0.75f
 ) {
     var pressed by remember { mutableStateOf(0) }
     Box(
         modifier = modifier
-            .background(Color(0x331E2A3A), RoundedCornerShape(20.dp))
+            .background(Color((0xFF1E2A3A).toInt()).copy(alpha = opacity * 0.3f), RoundedCornerShape(20.dp))
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -290,11 +533,8 @@ private fun DPad(
             val cy = size.height / 2
             val arm = size.width * 0.30f
             val thick = size.width * 0.30f
-            // Horizontal arm
-            drawRect(Color(0xFF1E2A3A), topLeft = Offset(cx - arm, cy - thick / 2), size = Size(arm * 2, thick))
-            // Vertical arm
-            drawRect(Color(0xFF1E2A3A), topLeft = Offset(cx - thick / 2, cy - arm), size = Size(thick, arm * 2))
-            // Direction indicators
+            drawRect(Color(0xFF1E2A3A).copy(alpha = opacity), topLeft = Offset(cx - arm, cy - thick / 2), size = Size(arm * 2, thick))
+            drawRect(Color(0xFF1E2A3A).copy(alpha = opacity), topLeft = Offset(cx - thick / 2, cy - arm), size = Size(thick, arm * 2))
             listOf(0 to -1, 1 to 0, 0 to 1, -1 to 0).forEach { (dx, dy) ->
                 val ax = cx + dx * (arm * 0.55f)
                 val ay = cy + dy * (arm * 0.55f)
@@ -316,14 +556,15 @@ private fun DPad(
 private fun PadButton(
     label: String,
     color: Color,
-    size: Int,
+    size: androidx.compose.ui.unit.Dp,
+    opacity: Float,
     onSet: (Boolean) -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(size.dp)
+            .size(size)
             .clip(CircleShape)
-            .background(color)
+            .background(color.copy(alpha = opacity))
             .pointerInput(label) {
                 detectTapGestures(
                     onPress = {
