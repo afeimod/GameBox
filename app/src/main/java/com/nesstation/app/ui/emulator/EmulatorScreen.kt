@@ -132,6 +132,9 @@ fun EmulatorScreen(
             "crt" -> 2
             "dot" -> 3
             "xbr" -> 4
+            "hq2x" -> 5
+            "hq4x" -> 6
+            "xbr_dot" -> 7
             else -> 0
         }
         engine.setVideoFilter(filterInt)
@@ -332,9 +335,12 @@ private fun GameSurfaceView(
             },
             modifier = surfaceModifier
         )
-        // GPU-accelerated filter overlay — scanline/CRT/dot drawn by Compose
-        if (videoFilter in listOf("scanline", "crt", "dot")) {
-            FilterOverlay(videoFilter, surfaceModifier)
+        // GPU-accelerated filter overlay — scanline/CRT/dot/XBR+dot drawn by Compose
+        if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot")) {
+            FilterOverlay(
+                if (videoFilter == "xbr_dot") "dot" else videoFilter,
+                surfaceModifier
+            )
         }
     }
 }
@@ -476,8 +482,25 @@ private fun OnScreenController(
     var visualState by remember { mutableStateOf(0) } // bits for drawing pressed state
     var turboState by remember { mutableStateOf(0) }  // turbo hold bits
 
+    // Send button state to engine immediately on change (zero-latency input).
+    // The LaunchedEffect loop below maintains state at 60fps for turbo and
+    // held buttons, but this ensures D-pad moves and button presses feel
+    // instant with no 16ms frame delay.
+    val sendStateNow = remember {
+        { vs: Int, ts: Int ->
+            if (ts != 0) {
+                // Turbo active: send combined state immediately so D-pad
+                // changes are instant, turbo cycling continues in the loop.
+                onPadBits(vs or ts)
+            } else {
+                onPadBits(vs)
+            }
+        }
+    }
+
     // Turbo auto-fire: simulates rapid short taps (press 2 frames, release 4 frames)
-    // FC turbo buttons rapidly press/release the A/B button at ~10Hz
+    // FC turbo buttons rapidly press/release the A/B button at ~10Hz.
+    // Also maintains held-button state at 60fps for the emulation core.
     var turboCounter by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -535,8 +558,10 @@ private fun OnScreenController(
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
                             turboState = turboState or turboBits
+                            sendStateNow(visualState, turboState)
                         } else {
                             visualState = visualState or bits
+                            sendStateNow(visualState, turboState)
                         }
                     }
                 }
@@ -572,9 +597,11 @@ private fun OnScreenController(
                                             BtnType.DPAD, BtnType.A, BtnType.B,
                                             BtnType.START, BtnType.SELECT -> {
                                                 visualState = visualState and heldBits.inv()
+                                                sendStateNow(visualState, turboState)
                                             }
                                             BtnType.TURBO_A, BtnType.TURBO_B -> {
                                                 turboState = turboState and heldBits.inv()
+                                                sendStateNow(visualState, turboState)
                                             }
                                         }
                                     }
@@ -586,6 +613,7 @@ private fun OnScreenController(
                                         val newBits = computeDpadDirection(change.position, dpadRect)
                                         visualState = visualState or newBits
                                         activePointers[pid] = BtnType.DPAD to newBits
+                                        sendStateNow(visualState, turboState)
                                     }
                                 }
                             }
@@ -1236,7 +1264,8 @@ private fun SettingsPanel(
         ) { onLayoutChange(padLayout.copy(videoScale = it)) }
 
         DropdownSetting("视频滤镜",
-            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵", "xbr" to "XBR"),
+            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
+                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵"),
             padLayout.videoFilter
         ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
 
