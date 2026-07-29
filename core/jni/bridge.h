@@ -2,8 +2,10 @@
 // JNI bridge for FCEUmm core — simplified pull-model interface.
 //
 // Kotlin owns the emulation loop: it calls runFrame() to step the core,
-// getFrameBuffer() to pull the latest ARGB frame, and readAudio() to
-// pull stereo PCM for AudioTrack. No native-side threads or callbacks.
+// getFrameBuffer() to pull the latest ARGB frame (fallback), and readAudio()
+// to pull stereo PCM for AudioTrack. For hardware-accelerated rendering,
+// Kotlin calls setSurface() to attach an ANativeWindow; the core then blits
+// frames directly to the surface, bypassing the JNI frame buffer copy.
 #pragma once
 
 #include <jni.h>
@@ -43,6 +45,18 @@ public:
 
     // Set system (FDS BIOS) and save (SRAM) directories.
     void setPaths(const std::string& systemDir, const std::string& saveDir);
+
+    // --- Hardware-accelerated rendering ---
+    // Attach/detach an ANativeWindow for direct surface blitting.
+    void setSurface(jobject surface);
+
+    // --- Core options ---
+    // Set a core option by key/value (e.g. "fceumm_ntsc_filter" -> "composite").
+    void setCoreOption(const std::string& key, const std::string& value);
+
+    // --- Video geometry ---
+    int  videoWidth();
+    int  videoHeight();
 
     std::string lastError() const { return lastError_; }
 

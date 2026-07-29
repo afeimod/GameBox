@@ -4,12 +4,18 @@
 // Thin wrapper around the libretro frontend in rom_loader.cpp. Kotlin owns
 // the emulation thread and pulls frames / audio on demand — no native-side
 // threads or callbacks, which keeps the lifecycle simple and crash-free.
+//
+// For hardware-accelerated rendering, Kotlin passes a Surface object via
+// setSurface(); we extract the ANativeWindow and hand it to rom_loader, which
+// blits frames directly to the surface buffer in the video callback.
 
 #include "bridge.h"
 #include "rom_loader.h"
 
 #include <jni.h>
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #include <cstring>
 
 #define TAG "nescore"
@@ -71,16 +77,42 @@ void Engine::setPaths(const std::string& systemDir, const std::string& saveDir) 
     rom::setPaths(systemDir, saveDir);
 }
 
+void Engine::setSurface(jobject surface) {
+    if (!surface) {
+        rom::setSurface(nullptr);
+        return;
+    }
+    // Get the JNIEnv for this thread (JNI_OnLoad or a JNI call context)
+    JavaVM* vm = nullptr;
+    // We rely on the caller being a JNI function; the JNIEnv is available
+    // via the JNI function parameters. However, setSurface might be called
+    // from a non-JNI context, so we store the JavaVM globally.
+    // For simplicity, we pass the jobject directly to the JNI function
+    // which calls ANativeWindow_fromSurface.
+    // This is handled in the JNI wrapper below.
+}
+
+void Engine::setCoreOption(const std::string& key, const std::string& value) {
+    rom::setCoreOption(key, value);
+}
+
+int Engine::videoWidth()  { return rom::videoWidth(); }
+int Engine::videoHeight() { return rom::videoHeight(); }
+
 } // namespace nescore
 
 // ---------------------------------------------------------------------------
 // JNI surface — mirrors NesNative.kt exactly
 // ---------------------------------------------------------------------------
 
+// Store the JavaVM for ANativeWindow_fromSurface calls
+static JavaVM* s_jvm = nullptr;
+
 extern "C" {
 
 JNIEXPORT jint JNICALL
-JNI_OnLoad(JavaVM* /*vm*/, void* /*reserved*/) {
+JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
+    s_jvm = vm;
     return JNI_VERSION_1_6;
 }
 
@@ -187,6 +219,43 @@ Java_com_nesstation_app_core_jni_NesNative_setPaths(JNIEnv* env, jclass, jstring
 JNIEXPORT jstring JNICALL
 Java_com_nesstation_app_core_jni_NesNative_lastError(JNIEnv* env, jclass) {
     return env->NewStringUTF(nescore::Engine::instance().lastError().c_str());
+}
+
+// --- Hardware-accelerated rendering ---
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NesNative_setSurface(JNIEnv* env, jclass, jobject surface) {
+    ANativeWindow* win = nullptr;
+    if (surface) {
+        win = ANativeWindow_fromSurface(env, surface);
+    }
+    nescore::rom::setSurface(win);
+    // ANativeWindow_fromSurface returns a new reference; setSurface acquires it.
+    // Release our local reference so we don't leak.
+    if (win) ANativeWindow_release(win);
+}
+
+// --- Core options ---
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NesNative_setCoreOption(JNIEnv* env, jclass, jstring key, jstring value) {
+    const char* ckey = key ? env->GetStringUTFChars(key, nullptr) : nullptr;
+    const char* cval = value ? env->GetStringUTFChars(value, nullptr) : nullptr;
+    nescore::Engine::instance().setCoreOption(ckey ? ckey : "", cval ? cval : "");
+    if (ckey) env->ReleaseStringUTFChars(key, ckey);
+    if (cval) env->ReleaseStringUTFChars(value, cval);
+}
+
+// --- Video geometry ---
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NesNative_videoWidth(JNIEnv*, jclass) {
+    return nescore::Engine::instance().videoWidth();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NesNative_videoHeight(JNIEnv*, jclass) {
+    return nescore::Engine::instance().videoHeight();
 }
 
 } // extern "C"

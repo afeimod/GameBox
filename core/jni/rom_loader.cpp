@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 // libretro frontend that drives the FCEUmm core.
 //
-// We link FCEUmm's libretro.c (which exports retro_init / retro_load_game /
-// retro_run / ...) and drive it from here. This file owns:
-//   * the libretro callbacks (environment / video / audio / input)
-//   * a 256x240 ARGB frame buffer fed by retro_video_refresh_t
-//   * a lock-free-ish stereo audio ring buffer fed by retro_audio_sample_batch_t
-//   * controller state pushed in from JNI
-//   * save-state serialization helpers
+// Features:
+//   * Hardware-accelerated rendering via ANativeWindow (SurfaceView)
+//   * Core options variable system (NTSC filter, aspect ratio, palette, etc.)
+//   * 256x240 ARGB frame buffer for fallback Bitmap rendering
+//   * Lock-free-ish stereo audio ring buffer
+//   * Controller state + save-state serialization
 //
 // All retro_* calls happen on a single emulation thread (see NesEngine in
 // Kotlin), so no extra internal locking is needed around the core itself.
@@ -18,13 +17,17 @@
 
 #include <libretro.h>
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #define TAG "nescore-rom"
@@ -47,10 +50,14 @@ static std::string s_systemDir;
 static std::string s_saveDir;
 
 // Frame buffer (ARGB, 0xAARRGGBB). Written by video_cb, read by
-// copyFramebufferARGB.
+// copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
 static std::mutex s_frameMtx;
 static uint32_t s_frame[kNesW * kNesH];
 static std::atomic<bool> s_newFrame{false};
+
+// Current video dimensions from the core (may change with NTSC filter etc.)
+static unsigned s_videoW = kNesW;
+static unsigned s_videoH = kNesH;
 
 // Controller bits (see setControllerInput layout).
 static std::atomic<uint16_t> s_pad1{0};
@@ -63,6 +70,49 @@ static size_t  s_audioWrite = 0;
 static size_t  s_audioRead  = 0;
 static size_t  s_audioCount = 0;
 static std::mutex s_audioMtx;
+
+// ---------------------------------------------------------------------------
+// ANativeWindow — hardware-accelerated direct surface rendering
+// ---------------------------------------------------------------------------
+static ANativeWindow* s_window = nullptr;
+static std::mutex s_windowMtx;
+
+// ---------------------------------------------------------------------------
+// Core options — key/value map served to the core via GET_VARIABLE
+// ---------------------------------------------------------------------------
+static std::mutex s_optMtx;
+static std::map<std::string, std::string> s_options;
+static std::atomic<bool> s_optionsChanged{false};
+
+// Initialize FCEUmm core options with sensible defaults.
+// These mirror the option keys registered by FCEUmm's retro_set_variables().
+static void initDefaultOptions() {
+    s_options["fceumm_region"]            = "Auto";
+    s_options["fceumm_ntsc_filter"]       = "disabled";  // No NTSC filter by default (fastest)
+    s_options["fceumm_palette"]           = "default";
+    s_options["fceumm_aspect"]            = "8:7";       // PAR 8:7 (native NES pixels)
+    s_options["fceumm_cropoverscan"]      = "disabled";
+    s_options["fceumm_sndquality"]        = "Low";
+    s_options["fceumm_sndlowpass"]        = "enabled";
+    s_options["fceumm_sndvolume"]         = "150";
+    s_options["fceumm_turbo_enable"]      = "None";
+    s_options["fceumm_turbo_delay"]       = "3";
+    s_options["fceumm_show_adv_graphic"]  = "enabled";
+    s_options["fceumm_overclocking"]      = "disabled";
+    s_options["fceumm_nospritelimit"]     = "disabled";
+    s_options["fceumm_show_crosshair"]    = "enabled";
+    s_options["fceumm_aspect_orient"]     = "horizontal";
+    s_options["fceumm_su_swap"]           = "disabled";
+    s_options["fceumm_disable_swap"]      = "disabled";
+    s_options["fceumm_top_crop"]          = "0";
+    s_options["fceumm_bot_crop"]          = "0";
+    s_options["fceumm_left_crop"]         = "0";
+    s_options["fceumm_right_crop"]        = "0";
+    s_options["fceumm_top_crop_overscan"] = "disabled";
+    s_options["fceumm_bot_crop_overscan"] = "disabled";
+    s_options["fceumm_left_crop_overscan"] = "disabled";
+    s_options["fceumm_right_crop_overscan"] = "disabled";
+}
 
 // ---------------------------------------------------------------------------
 // libretro callbacks
@@ -110,19 +160,32 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
             return !s_systemDir.empty();
 
-        // The core registers these; we accept and ignore.
+        // The core registers these; we accept.
         case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
         case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE:
         case RETRO_ENVIRONMENT_SET_VARIABLES:
             return true;
 
-        case RETRO_ENVIRONMENT_GET_VARIABLE:
-            return false; // no option values -> core uses built-in defaults
+        case RETRO_ENVIRONMENT_GET_VARIABLE: {
+            if (!data) return false;
+            auto* var = static_cast<retro_variable*>(data);
+            if (!var->key) return false;
+            std::lock_guard<std::mutex> lk(s_optMtx);
+            auto it = s_options.find(var->key);
+            if (it != s_options.end()) {
+                var->value = it->second.c_str();
+                return true;
+            }
+            return false;
+        }
 
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-            if (data) *static_cast<bool*>(data) = false;
-            return false;
+            if (data) {
+                *static_cast<bool*>(data) = s_optionsChanged.exchange(false,
+                    std::memory_order_acq_rel);
+            }
+            return true;
 
         // Use libretro-common's bundled local file_stream instead of a VFS
         // interface — it is already linked in and handles ROM/SRAM files fine.
@@ -140,27 +203,117 @@ static bool cb_environment(unsigned cmd, void* data) {
     }
 }
 
+// Blit a row of XRGB8888 pixels to the ANativeWindow buffer (ARGB_8888).
+// On Android, ANativeWindow buffers with format WINDOW_FORMAT_RGBA_8888 or
+// WINDOW_FORMAT_RGBX_8888 store pixels as RGBA in memory. We need to convert
+// XRGB (0xXXRRGGBB) to RGBA (0xRRGGBBAA or 0xRRGGBBXX).
+static inline uint32_t xrgbToRgba(uint32_t px) {
+    // XRGB8888: 0xXXRRGGBB -> RGBA8888: 0xRRGGBBAA (alpha = 0xFF)
+    return ((px & 0x00FFFFFF) << 8) | 0x000000FFu;
+}
+
+static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t srcStride) {
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+    if (!s_window) return;
+
+    ANativeWindow_Buffer buf;
+    memset(&buf, 0, sizeof(buf));
+    int rc = ANativeWindow_lock(s_window, &buf, nullptr);
+    if (rc != 0) {
+        LOGE("ANativeWindow_lock failed: %d", rc);
+        return;
+    }
+
+    // Determine destination parameters
+    const uint32_t dstW = (uint32_t)buf.width;
+    const uint32_t dstH = (uint32_t)buf.height;
+    if (dstW == 0 || dstH == 0) {
+        ANativeWindow_unlockAndPost(s_window);
+        return;
+    }
+
+    // Scale source to destination (nearest-neighbor, preserve aspect ratio)
+    float sx = (float)w / (float)dstW;
+    float sy = (float)h / (float)dstH;
+    float scale = sx > sy ? sx : sy; // use larger scale = fit inside
+    // Actually we want to fill the surface; let the Kotlin layer set the
+    // SurfaceView layout to match the aspect ratio. Here we just stretch.
+    sx = (float)w / (float)dstW;
+    sy = (float)h / (float)dstH;
+
+    // The buffer format is typically WINDOW_FORMAT_RGBA_8888 (4 bytes/pixel)
+    // or WINDOW_FORMAT_RGB_565. Handle RGBA_8888 (most common on modern devices).
+    if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
+        buf.format == WINDOW_FORMAT_RGBX_8888) {
+        uint8_t* dst = static_cast<uint8_t*>(buf.bits);
+        const uint32_t dstStride = buf.stride * 4; // bytes per row
+        for (uint32_t y = 0; y < dstH; ++y) {
+            uint32_t srcY = (uint32_t)(y * sy);
+            if (srcY >= h) srcY = h - 1;
+            uint8_t* drow = dst + y * dstStride;
+            const uint32_t* srow = src + srcY * srcStride;
+            for (uint32_t x = 0; x < dstW; ++x) {
+                uint32_t srcX = (uint32_t)(x * sx);
+                if (srcX >= w) srcX = w - 1;
+                uint32_t px = srow[srcX];
+                // XRGB8888 -> RGBA8888
+                drow[x * 4 + 0] = (px >> 16) & 0xFF; // R
+                drow[x * 4 + 1] = (px >> 8) & 0xFF;  // G
+                drow[x * 4 + 2] = px & 0xFF;          // B
+                drow[x * 4 + 3] = 0xFF;                // A
+            }
+        }
+    } else if (buf.format == WINDOW_FORMAT_RGB_565) {
+        uint16_t* dst = static_cast<uint16_t*>(buf.bits);
+        const uint32_t dstStride = buf.stride; // pixels per row
+        for (uint32_t y = 0; y < dstH; ++y) {
+            uint32_t srcY = (uint32_t)(y * sy);
+            if (srcY >= h) srcY = h - 1;
+            uint16_t* drow = dst + y * dstStride;
+            const uint32_t* srow = src + srcY * srcStride;
+            for (uint32_t x = 0; x < dstW; ++x) {
+                uint32_t srcX = (uint32_t)(x * sx);
+                if (srcX >= w) srcX = w - 1;
+                uint32_t px = srow[srcX];
+                uint16_t r = ((px >> 16) & 0xF8) >> 3; // 5 bits
+                uint16_t g = ((px >> 8) & 0xFC) >> 2;  // 6 bits
+                uint16_t b = (px & 0xF8) >> 3;          // 5 bits
+                drow[x] = (r << 11) | (g << 5) | b;
+            }
+        }
+    }
+
+    ANativeWindow_unlockAndPost(s_window);
+}
+
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return; // duplicate frame / no data this frame
 
-    std::lock_guard<std::mutex> lk(s_frameMtx);
+    s_videoW = width;
+    s_videoH = height;
+
     const uint32_t* src = static_cast<const uint32_t*>(data);
     const size_t srcStride = pitch / sizeof(uint32_t);
 
-    const unsigned cw = (width < kNesW) ? width : (unsigned)kNesW;
-    const unsigned ch = (height < kNesH) ? height : (unsigned)kNesH;
-
-    // Clear first so cropped frames don't leave stale pixels at the edges.
-    std::memset(s_frame, 0, sizeof(s_frame));
-    for (unsigned y = 0; y < ch; ++y) {
-        const uint32_t* srow = src + y * srcStride;
-        uint32_t* drow = s_frame + y * kNesW;
-        for (unsigned x = 0; x < cw; ++x) {
-            // XRGB8888 (0xXXRRGGBB) -> ARGB (0xFFRRGGBB)
-            drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+    // Copy to internal frame buffer (for fallback Bitmap rendering + screenshots)
+    {
+        std::lock_guard<std::mutex> lk(s_frameMtx);
+        const unsigned cw = (width < kNesW) ? width : (unsigned)kNesW;
+        const unsigned ch = (height < kNesH) ? height : (unsigned)kNesH;
+        std::memset(s_frame, 0, sizeof(s_frame));
+        for (unsigned y = 0; y < ch; ++y) {
+            const uint32_t* srow = src + y * srcStride;
+            uint32_t* drow = s_frame + y * kNesW;
+            for (unsigned x = 0; x < cw; ++x) {
+                // XRGB8888 (0xXXRRGGBB) -> ARGB (0xFFRRGGBB)
+                drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+            }
         }
+        s_newFrame.store(true, std::memory_order_release);
     }
-    s_newFrame.store(true, std::memory_order_release);
+
+    // Blit directly to ANativeWindow if a surface is attached (hardware accel)
+    blitToSurface(src, width, height, srcStride);
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -220,6 +373,13 @@ static void resetAudioRing() {
 std::string loadFromFile(const std::string& path, int& regionOut) {
     if (s_loaded) unload();
 
+    // Initialize core options before the core starts
+    {
+        std::lock_guard<std::mutex> lk(s_optMtx);
+        if (s_options.empty()) initDefaultOptions();
+    }
+    s_optionsChanged.store(false, std::memory_order_release);
+
     // CRITICAL: retro_set_environment MUST be called before retro_init().
     // FCEUmm's retro_init() calls the environment callback (e.g. to get the
     // log interface). If environ_cb is still NULL, it dereferences pc 0x0.
@@ -272,13 +432,16 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_sampleRate = (int)av.timing.sample_rate;
     s_region = (av.timing.fps < 55.0) ? 1 : 0;
     regionOut = s_region;
+    s_videoW = av.geometry.base_width;
+    s_videoH = av.geometry.base_height;
 
     resetAudioRing();
     s_newFrame.store(false);
 
-    LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u",
+    LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
-         av.geometry.base_width, av.geometry.base_height);
+         av.geometry.base_width, av.geometry.base_height,
+         av.geometry.max_width, av.geometry.max_height);
     return "";
 }
 
@@ -375,6 +538,67 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     if (rd != (size_t)sz) return false;
     if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
     return true;
+}
+
+// --- Hardware-accelerated rendering ---------------------------------------
+
+void setSurface(void* nativeWindow) {
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+
+    // Release the previous window
+    if (s_window) {
+        ANativeWindow_release(s_window);
+        s_window = nullptr;
+    }
+
+    if (nativeWindow) {
+        s_window = static_cast<ANativeWindow*>(nativeWindow);
+        ANativeWindow_acquire(s_window);
+
+        // Set the buffer geometry to match the NES resolution.
+        // The SurfaceFlinger will handle scaling to the display.
+        ANativeWindow_setBuffersGeometry(s_window, s_videoW, s_videoH,
+                                         WINDOW_FORMAT_RGBA_8888);
+        LOGI("Surface attached: %dx%d", s_videoW, s_videoH);
+    } else {
+        LOGI("Surface detached");
+    }
+}
+
+// --- Core options ----------------------------------------------------------
+
+void setCoreOption(const std::string& key, const std::string& value) {
+    {
+        std::lock_guard<std::mutex> lk(s_optMtx);
+        s_options[key] = value;
+    }
+    s_optionsChanged.store(true, std::memory_order_release);
+    LOGI("Core option set: %s = %s", key.c_str(), value.c_str());
+}
+
+// --- Video geometry --------------------------------------------------------
+
+int videoWidth()  { return (int)s_videoW; }
+int videoHeight() { return (int)s_videoH; }
+
+void videoAspectRatio(int& num, int& den) {
+    // FCEUmm reports aspect_ratio in the AV info struct, but we compute
+    // it from the current video dimensions.
+    if (s_videoH == 0) {
+        num = 4; den = 3;
+        return;
+    }
+    // Common NES aspect ratios:
+    // 8:7  = 256:224 (native PAR)
+    // 4:3  = standard TV
+    // NTSC = ~10:11 PAR -> 256*10/11 : 224 ≈ 4:3
+    // We simplify: return the raw pixel ratio
+    num = (int)s_videoW;
+    den = (int)s_videoH;
+    // Reduce by GCD
+    int a = num, b = den;
+    while (b) { int t = b; b = a % b; a = t; }
+    if (a > 0) { num /= a; den /= a; }
 }
 
 } // namespace nescore::rom

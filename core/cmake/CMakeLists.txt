@@ -139,9 +139,10 @@ target_compile_options(nescore PRIVATE
     -Wno-missing-prototypes
 )
 
-# Only the Android log backend is needed: video goes through a Bitmap blitted
-# from JNI (no GLES), audio is pulled by Kotlin's AudioTrack (no OpenSL ES).
-target_link_libraries(nescore log)
+# Android log + native_window (ANativeWindow) for hardware-accelerated surface
+# rendering. Video frames are blitted directly to the SurfaceView's surface
+# buffer, bypassing the JNI frame copy + Compose Canvas redraw overhead.
+target_link_libraries(nescore log android)
 
 # AGP's externalNativeBuild automatically picks up the .so from CMake's
 # build output — no manual LIBRARY_OUTPUT_DIRECTORY needed.

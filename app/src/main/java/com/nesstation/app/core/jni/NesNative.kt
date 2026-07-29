@@ -1,5 +1,7 @@
 package com.nesstation.app.core.jni
 
+import android.view.Surface
+
 /**
  * Raw JNI surface to libnescore.so. Kept intentionally tiny and side-effect free.
  * All heavy work happens on the engine thread (see [NesEngine]).
@@ -9,7 +11,12 @@ package com.nesstation.app.core.jni
  * block to avoid ExceptionInInitializerError crashing the whole app.
  *
  * Pull model: Kotlin calls [runFrame] to step the core, [getFrameBuffer] to
- * read the latest ARGB frame, and [readAudio] to pull stereo PCM for AudioTrack.
+ * read the latest ARGB frame (fallback), and [readAudio] to pull stereo PCM
+ * for AudioTrack.
+ *
+ * Hardware acceleration: call [setSurface] with a [Surface] to enable direct
+ * ANativeWindow blitting — the core writes frames straight to the surface
+ * buffer, eliminating the JNI copy + Compose Canvas redraw overhead.
  */
 object NesNative {
 
@@ -49,6 +56,8 @@ object NesNative {
     /**
      * Copy the latest 256×240 ARGB frame into `out` (must be ≥ 61440 elements).
      * Returns true if a fresh frame was produced since the previous call.
+     * NOTE: Only needed for fallback Bitmap rendering. When [setSurface] is
+     * used, frames go directly to the surface and this is not required.
      */
     @JvmStatic external fun getFrameBuffer(out: IntArray): Boolean
 
@@ -65,4 +74,36 @@ object NesNative {
     @JvmStatic external fun setPaths(systemDir: String, saveDir: String)
 
     @JvmStatic external fun lastError(): String
+
+    // --- Hardware-accelerated rendering ---
+
+    /**
+     * Attach a [Surface] for direct framebuffer blitting via ANativeWindow.
+     * Pass null to detach the surface (e.g. when the SurfaceView is destroyed).
+     * When a surface is attached, the core blits each frame directly to the
+     * surface buffer — no JNI frame copy or Compose Canvas redraw needed.
+     */
+    @JvmStatic external fun setSurface(surface: Surface?)
+
+    // --- Core options ---
+
+    /**
+     * Set a core option by key and value.
+     * Common keys:
+     *   "fceumm_ntsc_filter"  -> "disabled" | "composite" | "svideo" | "rgb"
+     *   "fceumm_aspect"       -> "8:7" | "4:3" | "NTSC" | "PAL"
+     *   "fceumm_palette"      -> "default" | "dq" | "nx" | "asq" | "rp2" | ...
+     *   "fceumm_region"       -> "Auto" | "NTSC" | "PAL" | "Dendy"
+     *   "fceumm_sndquality"   -> "Low" | "High" | "Very High"
+     *   "fceumm_cropoverscan" -> "disabled" | "enabled"
+     */
+    @JvmStatic external fun setCoreOption(key: String, value: String)
+
+    // --- Video geometry ---
+
+    /** Current video width reported by the core (e.g. 256, or 302 with NTSC filter). */
+    @JvmStatic external fun videoWidth(): Int
+
+    /** Current video height reported by the core (e.g. 240). */
+    @JvmStatic external fun videoHeight(): Int
 }

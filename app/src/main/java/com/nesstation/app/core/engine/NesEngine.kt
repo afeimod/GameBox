@@ -3,6 +3,7 @@ package com.nesstation.app.core.engine
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.view.Surface
 import com.nesstation.app.core.jni.NesNative
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -10,13 +11,18 @@ import kotlin.concurrent.thread
 
 /**
  * High-level façade around [NesNative]. Owns the emulation thread, the
- * AudioTrack for sound, and a shared frame buffer that the UI reads.
+ * AudioTrack for sound, and optional hardware-accelerated surface rendering.
  *
  * Lifecycle:
  *  - [ensureLoaded] loads the native library (call once at app startup).
  *  - [loadRom] boots a native session and starts the emulation thread.
+ *  - [setSurface] attaches a Surface for direct ANativeWindow blitting.
  *  - [unload] / [shutdown] stop the thread and release audio.
  *  - [setPad1] pushes controller state to the core for the next frame.
+ *
+ * When a Surface is attached via [setSurface], the native core blits each
+ * frame directly to the surface buffer (hardware-accelerated path). The
+ * Kotlin-side frame buffer copy is skipped entirely, giving smooth 60fps.
  */
 class NesEngine private constructor() {
 
@@ -31,6 +37,8 @@ class NesEngine private constructor() {
         private set
 
     @Volatile private var _fastForward = false
+    @Volatile private var hasSurface = false
+    @Volatile private var _paused = false
 
     fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
@@ -69,10 +77,26 @@ class NesEngine private constructor() {
         running.set(true)
         thread = thread(name = "nescore-loop", isDaemon = true) {
             while (running.get()) {
+                if (_paused) {
+                    // Paused: drain audio to prevent buffer overflow, but don't step the core
+                    val n = NesNative.readAudio(audioBuf)
+                    if (n > 0) {
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    }
+                    try { Thread.sleep(16) } catch (_: InterruptedException) { break }
+                    continue
+                }
+
                 val t0 = System.nanoTime()
 
                 NesNative.runFrame()
-                NesNative.getFrameBuffer(frameBuffer)
+
+                // Only copy the frame buffer to Kotlin if we DON'T have a
+                // hardware-accelerated surface (the native code already blitted
+                // the frame directly to the ANativeWindow when a surface is set).
+                if (!hasSurface) {
+                    NesNative.getFrameBuffer(frameBuffer)
+                }
 
                 // Pull and play audio
                 val n = NesNative.readAudio(audioBuf)
@@ -98,9 +122,42 @@ class NesEngine private constructor() {
         return true
     }
 
+    /**
+     * Attach a [Surface] for hardware-accelerated direct rendering.
+     * The native core will blit each frame directly to the surface via
+     * ANativeWindow, bypassing the JNI frame buffer copy entirely.
+     * Pass null to detach (e.g. when the SurfaceView is destroyed).
+     */
+    fun setSurface(surface: Surface?) {
+        hasSurface = surface != null
+        NesNative.setSurface(surface)
+    }
+
+    /**
+     * Set a core option (e.g. NTSC filter, aspect ratio, palette).
+     * The change takes effect on the next frame.
+     */
+    fun setCoreOption(key: String, value: String) {
+        NesNative.setCoreOption(key, value)
+    }
+
+    /** Current video width from the core (e.g. 256, or 302 with NTSC filter). */
+    fun videoWidth(): Int = if (isLoaded) NesNative.videoWidth() else 256
+
+    /** Current video height from the core (e.g. 240). */
+    fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
+
     fun setFastForward(on: Boolean) {
         _fastForward = on
         if (isLoaded) NesNative.setFastForward(on)
+    }
+
+    /**
+     * Pause or resume emulation. When paused, the emulation thread stays alive
+     * but doesn't call runFrame(), so the game freezes while the UI remains responsive.
+     */
+    fun setPaused(paused: Boolean) {
+        _paused = paused
     }
 
     private fun startAudio(sampleRate: Int) {
@@ -145,6 +202,7 @@ class NesEngine private constructor() {
     fun unload() {
         stop()
         stopAudio()
+        setSurface(null)
         if (isLoaded) {
             NesNative.unload()
             isLoaded = false
