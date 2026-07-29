@@ -36,8 +36,11 @@ object RomStore {
             val id = p.getString("${KEY_PREFIX_ID}$i", null) ?: continue
             val title = p.getString("${KEY_PREFIX_TITLE}$i", "Unknown") ?: "Unknown"
             val path = p.getString("${KEY_PREFIX_PATH}$i", null) ?: continue
-            val accent = p.getInt("${KEY_PREFIX_ACCENT}$i", 0xFFE74C3C.toInt())
-            list.add(GameEntry(id = id, title = title, romPath = path, accent = Color(accent)))
+            val accentInt = p.getInt("${KEY_PREFIX_ACCENT}$i", 0xFFE74C3C.toInt())
+            // Mask to 32 bits to prevent sign-extension artefacts when the
+            // Int is promoted to Long/ULong by the Color constructor.
+            list.add(GameEntry(id = id, title = title, romPath = path,
+                accent = Color(accentInt.toLong() and 0xFFFFFFFF)))
         }
         return list
     }

@@ -120,10 +120,10 @@ fun GameCard(
         modifier = modifier
             .scale(scale)
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.65f))
+            .background(Color.White.copy(alpha = 0.75f))
             .border(
                 width = if (focused) 3.dp else 1.5.dp,
-                color = if (focused) accent else accent.copy(alpha = 0.4f),
+                color = if (focused) accent else accent.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(20.dp)
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -137,14 +137,21 @@ fun GameCard(
                     .fillMaxWidth()
                     .height(85.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(accent.copy(alpha = 0.18f)),
+                    .background(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                accent.copy(alpha = 0.85f),
+                                accent.copy(alpha = 0.55f)
+                            )
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.SportsEsports,
                     contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(36.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
                 )
             }
             Text(

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -363,33 +364,47 @@ private fun FilterOverlay(
     }
 }
 
-// Scanline pattern: 1px transparent, 1px transparent, 1px dark — every 3rd
-// row is darkened, simulating CRT scanlines.
+// Scanline pattern: 2px wide, 4px tall — 3 transparent rows + 1 dark row.
+// The 4px height matches roughly 1 NES scanline on a 1080p display, giving
+// authentic CRT scanline spacing. 55% black is clearly visible.
 private fun createScanlinePattern(): Bitmap {
-    val bmp = Bitmap.createBitmap(1, 3, Bitmap.Config.ARGB_8888)
-    bmp.setPixel(0, 0, 0x00000000)
-    bmp.setPixel(0, 1, 0x00000000)
-    bmp.setPixel(0, 2, 0x59000000) // ~35% black
+    val bmp = Bitmap.createBitmap(2, 4, Bitmap.Config.ARGB_8888)
+    for (x in 0..1) {
+        bmp.setPixel(x, 0, 0x00000000)
+        bmp.setPixel(x, 1, 0x00000000)
+        bmp.setPixel(x, 2, 0x00000000)
+        bmp.setPixel(x, 3, 0x8C000000L.toInt()) // 55% black
+    }
     return bmp
 }
 
-// CRT pattern: same as scanline but slightly darker lines
+// CRT pattern: 3px wide (RGB subpixel triads), 6px tall — 5 clear rows + 1
+// scanline row. Each column has a subtle colour tint simulating phosphor
+// separation, and the scanline row is 50% black.
 private fun createCrtPattern(): Bitmap {
-    val bmp = Bitmap.createBitmap(1, 3, Bitmap.Config.ARGB_8888)
-    bmp.setPixel(0, 0, 0x00000000)
-    bmp.setPixel(0, 1, 0x00000000)
-    bmp.setPixel(0, 2, 0x66000000) // ~40% black
+    val bmp = Bitmap.createBitmap(3, 6, Bitmap.Config.ARGB_8888)
+    for (y in 0..4) {
+        // Subtle phosphor tint: R column slightly red, G slightly green, B slightly blue
+        bmp.setPixel(0, y, 0x08FF0000) // faint red tint
+        bmp.setPixel(1, y, 0x0800FF00) // faint green tint
+        bmp.setPixel(2, y, 0x080000FF) // faint blue tint
+    }
+    // Scanline row — darker across all subpixels
+    for (x in 0..2) {
+        bmp.setPixel(x, 5, 0x80000000L.toInt()) // 50% black scanline
+    }
     return bmp
 }
 
-// Dot pattern: 3x3 crosshatch — center row and center column darkened,
-// simulating LCD dot grid.
+// Dot pattern: 3x3 crosshatch — every other pixel darkened, simulating an
+// LCD dot matrix grid. 30% black gives a subtle but visible grid.
 private fun createDotPattern(): Bitmap {
     val bmp = Bitmap.createBitmap(3, 3, Bitmap.Config.ARGB_8888)
     for (y in 0..2) {
         for (x in 0..2) {
-            val isDark = (x == 1 || y == 1)
-            bmp.setPixel(x, y, if (isDark) 0x33000000 else 0x00000000)
+            // Darken pixels where (x+y) is odd — creates checkerboard grid
+            val isDark = ((x + y) % 2 == 1)
+            bmp.setPixel(x, y, if (isDark) 0x4D000000 else 0x00000000) // 30% black
         }
     }
     return bmp
@@ -771,6 +786,7 @@ private fun MenuOverlay(
         IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
         IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
         IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
         IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
     }
 }

@@ -66,16 +66,18 @@ static unsigned s_videoH = kNesH;
 static std::atomic<uint16_t> s_pad1{0};
 static std::atomic<uint16_t> s_pad2{0};
 
-// FDS disk auto-insert: FCEUmm starts with the disk ejected (InDisk=255).
-// The user must press the R button to insert it. We auto-press R on the
-// first few frames after loading an FDS game so the game boots immediately.
-static std::atomic<bool> s_fdsNeedInsert{false};
-static std::atomic<bool> s_fdsRButton{false};
+// FDS game detection (for logging only — the disk is auto-inserted
+// by FDSInit() during PowerNES(), so no manual R button press is needed).
 static std::atomic<bool> s_isFdsGame{false};
-static int s_fdsInsertFrameCount = 0;
 
-// Video filter type: 0=none, 1=scanline, 2=crt, 3=dot
+// Video filter type: 0=none, 1=scanline, 2=crt, 3=dot, 4=xbr
 static std::atomic<int> s_videoFilter{0};
+
+// XBR 2x upscale buffer — when XBR filter is active, the 256x240 frame is
+// bilinearly upscaled to 512x480 before blitting. This gives a smoother,
+// "HD-like" appearance compared to raw nearest-neighbor, with negligible
+// CPU cost (~250K pixels of integer arithmetic per frame).
+static uint32_t s_xbrBuffer[kNesW * 2 * kNesH * 2];
 
 // Audio ring buffer: interleaved stereo int16 samples.
 static constexpr size_t kAudioCap = 1u << 15; // 32768 samples (~0.37s @44.1k stereo)
@@ -275,73 +277,36 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
         return;
     }
 
-    const float sx = (float)w / (float)dstW;
-    const float sy = (float)h / (float)dstH;
-
-    // filterType 4 = xbr → use bilinear interpolation for smooth scaling.
-    // All other filter types (scanline/crt/dot) use nearest-neighbor here;
-    // the visual effect is applied as a GPU-accelerated Compose overlay.
-    const int filterType = s_videoFilter.load(std::memory_order_relaxed);
-    const bool useBilinear = (filterType == 4);
-
+    // All filters use the same blit path: nearest-neighbor scaling from the
+    // source resolution (256x240, or 512x480 for XBR) to the display buffer.
+    // The buffer geometry is always 0x0 (window default), so the compositor
+    // does no additional scaling. Scanline/CRT/dot effects are GPU overlays.
     if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
         buf.format == WINDOW_FORMAT_RGBX_8888) {
         uint8_t* dst = static_cast<uint8_t*>(buf.bits);
         const uint32_t dstStride = buf.stride * 4;
-
-        if (useBilinear) {
-            // Bilinear interpolation — smooth scaling for XBR mode
-            for (uint32_t y = 0; y < dstH; ++y) {
-                float fy = y * sy;
-                uint32_t sy0 = (uint32_t)fy;
-                if (sy0 >= h) sy0 = h - 1;
-                uint32_t sy1 = (sy0 + 1 < h) ? sy0 + 1 : sy0;
-                float ty = fy - sy0;
-                uint8_t* drow = dst + y * dstStride;
-                const uint32_t* sr0 = src + sy0 * srcStride;
-                const uint32_t* sr1 = src + sy1 * srcStride;
-                for (uint32_t x = 0; x < dstW; ++x) {
-                    float fx = x * sx;
-                    uint32_t sx0 = (uint32_t)fx;
-                    if (sx0 >= w) sx0 = w - 1;
-                    uint32_t sx1 = (sx0 + 1 < w) ? sx0 + 1 : sx0;
-                    float tx = fx - sx0;
-                    float w00 = (1.f - tx) * (1.f - ty);
-                    float w01 = tx * (1.f - ty);
-                    float w10 = (1.f - tx) * ty;
-                    float w11 = tx * ty;
-                    uint32_t p00 = sr0[sx0], p01 = sr0[sx1];
-                    uint32_t p10 = sr1[sx0], p11 = sr1[sx1];
-                    drow[x * 4 + 0] = (uint8_t)((((p00 >> 16) & 0xFF) * w00 + ((p01 >> 16) & 0xFF) * w01 +
-                                                 ((p10 >> 16) & 0xFF) * w10 + ((p11 >> 16) & 0xFF) * w11) + 0.5f);
-                    drow[x * 4 + 1] = (uint8_t)((((p00 >> 8) & 0xFF) * w00 + ((p01 >> 8) & 0xFF) * w01 +
-                                                 ((p10 >> 8) & 0xFF) * w10 + ((p11 >> 8) & 0xFF) * w11) + 0.5f);
-                    drow[x * 4 + 2] = (uint8_t)(((p00 & 0xFF) * w00 + (p01 & 0xFF) * w01 +
-                                                 (p10 & 0xFF) * w10 + (p11 & 0xFF) * w11) + 0.5f);
-                    drow[x * 4 + 3] = 0xFF;
-                }
-            }
-        } else {
-            // Nearest-neighbor — fast, pixel-perfect
-            for (uint32_t y = 0; y < dstH; ++y) {
-                uint32_t srcY = (uint32_t)(y * sy);
-                if (srcY >= h) srcY = h - 1;
-                uint8_t* drow = dst + y * dstStride;
-                const uint32_t* srow = src + srcY * srcStride;
-                for (uint32_t x = 0; x < dstW; ++x) {
-                    uint32_t srcX = (uint32_t)(x * sx);
-                    if (srcX >= w) srcX = w - 1;
-                    uint32_t px = srow[srcX];
-                    drow[x * 4 + 0] = (px >> 16) & 0xFF;
-                    drow[x * 4 + 1] = (px >> 8) & 0xFF;
-                    drow[x * 4 + 2] = px & 0xFF;
-                    drow[x * 4 + 3] = 0xFF;
-                }
+        const float sx = (float)w / (float)dstW;
+        const float sy = (float)h / (float)dstH;
+        for (uint32_t y = 0; y < dstH; ++y) {
+            uint32_t srcY = (uint32_t)(y * sy);
+            if (srcY >= h) srcY = h - 1;
+            uint8_t* drow = dst + y * dstStride;
+            const uint32_t* srow = src + srcY * srcStride;
+            for (uint32_t x = 0; x < dstW; ++x) {
+                uint32_t srcX = (uint32_t)(x * sx);
+                if (srcX >= w) srcX = w - 1;
+                uint32_t px = srow[srcX];
+                drow[x * 4 + 0] = (px >> 16) & 0xFF;
+                drow[x * 4 + 1] = (px >> 8) & 0xFF;
+                drow[x * 4 + 2] = px & 0xFF;
+                drow[x * 4 + 3] = 0xFF;
             }
         }
     } else if (buf.format == WINDOW_FORMAT_RGB_565) {
         uint16_t* dst = static_cast<uint16_t*>(buf.bits);
         const uint32_t dstStride = buf.stride;
+        const float sx = (float)w / (float)dstW;
+        const float sy = (float)h / (float)dstH;
         for (uint32_t y = 0; y < dstH; ++y) {
             uint32_t srcY = (uint32_t)(y * sy);
             if (srcY >= h) srcY = h - 1;
@@ -360,6 +325,45 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
     }
 
     ANativeWindow_unlockAndPost(s_window);
+}
+
+// XBR-style 2x bilinear upscale: produces a 512x480 frame from 256x240.
+// Uses integer-only arithmetic (shifts and adds) for each channel.
+// At even pixel positions, copies the original; at odd positions, averages
+// with neighbours. This softens pixel edges, giving a smoother "HD" look
+// compared to raw nearest-neighbor — at negligible CPU cost.
+static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
+                          size_t srcStride, uint32_t* dst) {
+    const unsigned dw = sw * 2;
+    for (unsigned y = 0; y < sh; ++y) {
+        const unsigned y2 = y * 2;
+        const unsigned yn = (y + 1 < sh) ? y + 1 : y;
+        const uint32_t* r0 = src + y  * srcStride;
+        const uint32_t* r1 = src + yn * srcStride;
+        uint32_t* d0 = dst + y2     * dw;
+        uint32_t* d1 = dst + (y2+1) * dw;
+
+        for (unsigned x = 0; x < sw; ++x) {
+            const unsigned x2 = x * 2;
+            const unsigned xn = (x + 1 < sw) ? x + 1 : x;
+            const uint32_t p00 = r0[x],  p01 = r0[xn];
+            const uint32_t p10 = r1[x],  p11 = r1[xn];
+
+            // Even-even: original pixel
+            d0[x2] = p00;
+            // Odd-even: average horizontally
+            d0[x2+1] = (((p00 & 0x00FF00FF) + (p01 & 0x00FF00FF)) >> 1 & 0x00FF00FF)
+                     | (((p00 & 0x0000FF00) + (p01 & 0x0000FF00)) >> 1 & 0x0000FF00);
+            // Even-odd: average vertically
+            d1[x2] = (((p00 & 0x00FF00FF) + (p10 & 0x00FF00FF)) >> 1 & 0x00FF00FF)
+                   | (((p00 & 0x0000FF00) + (p10 & 0x0000FF00)) >> 1 & 0x0000FF00);
+            // Odd-odd: average all four
+            d1[x2+1] = (((p00 & 0x00FF00FF) + (p01 & 0x00FF00FF)
+                       + (p10 & 0x00FF00FF) + (p11 & 0x00FF00FF)) >> 2 & 0x00FF00FF)
+                     | (((p00 & 0x0000FF00) + (p01 & 0x0000FF00)
+                       + (p10 & 0x0000FF00) + (p11 & 0x0000FF00)) >> 2 & 0x0000FF00);
+        }
+    }
 }
 
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
@@ -389,7 +393,14 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     }
 
     // Blit directly to ANativeWindow if a surface is attached (hardware accel)
-    blitToSurface(src, width, height, srcStride);
+    const int filter = s_videoFilter.load(std::memory_order_relaxed);
+    if (filter == 4) {
+        // XBR: 2x bilinear upscale (256x240 → 512x480) then nearest-neighbor blit
+        xbr2xUpscale(src, width, height, srcStride, s_xbrBuffer);
+        blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
+    } else {
+        blitToSurface(src, width, height, srcStride);
+    }
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -433,10 +444,6 @@ static int16_t cb_input_state(unsigned port, unsigned device,
         case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (bits >> 5) & 1;
         case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (bits >> 6) & 1;
         case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (bits >> 7) & 1;
-        case RETRO_DEVICE_ID_JOYPAD_R:
-            // R button is used for FDS disk insert/eject.
-            // Driven by s_fdsRButton, not the regular pad bits.
-            return (port == 0) ? s_fdsRButton.load(std::memory_order_relaxed) : 0;
         default: return 0;
     }
 }
@@ -504,11 +511,9 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         game.size = romData.size();
     }
 
-    // Reset FDS auto-insert state
-    s_fdsNeedInsert.store(false, std::memory_order_relaxed);
-    s_fdsRButton.store(false, std::memory_order_relaxed);
+    // Reset FDS state (no auto-insert needed — FDSInit called by PowerNES
+    // sets InDisk=0, meaning the disk is already inserted after loading)
     s_isFdsGame.store(false, std::memory_order_relaxed);
-    s_fdsInsertFrameCount = 0;
 
     if (!retro_load_game(&game)) {
         retro_unload_game();
@@ -523,10 +528,12 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     }
     s_loaded = true;
 
-    // Detect FDS games by file extension and schedule auto disk-insert.
-    // FCEUmm starts with the disk ejected (InDisk=255); the R button must
-    // be pressed once to insert it. Without this, FDS games show a blank
-    // white/gray BIOS screen forever.
+    // Detect FDS games by file extension for logging.
+    // NOTE: No R button auto-press is needed. The FCEUmm core's retro_load_game
+    // calls PowerNES() → FDSInit() which sets InDisk=0 (disk inserted).
+    // The FDS BIOS boots automatically and reads the disk. Pressing R would
+    // actually EJECT the disk (toggling InDisk from 0 to 255), causing a
+    // permanent gray screen.
     {
         std::string ext;
         size_t dot = path.find_last_of('.');
@@ -536,10 +543,8 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
                            [](unsigned char c) { return std::tolower(c); });
         }
         if (ext == ".fds") {
-            s_fdsNeedInsert.store(true, std::memory_order_relaxed);
             s_isFdsGame.store(true, std::memory_order_relaxed);
-            s_fdsInsertFrameCount = 0;
-            LOGI("FDS game detected — will auto-insert disk on first frames");
+            LOGI("FDS game detected — disk is auto-inserted by FDSInit, no R press needed");
         }
     }
 
@@ -573,48 +578,19 @@ void unload() {
     s_sampleRate = 0;
     resetAudioRing();
     s_newFrame.store(false);
-    // Reset FDS auto-insert state
-    s_fdsNeedInsert.store(false, std::memory_order_relaxed);
-    s_fdsRButton.store(false, std::memory_order_relaxed);
     s_isFdsGame.store(false, std::memory_order_relaxed);
-    s_fdsInsertFrameCount = 0;
 }
 
 void resetEmulation(bool /*hard*/) {
     if (!s_loaded) return;
     retro_reset();
-    // After reset, FDS disk is ejected again — schedule re-insert
-    if (s_isFdsGame.load(std::memory_order_relaxed)) {
-        s_fdsNeedInsert.store(true, std::memory_order_relaxed);
-        s_fdsRButton.store(false, std::memory_order_relaxed);
-        s_fdsInsertFrameCount = 0;
-    }
+    // After reset, PowerNES() is called internally by the core, which calls
+    // FDSInit() for FDS games, setting InDisk=0 (disk inserted). No manual
+    // R button press is needed.
 }
 
 void stepFrame() {
     if (!s_loaded) return;
-
-    // FDS auto disk-insert sequence: FCEUmm starts with the disk ejected
-    // (InDisk=255). The user must press R to insert it. We wait ~90 frames
-    // (1.5s) for the BIOS screen to initialize, then press R for exactly
-    // one frame. FCEUmm uses edge detection: if (curR && !prevR) insert.
-    // So we need R=false for several frames, then R=true for 1 frame,
-    // then R=false again.
-    if (s_fdsNeedInsert.load(std::memory_order_relaxed)) {
-        s_fdsInsertFrameCount++;
-        if (s_fdsInsertFrameCount == 90) {
-            // Press R for exactly 1 frame to trigger disk insertion
-            s_fdsRButton.store(true, std::memory_order_relaxed);
-            LOGI("FDS: pressing R to insert disk (frame %d)", s_fdsInsertFrameCount);
-        } else if (s_fdsInsertFrameCount == 91) {
-            // Release R immediately — the edge has been detected
-            s_fdsRButton.store(false, std::memory_order_relaxed);
-            s_fdsNeedInsert.store(false, std::memory_order_relaxed);
-            LOGI("FDS disk auto-inserted");
-        }
-        // For all other frames, R stays false (let BIOS init)
-    }
-
     retro_run();
 }
 
@@ -761,6 +737,10 @@ void videoAspectRatio(int& num, int& den) {
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
     LOGI("Video filter set: %d", filter);
+    // No buffer geometry changes needed. The buffer is always at 0x0 (window
+    // default). For XBR (filter 4), the 2x bilinear upscale happens in
+    // cb_video before blitting. For scanline/CRT/dot, the visual effect is
+    // a GPU-accelerated Compose overlay drawn on top of the SurfaceView.
 }
 
 } // namespace nescore::rom
