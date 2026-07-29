@@ -59,36 +59,27 @@ jobs:
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Install Gradle 8.7 from Aliyun mirror
-        run: |
-          # Download Gradle from Aliyun mirror (services.gradle.org is
-          # unreachable on some runners, causing Connection refused).
-          # We install Gradle system-wide and use it directly, bypassing
-          # the wrapper's download logic entirely.
-          GRADLE_VERSION="8.7"
-          curl -fSL -o /tmp/gradle.zip \
-            "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-${GRADLE_VERSION}-bin.zip"
-          sudo unzip -q /tmp/gradle.zip -d /opt
-          sudo mv "/opt/gradle-${GRADLE_VERSION}" /opt/gradle
-          echo "/opt/gradle/bin" >> "$GITHUB_PATH"
-          gradle --version
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
+          chmod +x ./gradlew
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
           else
-            gradle assembleDebug -PuseStubCore=false --no-daemon --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false --no-daemon --stacktrace
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
+          chmod +x ./gradlew
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
           else
-            gradle assembleRelease -PuseStubCore=false --no-daemon --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false --no-daemon --stacktrace
           fi
 
       - name: Upload APK
