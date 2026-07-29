@@ -477,12 +477,12 @@ private fun PadLayoutEditor(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(btnSize).background(Color(0x66E67E22), CircleShape), Alignment.Center) { Text("B", Color.White, 12.sp) }
-                Box(Modifier.size(btnSize).background(Color(0x66E74C3C), CircleShape), Alignment.Center) { Text("A", Color.White, 12.sp) }
+                Box(Modifier.size(btnSize).background(Color(0x66E67E22), CircleShape), Alignment.Center) { Text("B", color = Color.White, fontSize = 12.sp) }
+                Box(Modifier.size(btnSize).background(Color(0x66E74C3C), CircleShape), Alignment.Center) { Text("A", color = Color.White, fontSize = 12.sp) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("SEL", Color.White, 10.sp) }
-                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("STA", Color.White, 10.sp) }
+                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("SEL", color = Color.White, fontSize = 10.sp) }
+                Box(Modifier.size(selSize).background(Color(0x661E2A3A), CircleShape), Alignment.Center) { Text("STA", color = Color.White, fontSize = 10.sp) }
             }
         }
     }
