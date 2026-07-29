@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
@@ -45,18 +47,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.core.engine.NesEngine
+import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.ui.components.PixelBackdrop
-
-data class SettingsItem(
-    val title: String,
-    val subtitle: String? = null,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    val trailing: Trailing = Trailing.Arrow,
-    val accent: Color = Color(0xFF1E2A3A),
-    val onClick: (() -> Unit)? = null
-)
-
-enum class Trailing { Arrow, Switch, Value }
 
 @Composable
 fun SettingsScreen(
@@ -64,13 +57,25 @@ fun SettingsScreen(
     onOpenKeyMap: () -> Unit
 ) {
     val context = LocalContext.current
-    var scanlines by remember { mutableStateOf(false) }
-    var crtShader by remember { mutableStateOf(false) }
-    var lowLatency by remember { mutableStateOf(true) }
-    var showPad by remember { mutableStateOf(true) }
-    var vibration by remember { mutableStateOf(true) }
-    var tvMode by remember { mutableStateOf(false) }
+    var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
     var dialogText by remember { mutableStateOf<String?>(null) }
+
+    fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
+        padLayout = new
+        PadLayoutStore.save(context, new)
+        // Apply core options immediately
+        val engine = NesEngine.get()
+        engine.setCoreOption("fceumm_ntsc_filter", new.ntscFilter)
+        engine.setCoreOption("fceumm_aspect", new.aspectRatio)
+        engine.setCoreOption("fceumm_palette", new.palette)
+        engine.setCoreOption("fceumm_region", new.region)
+        engine.setCoreOption("fceumm_sndquality", new.soundQuality)
+        val cropVal = if (new.cropOverscan == "enabled") "8" else "0"
+        engine.setCoreOption("fceumm_overscan_h_left", cropVal)
+        engine.setCoreOption("fceumm_overscan_h_right", cropVal)
+        engine.setCoreOption("fceumm_overscan_v_top", cropVal)
+        engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+    }
 
     // Permission launcher for Android <= 10
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -85,7 +90,6 @@ fun SettingsScreen(
 
     fun requestStoragePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+: request MANAGE_EXTERNAL_STORAGE
             if (!Environment.isExternalStorageManager()) {
                 try {
                     val intent = Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
@@ -112,47 +116,9 @@ fun SettingsScreen(
         context.startActivity(intent)
     }
 
-    // Build settings sections — NOT wrapped in remember{} so state changes
-    // (like switch toggles) trigger recomposition with fresh subtitle values.
-    val sections = listOf(
-        "视频" to listOf(
-            SettingsItem("画面比例", "4:3", trailing = Trailing.Value) { dialogText = "画面比例已设为 4:3（NES 标准）" },
-            SettingsItem("扫描线", if (scanlines) "开" else "关", trailing = Trailing.Switch) { scanlines = !scanlines },
-            SettingsItem("CRT 着色器", if (crtShader) "开" else "关", trailing = Trailing.Switch) { crtShader = !crtShader },
-            SettingsItem("画面滤镜", "Nearest", trailing = Trailing.Value) { dialogText = "画面滤镜: Nearest (像素完美)" },
-        ),
-        "音频" to listOf(
-            SettingsItem("采样率", "44.1 kHz", trailing = Trailing.Value) { dialogText = "采样率: 44.1 kHz (CD音质)" },
-            SettingsItem("低延迟模式", if (lowLatency) "开" else "关", trailing = Trailing.Switch) { lowLatency = !lowLatency },
-            SettingsItem("音量", "90", trailing = Trailing.Value) { dialogText = "音量: 90%" },
-        ),
-        "输入" to listOf(
-            SettingsItem("屏幕手柄", if (showPad) "显示" else "隐藏", trailing = Trailing.Switch) { showPad = !showPad },
-            SettingsItem("按键映射", "自定义", trailing = Trailing.Arrow, onClick = onOpenKeyMap),
-            SettingsItem("手柄震动", if (vibration) "开" else "关", trailing = Trailing.Switch) { vibration = !vibration },
-        ),
-        "存储" to listOf(
-            SettingsItem("存储权限", "点击授权", trailing = Trailing.Arrow) { requestStoragePermission() },
-            SettingsItem("应用详情", "系统设置", trailing = Trailing.Arrow) { openAppSettings() },
-            SettingsItem("扫描ROM", "扫描本地目录", trailing = Trailing.Arrow) { dialogText = "请到游戏库点击「导入ROM」或「导入文件夹」按钮导入游戏文件" },
-        ),
-        "显示" to listOf(
-            SettingsItem("TV 模式", if (tvMode) "开" else "关", trailing = Trailing.Switch) { tvMode = !tvMode },
-            SettingsItem("主题", "跟随系统", trailing = Trailing.Value) { dialogText = "主题: 跟随系统" },
-            SettingsItem("横屏锁定", "自动", trailing = Trailing.Value) { dialogText = "横屏锁定: 自动" },
-        ),
-        "关于" to listOf(
-            SettingsItem("版本", "1.0.0", trailing = Trailing.Value) { dialogText = "NesStation v1.0.0" },
-            SettingsItem("核心", "FCEUmm", trailing = Trailing.Value) { dialogText = "模拟器核心: FCEUmm (libretro)" },
-            SettingsItem("开源许可", "MIT License", trailing = Trailing.Arrow) { dialogText = "NesStation 基于 FCEUmm 核心，遵循 MIT 许可证" },
-        )
-    )
-
     Box(modifier = Modifier.fillMaxSize()) {
         PixelBackdrop()
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -161,12 +127,7 @@ fun SettingsScreen(
                     Icon(Icons.Rounded.ArrowBack, contentDescription = null, tint = Color(0xFF1E2A3A))
                 }
                 Spacer(Modifier.size(8.dp))
-                Text(
-                    text = "设置",
-                    color = Color(0xFF1E2A3A),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Text("设置", color = Color(0xFF1E2A3A), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             }
 
             LazyColumn(
@@ -174,51 +135,84 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                sections.forEach { (title, items) ->
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = title,
-                                color = Color(0xFF1E2A3A),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(alpha = 0.65f))
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                items.forEachIndexed { i, s ->
-                                    val checked = when (s.title) {
-                                        "扫描线" -> scanlines
-                                        "CRT 着色器" -> crtShader
-                                        "低延迟模式" -> lowLatency
-                                        "屏幕手柄" -> showPad
-                                        "手柄震动" -> vibration
-                                        "TV 模式" -> tvMode
-                                        else -> false
-                                    }
-                                    SettingsRow(
-                                        item = s,
-                                        checked = checked
-                                    ) {
-                                        // Single click handler — call the item's onClick
-                                        // which handles toggles, dialogs, navigation, etc.
-                                        s.onClick?.invoke()
-                                    }
-                                    if (i != items.lastIndex) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(start = 56.dp, end = 16.dp)
-                                                .background(Color(0x22000000))
-                                                .size(width = 1.dp, height = 0.5.dp)
-                                        )
-                                    }
-                                }
+                // === 视频 / 核心设置 ===
+                item {
+                    SettingsSection("视频") {
+                        DropdownRow("NTSC 滤镜",
+                            listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
+                            padLayout.ntscFilter
+                        ) { updateLayout(padLayout.copy(ntscFilter = it)) }
+
+                        DropdownRow("画面比例",
+                            listOf("8:7 PAR" to "8:7 (原始)", "4:3" to "4:3 (电视)", "PP" to "像素完美"),
+                            padLayout.aspectRatio
+                        ) { updateLayout(padLayout.copy(aspectRatio = it)) }
+
+                        DropdownRow("调色板",
+                            listOf("default" to "默认", "dq" to "Dragon Quest", "nx" to "Nestopia", "asq" to "AspiringSquire", "rp2" to "Real"),
+                            padLayout.palette
+                        ) { updateLayout(padLayout.copy(palette = it)) }
+
+                        DropdownRow("裁剪过扫描",
+                            listOf("disabled" to "关闭", "enabled" to "开启"),
+                            padLayout.cropOverscan
+                        ) { updateLayout(padLayout.copy(cropOverscan = it)) }
+                    }
+                }
+
+                // === 区域 ===
+                item {
+                    SettingsSection("系统") {
+                        DropdownRow("区域",
+                            listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
+                            padLayout.region
+                        ) { updateLayout(padLayout.copy(region = it)) }
+                    }
+                }
+
+                // === 音频 ===
+                item {
+                    SettingsSection("音频") {
+                        DropdownRow("音质",
+                            listOf("Low" to "低", "High" to "高", "Very High" to "非常高"),
+                            padLayout.soundQuality
+                        ) { updateLayout(padLayout.copy(soundQuality = it)) }
+                    }
+                }
+
+                // === 输入 ===
+                item {
+                    SettingsSection("输入") {
+                        SettingsRow("屏幕手柄", if (padLayout.showPad) "显示" else "隐藏",
+                            showSubtitle = false,
+                            trailing = {
+                                Switch(checked = padLayout.showPad, onCheckedChange = {
+                                    updateLayout(padLayout.copy(showPad = it))
+                                }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                             }
+                        )
+                        SettingsRow("按键映射", "自定义", trailing = { Arrow() }) { onOpenKeyMap() }
+                    }
+                }
+
+                // === 存储 ===
+                item {
+                    SettingsSection("存储") {
+                        SettingsRow("存储权限", "点击授权", trailing = { Arrow() }) { requestStoragePermission() }
+                        SettingsRow("应用详情", "系统设置", trailing = { Arrow() }) { openAppSettings() }
+                        SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {
+                            dialogText = "请到游戏库点击「导入ROM」或「导入文件夹」按钮导入游戏文件"
+                        }
+                    }
+                }
+
+                // === 关于 ===
+                item {
+                    SettingsSection("关于") {
+                        SettingsRow("版本", "1.0.0", trailing = { ValueText("1.0.0") })
+                        SettingsRow("核心", "FCEUmm", trailing = { ValueText("FCEUmm") })
+                        SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
+                            dialogText = "NesStation 基于 FCEUmm 核心，遵循 MIT 许可证"
                         }
                     }
                 }
@@ -226,7 +220,6 @@ fun SettingsScreen(
         }
     }
 
-    // Info dialog
     dialogText?.let { text ->
         AlertDialog(
             onDismissRequest = { dialogText = null },
@@ -239,44 +232,67 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsRow(
-    item: SettingsItem,
-    checked: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        if (item.icon != null) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(item.accent.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(item.icon, contentDescription = null, tint = item.accent, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.size(10.dp))
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            if (item.subtitle != null && item.trailing != Trailing.Switch) {
-                Text(item.subtitle, color = Color(0xFF4A5568), fontSize = 11.sp)
-            }
-        }
-        when (item.trailing) {
-            Trailing.Arrow -> Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Color(0xFF4A5568), modifier = Modifier.size(18.dp))
-            Trailing.Switch -> Switch(
-                checked = checked,
-                onCheckedChange = { onClick() },
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C))
-            )
-            Trailing.Value -> Text(item.subtitle ?: "", color = Color(0xFF4A5568), fontSize = 12.sp)
+private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = Color(0xFF1E2A3A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+        Column(
+            modifier = Modifier.clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.65f))
+                .padding(vertical = 2.dp)
+        ) {
+            content()
         }
     }
 }
+
+@Composable
+private fun SettingsRow(
+    title: String,
+    subtitle: String? = null,
+    showSubtitle: Boolean = true,
+    trailing: @Composable () -> Unit = { Arrow() },
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable { onClick?.invoke() }.padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            if (subtitle != null && showSubtitle) {
+                Text(subtitle, color = Color(0xFF4A5568), fontSize = 11.sp)
+            }
+        }
+        trailing()
+    }
+}
+
+@Composable
+private fun DropdownRow(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.find { it.first == selected }?.second ?: selected
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Box {
+            Text(selectedLabel, color = Color(0xFFE74C3C), fontSize = 13.sp, modifier = Modifier.clickable { expanded = true })
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { (value, text) ->
+                    DropdownMenuItem(text = { Text(text, fontSize = 13.sp) }, onClick = { onSelect(value); expanded = false })
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Color(0xFF4A5568), modifier = Modifier.size(18.dp))
+@Composable private fun ValueText(v: String) = Text(v, color = Color(0xFF4A5568), fontSize = 12.sp)

@@ -5,8 +5,8 @@ import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +31,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -47,7 +49,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -63,18 +67,24 @@ import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.storage.PadLayoutStore
 import kotlinx.coroutines.delay
 
-/**
- * The in-game screen — SurfaceView for hardware-accelerated rendering,
- * modern FC-style on-screen controller, and menu/layout/settings overlays.
- *
- * No permanent top bar. Press the device Back button (or long-press the screen)
- * to bring up a menu overlay with pause / save / screenshot / fast-forward /
- * layout editor / settings.
- *
- * Each virtual button (D-pad, A, B, Turbo A, Turbo B, Start, Select) has its
- * own position and size, fully customizable via drag-and-pinch in the layout
- * editor.
- */
+// ---------------------------------------------------------------------------
+// Button types for multi-touch tracking
+// ---------------------------------------------------------------------------
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT }
+
+// Bit masks for NES controller
+private const val BTN_UP = 0x10
+private const val BTN_DOWN = 0x20
+private const val BTN_LEFT = 0x40
+private const val BTN_RIGHT = 0x80
+private const val BTN_A = 0x01
+private const val BTN_B = 0x02
+private const val BTN_SELECT = 0x04
+private const val BTN_START = 0x08
+
+// ---------------------------------------------------------------------------
+// Main Emulator Screen
+// ---------------------------------------------------------------------------
 @Composable
 fun EmulatorScreen(
     game: GameEntry,
@@ -86,44 +96,30 @@ fun EmulatorScreen(
     var fastForward by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var padBits by remember { mutableStateOf(0) }
-    var turboBits by remember { mutableStateOf(0) } // turbo A/B hold state
-    var turboFrameCounter by remember { mutableIntStateOf(0) }
     var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // Menu overlay state — hidden by default, shown via Back button
     var showMenu by remember { mutableStateOf(false) }
     var showLayoutEditor by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
-    // Pad layout — loaded from persistent storage
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
-    // Apply core options on first load
-    LaunchedEffect(padLayout) {
-        engine.setCoreOption("fceumm_ntsc_filter", padLayout.ntscFilter)
-        engine.setCoreOption("fceumm_aspect", padLayout.aspectRatio)
-        engine.setCoreOption("fceumm_palette", padLayout.palette)
-        engine.setCoreOption("fceumm_region", padLayout.region)
-        engine.setCoreOption("fceumm_sndquality", padLayout.soundQuality)
-        engine.setCoreOption("fceumm_cropoverscan", padLayout.cropOverscan)
+    // Apply core options on load and when they change
+    LaunchedEffect(padLayout.ntscFilter, padLayout.aspectRatio, padLayout.palette,
+                   padLayout.region, padLayout.soundQuality, padLayout.cropOverscan) {
+        applyCoreOptions(engine, padLayout)
     }
 
-    // Handle Back button: first press opens menu, second press exits
     BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings) {
         showMenu = true
     }
     BackHandler(enabled = showMenu && !showLayoutEditor && !showSettings) {
         showMenu = false
     }
-    BackHandler(enabled = showLayoutEditor) {
-        showLayoutEditor = false
-    }
-    BackHandler(enabled = showSettings) {
-        showSettings = false
-    }
+    BackHandler(enabled = showLayoutEditor) { showLayoutEditor = false }
+    BackHandler(enabled = showSettings) { showSettings = false }
 
-    // Load ROM on entry
+    // Load ROM
     LaunchedEffect(game) {
         val romPath = game.romPath
         if (romPath.isNullOrEmpty()) {
@@ -143,8 +139,6 @@ fun EmulatorScreen(
             try {
                 val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
                 if (input != null) {
-                    // Preserve the original file extension so the core recognizes the format
-                    // (FCEUmm needs .fds for FDS disk images, .nes for iNES, .unf for UNIF, etc.)
                     val origName = game.title.ifBlank { romPath.substringAfterLast('/') }
                     val ext = when {
                         origName.endsWith(".fds", ignoreCase = true) -> ".fds"
@@ -173,48 +167,17 @@ fun EmulatorScreen(
         }
     }
 
-    // Cleanup on dispose
     DisposableEffect(Unit) {
         onDispose { engine.unload() }
     }
 
-    // Apply fast-forward / pause state to engine
     LaunchedEffect(fastForward) { engine.setFastForward(fastForward) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
-    // Controller state polling loop — pushes pad bits to the engine every frame.
-    // Handles turbo button auto-fire by toggling A/B bits at a configurable rate.
-    LaunchedEffect(loaded) {
-        if (!loaded) return@LaunchedEffect
-        while (true) {
-            // Compute effective pad bits: combine direct buttons + turbo
-            var bits = padBits
-            if (turboBits != 0) {
-                turboFrameCounter++
-                // Toggle turbo bits every 3 frames (~20Hz at 60fps)
-                if (turboFrameCounter % 3 < 2) {
-                    bits = bits or turboBits
-                }
-            }
-            engine.setPad1(bits)
-            delay(16)
-        }
-    }
-
-    // Compute game aspect ratio from settings
-    val gameAspect = when (padLayout.aspectRatio) {
-        "4:3" -> 4f / 3f
-        "NTSC" -> 4f / 3f  // NTSC uses 4:3 display
-        "PAL" -> 4f / 3f   // PAL uses 4:3 display
-        else -> 8f / 7f     // 8:7 (native NES PAR)
-    }
-
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // === Game surface — SurfaceView for hardware-accelerated rendering ===
         if (loaded) {
             GameSurfaceView(
                 engine = engine,
-                gameAspect = gameAspect,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -229,19 +192,15 @@ fun EmulatorScreen(
             }
         }
 
-        // === On-screen controller — show when loaded, pad visible, no overlays ===
+        // On-screen controller with multi-touch
         if (loaded && padLayout.showPad && !showMenu && !showLayoutEditor && !showSettings && surfaceSize != IntSize.Zero) {
             OnScreenController(
                 padLayout = padLayout,
-                padBits = padBits,
-                onPadBitsChange = { padBits = it },
-                turboBits = turboBits,
-                onTurboBitsChange = { turboBits = it },
-                surfaceSize = surfaceSize
+                surfaceSize = surfaceSize,
+                onPadBits = { bits -> engine.setPad1(bits) }
             )
         }
 
-        // === Menu overlay — shown via Back button or long-press ===
         if (loaded && showMenu && !showLayoutEditor && !showSettings) {
             MenuOverlay(
                 gameTitle = game.title,
@@ -258,7 +217,6 @@ fun EmulatorScreen(
             )
         }
 
-        // === Layout editor mode ===
         if (loaded && showLayoutEditor) {
             PadLayoutEditor(
                 padLayout = padLayout,
@@ -271,20 +229,13 @@ fun EmulatorScreen(
             )
         }
 
-        // === Settings panel ===
         if (loaded && showSettings) {
             SettingsPanel(
                 padLayout = padLayout,
                 onLayoutChange = { newLayout ->
                     padLayout = newLayout
                     PadLayoutStore.save(context, newLayout)
-                    // Apply core options immediately
-                    engine.setCoreOption("fceumm_ntsc_filter", newLayout.ntscFilter)
-                    engine.setCoreOption("fceumm_aspect", newLayout.aspectRatio)
-                    engine.setCoreOption("fceumm_palette", newLayout.palette)
-                    engine.setCoreOption("fceumm_region", newLayout.region)
-                    engine.setCoreOption("fceumm_sndquality", newLayout.soundQuality)
-                    engine.setCoreOption("fceumm_cropoverscan", newLayout.cropOverscan)
+                    applyCoreOptions(engine, newLayout)
                 },
                 onClose = { showSettings = false }
             )
@@ -293,12 +244,28 @@ fun EmulatorScreen(
 }
 
 // ---------------------------------------------------------------------------
-// GameSurfaceView — Android SurfaceView for hardware-accelerated rendering
+// Apply core options to engine — maps PadLayout fields to FCEUmm option keys
+// ---------------------------------------------------------------------------
+private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
+    engine.setCoreOption("fceumm_ntsc_filter", layout.ntscFilter)
+    engine.setCoreOption("fceumm_aspect", layout.aspectRatio)
+    engine.setCoreOption("fceumm_palette", layout.palette)
+    engine.setCoreOption("fceumm_region", layout.region)
+    engine.setCoreOption("fceumm_sndquality", layout.soundQuality)
+    // Overscan: map "enabled"/"disabled" to the 4 individual crop keys
+    val cropVal = if (layout.cropOverscan == "enabled") "8" else "0"
+    engine.setCoreOption("fceumm_overscan_h_left", cropVal)
+    engine.setCoreOption("fceumm_overscan_h_right", cropVal)
+    engine.setCoreOption("fceumm_overscan_v_top", cropVal)
+    engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+}
+
+// ---------------------------------------------------------------------------
+// GameSurfaceView
 // ---------------------------------------------------------------------------
 @Composable
 private fun GameSurfaceView(
     engine: NesEngine,
-    gameAspect: Float,
     modifier: Modifier = Modifier
 ) {
     AndroidView(
@@ -308,22 +275,11 @@ private fun GameSurfaceView(
                     override fun surfaceCreated(holder: SurfaceHolder) {
                         engine.setSurface(holder.surface)
                     }
-
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int
-                    ) {
-                        // SurfaceFlinger handles scaling; nothing to do here
-                    }
-
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                         engine.setSurface(null)
                     }
                 })
-                // Use default z-order (below View hierarchy) so Compose UI
-                // (virtual buttons, menus) draws on top of the game surface.
                 holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
             }
         },
@@ -332,491 +288,338 @@ private fun GameSurfaceView(
 }
 
 // ---------------------------------------------------------------------------
-// On-screen controller — modern FC buttons with individual positioning
+// OnScreenController — SINGLE pointerInput for true multi-touch
 // ---------------------------------------------------------------------------
 @Composable
 private fun OnScreenController(
     padLayout: PadLayout,
-    padBits: Int,
-    onPadBitsChange: (Int) -> Unit,
-    turboBits: Int,
-    onTurboBitsChange: (Int) -> Unit,
-    surfaceSize: IntSize
+    surfaceSize: IntSize,
+    onPadBits: (Int) -> Unit
 ) {
+    val density = LocalDensity.current
     val opacity = padLayout.opacity
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // D-pad
-        ModernDpad(
-            layout = padLayout.dpad,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            pressed = padBits and 0xF0,
-            onChange = { dirBits ->
-                onPadBitsChange((padBits and 0x0F) or dirBits)
-            }
-        )
-
-        // A button
-        ActionButton(
-            label = "A",
-            color = Color(0xFFE74C3C),
-            layout = padLayout.btnA,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = padBits and 0x01 != 0,
-            onPress = { onPadBitsChange(padBits or 0x01) },
-            onRelease = { onPadBitsChange(padBits and 0xFE) }
-        )
-
-        // B button
-        ActionButton(
-            label = "B",
-            color = Color(0xFFE67E22),
-            layout = padLayout.btnB,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = padBits and 0x02 != 0,
-            onPress = { onPadBitsChange(padBits or 0x02) },
-            onRelease = { onPadBitsChange(padBits and 0xFD) }
-        )
-
-        // Turbo A button
-        TurboButton(
-            label = "A",
-            color = Color(0xFFE74C3C),
-            layout = padLayout.btnTurboA,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = turboBits and 0x01 != 0,
-            onPress = { onTurboBitsChange(turboBits or 0x01) },
-            onRelease = { onTurboBitsChange(turboBits and 0xFE) }
-        )
-
-        // Turbo B button
-        TurboButton(
-            label = "B",
-            color = Color(0xFFE67E22),
-            layout = padLayout.btnTurboB,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = turboBits and 0x02 != 0,
-            onPress = { onTurboBitsChange(turboBits or 0x02) },
-            onRelease = { onTurboBitsChange(turboBits and 0xFD) }
-        )
-
-        // Start button
-        PillButton(
-            label = "START",
-            layout = padLayout.btnStart,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = padBits and 0x08 != 0,
-            onPress = { onPadBitsChange(padBits or 0x08) },
-            onRelease = { onPadBitsChange(padBits and 0xF7) }
-        )
-
-        // Select button
-        PillButton(
-            label = "SELECT",
-            layout = padLayout.btnSelect,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            isPressed = padBits and 0x04 != 0,
-            onPress = { onPadBitsChange(padBits or 0x04) },
-            onRelease = { onPadBitsChange(padBits and 0xFB) }
-        )
+    // Compute button hit-areas in pixels
+    fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): androidx.compose.ui.geometry.Rect {
+        val sizePx = with(density) { layout.sizeDp.dp.toPx() }
+        val w = sizePx * widthScale
+        val h = sizePx * heightScale
+        val cx = surfaceSize.width * layout.x
+        val cy = surfaceSize.height * layout.y
+        return androidx.compose.ui.geometry.Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     }
-}
 
-// ---------------------------------------------------------------------------
-// Helper: convert ButtonLayout to pixel offset from screen top-left
-// ---------------------------------------------------------------------------
-private fun buttonOffset(layout: ButtonLayout, surfaceSize: IntSize): Pair<Float, Float> {
-    val px = surfaceSize.width * layout.x
-    val py = surfaceSize.height * layout.y
-    return px to py
-}
+    // Track active pointers: pointerId -> (BtnType, direction bits for dpad)
+    val activePointers = remember { mutableMapOf<Long, Pair<BtnType, Int>>() }
+    var visualState by remember { mutableStateOf(0) } // bits for drawing pressed state
+    var turboState by remember { mutableStateOf(0) }  // turbo hold bits
 
-// ---------------------------------------------------------------------------
-// Modern D-pad — classic FC-style solid cross with beveled edges
-// ---------------------------------------------------------------------------
-@Composable
-private fun ModernDpad(
-    layout: ButtonLayout,
-    surfaceSize: IntSize,
-    opacity: Float,
-    pressed: Int, // bits 4-7: Up Down Left Right
-    onChange: (Int) -> Unit
-) {
-    val sizeDp = layout.sizeDp.dp
-    val (px, py) = buttonOffset(layout, surfaceSize)
-    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
-
-    var activeDir by remember { mutableStateOf(0) }
+    // Turbo auto-fire + pad state polling
+    var turboCounter by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (turboState != 0) {
+                turboCounter++
+                if (turboCounter % 3 < 2) {
+                    val effective = visualState or (turboState)
+                    onPadBits(effective)
+                } else {
+                    onPadBits(visualState and turboState.inv())
+                }
+            } else {
+                onPadBits(visualState)
+            }
+            delay(16)
+        }
+    }
 
     Box(
         modifier = Modifier
-            .offset {
-                IntOffset(
-                    (px - sizePx / 2).toInt(),
-                    (py - sizePx / 2).toInt()
-                )
-            }
-            .size(sizeDp)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull() ?: continue
-                        val pos = change.position
-                        val cx = size.width / 2f
-                        val cy = size.height / 2f
-                        val dx = pos.x - cx
-                        val dy = pos.y - cy
-                        val absX = kotlin.math.abs(dx)
-                        val absY = kotlin.math.abs(dy)
-                        val deadZone = size.width * 0.10f
+            .fillMaxSize()
+            .pointerInput(padLayout, surfaceSize) {
+                // Multi-touch: awaitEachGesture waits for first finger, then we
+                // process ALL pointer changes inside the loop (including new
+                // fingers going down) until every finger is lifted.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
 
-                        val newDir = when {
-                            absX < deadZone && absY < deadZone -> 0
-                            absY > absX && dy < 0 -> 0x10 // Up
-                            absY > absX && dy > 0 -> 0x20 // Down
-                            absX > absY && dx < 0 -> 0x40 // Left
-                            absX > absY && dx > 0 -> 0x80 // Right
-                            else -> activeDir
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+
+                        // Compute button hit-areas fresh each event
+                        val dpadRect = btnRect(padLayout.dpad)
+                        val aRect = btnRect(padLayout.btnA)
+                        val bRect = btnRect(padLayout.btnB)
+                        val taRect = btnRect(padLayout.btnTurboA)
+                        val tbRect = btnRect(padLayout.btnTurboB)
+                        val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
+                        val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
+
+                        var anyPressed = false
+
+                        for (change in event.changes) {
+                            val pid = change.id.value
+
+                            if (change.pressed) {
+                                anyPressed = true
+                                if (pid !in activePointers) {
+                                    // === New pointer down — hit-test which button ===
+                                    val pos = change.position
+                                    val btnType = when {
+                                        dpadRect.contains(pos) -> BtnType.DPAD
+                                        aRect.contains(pos) -> BtnType.A
+                                        bRect.contains(pos) -> BtnType.B
+                                        taRect.contains(pos) -> BtnType.TURBO_A
+                                        tbRect.contains(pos) -> BtnType.TURBO_B
+                                        startRect.contains(pos) -> BtnType.START
+                                        selectRect.contains(pos) -> BtnType.SELECT
+                                        else -> null
+                                    }
+
+                                    if (btnType != null) {
+                                        var bits = 0
+                                        var turboBits = 0
+                                        when (btnType) {
+                                            BtnType.DPAD -> bits = computeDpadDirection(pos, dpadRect)
+                                            BtnType.A -> bits = BTN_A
+                                            BtnType.B -> bits = BTN_B
+                                            BtnType.TURBO_A -> turboBits = BTN_A
+                                            BtnType.TURBO_B -> turboBits = BTN_B
+                                            BtnType.START -> bits = BTN_START
+                                            BtnType.SELECT -> bits = BTN_SELECT
+                                        }
+                                        activePointers[pid] = btnType to bits
+                                        if (turboBits != 0) {
+                                            turboState = turboState or turboBits
+                                        } else {
+                                            visualState = visualState or bits
+                                        }
+                                    }
+                                } else if (change.positionChanged()) {
+                                    // === Existing pointer moved — update D-pad direction ===
+                                    val entry = activePointers[pid]
+                                    if (entry != null && entry.first == BtnType.DPAD) {
+                                        val oldBits = entry.second
+                                        visualState = visualState and oldBits.inv()
+                                        val newBits = computeDpadDirection(change.position, dpadRect)
+                                        visualState = visualState or newBits
+                                        activePointers[pid] = BtnType.DPAD to newBits
+                                    }
+                                }
+                            } else {
+                                // === Pointer released — clear this pointer's contribution ===
+                                val entry = activePointers.remove(pid)
+                                if (entry != null) {
+                                    val (bt, heldBits) = entry
+                                    when (bt) {
+                                        BtnType.DPAD, BtnType.A, BtnType.B, BtnType.START, BtnType.SELECT -> {
+                                            visualState = visualState and heldBits.inv()
+                                        }
+                                        BtnType.TURBO_A, BtnType.TURBO_B -> {
+                                            turboState = turboState and heldBits.inv()
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        if (newDir != activeDir) {
-                            activeDir = newDir
-                            onChange(newDir)
-                            change.consume()
-                        }
+
+                        // Exit when all pointers are up
+                        if (!anyPressed) break
                     }
                 }
             }
     ) {
+        // Draw D-pad
+        DpadCanvas(
+            layout = padLayout.dpad,
+            surfaceSize = surfaceSize,
+            opacity = opacity,
+            pressedDirs = visualState and 0xF0
+        )
+        // Draw A
+        ActionButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnA, surfaceSize, opacity, visualState and BTN_A != 0)
+        // Draw B
+        ActionButtonCanvas("B", Color(0xFFE67E22), padLayout.btnB, surfaceSize, opacity, visualState and BTN_B != 0)
+        // Turbo A
+        TurboButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
+        // Turbo B
+        TurboButtonCanvas("B", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
+        // Start
+        PillButtonCanvas("START", padLayout.btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
+        // Select
+        PillButtonCanvas("SELECT", padLayout.btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
+    }
+}
+
+// Compute D-pad direction from touch position within dpad rect
+private fun computeDpadDirection(
+    pos: Offset,
+    rect: androidx.compose.ui.geometry.Rect
+): Int {
+    val cx = rect.center.x
+    val cy = rect.center.y
+    val dx = pos.x - cx
+    val dy = pos.y - cy
+    val absX = kotlin.math.abs(dx)
+    val absY = kotlin.math.abs(dy)
+    val deadZone = rect.width * 0.10f
+    return when {
+        absX < deadZone && absY < deadZone -> 0
+        absY > absX && dy < 0 -> BTN_UP
+        absY > absX && dy > 0 -> BTN_DOWN
+        absX > absY && dx < 0 -> BTN_LEFT
+        absX > absY && dx > 0 -> BTN_RIGHT
+        else -> 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Button drawing composables (no pointer input — purely visual)
+// ---------------------------------------------------------------------------
+private fun buttonOffset(layout: ButtonLayout, surfaceSize: IntSize, density: androidx.compose.ui.unit.Density): Pair<Float, Float> {
+    val sizePx = with(density) { layout.sizeDp.dp.toPx() }
+    val px = surfaceSize.width * layout.x - sizePx / 2
+    val py = surfaceSize.height * layout.y - sizePx / 2
+    return px to py
+}
+
+@Composable
+private fun DpadCanvas(
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    opacity: Float,
+    pressedDirs: Int
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(sizeDp)
+    ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-            // FC-style: solid plus-shaped cross, no background circle
-            // Arm length = 40% of half-size, arm thickness = 28% of size
             val halfSize = size.width / 2f
-            val armLen = halfSize * 0.95f   // extends nearly to edge
+            val armLen = halfSize * 0.95f
             val armThick = size.width * 0.30f
             val halfThick = armThick / 2f
-            val cornerR = armThick * 0.15f  // slight bevel
+            val cornerR = armThick * 0.15f
+            val cr = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
 
-            // Base cross shape (dark)
             val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
             val armColor = Color(0xFF2C2C38).copy(alpha = opacity)
             val pressedColor = Color(0xFFFFD66B).copy(alpha = opacity * 0.8f)
 
-            // Draw the cross as a plus shape using 4 rectangles + center square
-            // Horizontal arm
-            drawRoundRect(
-                color = armColor,
-                topLeft = Offset(cx - armLen, cy - halfThick),
-                size = Size(armLen * 2, armThick),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-            )
-            // Vertical arm
-            drawRoundRect(
-                color = armColor,
-                topLeft = Offset(cx - halfThick, cy - armLen),
-                size = Size(armThick, armLen * 2),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-            )
-            // Center pivot square (slightly darker)
-            drawRoundRect(
-                color = baseColor,
-                topLeft = Offset(cx - halfThick * 0.85f, cy - halfThick * 0.85f),
-                size = Size(halfThick * 1.7f, halfThick * 1.7f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-            )
+            drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
+            drawRoundRect(armColor, Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr)
+            drawRoundRect(baseColor, Offset(cx - halfThick * 0.85f, cy - halfThick * 0.85f), Size(halfThick * 1.7f, halfThick * 1.7f), cr)
 
-            // Highlight active direction arm tip
             val armTipLen = armLen * 0.42f
             val tipThick = armThick * 0.7f
-            if ((activeDir and 0x10) != 0) { // Up
-                drawRoundRect(
-                    color = pressedColor,
-                    topLeft = Offset(cx - tipThick / 2, cy - armLen),
-                    size = Size(tipThick, armTipLen),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-                )
-            }
-            if ((activeDir and 0x20) != 0) { // Down
-                drawRoundRect(
-                    color = pressedColor,
-                    topLeft = Offset(cx - tipThick / 2, cy + armLen - armTipLen),
-                    size = Size(tipThick, armTipLen),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-                )
-            }
-            if ((activeDir and 0x40) != 0) { // Left
-                drawRoundRect(
-                    color = pressedColor,
-                    topLeft = Offset(cx - armLen, cy - tipThick / 2),
-                    size = Size(armTipLen, tipThick),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-                )
-            }
-            if ((activeDir and 0x80) != 0) { // Right
-                drawRoundRect(
-                    color = pressedColor,
-                    topLeft = Offset(cx + armLen - armTipLen, cy - tipThick / 2),
-                    size = Size(armTipLen, tipThick),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-                )
-            }
+            if (pressedDirs and BTN_UP != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy - armLen), Size(tipThick, armTipLen), cr)
+            if (pressedDirs and BTN_DOWN != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy + armLen - armTipLen), Size(tipThick, armTipLen), cr)
+            if (pressedDirs and BTN_LEFT != 0) drawRoundRect(pressedColor, Offset(cx - armLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
+            if (pressedDirs and BTN_RIGHT != 0) drawRoundRect(pressedColor, Offset(cx + armLen - armTipLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
 
-            // Directional arrow indicators (small triangles at arm tips)
             val arrowSize = armThick * 0.18f
             val arrowOffset = armLen * 0.68f
-            val dirs = listOf(
-                Triple(0f, -1f, 0x10),  // Up
-                Triple(0f, 1f, 0x20),   // Down
-                Triple(-1f, 0f, 0x40),  // Left
-                Triple(1f, 0f, 0x80)    // Right
-            )
+            val dirs = listOf(Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN), Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT))
             for ((dx, dy, bit) in dirs) {
                 val ax = cx + dx * arrowOffset
                 val ay = cy + dy * arrowOffset
-                val isActive = (activeDir and bit) != 0
-                val indColor = if (isActive) Color(0xFF1A1A22) else Color(0x99FFFFFF)
-                drawTriangle(ax, ay, dx, dy, arrowSize, indColor)
+                val isActive = pressedDirs and bit != 0
+                drawTriangle(ax, ay, dx, dy, arrowSize, if (isActive) Color(0xFF1A1A22) else Color(0x99FFFFFF))
             }
         }
     }
 }
 
-// Draw a triangle (directional arrow)
-private fun DrawScope.drawTriangle(
-    cx: Float, cy: Float, dx: Float, dy: Float, size: Float, color: Color
-) {
-    val sx = cx - dy * size
-    val sy = cy + dx * size
-    val ex = cx + dy * size
-    val ey = cy - dx * size
-    val tx = cx + dx * size * 1.5f
-    val ty = cy + dy * size * 1.5f
-    drawPath(
-        path = androidx.compose.ui.graphics.Path().apply {
-            moveTo(sx, sy)
-            lineTo(ex, ey)
-            lineTo(tx, ty)
-            close()
-        },
-        color = color
-    )
+private fun DrawScope.drawTriangle(cx: Float, cy: Float, dx: Float, dy: Float, size: Float, color: Color) {
+    val sx = cx - dy * size; val sy = cy + dx * size
+    val ex = cx + dy * size; val ey = cy - dx * size
+    val tx = cx + dx * size * 1.5f; val ty = cy + dy * size * 1.5f
+    drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(sx, sy); lineTo(ex, ey); lineTo(tx, ty); close() }, color)
 }
 
-// ---------------------------------------------------------------------------
-// Action button — circular A/B button with modern styling
-// ---------------------------------------------------------------------------
 @Composable
-private fun ActionButton(
-    label: String,
-    color: Color,
-    layout: ButtonLayout,
-    surfaceSize: IntSize,
-    opacity: Float,
-    isPressed: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit
+private fun ActionButtonCanvas(
+    label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean
 ) {
+    val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
-    val (px, py) = buttonOffset(layout, surfaceSize)
-    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
 
     Box(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    (px - sizePx / 2).toInt(),
-                    (py - sizePx / 2).toInt()
-                )
-            }
-            .size(sizeDp)
-            .pointerInput(label) {
-                detectTapGestures(
-                    onPress = {
-                        onPress()
-                        try { tryAwaitRelease() } finally { onRelease() }
-                    }
-                )
-            },
+        modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val r = size.width * 0.46f
-
-            // Outer ring
-            drawCircle(
-                color = color.copy(alpha = opacity * 0.3f),
-                radius = r + 3.dp.toPx(),
-                center = Offset(cx, cy)
-            )
-            // Main button
-            drawCircle(
-                color = if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity),
-                radius = r,
-                center = Offset(cx, cy)
-            )
-            // Inner highlight
-            drawCircle(
-                color = Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f),
-                radius = r * 0.7f,
-                center = Offset(cx - r * 0.15f, cy - r * 0.15f)
-            )
+            val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.46f
+            drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
+            drawCircle(if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity), r, Offset(cx, cy))
+            drawCircle(Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f), r * 0.7f, Offset(cx - r * 0.15f, cy - r * 0.15f))
         }
-        Text(
-            label,
-            color = Color.White,
-            fontSize = (sizeDp.value * 0.35f).sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-        )
+        Text(label, color = Color.White, fontSize = (sizeDp.value * 0.35f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Turbo button — smaller circular button with turbo indicator
-// ---------------------------------------------------------------------------
 @Composable
-private fun TurboButton(
-    label: String,
-    color: Color,
-    layout: ButtonLayout,
-    surfaceSize: IntSize,
-    opacity: Float,
-    isPressed: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit
+private fun TurboButtonCanvas(
+    label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean
 ) {
+    val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
-    val (px, py) = buttonOffset(layout, surfaceSize)
-    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
 
     Box(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    (px - sizePx / 2).toInt(),
-                    (py - sizePx / 2).toInt()
-                )
-            }
-            .size(sizeDp)
-            .pointerInput(label) {
-                detectTapGestures(
-                    onPress = {
-                        onPress()
-                        try { tryAwaitRelease() } finally { onRelease() }
-                    }
-                )
-            },
+        modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val r = size.width * 0.44f
-
-            // Dashed outer ring (turbo indicator)
-            drawCircle(
-                color = color.copy(alpha = opacity * 0.4f),
-                radius = r + 2.dp.toPx(),
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.5.dp.toPx())
-            )
-            // Main button
-            drawCircle(
-                color = if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity * 0.7f),
-                radius = r,
-                center = Offset(cx, cy)
-            )
+            val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.44f
+            drawCircle(color.copy(alpha = opacity * 0.4f), r + 2.dp.toPx(), Offset(cx, cy), style = Stroke(width = 1.5.dp.toPx()))
+            drawCircle(if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity * 0.7f), r, Offset(cx, cy))
         }
-        Text(
-            label,
-            color = Color.White.copy(alpha = 0.85f),
-            fontSize = (sizeDp.value * 0.32f).sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-        )
+        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.32f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pill button — Start/Select button
-// ---------------------------------------------------------------------------
 @Composable
-private fun PillButton(
-    label: String,
-    layout: ButtonLayout,
-    surfaceSize: IntSize,
-    opacity: Float,
-    isPressed: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit
+private fun PillButtonCanvas(
+    label: String, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean
 ) {
+    val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val widthDp = sizeDp * 2.2f
     val heightDp = sizeDp * 0.7f
-    val (px, py) = buttonOffset(layout, surfaceSize)
-    val density = LocalDensity.current
     val wPx = with(density) { widthDp.toPx() }
     val hPx = with(density) { heightDp.toPx() }
+    val px = surfaceSize.width * layout.x - wPx / 2
+    val py = surfaceSize.height * layout.y - hPx / 2
 
     Box(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    (px - wPx / 2).toInt(),
-                    (py - hPx / 2).toInt()
-                )
-            }
-            .size(width = widthDp, height = heightDp)
-            .pointerInput(label) {
-                detectTapGestures(
-                    onPress = {
-                        onPress()
-                        try { tryAwaitRelease() } finally { onRelease() }
-                    }
-                )
-            },
+        modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(width = widthDp, height = heightDp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val r = h * 0.4f
-
+            val w = size.width; val h = size.height; val r = h * 0.4f
+            val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
             drawRoundRect(
-                color = if (isPressed) Color(0xFF3A4050).copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
-                        else Color(0xFF2A3040).copy(alpha = opacity),
-                topLeft = Offset(0f, 0f),
-                size = Size(w, h),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                if (isPressed) Color(0xFF3A4050).copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
+                else Color(0xFF2A3040).copy(alpha = opacity),
+                Offset(0f, 0f), Size(w, h), cr
             )
-            // Inner highlight line
-            drawRoundRect(
-                color = Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f),
-                topLeft = Offset(w * 0.1f, h * 0.15f),
-                size = Size(w * 0.8f, h * 0.25f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f)
-            )
+            drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
         }
-        Text(
-            label,
-            color = Color.White.copy(alpha = 0.8f),
-            fontSize = (sizeDp.value * 0.22f).sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-        )
+        Text(label, color = Color.White.copy(alpha = 0.8f), fontSize = (sizeDp.value * 0.22f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Menu overlay — semi-transparent panel at top
+// Menu overlay
 // ---------------------------------------------------------------------------
 @Composable
 private fun MenuOverlay(
@@ -832,68 +635,32 @@ private fun MenuOverlay(
     onClose: () -> Unit,
     onExit: () -> Unit
 ) {
-    // Dimmed full-screen background — tap to close
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0x88000000))
+        modifier = Modifier.fillMaxSize().background(Color(0x88000000))
             .pointerInput(Unit) {
-                detectTapGestures { onClose() }
+                awaitEachGesture { awaitFirstDown(); /* consume */ }
             }
     )
-
-    // Menu panel at top
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
+        modifier = Modifier.fillMaxWidth().padding(16.dp)
             .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = gameTitle,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            modifier = Modifier.padding(end = 8.dp)
-        )
+        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp))
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onTogglePause) {
-            Icon(
-                if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = "暂停/继续",
-                tint = Color.White
-            )
-        }
-        IconButton(onClick = onToggleFastForward) {
-            Icon(
-                Icons.Rounded.FastForward,
-                contentDescription = "快进",
-                tint = if (fastForward) Color(0xFFFFD66B) else Color.White
-            )
-        }
-        IconButton(onClick = onScreenshot) {
-            Icon(Icons.Rounded.CameraAlt, contentDescription = "截图", tint = Color.White)
-        }
-        IconButton(onClick = onSaveState) {
-            Icon(Icons.Rounded.Save, contentDescription = "存档", tint = Color.White)
-        }
-        IconButton(onClick = onLayoutEditor) {
-            Icon(Icons.Rounded.Tune, contentDescription = "手柄布局", tint = Color.White)
-        }
-        IconButton(onClick = onSettings) {
-            Icon(Icons.Rounded.Settings, contentDescription = "设置", tint = Color.White)
-        }
-        IconButton(onClick = onExit) {
-            Icon(Icons.Rounded.Close, contentDescription = "退出", tint = Color(0xFFFF6B6B))
-        }
+        IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
+        IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForward) Color(0xFFFFD66B) else Color.White) }
+        IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
+        IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
+        IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
+        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
+        IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Pad layout editor — drag to move, pinch to resize each button
-// No sliders — pure touch interaction
+// Pad layout editor — drag to move (fixed), tap to select + slider for size
 // ---------------------------------------------------------------------------
 @Composable
 private fun PadLayoutEditor(
@@ -902,193 +669,193 @@ private fun PadLayoutEditor(
     surfaceSize: IntSize,
     onClose: () -> Unit
 ) {
-    // Dimmed background
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0x88000000))
-    )
+    val density = LocalDensity.current
+    var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
 
-    // Top toolbar
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "拖动移动 · 双指缩放",
-            color = Color.White,
-            fontSize = 13.sp
-        )
-        Spacer(Modifier.weight(1f))
-        IconButton(onClick = { onLayoutChange(PadLayout()) }) {
-            Icon(Icons.Rounded.Refresh, contentDescription = "重置", tint = Color(0xFFFFD66B))
+    Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
+        // Top toolbar
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("拖动移动 · 点击选大小", color = Color.White, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { onLayoutChange(PadLayout()) }) {
+                Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
+            }
+            IconButton(onClick = onClose) {
+                Text("完成", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
         }
-        IconButton(onClick = onClose) {
-            Text("完成", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+
+        // Draggable button previews — use Unit key so gesture doesn't restart
+        Box(modifier = Modifier.fillMaxSize()) {
+            EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.05f, 0.45f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(dpad = padLayout.dpad.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.DPAD }
+            )
+            EditableRoundBtn("A", Color(0xFFE74C3C), padLayout.btnA, surfaceSize, selectedBtn == BtnType.A,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.4f, 0.95f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnA = padLayout.btnA.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.A }
+            )
+            EditableRoundBtn("B", Color(0xFFE67E22), padLayout.btnB, surfaceSize, selectedBtn == BtnType.B,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.4f, 0.95f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnB = padLayout.btnB.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.B }
+            )
+            EditableRoundBtn("TA", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.4f, 0.95f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.TURBO_A }
+            )
+            EditableRoundBtn("TB", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.4f, 0.95f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.TURBO_B }
+            )
+            EditablePillBtn("START", padLayout.btnStart, surfaceSize, selectedBtn == BtnType.START,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.1f, 0.9f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnStart = padLayout.btnStart.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.START }
+            )
+            EditablePillBtn("SELECT", padLayout.btnSelect, surfaceSize, selectedBtn == BtnType.SELECT,
+                onMove = { targetX, targetY ->
+                    val nx = targetX.coerceIn(0.1f, 0.9f)
+                    val ny = targetY.coerceIn(0.3f, 0.97f)
+                    onLayoutChange(padLayout.copy(btnSelect = padLayout.btnSelect.copy(x = nx, y = ny)))
+                },
+                onSelect = { selectedBtn = BtnType.SELECT }
+            )
         }
-    }
 
-    // Draggable button previews
-    Box(modifier = Modifier.fillMaxSize()) {
-        // D-pad
-        EditableButton(
-            layout = padLayout.dpad,
-            surfaceSize = surfaceSize,
-            color = Color(0xFFFFD66B),
-            label = "D-Pad",
-            onMove = { dx, dy ->
-                val nx = (padLayout.dpad.x + dx).coerceIn(0.05f, 0.45f)
-                val ny = (padLayout.dpad.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(dpad = padLayout.dpad.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.dpad.sizeDp * scale).toInt().coerceIn(80, 220)
-                onLayoutChange(padLayout.copy(dpad = padLayout.dpad.copy(sizeDp = ns)))
+        // Size slider at bottom — shown when a button is selected
+        val sel = selectedBtn
+        if (sel != null) {
+            val currentSize: Int
+            val minSize: Int
+            val maxSize: Int
+            val label: String
+            when (sel) {
+                BtnType.DPAD -> { currentSize = padLayout.dpad.sizeDp; minSize = 80; maxSize = 220; label = "十字键大小" }
+                BtnType.A -> { currentSize = padLayout.btnA.sizeDp; minSize = 40; maxSize = 120; label = "A键大小" }
+                BtnType.B -> { currentSize = padLayout.btnB.sizeDp; minSize = 40; maxSize = 120; label = "B键大小" }
+                BtnType.TURBO_A -> { currentSize = padLayout.btnTurboA.sizeDp; minSize = 30; maxSize = 90; label = "连射A大小" }
+                BtnType.TURBO_B -> { currentSize = padLayout.btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
+                BtnType.START -> { currentSize = padLayout.btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
+                BtnType.SELECT -> { currentSize = padLayout.btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
             }
-        )
 
-        // A button
-        EditableButton(
-            layout = padLayout.btnA,
-            surfaceSize = surfaceSize,
-            color = Color(0xFFE74C3C),
-            label = "A",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnA.x + dx).coerceIn(0.4f, 0.95f)
-                val ny = (padLayout.btnA.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnA = padLayout.btnA.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnA.sizeDp * scale).toInt().coerceIn(40, 120)
-                onLayoutChange(padLayout.copy(btnA = padLayout.btnA.copy(sizeDp = ns)))
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 13.sp)
+                }
+                Spacer(Modifier.size(8.dp))
+                Slider(
+                    value = currentSize.toFloat(),
+                    onValueChange = { newVal ->
+                        val intVal = newVal.toInt()
+                        val newLayout = when (sel) {
+                            BtnType.DPAD -> padLayout.copy(dpad = padLayout.dpad.copy(sizeDp = intVal))
+                            BtnType.A -> padLayout.copy(btnA = padLayout.btnA.copy(sizeDp = intVal))
+                            BtnType.B -> padLayout.copy(btnB = padLayout.btnB.copy(sizeDp = intVal))
+                            BtnType.TURBO_A -> padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(sizeDp = intVal))
+                            BtnType.TURBO_B -> padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(sizeDp = intVal))
+                            BtnType.START -> padLayout.copy(btnStart = padLayout.btnStart.copy(sizeDp = intVal))
+                            BtnType.SELECT -> padLayout.copy(btnSelect = padLayout.btnSelect.copy(sizeDp = intVal))
+                        }
+                        onLayoutChange(newLayout)
+                    },
+                    valueRange = minSize.toFloat()..maxSize.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD66B),
+                        activeTrackColor = Color(0xFFFFD66B),
+                        inactiveTrackColor = Color(0xFF4A5568)
+                    )
+                )
             }
-        )
-
-        // B button
-        EditableButton(
-            layout = padLayout.btnB,
-            surfaceSize = surfaceSize,
-            color = Color(0xFFE67E22),
-            label = "B",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnB.x + dx).coerceIn(0.4f, 0.95f)
-                val ny = (padLayout.btnB.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnB = padLayout.btnB.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnB.sizeDp * scale).toInt().coerceIn(40, 120)
-                onLayoutChange(padLayout.copy(btnB = padLayout.btnB.copy(sizeDp = ns)))
-            }
-        )
-
-        // Turbo A
-        EditableButton(
-            layout = padLayout.btnTurboA,
-            surfaceSize = surfaceSize,
-            color = Color(0xFFE74C3C),
-            label = "TA",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnTurboA.x + dx).coerceIn(0.4f, 0.95f)
-                val ny = (padLayout.btnTurboA.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnTurboA.sizeDp * scale).toInt().coerceIn(30, 90)
-                onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(sizeDp = ns)))
-            }
-        )
-
-        // Turbo B
-        EditableButton(
-            layout = padLayout.btnTurboB,
-            surfaceSize = surfaceSize,
-            color = Color(0xFFE67E22),
-            label = "TB",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnTurboB.x + dx).coerceIn(0.4f, 0.95f)
-                val ny = (padLayout.btnTurboB.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnTurboB.sizeDp * scale).toInt().coerceIn(30, 90)
-                onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(sizeDp = ns)))
-            }
-        )
-
-        // Start
-        EditableButton(
-            layout = padLayout.btnStart,
-            surfaceSize = surfaceSize,
-            color = Color(0xFF4A90D9),
-            label = "START",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnStart.x + dx).coerceIn(0.1f, 0.9f)
-                val ny = (padLayout.btnStart.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnStart = padLayout.btnStart.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnStart.sizeDp * scale).toInt().coerceIn(30, 100)
-                onLayoutChange(padLayout.copy(btnStart = padLayout.btnStart.copy(sizeDp = ns)))
-            }
-        )
-
-        // Select
-        EditableButton(
-            layout = padLayout.btnSelect,
-            surfaceSize = surfaceSize,
-            color = Color(0xFF4A90D9),
-            label = "SELECT",
-            onMove = { dx, dy ->
-                val nx = (padLayout.btnSelect.x + dx).coerceIn(0.1f, 0.9f)
-                val ny = (padLayout.btnSelect.y + dy).coerceIn(0.3f, 0.97f)
-                onLayoutChange(padLayout.copy(btnSelect = padLayout.btnSelect.copy(x = nx, y = ny)))
-            },
-            onResize = { scale ->
-                val ns = (padLayout.btnSelect.sizeDp * scale).toInt().coerceIn(30, 100)
-                onLayoutChange(padLayout.copy(btnSelect = padLayout.btnSelect.copy(sizeDp = ns)))
-            }
-        )
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Editable button — draggable + pinch-to-resize
+// Editable button — drag to move (uses awaitEachGesture with proper delta)
 // ---------------------------------------------------------------------------
 @Composable
-private fun EditableButton(
+private fun EditableRoundBtn(
+    label: String,
+    color: Color,
     layout: ButtonLayout,
     surfaceSize: IntSize,
-    color: Color,
-    label: String,
-    onMove: (deltaX: Float, deltaY: Float) -> Unit,
-    onResize: (scale: Float) -> Unit
+    isSelected: Boolean,
+    onMove: (targetX: Float, targetY: Float) -> Unit,
+    onSelect: () -> Unit
 ) {
+    val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
-    val (px, py) = buttonOffset(layout, surfaceSize)
-    val sizePx = with(LocalDensity.current) { sizeDp.toPx() }
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
+    // Track drag start position to compute accurate absolute target
+    var dragStartX by remember { mutableStateOf(0f) }
+    var dragStartY by remember { mutableStateOf(0f) }
+    var layoutStartX by remember { mutableStateOf(0f) }
+    var layoutStartY by remember { mutableStateOf(0f) }
 
     Box(
         modifier = Modifier
-            .offset {
-                IntOffset(
-                    (px - sizePx / 2).toInt(),
-                    (py - sizePx / 2).toInt()
-                )
-            }
+            .offset { IntOffset(px.toInt(), py.toInt()) }
             .size(sizeDp)
-            .pointerInput(layout) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    if (pan.x != 0f || pan.y != 0f) {
-                        val dx = pan.x / surfaceSize.width
-                        val dy = pan.y / surfaceSize.height
-                        onMove(dx, dy)
-                    }
-                    if (zoom != 1f) {
-                        onResize(zoom)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    onSelect()
+                    dragStartX = down.position.x
+                    dragStartY = down.position.y
+                    layoutStartX = layout.x
+                    layoutStartY = layout.y
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.positionChanged()) {
+                            // Compute total drag in pixels, convert to fraction of screen
+                            val dxPx = change.position.x - dragStartX
+                            val dyPx = change.position.y - dragStartY
+                            val dxFrac = dxPx / surfaceSize.width
+                            val dyFrac = dyPx / surfaceSize.height
+                            // Pass ABSOLUTE target position (initial + drag offset)
+                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                        }
                     }
                 }
             },
@@ -1096,31 +863,131 @@ private fun EditableButton(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val r = size.width * 0.46f
-            // Semi-transparent fill
-            drawCircle(
-                color = color.copy(alpha = 0.35f),
-                radius = r,
-                center = Offset(size.width / 2f, size.height / 2f)
-            )
-            // Border (dashed look via stroke)
-            drawCircle(
-                color = color,
-                radius = r,
-                center = Offset(size.width / 2f, size.height / 2f),
-                style = Stroke(width = 2.dp.toPx())
-            )
+            drawCircle(color.copy(alpha = if (isSelected) 0.5f else 0.35f), r, Offset(size.width / 2f, size.height / 2f))
+            drawCircle(color, r, Offset(size.width / 2f, size.height / 2f), style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx()))
         }
-        Text(
-            label,
-            color = color,
-            fontSize = (sizeDp.value * 0.2f).sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-        )
+        Text(label, color = color, fontSize = (sizeDp.value * 0.2f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun EditableDpad(
+    padLayout: PadLayout,
+    surfaceSize: IntSize,
+    isSelected: Boolean,
+    onMove: (targetX: Float, targetY: Float) -> Unit,
+    onSelect: () -> Unit
+) {
+    val layout = padLayout.dpad
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
+    var dragStartX by remember { mutableStateOf(0f) }
+    var dragStartY by remember { mutableStateOf(0f) }
+    var layoutStartX by remember { mutableStateOf(0f) }
+    var layoutStartY by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(sizeDp)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    onSelect()
+                    dragStartX = down.position.x
+                    dragStartY = down.position.y
+                    layoutStartX = layout.x
+                    layoutStartY = layout.y
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.positionChanged()) {
+                            val dxPx = change.position.x - dragStartX
+                            val dyPx = change.position.y - dragStartY
+                            val dxFrac = dxPx / surfaceSize.width
+                            val dyFrac = dyPx / surfaceSize.height
+                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val r = size.width * 0.46f
+            drawCircle(Color(0xFFFFD66B).copy(alpha = if (isSelected) 0.5f else 0.35f), r, Offset(size.width / 2f, size.height / 2f))
+            drawCircle(Color(0xFFFFD66B), r, Offset(size.width / 2f, size.height / 2f), style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx()))
+        }
+        Text("D-Pad", color = Color(0xFFFFD66B), fontSize = (sizeDp.value * 0.15f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun EditablePillBtn(
+    label: String,
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    isSelected: Boolean,
+    onMove: (targetX: Float, targetY: Float) -> Unit,
+    onSelect: () -> Unit
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val widthDp = sizeDp * 2.2f
+    val heightDp = sizeDp * 0.7f
+    val wPx = with(density) { widthDp.toPx() }
+    val hPx = with(density) { heightDp.toPx() }
+    val px = surfaceSize.width * layout.x - wPx / 2
+    val py = surfaceSize.height * layout.y - hPx / 2
+    var dragStartX by remember { mutableStateOf(0f) }
+    var dragStartY by remember { mutableStateOf(0f) }
+    var layoutStartX by remember { mutableStateOf(0f) }
+    var layoutStartY by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(width = widthDp, height = heightDp)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    onSelect()
+                    dragStartX = down.position.x
+                    dragStartY = down.position.y
+                    layoutStartX = layout.x
+                    layoutStartY = layout.y
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.positionChanged()) {
+                            val dxPx = change.position.x - dragStartX
+                            val dyPx = change.position.y - dragStartY
+                            val dxFrac = dxPx / surfaceSize.width
+                            val dyFrac = dyPx / surfaceSize.height
+                            onMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height; val r = h * 0.4f
+            val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
+            drawRoundRect(Color(0xFF4A90D9).copy(alpha = if (isSelected) 0.5f else 0.35f), Offset(0f, 0f), Size(w, h), cr)
+            drawRoundRect(Color(0xFF4A90D9), Offset(0f, 0f), Size(w, h), cr, style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx()))
+        }
+        Text(label, color = Color(0xFF4A90D9), fontSize = (sizeDp.value * 0.2f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Settings panel — core options (NTSC filter, aspect ratio, palette, etc.)
+// Settings panel (in-game) — unified with main SettingsScreen via PadLayoutStore
 // ---------------------------------------------------------------------------
 @Composable
 private fun SettingsPanel(
@@ -1128,93 +995,57 @@ private fun SettingsPanel(
     onLayoutChange: (PadLayout) -> Unit,
     onClose: () -> Unit
 ) {
-    // Dimmed background
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0x88000000))
-            .pointerInput(Unit) {
-                detectTapGestures { onClose() }
-            }
+        modifier = Modifier.fillMaxSize().background(Color(0x88000000))
     )
 
-    // Settings panel
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
+        modifier = Modifier.fillMaxWidth().padding(16.dp)
             .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("核心设置", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = Color.White)
-            }
+            IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "关闭", tint = Color.White) }
         }
         Spacer(Modifier.size(8.dp))
 
-        // NTSC Filter
-        DropdownSetting(
-            label = "NTSC 滤镜",
-            options = listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB"),
-            selected = padLayout.ntscFilter,
-            onSelect = { onLayoutChange(padLayout.copy(ntscFilter = it)) }
-        )
+        DropdownSetting("NTSC 滤镜",
+            listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
+            padLayout.ntscFilter
+        ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
 
-        // Aspect Ratio
-        DropdownSetting(
-            label = "画面比例",
-            options = listOf("8:7" to "8:7 (原始)", "4:3" to "4:3 (电视)", "NTSC" to "NTSC", "PAL" to "PAL"),
-            selected = padLayout.aspectRatio,
-            onSelect = { onLayoutChange(padLayout.copy(aspectRatio = it)) }
-        )
+        DropdownSetting("画面比例",
+            listOf("8:7 PAR" to "8:7 (原始)", "4:3" to "4:3 (电视)", "PP" to "像素完美"),
+            padLayout.aspectRatio
+        ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
 
-        // Palette
-        DropdownSetting(
-            label = "调色板",
-            options = listOf("default" to "默认", "dq" to "Dragon Quest", "nx" to "Nestopia", "asq" to "AspiringSquire", "rp2" to "Real"),
-            selected = padLayout.palette,
-            onSelect = { onLayoutChange(padLayout.copy(palette = it)) }
-        )
+        DropdownSetting("调色板",
+            listOf("default" to "默认", "dq" to "Dragon Quest", "nx" to "Nestopia", "asq" to "AspiringSquire", "rp2" to "Real"),
+            padLayout.palette
+        ) { onLayoutChange(padLayout.copy(palette = it)) }
 
-        // Region
-        DropdownSetting(
-            label = "区域",
-            options = listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
-            selected = padLayout.region,
-            onSelect = { onLayoutChange(padLayout.copy(region = it)) }
-        )
+        DropdownSetting("区域",
+            listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
+            padLayout.region
+        ) { onLayoutChange(padLayout.copy(region = it)) }
 
-        // Sound Quality
-        DropdownSetting(
-            label = "音质",
-            options = listOf("Low" to "低", "High" to "高", "Very High" to "非常高"),
-            selected = padLayout.soundQuality,
-            onSelect = { onLayoutChange(padLayout.copy(soundQuality = it)) }
-        )
+        DropdownSetting("音质",
+            listOf("Low" to "低", "High" to "高", "Very High" to "非常高"),
+            padLayout.soundQuality
+        ) { onLayoutChange(padLayout.copy(soundQuality = it)) }
 
-        // Crop Overscan
-        DropdownSetting(
-            label = "裁剪过扫描",
-            options = listOf("disabled" to "关闭", "enabled" to "开启"),
-            selected = padLayout.cropOverscan,
-            onSelect = { onLayoutChange(padLayout.copy(cropOverscan = it)) }
-        )
+        DropdownSetting("裁剪过扫描",
+            listOf("disabled" to "关闭", "enabled" to "开启"),
+            padLayout.cropOverscan
+        ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
 
         Spacer(Modifier.size(8.dp))
-        Text(
-            "修改后即时生效。NTSC 滤镜会增加画面宽度。",
-            color = Color(0xFF8899AA),
-            fontSize = 11.sp
-        )
+        Text("修改后即时生效。设置与主界面设置同步。", color = Color(0xFF8899AA), fontSize = 11.sp)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Dropdown setting item
-// ---------------------------------------------------------------------------
 @Composable
 private fun DropdownSetting(
     label: String,
@@ -1226,34 +1057,19 @@ private fun DropdownSetting(
     val selectedLabel = options.find { it.first == selected }?.second ?: selected
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp))
         Spacer(Modifier.weight(1f))
         Box {
             Text(
-                selectedLabel,
-                color = Color(0xFFFFD66B),
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .pointerInput(Unit) { detectTapGestures { expanded = true } }
-                    .padding(8.dp)
+                selectedLabel, color = Color(0xFFFFD66B), fontSize = 13.sp,
+                modifier = Modifier.pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); expanded = true } }.padding(8.dp)
             )
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, text) ->
-                    DropdownMenuItem(
-                        text = { Text(text, fontSize = 13.sp) },
-                        onClick = {
-                            onSelect(value)
-                            expanded = false
-                        }
-                    )
+                    DropdownMenuItem(text = { Text(text, fontSize = 13.sp) }, onClick = { onSelect(value); expanded = false })
                 }
             }
         }

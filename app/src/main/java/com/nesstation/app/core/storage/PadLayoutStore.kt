@@ -37,13 +37,13 @@ data class PadLayout(
     // Global settings
     val opacity: Float = 0.7f,     // 0.3 – 1.0
     val showPad: Boolean = true,
-    // Core options
-    val ntscFilter: String = "disabled",  // disabled | composite | svideo | rgb
-    val aspectRatio: String = "8:7",      // 8:7 | 4:3 | NTSC | PAL
+    // Core options — values MUST match FCEUmm's libretro_core_options.h
+    val ntscFilter: String = "disabled",  // disabled | composite | svideo | rgb | monochrome
+    val aspectRatio: String = "8:7 PAR",  // "8:7 PAR" | "4:3" | "PP"  (FCEUmm exact values)
     val palette: String = "default",      // default | dq | nx | asq | rp2 | ...
     val region: String = "Auto",          // Auto | NTSC | PAL | Dendy
     val soundQuality: String = "Low",     // Low | High | Very High
-    val cropOverscan: String = "disabled" // disabled | enabled
+    val cropOverscan: String = "disabled" // disabled | enabled  (maps to 4 individual overscan keys)
 )
 
 /**
@@ -132,7 +132,7 @@ object PadLayoutStore {
             opacity = p.getFloat(KEY_OPACITY, 0.7f),
             showPad = p.getBoolean(KEY_SHOW_PAD, true),
             ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled",
-            aspectRatio = p.getString(KEY_ASPECT_RATIO, "8:7") ?: "8:7",
+            aspectRatio = p.getString(KEY_ASPECT_RATIO, "8:7 PAR") ?: "8:7 PAR",
             palette = p.getString(KEY_PALETTE, "default") ?: "default",
             region = p.getString(KEY_REGION, "Auto") ?: "Auto",
             soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low",
