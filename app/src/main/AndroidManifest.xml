@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <!-- Android 11+ 所有文件访问权限（用于扫描本地ROM） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <!-- 蓝牙手柄（Android 12+） -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -55,6 +58,7 @@
         android:appCategory="game"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
         tools:targetApi="31">
 
         <activity

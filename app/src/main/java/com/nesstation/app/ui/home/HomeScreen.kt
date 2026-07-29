@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,14 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Casino
-import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,12 +38,11 @@ import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.ui.components.BottomDock
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
-import com.nesstation.app.ui.components.StatusBar
 import kotlinx.coroutines.delay
 
 /**
- * Main home screen — the "Pico-8 console boot" look. Horizontal carousel of
- * recent/favorite games, big bottom dock, pixel sky backdrop with drift.
+ * Main home screen — only shows "最近游玩" (recent games) section.
+ * Compact header, content moved up, small centered dock at bottom.
  */
 @Composable
 fun HomeScreen(
@@ -62,19 +60,20 @@ fun HomeScreen(
     }
 
     val recents = remember { HomeSamples.recents }
-    val featured = remember { HomeSamples.featured }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop(timeMs = time)
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            StatusBar()
-
-            // Headline + actions
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 8.dp)
+        ) {
+            // Compact header — title + quick actions
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -82,60 +81,54 @@ fun HomeScreen(
                     Text(
                         text = "NesStation",
                         color = Color(0xFF1E2A3A),
-                        fontSize = 30.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "为复古而生 · For phone & TV",
+                        text = "为复古而生",
                         color = Color(0xFF4A5568),
-                        fontSize = 13.sp
+                        fontSize = 11.sp
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DockPill(Icons.Rounded.Search, "搜索", onClick = onOpenSearch)
-                    DockPill(Icons.Rounded.Save, "存档", onClick = onOpenHistory)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenSearch)
+                    HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenHistory)
                 }
             }
 
-            // Section: 最近游玩
-            SectionTitle("最近游玩", Icons.Rounded.History)
+            // Section: 最近游玩 (only section on home)
+            Text(
+                text = "最近游玩",
+                color = Color(0xFF1E2A3A),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp)
+            )
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.height(178.dp).fillMaxWidth()
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.height(150.dp).fillMaxWidth()
             ) {
                 items(recents) { g ->
                     GameCard(
                         title = g.title,
                         accent = g.accent,
                         onClick = { onOpenGame(g) },
-                        modifier = Modifier.size(width = 150.dp, height = 170.dp)
+                        modifier = Modifier.size(width = 120.dp, height = 145.dp)
                     )
                 }
             }
 
-            // Section: 精选
-            SectionTitle("精选收藏", Icons.Rounded.Casino)
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.height(178.dp).fillMaxWidth()
-            ) {
-                items(featured) { g ->
-                    GameCard(
-                        title = g.title,
-                        accent = g.accent,
-                        onClick = { onOpenGame(g) },
-                        modifier = Modifier.size(width = 150.dp, height = 170.dp)
-                    )
-                }
-            }
-
-            Box(modifier = Modifier.fillMaxSize().weight(1f))
+            // Spacer to push dock to bottom
+            Spacer(modifier = Modifier.weight(1f))
         }
 
-        // Bottom dock overlay
-        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+        // Bottom dock — centered, small, doesn't block content
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 6.dp)
+        ) {
             BottomDock(
                 selectedIndex = 0,
                 onSelect = { idx ->
@@ -144,8 +137,8 @@ fun HomeScreen(
                         1 -> onOpenLibrary()
                         2 -> onOpenFavorites()
                         3 -> onOpenSettings()
-                        4 -> onOpenSettings()
-                        5 -> { /* exit placeholder */ }
+                        4 -> { /* help */ }
+                        5 -> { /* exit */ }
                     }
                 }
             )
@@ -154,46 +147,23 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SectionTitle(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color(0xFF1E2A3A),
-            modifier = Modifier.size(18.dp)
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
-        Text(
-            text = text,
-            color = Color(0xFF1E2A3A),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun DockPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun HeaderPill(
+    icon: ImageVector,
     label: String,
     onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .padding(2.dp)
             .background(
                 color = Color.White.copy(alpha = 0.5f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(18.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp)
             .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = Color(0xFF1E2A3A), modifier = Modifier.size(16.dp))
-        androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
-        Text(label, color = Color(0xFF1E2A3A), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Icon(icon, contentDescription = null, tint = Color(0xFF1E2A3A), modifier = Modifier.size(13.dp))
+        Spacer(Modifier.size(3.dp))
+        Text(label, color = Color(0xFF1E2A3A), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
