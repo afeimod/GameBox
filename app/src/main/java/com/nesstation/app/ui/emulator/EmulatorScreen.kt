@@ -143,7 +143,18 @@ fun EmulatorScreen(
             try {
                 val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
                 if (input != null) {
-                    val tempFile = java.io.File(context.cacheDir, "temp_rom.nes")
+                    // Preserve the original file extension so the core recognizes the format
+                    // (FCEUmm needs .fds for FDS disk images, .nes for iNES, .unf for UNIF, etc.)
+                    val origName = game.title.ifBlank { romPath.substringAfterLast('/') }
+                    val ext = when {
+                        origName.endsWith(".fds", ignoreCase = true) -> ".fds"
+                        origName.endsWith(".unf", ignoreCase = true) -> ".unf"
+                        origName.endsWith(".unif", ignoreCase = true) -> ".unif"
+                        romPath.contains(".fds", ignoreCase = true) -> ".fds"
+                        romPath.contains(".unf", ignoreCase = true) -> ".unf"
+                        else -> ".nes"
+                    }
+                    val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
                     val filesDir = context.filesDir.absolutePath
@@ -428,7 +439,7 @@ private fun buttonOffset(layout: ButtonLayout, surfaceSize: IntSize): Pair<Float
 }
 
 // ---------------------------------------------------------------------------
-// Modern D-pad — rounded cross with directional indicators
+// Modern D-pad — classic FC-style solid cross with beveled edges
 // ---------------------------------------------------------------------------
 @Composable
 private fun ModernDpad(
@@ -465,7 +476,7 @@ private fun ModernDpad(
                         val dy = pos.y - cy
                         val absX = kotlin.math.abs(dx)
                         val absY = kotlin.math.abs(dy)
-                        val deadZone = size.width * 0.12f
+                        val deadZone = size.width * 0.10f
 
                         val newDir = when {
                             absX < deadZone && absY < deadZone -> 0
@@ -487,55 +498,94 @@ private fun ModernDpad(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-            val armLen = size.width * 0.32f
-            val armThick = size.width * 0.34f
-            val radius = armThick * 0.35f
+            // FC-style: solid plus-shaped cross, no background circle
+            // Arm length = 40% of half-size, arm thickness = 28% of size
+            val halfSize = size.width / 2f
+            val armLen = halfSize * 0.95f   // extends nearly to edge
+            val armThick = size.width * 0.30f
+            val halfThick = armThick / 2f
+            val cornerR = armThick * 0.15f  // slight bevel
 
-            // Background circle (base)
-            drawCircle(
-                color = Color(0xFF1A1F2E).copy(alpha = opacity * 0.5f),
-                radius = size.width * 0.48f,
-                center = Offset(cx, cy)
-            )
+            // Base cross shape (dark)
+            val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
+            val armColor = Color(0xFF2C2C38).copy(alpha = opacity)
+            val pressedColor = Color(0xFFFFD66B).copy(alpha = opacity * 0.8f)
 
-            // Cross arms (rounded rectangles)
-            val crossColor = Color(0xFF2A3040).copy(alpha = opacity)
+            // Draw the cross as a plus shape using 4 rectangles + center square
             // Horizontal arm
             drawRoundRect(
-                color = crossColor,
-                topLeft = Offset(cx - armLen, cy - armThick / 2),
+                color = armColor,
+                topLeft = Offset(cx - armLen, cy - halfThick),
                 size = Size(armLen * 2, armThick),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius)
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
             )
             // Vertical arm
             drawRoundRect(
-                color = crossColor,
-                topLeft = Offset(cx - armThick / 2, cy - armLen),
+                color = armColor,
+                topLeft = Offset(cx - halfThick, cy - armLen),
                 size = Size(armThick, armLen * 2),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius)
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+            )
+            // Center pivot square (slightly darker)
+            drawRoundRect(
+                color = baseColor,
+                topLeft = Offset(cx - halfThick * 0.85f, cy - halfThick * 0.85f),
+                size = Size(halfThick * 1.7f, halfThick * 1.7f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
             )
 
-            // Directional indicators (arrows/triangles)
-            val dirs = listOf(
-                Triple(0f, -1f, 0x10), // Up
-                Triple(0f, 1f, 0x20),  // Down
-                Triple(-1f, 0f, 0x40), // Left
-                Triple(1f, 0f, 0x80)   // Right
-            )
-            for ((dx, dy, bit) in dirs) {
-                val ax = cx + dx * armLen * 0.55f
-                val ay = cy + dy * armLen * 0.55f
-                val isActive = (activeDir and bit) != 0
-                val indColor = if (isActive) Color(0xFFFFD66B) else Color(0x88FFFFFF)
-                drawTriangle(ax, ay, dx, dy, armThick * 0.22f, indColor)
+            // Highlight active direction arm tip
+            val armTipLen = armLen * 0.42f
+            val tipThick = armThick * 0.7f
+            if ((activeDir and 0x10) != 0) { // Up
+                drawRoundRect(
+                    color = pressedColor,
+                    topLeft = Offset(cx - tipThick / 2, cy - armLen),
+                    size = Size(tipThick, armTipLen),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
+            }
+            if ((activeDir and 0x20) != 0) { // Down
+                drawRoundRect(
+                    color = pressedColor,
+                    topLeft = Offset(cx - tipThick / 2, cy + armLen - armTipLen),
+                    size = Size(tipThick, armTipLen),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
+            }
+            if ((activeDir and 0x40) != 0) { // Left
+                drawRoundRect(
+                    color = pressedColor,
+                    topLeft = Offset(cx - armLen, cy - tipThick / 2),
+                    size = Size(armTipLen, tipThick),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
+            }
+            if ((activeDir and 0x80) != 0) { // Right
+                drawRoundRect(
+                    color = pressedColor,
+                    topLeft = Offset(cx + armLen - armTipLen, cy - tipThick / 2),
+                    size = Size(armTipLen, tipThick),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
             }
 
-            // Center circle
-            drawCircle(
-                color = Color(0xFF1A1F2E).copy(alpha = opacity),
-                radius = armThick * 0.28f,
-                center = Offset(cx, cy)
+            // Directional arrow indicators (small triangles at arm tips)
+            val arrowSize = armThick * 0.18f
+            val arrowOffset = armLen * 0.68f
+            val dirs = listOf(
+                Triple(0f, -1f, 0x10),  // Up
+                Triple(0f, 1f, 0x20),   // Down
+                Triple(-1f, 0f, 0x40),  // Left
+                Triple(1f, 0f, 0x80)    // Right
             )
+            for ((dx, dy, bit) in dirs) {
+                val ax = cx + dx * arrowOffset
+                val ay = cy + dy * arrowOffset
+                val isActive = (activeDir and bit) != 0
+                val indColor = if (isActive) Color(0xFF1A1A22) else Color(0x99FFFFFF)
+                drawTriangle(ax, ay, dx, dy, arrowSize, indColor)
+            }
         }
     }
 }
@@ -611,7 +661,7 @@ private fun ActionButton(
             )
             // Main button
             drawCircle(
-                color = if (isPressed) color.copy(alpha = opacity * 1.5f) else color.copy(alpha = opacity),
+                color = if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity),
                 radius = r,
                 center = Offset(cx, cy)
             )
@@ -682,7 +732,7 @@ private fun TurboButton(
             )
             // Main button
             drawCircle(
-                color = if (isPressed) color.copy(alpha = opacity * 1.5f) else color.copy(alpha = opacity * 0.7f),
+                color = if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)) else color.copy(alpha = opacity * 0.7f),
                 radius = r,
                 center = Offset(cx, cy)
             )
@@ -742,7 +792,7 @@ private fun PillButton(
             val r = h * 0.4f
 
             drawRoundRect(
-                color = if (isPressed) Color(0xFF3A4050).copy(alpha = opacity * 1.5f)
+                color = if (isPressed) Color(0xFF3A4050).copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
                         else Color(0xFF2A3040).copy(alpha = opacity),
                 topLeft = Offset(0f, 0f),
                 size = Size(w, h),

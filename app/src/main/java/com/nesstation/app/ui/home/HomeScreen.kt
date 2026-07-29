@@ -22,19 +22,26 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.BottomDock
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
@@ -59,7 +66,22 @@ fun HomeScreen(
         while (true) { time = System.currentTimeMillis(); delay(33) }
     }
 
-    val recents = remember { HomeSamples.recents }
+    // Load recent games from RomStore — refresh on every ON_RESUME so the list
+    // updates when the user returns from Library (after importing ROMs) or
+    // from the emulator (after playing a game).
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var recents by remember { mutableStateOf(RomStore.loadAll(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                recents = RomStore.loadAll(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop(timeMs = time)
@@ -104,18 +126,43 @@ fun HomeScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp)
             )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.height(150.dp).fillMaxWidth()
-            ) {
-                items(recents) { g ->
-                    GameCard(
-                        title = g.title,
-                        accent = g.accent,
-                        onClick = { onOpenGame(g) },
-                        modifier = Modifier.size(width = 120.dp, height = 145.dp)
-                    )
+            if (recents.isEmpty()) {
+                // Empty state — prompt user to import games
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "还没有导入游戏",
+                            color = Color(0xFF8899AA),
+                            fontSize = 13.sp
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            text = "点击下方「游戏库」导入 ROM 文件",
+                            color = Color(0xFF4A5568),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            } else {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.height(150.dp).fillMaxWidth()
+                ) {
+                    items(recents) { g ->
+                        GameCard(
+                            title = g.title,
+                            accent = g.accent,
+                            onClick = { onOpenGame(g) },
+                            modifier = Modifier.size(width = 120.dp, height = 145.dp)
+                        )
+                    }
                 }
             }
 

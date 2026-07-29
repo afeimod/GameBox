@@ -9,9 +9,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Scans common ROM directories and any user-granted SAF tree for `.nes` files.
+ * Scans common ROM directories and any user-granted SAF tree for `.nes` and `.fds` files.
  */
 class RomScanner(private val context: Context) {
+
+    private fun isRomFile(name: String): Boolean =
+        name.endsWith(".nes", ignoreCase = true) ||
+        name.endsWith(".fds", ignoreCase = true) ||
+        name.endsWith(".zip", ignoreCase = true) ||
+        name.endsWith(".unf", ignoreCase = true) ||
+        name.endsWith(".unif", ignoreCase = true)
 
     suspend fun scanDefaults(): List<File> = withContext(Dispatchers.IO) {
         val candidates = buildList {
@@ -25,14 +32,14 @@ class RomScanner(private val context: Context) {
         }
         candidates.filter { it.exists() && it.isDirectory }
             .flatMap { it.walkTopDown().filter(File::isFile).toList() }
-            .filter { it.extension.equals("nes", ignoreCase = true) }
+            .filter { isRomFile(it.name) }
     }
 
     suspend fun scanSafTree(treeUri: Uri): List<File> = withContext(Dispatchers.IO) {
         val doc = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
         val out = mutableListOf<File>()
         doc.traverse { name ->
-            if (name.endsWith(".nes", ignoreCase = true)) out.add(File(name))
+            if (isRomFile(name)) out.add(File(name))
         }
         out
     }

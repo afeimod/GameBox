@@ -5,6 +5,7 @@ import android.util.Log
 import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
+import java.io.File
 
 /**
  * Application entry point.
@@ -42,6 +43,26 @@ class NesApp : Application() {
         tryInit("SettingsRepository") { SettingsRepository.init(this) }
         tryInit("AppContainer")       { _container = AppContainer(this) }
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
+        tryInit("FdsBios")            { deployFdsBios() }
+    }
+
+    /**
+     * Copy the built-in FDS BIOS (disksys.rom) from APK assets to the app's
+     * filesDir — this is the "system directory" the libretro core uses.
+     * Runs once on startup; skips if the file already exists and is non-empty.
+     */
+    private fun deployFdsBios() {
+        val dest = File(filesDir, "disksys.rom")
+        if (dest.exists() && dest.length() == 8192L) return
+
+        try {
+            assets.open("disksys.rom").use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            Log.i("NesApp", "FDS BIOS deployed to ${dest.absolutePath} (${dest.length()} bytes)")
+        } catch (e: Exception) {
+            Log.w("NesApp", "FDS BIOS not found in assets — .fds games will not work", e)
+        }
     }
 
     /** Container is lazy-nullable: null if init failed, created on first successful init. */
