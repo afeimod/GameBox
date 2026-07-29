@@ -329,26 +329,28 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
 }
 
 // ---------------------------------------------------------------------------
-// XBR2X — edge-preserving 2x upscale
+// XBR2X — edge-preserving 2x upscale (standard 2xBR algorithm)
 //
-// Classic XBR detects diagonal edges by comparing the colour distance
-// between the centre pixel and its diagonal neighbour (e.g. up-left) with
-// the distance between the two orthogonal neighbours (up and left).
+// Faithfully implements the 2xBR algorithm from Hyllian's XBR tutorial and
+// RetroArch's common-shaders/2xbr. The previous implementation had a custom
+// `has_contrast` gate that was NOT part of the standard algorithm — it
+// suppressed blending at legitimate edges, producing jagged spikes (毛刺).
 //
-//   If dist(centre, diagonal) < dist(orthogonal1, orthogonal2):
-//       no edge → copy the centre pixel (stays sharp)
-//   If dist(centre, diagonal) > dist(orthogonal1, orthogonal2):
-//       edge detected → blend the two orthogonal neighbours (smooths edge)
+// Reference: https://forums.libretro.com/t/xbr-algorithm-tutorial/123
 //
-// This produces visibly rounded diagonals and smoothed colour boundaries,
-// unlike simple bilinear which just blurs everything uniformly.
+// Layout (XBR notation):
+//   A B C       UL  U  UR
+//   D E F   =   L   P  R
+//   G H I       DL  D  DR
+//
+// For each of the 4 output pixels, we check one diagonal direction by
+// rotating the neighbourhood so the checked diagonal is in the I position.
 // ---------------------------------------------------------------------------
 
-// YUV colour-distance weight (per XBR reference): luminance matters most
+// YUV colour-distance (luminance weighted 4x, per XBR reference)
 static inline unsigned yuvDiff(uint32_t a, uint32_t b) {
     int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
     int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-    // Quick YUV approximation: Y = 0.299R + 0.587G + 0.114B
     int ay = (ar * 2104 + ag * 4130 + ab * 802) >> 12;
     int by = (br * 2104 + bg * 4130 + bb * 802) >> 12;
     int du = ar - ag, dv = ab - ag;
@@ -356,14 +358,57 @@ static inline unsigned yuvDiff(uint32_t a, uint32_t b) {
     unsigned dy = (unsigned)(ay > by ? ay - by : by - ay);
     unsigned duv = (unsigned)((du - eu) >= 0 ? (du - eu) : (eu - du))
                  + (unsigned)((dv - ev) >= 0 ? (dv - ev) : (ev - dv));
-    return dy * 4 + duv;  // weighted: luminance 4x, chrominance 1x
+    return dy * 4 + duv;
 }
 
-// 50/50 blend of two ARGB pixels (alpha preserved from first)
-static inline uint32_t blend2(uint32_t a, uint32_t b) {
-    return (((a & 0x00FF00FF) + (b & 0x00FF00FF)) >> 1 & 0x00FF00FF)
-         | (((a & 0x0000FF00) + (b & 0x0000FF00)) >> 1 & 0x0000FF00)
-         | (a & 0xFF000000u);
+// Alpha blend: alpha=0 → dst, alpha=256 → src (alpha in 0..256 range)
+static inline uint32_t alphaBlendW(uint32_t dst, uint32_t src, int alpha) {
+    int inv = 256 - alpha;
+    return ((((dst & 0x00FF00FF) * inv + (src & 0x00FF00FF) * alpha) >> 8) & 0x00FF00FF)
+         | ((((dst & 0x0000FF00) * inv + (src & 0x0000FF00) * alpha) >> 8) & 0x0000FF00)
+         | 0xFF000000u;
+}
+
+// Pixel equality: YUV distance below threshold (from 2xbr.c, EQ_THRESHOLD=155)
+static inline bool pixEq(uint32_t a, uint32_t b) {
+    return yuvDiff(a, b) < 155;
+}
+
+// Process one output quadrant — checks edge in the I (down-right) direction.
+// This is the STANDARD 2xBR algorithm without any custom modifications.
+// E=center, A=UL, B=U, C=UR, D=L, F=R, G=DL, H=D, I=DR
+static inline uint32_t xbrQuadrant(
+    uint32_t E, uint32_t A, uint32_t B, uint32_t C,
+    uint32_t D, uint32_t F, uint32_t G, uint32_t H, uint32_t I)
+{
+    // Step 1: Weighted distance edge detection
+    // wd_no = weight for "no edge" hypothesis (diagonal neighbours match)
+    // wd_ed = weight for "edge" hypothesis (orthogonal through-diagonal match)
+    unsigned wd_no = yuvDiff(E, C) + yuvDiff(E, G) + 4 * yuvDiff(H, F);
+    unsigned wd_ed = yuvDiff(H, D) + yuvDiff(F, B) + 4 * yuvDiff(E, I);
+
+    if (wd_no >= wd_ed)
+        return E;  // No edge detected: keep pixel sharp (nearest-neighbor)
+
+    // Step 2: Edge detected — determine corner structure
+    // left  vertex: E differs from G, AND D differs from G (left corner exists)
+    // right vertex: E differs from C, AND B differs from C (right corner exists)
+    bool left  = !pixEq(E, G) && !pixEq(D, G);
+    bool right = !pixEq(E, C) && !pixEq(B, C);
+
+    // Step 3: Choose blend target — the orthogonal neighbour closer to E
+    uint32_t np = (yuvDiff(E, F) <= yuvDiff(E, H)) ? F : H;
+
+    // Step 4: Blend amount based on corner type
+    //   left-only  → 75% blend (strong corner interpolation)
+    //   right-only → 25% blend (weak corner, preserves detail)
+    //   both/neither → 50% blend (standard diagonal edge)
+    if (left && !right)
+        return alphaBlendW(E, np, 192);   // 75%
+    else if (!left && right)
+        return alphaBlendW(E, np, 64);    // 25%
+    else
+        return alphaBlendW(E, np, 128);   // 50%
 }
 
 static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
@@ -374,9 +419,9 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
         const unsigned y2 = y * 2;
         const bool hasUp = (y > 0);
         const bool hasDn = (y + 1 < sh);
-        const uint32_t* row  = src + y * srcStride;
-        const uint32_t* up   = hasUp ? src + (y - 1) * srcStride : row;
-        const uint32_t* dn   = hasDn ? src + (y + 1) * srcStride : row;
+        const uint32_t* row = src + y * srcStride;
+        const uint32_t* up  = hasUp ? src + (y - 1) * srcStride : row;
+        const uint32_t* dn  = hasDn ? src + (y + 1) * srcStride : row;
 
         for (unsigned x = 0; x < sw; ++x) {
             const unsigned x2 = x * 2;
@@ -384,61 +429,34 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
             const bool hasRt = (x + 1 < sw);
 
             // 3x3 neighbourhood (clamp at borders by repeating edge pixel)
-            const uint32_t P  = row[x];                              // centre
-            const uint32_t U  = hasUp ? up[x]  : P;                 // up
-            const uint32_t D  = hasDn ? dn[x]  : P;                 // down
-            const uint32_t L  = hasLt ? row[x - 1] : P;             // left
-            const uint32_t R  = hasRt ? row[x + 1] : P;             // right
-            const uint32_t UL = (hasUp && hasLt) ? up[x - 1]  : P;  // up-left
-            const uint32_t UR = (hasUp && hasRt) ? up[x + 1]  : P;  // up-right
-            const uint32_t DL = (hasDn && hasLt) ? dn[x - 1]  : P;  // down-left
-            const uint32_t DR = (hasDn && hasRt) ? dn[x + 1]  : P;  // down-right
+            const uint32_t P  = row[x];
+            const uint32_t U  = hasUp ? up[x]  : P;
+            const uint32_t D  = hasDn ? dn[x]  : P;
+            const uint32_t L  = hasLt ? row[x - 1] : P;
+            const uint32_t R  = hasRt ? row[x + 1] : P;
+            const uint32_t UL = (hasUp && hasLt) ? up[x - 1] : P;
+            const uint32_t UR = (hasUp && hasRt) ? up[x + 1] : P;
+            const uint32_t DL = (hasDn && hasLt) ? dn[x - 1] : P;
+            const uint32_t DR = (hasDn && hasRt) ? dn[x + 1] : P;
 
             uint32_t* d0 = dst + y2 * dw;       // top row of output
             uint32_t* d1 = dst + (y2 + 1) * dw; // bottom row
 
-            // --- Top-left output pixel ---
-            // Compare dist(P, UL) vs dist(U, L).
-            // If P~UL (small distance): no diagonal edge → copy P.
-            // If U~L (small distance, smaller than P~UL): edge → blend U,L.
-            {
-                unsigned d_diag = yuvDiff(P, UL);
-                unsigned d_orth = yuvDiff(U, L);
-                if (d_diag > d_orth && d_orth < 120)
-                    d0[x2] = blend2(U, L);   // smooth edge
-                else
-                    d0[x2] = P;              // keep sharp
-            }
+            // Output 0 (top-left): check I=DR direction — no rotation
+            // A=UL B=U C=UR D=L E=P F=R G=DL H=D I=DR
+            d0[x2] = xbrQuadrant(P, UL, U, UR, L, R, DL, D, DR);
 
-            // --- Top-right output pixel ---
-            {
-                unsigned d_diag = yuvDiff(P, UR);
-                unsigned d_orth = yuvDiff(U, R);
-                if (d_diag > d_orth && d_orth < 120)
-                    d0[x2 + 1] = blend2(U, R);
-                else
-                    d0[x2 + 1] = P;
-            }
+            // Output 1 (top-right): check G=DL direction — mirror horizontally
+            // A=UR B=U C=UL D=R E=P F=L G=DR H=D I=DL
+            d0[x2 + 1] = xbrQuadrant(P, UR, U, UL, R, L, DR, D, DL);
 
-            // --- Bottom-left output pixel ---
-            {
-                unsigned d_diag = yuvDiff(P, DL);
-                unsigned d_orth = yuvDiff(D, L);
-                if (d_diag > d_orth && d_orth < 120)
-                    d1[x2] = blend2(D, L);
-                else
-                    d1[x2] = P;
-            }
+            // Output 2 (bottom-left): check C=UR direction — flip vertically
+            // A=DL B=D C=DR D=L E=P F=R G=UL H=U I=UR
+            d1[x2] = xbrQuadrant(P, DL, D, DR, L, R, UL, U, UR);
 
-            // --- Bottom-right output pixel ---
-            {
-                unsigned d_diag = yuvDiff(P, DR);
-                unsigned d_orth = yuvDiff(D, R);
-                if (d_diag > d_orth && d_orth < 120)
-                    d1[x2 + 1] = blend2(D, R);
-                else
-                    d1[x2 + 1] = P;
-            }
+            // Output 3 (bottom-right): check A=UL direction — flip + mirror
+            // A=DR B=D C=DL D=R E=P F=L G=UR H=U I=UL
+            d1[x2 + 1] = xbrQuadrant(P, DR, D, DL, R, L, UR, U, UL);
         }
     }
 }
@@ -613,18 +631,54 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             if (!biosF) {
                 LOGE("FDS BIOS NOT FOUND at: %s (systemDir=%s)",
                      biosPath.c_str(), s_systemDir.c_str());
-                // Try alternative locations
-                std::string altPath = s_systemDir + "/disksys.rom";
-                LOGE("FDS games require disksys.rom in the system directory. "
-                     "Expected at: %s", biosPath.c_str());
+                retro_deinit();
+                return "FDS BIOS缺失: 请在设置中导入disksys.rom (8KB, MD5: ca30b50f880eb660a320674ed365ef7a)";
             } else {
                 std::fseek(biosF, 0, SEEK_END);
                 long biosSize = std::ftell(biosF);
+                std::fseek(biosF, 0, SEEK_SET);
+
+                // Read first 64 bytes to check for corruption
+                uint8_t header[64];
+                size_t hdrRead = std::fread(header, 1, 64, biosF);
+
+                // Read reset vector at offset 0x1FFC
+                uint8_t vec[2] = {0, 0};
+                std::fseek(biosF, 0x1FFC, SEEK_SET);
+                std::fread(vec, 1, 2, biosF);
                 std::fclose(biosF);
+
                 LOGI("FDS BIOS found at: %s (%ld bytes)", biosPath.c_str(), biosSize);
+
                 if (biosSize != 8192) {
                     LOGE("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
+                    retro_deinit();
+                    return "FDS BIOS大小错误: 需要8192字节, 当前" + std::to_string(biosSize)
+                         + "字节。请在设置中导入正确的disksys.rom";
                 }
+
+                // Check if first 64 bytes are all zeros (corruption indicator)
+                bool allZeros = true;
+                for (size_t i = 0; i < hdrRead && i < 64; ++i) {
+                    if (header[i] != 0) { allZeros = false; break; }
+                }
+                if (allZeros) {
+                    LOGE("FDS BIOS corrupted: first 64 bytes are all zeros");
+                    retro_deinit();
+                    return "FDS BIOS已损坏: 文件前64字节全为零。"
+                           "请在设置中导入正确的disksys.rom "
+                           "(MD5: ca30b50f880eb660a320674ed365ef7a)";
+                }
+
+                // Check reset vector (should point to $E040 = 0x40, 0xE0)
+                if (vec[0] != 0x40 || vec[1] != 0xE0) {
+                    LOGE("FDS BIOS reset vector invalid: %02X %02X (expected 40 E0)",
+                         vec[0], vec[1]);
+                    retro_deinit();
+                    return "FDS BIOS复位向量错误: 请在设置中导入正确的disksys.rom";
+                }
+
+                LOGI("FDS BIOS verification passed");
             }
             LOGI("Loading FDS game: %s", path.c_str());
         }
