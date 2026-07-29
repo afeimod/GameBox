@@ -106,4 +106,14 @@ object NesNative {
 
     /** Current video height reported by the core (e.g. 240). */
     @JvmStatic external fun videoHeight(): Int
+
+    /**
+     * Set the frontend video post-processing filter.
+     *   0 = none (nearest-neighbor)
+     *   1 = scanline
+     *   2 = CRT (scanline + vignette)
+     *   3 = dot (LCD dot grid)
+     *   4 = XBR (edge-preserving smooth scaling)
+     */
+    @JvmStatic external fun setVideoFilter(filter: Int)
 }

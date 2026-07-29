@@ -43,7 +43,11 @@ data class PadLayout(
     val palette: String = "default",      // default | dq | nx | asq | rp2 | ...
     val region: String = "Auto",          // Auto | NTSC | PAL | Dendy
     val soundQuality: String = "Low",     // Low | High | Very High
-    val cropOverscan: String = "disabled" // disabled | enabled  (maps to 4 individual overscan keys)
+    val cropOverscan: String = "disabled",// disabled | enabled  (maps to 4 individual overscan keys)
+    // Video scaling — controls SurfaceView layout aspect ratio (frontend-level, not FCEUmm option)
+    val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9
+    // Video filter — applied in the native blit function (frontend-level post-processing)
+    val videoFilter: String = "none"      // none | scanline | crt | dot | xbr
 )
 
 /**
@@ -87,6 +91,8 @@ object PadLayoutStore {
     private const val KEY_REGION = "region"
     private const val KEY_SOUND_QUALITY = "sound_quality"
     private const val KEY_CROP_OVERSCAN = "crop_overscan"
+    private const val KEY_VIDEO_SCALE = "video_scale"
+    private const val KEY_VIDEO_FILTER = "video_filter"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -136,7 +142,9 @@ object PadLayoutStore {
             palette = p.getString(KEY_PALETTE, "default") ?: "default",
             region = p.getString(KEY_REGION, "Auto") ?: "Auto",
             soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low",
-            cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled"
+            cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled",
+            videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch",
+            videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none"
         )
     }
 
@@ -179,6 +187,8 @@ object PadLayoutStore {
             putString(KEY_REGION, layout.region)
             putString(KEY_SOUND_QUALITY, layout.soundQuality)
             putString(KEY_CROP_OVERSCAN, layout.cropOverscan)
+            putString(KEY_VIDEO_SCALE, layout.videoScale)
+            putString(KEY_VIDEO_FILTER, layout.videoFilter)
         }.apply()
     }
 }

@@ -87,4 +87,14 @@ int videoHeight();
 // e.g. for 4:3, num=4, den=3.
 void videoAspectRatio(int& num, int& den);
 
+// --- Video filter (frontend post-processing) -------------------------------
+
+// Set the video filter type applied during surface blitting.
+//   0 = none (nearest-neighbor)
+//   1 = scanline
+//   2 = CRT (scanline + vignette)
+//   3 = dot (LCD dot grid)
+//   4 = XBR (edge-preserving smooth scaling)
+void setVideoFilter(int filter);
+
 } // namespace nescore::rom

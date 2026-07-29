@@ -75,6 +75,15 @@ fun SettingsScreen(
         engine.setCoreOption("fceumm_overscan_h_right", cropVal)
         engine.setCoreOption("fceumm_overscan_v_top", cropVal)
         engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+        // Apply video filter (frontend post-processing)
+        val filterInt = when (new.videoFilter) {
+            "scanline" -> 1
+            "crt" -> 2
+            "dot" -> 3
+            "xbr" -> 4
+            else -> 0
+        }
+        engine.setVideoFilter(filterInt)
     }
 
     // Permission launcher for Android <= 10
@@ -157,6 +166,16 @@ fun SettingsScreen(
                             listOf("disabled" to "关闭", "enabled" to "开启"),
                             padLayout.cropOverscan
                         ) { updateLayout(padLayout.copy(cropOverscan = it)) }
+
+                        DropdownRow("画面缩放",
+                            listOf("stretch" to "全屏拉伸(默认)", "4:3" to "4:3", "8:7" to "8:7", "16:9" to "16:9"),
+                            padLayout.videoScale
+                        ) { updateLayout(padLayout.copy(videoScale = it)) }
+
+                        DropdownRow("视频滤镜",
+                            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵", "xbr" to "XBR"),
+                            padLayout.videoFilter
+                        ) { updateLayout(padLayout.copy(videoFilter = it)) }
                     }
                 }
 

@@ -58,6 +58,10 @@ public:
     int  videoWidth();
     int  videoHeight();
 
+    // --- Video filter ---
+    // Set frontend post-processing filter: 0=none 1=scanline 2=crt 3=dot 4=xbr
+    void setVideoFilter(int filter);
+
     std::string lastError() const { return lastError_; }
 
 private:

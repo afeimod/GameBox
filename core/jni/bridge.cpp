@@ -99,6 +99,8 @@ void Engine::setCoreOption(const std::string& key, const std::string& value) {
 int Engine::videoWidth()  { return rom::videoWidth(); }
 int Engine::videoHeight() { return rom::videoHeight(); }
 
+void Engine::setVideoFilter(int filter) { rom::setVideoFilter(filter); }
+
 } // namespace nescore
 
 // ---------------------------------------------------------------------------
@@ -256,6 +258,13 @@ Java_com_nesstation_app_core_jni_NesNative_videoWidth(JNIEnv*, jclass) {
 JNIEXPORT jint JNICALL
 Java_com_nesstation_app_core_jni_NesNative_videoHeight(JNIEnv*, jclass) {
     return nescore::Engine::instance().videoHeight();
+}
+
+// --- Video filter ---
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NesNative_setVideoFilter(JNIEnv*, jclass, jint filter) {
+    nescore::Engine::instance().setVideoFilter(filter);
 }
 
 } // extern "C"

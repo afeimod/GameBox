@@ -147,6 +147,12 @@ class NesEngine private constructor() {
     /** Current video height from the core (e.g. 240). */
     fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
 
+    /**
+     * Set the frontend video post-processing filter.
+     *   0 = none, 1 = scanline, 2 = crt, 3 = dot, 4 = xbr
+     */
+    fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
+
     fun setFastForward(on: Boolean) {
         _fastForward = on
         if (isLoaded) NesNative.setFastForward(on)

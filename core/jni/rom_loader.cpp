@@ -74,6 +74,9 @@ static std::atomic<bool> s_fdsRButton{false};
 static std::atomic<bool> s_isFdsGame{false};
 static int s_fdsInsertFrameCount = 0;
 
+// Video filter type: 0=none, 1=scanline, 2=crt, 3=dot
+static std::atomic<int> s_videoFilter{0};
+
 // Audio ring buffer: interleaved stereo int16 samples.
 static constexpr size_t kAudioCap = 1u << 15; // 32768 samples (~0.37s @44.1k stereo)
 static int16_t s_audioRing[kAudioCap];
@@ -206,8 +209,11 @@ static bool cb_environment(unsigned cmd, void* data) {
             }
             return true;
 
-        // Use libretro-common's bundled local file_stream instead of a VFS
-        // interface — it is already linked in and handles ROM/SRAM files fine.
+        // FDS BIOS loading uses filestream_open(), which falls back to
+        // retro_vfs_file_open_impl() (from vfs_implementation.c, compiled in)
+        // when no VFS interface is provided. This fallback works correctly on
+        // Android for standard filesystem paths, so we don't need to provide
+        // a VFS interface — returning false lets the core use the fallback.
         case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
             return false;
 
@@ -262,6 +268,8 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
 
     // The buffer format is typically WINDOW_FORMAT_RGBA_8888 (4 bytes/pixel)
     // or WINDOW_FORMAT_RGB_565. Handle RGBA_8888 (most common on modern devices).
+    int filterType = s_videoFilter.load(std::memory_order_relaxed);
+
     if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
         buf.format == WINDOW_FORMAT_RGBX_8888) {
         uint8_t* dst = static_cast<uint8_t*>(buf.bits);
@@ -276,10 +284,95 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
                 if (srcX >= w) srcX = w - 1;
                 uint32_t px = srow[srcX];
                 // XRGB8888 -> RGBA8888
-                drow[x * 4 + 0] = (px >> 16) & 0xFF; // R
-                drow[x * 4 + 1] = (px >> 8) & 0xFF;  // G
-                drow[x * 4 + 2] = px & 0xFF;          // B
-                drow[x * 4 + 3] = 0xFF;                // A
+                uint8_t r = (px >> 16) & 0xFF;
+                uint8_t g = (px >> 8) & 0xFF;
+                uint8_t b = px & 0xFF;
+
+                // Apply video filter post-processing
+                if (filterType == 1) {
+                    // Scanline: darken every other row by 30%
+                    if (y & 1) { r = r * 7 / 10; g = g * 7 / 10; b = b * 7 / 10; }
+                } else if (filterType == 2) {
+                    // CRT: scanline + slight horizontal blur + vignette
+                    if (y & 1) { r = r * 6 / 10; g = g * 6 / 10; b = b * 6 / 10; }
+                    // Subtle vignette darkening at edges
+                    float edgeX = (float)x / dstW;
+                    float edgeY = (float)y / dstH;
+                    float vignette = 1.0f;
+                    float dx = edgeX - 0.5f, dy = edgeY - 0.5f;
+                    float dist = dx*dx + dy*dy;
+                    if (dist > 0.15f) vignette = 1.0f - (dist - 0.15f) * 0.5f;
+                    if (vignette < 0.7f) vignette = 0.7f;
+                    r = (uint8_t)(r * vignette);
+                    g = (uint8_t)(g * vignette);
+                    b = (uint8_t)(b * vignette);
+                } else if (filterType == 3) {
+                    // Dot grid: darken pixels at regular intervals to simulate LCD dot mask
+                    if ((x % 3 == 2) || (y % 3 == 2)) {
+                        r = r * 7 / 10; g = g * 7 / 10; b = b * 7 / 10;
+                    }
+                } else if (filterType == 4) {
+                    // XBR: edge-preserving smooth scaling
+                    // Compute exact source position for bilinear + edge detection
+                    float fx = (float)x * sx;
+                    float fy = (float)y * sy;
+                    int ix = (int)fx;
+                    int iy = (int)fy;
+                    float dx = fx - ix;
+                    float dy = fy - iy;
+                    if (ix < 0) ix = 0;
+                    if (iy < 0) iy = 0;
+                    if (ix >= (int)w) ix = (int)w - 1;
+                    if (iy >= (int)h) iy = (int)h - 1;
+                    int ix1 = (ix + 1 < (int)w) ? ix + 1 : ix;
+                    int iy1 = (iy + 1 < (int)h) ? iy + 1 : iy;
+
+                    uint32_t p00 = src[iy  * srcStride + ix];
+                    uint32_t p01 = src[iy  * srcStride + ix1];
+                    uint32_t p10 = src[iy1 * srcStride + ix];
+                    uint32_t p11 = src[iy1 * srcStride + ix1];
+
+                    // Bilinear weights
+                    float w00 = (1.0f - dx) * (1.0f - dy);
+                    float w01 = dx * (1.0f - dy);
+                    float w10 = (1.0f - dx) * dy;
+                    float w11 = dx * dy;
+
+                    // Edge detection via squared color distance
+                    auto sqDist = [](uint32_t a, uint32_t b) -> int {
+                        int dr = ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF);
+                        int dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
+                        int db = (a & 0xFF) - (b & 0xFF);
+                        return dr * dr + dg * dg + db * db;
+                    };
+                    int dvert = sqDist(p00, p10) + sqDist(p01, p11);
+                    int dhorz = sqDist(p00, p01) + sqDist(p10, p11);
+
+                    // Reduce weight across detected edges
+                    if (dvert > 9000) {
+                        if (dy < 0.5f) { w10 *= 0.15f; w11 *= 0.15f; }
+                        else           { w00 *= 0.15f; w01 *= 0.15f; }
+                    }
+                    if (dhorz > 9000) {
+                        if (dx < 0.5f) { w01 *= 0.15f; w11 *= 0.15f; }
+                        else           { w00 *= 0.15f; w10 *= 0.15f; }
+                    }
+
+                    float ws = w00 + w01 + w10 + w11;
+                    if (ws > 0.0f) {
+                        r = (uint8_t)((((p00 >> 16) & 0xFF) * w00 + ((p01 >> 16) & 0xFF) * w01 +
+                                       ((p10 >> 16) & 0xFF) * w10 + ((p11 >> 16) & 0xFF) * w11) / ws + 0.5f);
+                        g = (uint8_t)((((p00 >> 8) & 0xFF) * w00 + ((p01 >> 8) & 0xFF) * w01 +
+                                       ((p10 >> 8) & 0xFF) * w10 + ((p11 >> 8) & 0xFF) * w11) / ws + 0.5f);
+                        b = (uint8_t)(((p00 & 0xFF) * w00 + (p01 & 0xFF) * w01 +
+                                       (p10 & 0xFF) * w10 + (p11 & 0xFF) * w11) / ws + 0.5f);
+                    }
+                }
+
+                drow[x * 4 + 0] = r;   // R
+                drow[x * 4 + 1] = g;   // G
+                drow[x * 4 + 2] = b;   // B
+                drow[x * 4 + 3] = 0xFF; // A
             }
         }
     } else if (buf.format == WINDOW_FORMAT_RGB_565) {
@@ -537,23 +630,25 @@ void resetEmulation(bool /*hard*/) {
 void stepFrame() {
     if (!s_loaded) return;
 
-    // FDS auto disk-insert sequence: run a few frames to let the BIOS
-    // initialize, then press R for exactly one frame to trigger
-    // FCEU_FDSInsert(-1), then release. FCEUmm checks:
-    //   if (curR && !prevR) FCEU_FDSInsert(-1);
-    // so we need R=false for a few frames, then R=true for one frame.
+    // FDS auto disk-insert sequence: FCEUmm starts with the disk ejected
+    // (InDisk=255). The user must press R to insert it. We wait ~90 frames
+    // (1.5s) for the BIOS screen to initialize, then press R for exactly
+    // one frame. FCEUmm uses edge detection: if (curR && !prevR) insert.
+    // So we need R=false for several frames, then R=true for 1 frame,
+    // then R=false again.
     if (s_fdsNeedInsert.load(std::memory_order_relaxed)) {
         s_fdsInsertFrameCount++;
-        if (s_fdsInsertFrameCount >= 5 && s_fdsInsertFrameCount <= 6) {
-            // Frame 5-6: press R to insert the disk
+        if (s_fdsInsertFrameCount == 90) {
+            // Press R for exactly 1 frame to trigger disk insertion
             s_fdsRButton.store(true, std::memory_order_relaxed);
-        } else if (s_fdsInsertFrameCount == 7) {
-            // Frame 7: release R, insertion is done
+            LOGI("FDS: pressing R to insert disk (frame %d)", s_fdsInsertFrameCount);
+        } else if (s_fdsInsertFrameCount == 91) {
+            // Release R immediately — the edge has been detected
             s_fdsRButton.store(false, std::memory_order_relaxed);
             s_fdsNeedInsert.store(false, std::memory_order_relaxed);
             LOGI("FDS disk auto-inserted");
         }
-        // For frames 1-4, R stays false (let BIOS init)
+        // For all other frames, R stays false (let BIOS init)
     }
 
     retro_run();
@@ -648,11 +743,14 @@ void setSurface(void* nativeWindow) {
         s_window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(s_window);
 
-        // Set the buffer geometry to match the NES resolution.
-        // The SurfaceFlinger will handle scaling to the display.
-        ANativeWindow_setBuffersGeometry(s_window, s_videoW, s_videoH,
+        // Set buffer format to RGBA_8888. Use 0x0 for dimensions so the
+        // buffer matches the SurfaceView's actual display size — this lets
+        // the blit function scale from NES resolution (256x240) to the
+        // display resolution, which is essential for XBR and gives better
+        // scanline/CRT/dot filter quality.
+        ANativeWindow_setBuffersGeometry(s_window, 0, 0,
                                          WINDOW_FORMAT_RGBA_8888);
-        LOGI("Surface attached: %dx%d", s_videoW, s_videoH);
+        LOGI("Surface attached (buffer geometry = window default)");
     } else {
         LOGI("Surface detached");
     }
@@ -692,6 +790,13 @@ void videoAspectRatio(int& num, int& den) {
     int a = num, b = den;
     while (b) { int t = b; b = a % b; a = t; }
     if (a > 0) { num /= a; den /= a; }
+}
+
+// --- Video filter ----------------------------------------------------------
+
+void setVideoFilter(int filter) {
+    s_videoFilter.store(filter, std::memory_order_relaxed);
+    LOGI("Video filter set: %d", filter);
 }
 
 } // namespace nescore::rom

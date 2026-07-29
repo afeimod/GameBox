@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -108,8 +109,18 @@ fun EmulatorScreen(
 
     // Apply core options on load and when they change
     LaunchedEffect(padLayout.ntscFilter, padLayout.aspectRatio, padLayout.palette,
-                   padLayout.region, padLayout.soundQuality, padLayout.cropOverscan) {
+                   padLayout.region, padLayout.soundQuality, padLayout.cropOverscan,
+                   padLayout.videoFilter) {
         applyCoreOptions(engine, padLayout)
+        // Apply video filter (frontend post-processing, not a core option)
+        val filterInt = when (padLayout.videoFilter) {
+            "scanline" -> 1
+            "crt" -> 2
+            "dot" -> 3
+            "xbr" -> 4
+            else -> 0
+        }
+        engine.setVideoFilter(filterInt)
     }
 
     BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings) {
@@ -180,6 +191,7 @@ fun EmulatorScreen(
         if (loaded) {
             GameSurfaceView(
                 engine = engine,
+                videoScale = padLayout.videoScale,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -268,25 +280,34 @@ private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
 @Composable
 private fun GameSurfaceView(
     engine: NesEngine,
+    videoScale: String,
     modifier: Modifier = Modifier
 ) {
-    AndroidView(
-        factory = { ctx ->
-            SurfaceView(ctx).apply {
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        engine.setSurface(holder.surface)
-                    }
-                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-                    override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        engine.setSurface(null)
-                    }
-                })
-                holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
-            }
-        },
-        modifier = modifier
-    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        val surfaceModifier = when (videoScale) {
+            "4:3" -> Modifier.aspectRatio(4f / 3f)
+            "8:7" -> Modifier.aspectRatio(8f / 7f)
+            "16:9" -> Modifier.aspectRatio(16f / 9f)
+            else -> Modifier.fillMaxSize() // stretch (default)
+        }
+        AndroidView(
+            factory = { ctx ->
+                SurfaceView(ctx).apply {
+                    holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            engine.setSurface(holder.surface)
+                        }
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            engine.setSurface(null)
+                        }
+                    })
+                    holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
+                }
+            },
+            modifier = surfaceModifier
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,6 +1071,16 @@ private fun SettingsPanel(
             listOf("disabled" to "关闭", "enabled" to "开启"),
             padLayout.cropOverscan
         ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
+
+        DropdownSetting("画面缩放",
+            listOf("stretch" to "全屏拉伸(默认)", "4:3" to "4:3", "8:7" to "8:7", "16:9" to "16:9"),
+            padLayout.videoScale
+        ) { onLayoutChange(padLayout.copy(videoScale = it)) }
+
+        DropdownSetting("视频滤镜",
+            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵", "xbr" to "XBR"),
+            padLayout.videoFilter
+        ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
 
         Spacer(Modifier.size(8.dp))
         Text("修改后即时生效。设置与主界面设置同步。", color = Color(0xFF8899AA), fontSize = 11.sp)
