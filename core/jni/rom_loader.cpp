@@ -21,6 +21,8 @@
 #include <android/native_window_jni.h>
 
 #include <atomic>
+#include <algorithm>
+#include <cctype>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -48,6 +50,7 @@ static int  s_sampleRate = 0;
 static int  s_region = 0;
 static std::string s_systemDir;
 static std::string s_saveDir;
+static std::string s_coreMessage;  // last message from the core (e.g. FDS BIOS missing)
 
 // Frame buffer (ARGB, 0xAARRGGBB). Written by video_cb, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
@@ -62,6 +65,14 @@ static unsigned s_videoH = kNesH;
 // Controller bits (see setControllerInput layout).
 static std::atomic<uint16_t> s_pad1{0};
 static std::atomic<uint16_t> s_pad2{0};
+
+// FDS disk auto-insert: FCEUmm starts with the disk ejected (InDisk=255).
+// The user must press the R button to insert it. We auto-press R on the
+// first few frames after loading an FDS game so the game boots immediately.
+static std::atomic<bool> s_fdsNeedInsert{false};
+static std::atomic<bool> s_fdsRButton{false};
+static std::atomic<bool> s_isFdsGame{false};
+static int s_fdsInsertFrameCount = 0;
 
 // Audio ring buffer: interleaved stereo int16 samples.
 static constexpr size_t kAudioCap = 1u << 15; // 32768 samples (~0.37s @44.1k stereo)
@@ -88,10 +99,9 @@ static std::atomic<bool> s_optionsChanged{false};
 // These mirror the option keys registered by FCEUmm's retro_set_variables().
 static void initDefaultOptions() {
     s_options["fceumm_region"]            = "Auto";
-    s_options["fceumm_ntsc_filter"]       = "disabled";  // No NTSC filter by default (fastest)
+    s_options["fceumm_ntsc_filter"]       = "disabled";
     s_options["fceumm_palette"]           = "default";
-    s_options["fceumm_aspect"]            = "8:7";       // PAR 8:7 (native NES pixels)
-    s_options["fceumm_cropoverscan"]      = "disabled";
+    s_options["fceumm_aspect"]            = "8:7 PAR";   // MUST match FCEUmm's option values exactly
     s_options["fceumm_sndquality"]        = "Low";
     s_options["fceumm_sndlowpass"]        = "enabled";
     s_options["fceumm_sndvolume"]         = "150";
@@ -104,14 +114,11 @@ static void initDefaultOptions() {
     s_options["fceumm_aspect_orient"]     = "horizontal";
     s_options["fceumm_su_swap"]           = "disabled";
     s_options["fceumm_disable_swap"]      = "disabled";
-    s_options["fceumm_top_crop"]          = "0";
-    s_options["fceumm_bot_crop"]          = "0";
-    s_options["fceumm_left_crop"]         = "0";
-    s_options["fceumm_right_crop"]        = "0";
-    s_options["fceumm_top_crop_overscan"] = "disabled";
-    s_options["fceumm_bot_crop_overscan"] = "disabled";
-    s_options["fceumm_left_crop_overscan"] = "disabled";
-    s_options["fceumm_right_crop_overscan"] = "disabled";
+    // Non-PSP overscan: 4 individual crop options (0/4/8/12/16)
+    s_options["fceumm_overscan_h_left"]   = "0";
+    s_options["fceumm_overscan_h_right"]  = "0";
+    s_options["fceumm_overscan_v_top"]    = "0";
+    s_options["fceumm_overscan_v_bottom"] = "0";
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +173,18 @@ static bool cb_environment(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE:
         case RETRO_ENVIRONMENT_SET_VARIABLES:
             return true;
+
+        case RETRO_ENVIRONMENT_SET_MESSAGE: {
+            // Capture core messages (e.g. "FDS BIOS image missing") for error reporting
+            if (data) {
+                auto* msg = static_cast<const retro_message*>(data);
+                if (msg && msg->msg) {
+                    s_coreMessage = msg->msg;
+                    LOGE("Core message: %s", msg->msg);
+                }
+            }
+            return true;
+        }
 
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             if (!data) return false;
@@ -357,6 +376,10 @@ static int16_t cb_input_state(unsigned port, unsigned device,
         case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (bits >> 5) & 1;
         case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (bits >> 6) & 1;
         case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (bits >> 7) & 1;
+        case RETRO_DEVICE_ID_JOYPAD_R:
+            // R button is used for FDS disk insert/eject.
+            // Driven by s_fdsRButton, not the regular pad bits.
+            return (port == 0) ? s_fdsRButton.load(std::memory_order_relaxed) : 0;
         default: return 0;
     }
 }
@@ -373,12 +396,20 @@ static void resetAudioRing() {
 std::string loadFromFile(const std::string& path, int& regionOut) {
     if (s_loaded) unload();
 
-    // Initialize core options before the core starts
+    // Initialize core options before the core starts.
+    // Always call initDefaultOptions() to ensure ALL keys exist, but don't
+    // overwrite values already set by the user via setCoreOption().
     {
         std::lock_guard<std::mutex> lk(s_optMtx);
-        if (s_options.empty()) initDefaultOptions();
+        // Save current user-set values
+        auto saved = s_options;
+        initDefaultOptions();
+        // Restore user-set values on top of defaults
+        for (auto& [k, v] : saved) {
+            s_options[k] = v;
+        }
     }
-    s_optionsChanged.store(false, std::memory_order_release);
+    s_optionsChanged.store(true, std::memory_order_release);
 
     // CRITICAL: retro_set_environment MUST be called before retro_init().
     // FCEUmm's retro_init() calls the environment callback (e.g. to get the
@@ -391,17 +422,16 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     retro_set_input_poll(cb_input_poll);
     retro_set_input_state(cb_input_state);
 
-    // FCEUmm advertises need_fullpath, but support both modes for robustness.
-    struct retro_system_info sysinfo;
-    retro_get_system_info(&sysinfo);
-
+    // FCEUmm advertises need_fullpath=true, but also registers a content
+    // info override with need_fullpath=false. Always provide BOTH path and
+    // data so the core can use whichever mode it prefers — this is
+    // especially important for FDS games where the core may need the data
+    // buffer directly.
     struct retro_game_info game;
     std::memset(&game, 0, sizeof(game));
     std::vector<uint8_t> romData;
 
-    if (sysinfo.need_fullpath) {
-        game.path = path.c_str();
-    } else {
+    {
         FILE* f = std::fopen(path.c_str(), "rb");
         if (!f) { retro_deinit(); return "Cannot open ROM file: " + path; }
         std::fseek(f, 0, SEEK_END);
@@ -417,12 +447,44 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         game.size = romData.size();
     }
 
+    // Reset FDS auto-insert state
+    s_fdsNeedInsert.store(false, std::memory_order_relaxed);
+    s_fdsRButton.store(false, std::memory_order_relaxed);
+    s_isFdsGame.store(false, std::memory_order_relaxed);
+    s_fdsInsertFrameCount = 0;
+
     if (!retro_load_game(&game)) {
         retro_unload_game();
         retro_deinit();
+        // Return the core's own error message if available (e.g. FDS BIOS missing)
+        if (!s_coreMessage.empty()) {
+            std::string err = s_coreMessage;
+            s_coreMessage.clear();
+            return err;
+        }
         return "FCEUmm rejected the ROM (unsupported mapper or corrupt file)";
     }
     s_loaded = true;
+
+    // Detect FDS games by file extension and schedule auto disk-insert.
+    // FCEUmm starts with the disk ejected (InDisk=255); the R button must
+    // be pressed once to insert it. Without this, FDS games show a blank
+    // white/gray BIOS screen forever.
+    {
+        std::string ext;
+        size_t dot = path.find_last_of('.');
+        if (dot != std::string::npos) {
+            ext = path.substr(dot);
+            std::transform(ext.begin(), ext.end(), ext.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+        }
+        if (ext == ".fds") {
+            s_fdsNeedInsert.store(true, std::memory_order_relaxed);
+            s_isFdsGame.store(true, std::memory_order_relaxed);
+            s_fdsInsertFrameCount = 0;
+            LOGI("FDS game detected — will auto-insert disk on first frames");
+        }
+    }
 
     retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
@@ -454,15 +516,46 @@ void unload() {
     s_sampleRate = 0;
     resetAudioRing();
     s_newFrame.store(false);
+    // Reset FDS auto-insert state
+    s_fdsNeedInsert.store(false, std::memory_order_relaxed);
+    s_fdsRButton.store(false, std::memory_order_relaxed);
+    s_isFdsGame.store(false, std::memory_order_relaxed);
+    s_fdsInsertFrameCount = 0;
 }
 
 void resetEmulation(bool /*hard*/) {
     if (!s_loaded) return;
     retro_reset();
+    // After reset, FDS disk is ejected again — schedule re-insert
+    if (s_isFdsGame.load(std::memory_order_relaxed)) {
+        s_fdsNeedInsert.store(true, std::memory_order_relaxed);
+        s_fdsRButton.store(false, std::memory_order_relaxed);
+        s_fdsInsertFrameCount = 0;
+    }
 }
 
 void stepFrame() {
     if (!s_loaded) return;
+
+    // FDS auto disk-insert sequence: run a few frames to let the BIOS
+    // initialize, then press R for exactly one frame to trigger
+    // FCEU_FDSInsert(-1), then release. FCEUmm checks:
+    //   if (curR && !prevR) FCEU_FDSInsert(-1);
+    // so we need R=false for a few frames, then R=true for one frame.
+    if (s_fdsNeedInsert.load(std::memory_order_relaxed)) {
+        s_fdsInsertFrameCount++;
+        if (s_fdsInsertFrameCount >= 5 && s_fdsInsertFrameCount <= 6) {
+            // Frame 5-6: press R to insert the disk
+            s_fdsRButton.store(true, std::memory_order_relaxed);
+        } else if (s_fdsInsertFrameCount == 7) {
+            // Frame 7: release R, insertion is done
+            s_fdsRButton.store(false, std::memory_order_relaxed);
+            s_fdsNeedInsert.store(false, std::memory_order_relaxed);
+            LOGI("FDS disk auto-inserted");
+        }
+        // For frames 1-4, R stays false (let BIOS init)
+    }
+
     retro_run();
 }
 

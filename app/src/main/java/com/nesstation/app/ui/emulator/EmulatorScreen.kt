@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
@@ -314,18 +316,17 @@ private fun OnScreenController(
     var visualState by remember { mutableStateOf(0) } // bits for drawing pressed state
     var turboState by remember { mutableStateOf(0) }  // turbo hold bits
 
-    // Turbo auto-fire + pad state polling
+    // Turbo auto-fire: simulates rapid short taps (press 2 frames, release 4 frames)
+    // FC turbo buttons rapidly press/release the A/B button at ~10Hz
     var turboCounter by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             if (turboState != 0) {
                 turboCounter++
-                if (turboCounter % 3 < 2) {
-                    val effective = visualState or (turboState)
-                    onPadBits(effective)
-                } else {
-                    onPadBits(visualState and turboState.inv())
-                }
+                // 6-frame cycle: 2 frames ON, 4 frames OFF = ~10Hz rapid tap
+                val turboOn = turboCounter % 6 < 2
+                val effective = if (turboOn) visualState or turboState else visualState
+                onPadBits(effective)
             } else {
                 onPadBits(visualState)
             }
@@ -337,94 +338,84 @@ private fun OnScreenController(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(padLayout, surfaceSize) {
-                // Multi-touch: awaitEachGesture waits for first finger, then we
-                // process ALL pointer changes inside the loop (including new
-                // fingers going down) until every finger is lifted.
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                // Compute hit areas once (recomputed when key changes)
+                val dpadRect = btnRect(padLayout.dpad)
+                val aRect = btnRect(padLayout.btnA)
+                val bRect = btnRect(padLayout.btnB)
+                val taRect = btnRect(padLayout.btnTurboA)
+                val tbRect = btnRect(padLayout.btnTurboB)
+                val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
+                val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
 
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
+                // Raw event loop — processes ALL pointer events (DOWN, MOVE, UP)
+                // without awaitEachGesture, which internally calls awaitFirstDown()
+                // before the block. Calling awaitFirstDown() again inside the block
+                // would wait for a SECOND finger — breaking single-touch entirely.
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
 
-                        // Compute button hit-areas fresh each event
-                        val dpadRect = btnRect(padLayout.dpad)
-                        val aRect = btnRect(padLayout.btnA)
-                        val bRect = btnRect(padLayout.btnB)
-                        val taRect = btnRect(padLayout.btnTurboA)
-                        val tbRect = btnRect(padLayout.btnTurboB)
-                        val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
-                        val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
+                    for (change in event.changes) {
+                        val pid = change.id.value
 
-                        var anyPressed = false
-
-                        for (change in event.changes) {
-                            val pid = change.id.value
-
-                            if (change.pressed) {
-                                anyPressed = true
-                                if (pid !in activePointers) {
-                                    // === New pointer down — hit-test which button ===
-                                    val pos = change.position
-                                    val btnType = when {
-                                        dpadRect.contains(pos) -> BtnType.DPAD
-                                        aRect.contains(pos) -> BtnType.A
-                                        bRect.contains(pos) -> BtnType.B
-                                        taRect.contains(pos) -> BtnType.TURBO_A
-                                        tbRect.contains(pos) -> BtnType.TURBO_B
-                                        startRect.contains(pos) -> BtnType.START
-                                        selectRect.contains(pos) -> BtnType.SELECT
-                                        else -> null
-                                    }
-
-                                    if (btnType != null) {
-                                        var bits = 0
-                                        var turboBits = 0
-                                        when (btnType) {
-                                            BtnType.DPAD -> bits = computeDpadDirection(pos, dpadRect)
-                                            BtnType.A -> bits = BTN_A
-                                            BtnType.B -> bits = BTN_B
-                                            BtnType.TURBO_A -> turboBits = BTN_A
-                                            BtnType.TURBO_B -> turboBits = BTN_B
-                                            BtnType.START -> bits = BTN_START
-                                            BtnType.SELECT -> bits = BTN_SELECT
-                                        }
-                                        activePointers[pid] = btnType to bits
-                                        if (turboBits != 0) {
-                                            turboState = turboState or turboBits
-                                        } else {
-                                            visualState = visualState or bits
-                                        }
-                                    }
-                                } else if (change.positionChanged()) {
-                                    // === Existing pointer moved — update D-pad direction ===
-                                    val entry = activePointers[pid]
-                                    if (entry != null && entry.first == BtnType.DPAD) {
-                                        val oldBits = entry.second
-                                        visualState = visualState and oldBits.inv()
-                                        val newBits = computeDpadDirection(change.position, dpadRect)
-                                        visualState = visualState or newBits
-                                        activePointers[pid] = BtnType.DPAD to newBits
-                                    }
+                        if (change.changedToDown()) {
+                            // === Pointer DOWN — hit-test which button ===
+                            val pos = change.position
+                            val btnType = when {
+                                dpadRect.contains(pos) -> BtnType.DPAD
+                                aRect.contains(pos) -> BtnType.A
+                                bRect.contains(pos) -> BtnType.B
+                                taRect.contains(pos) -> BtnType.TURBO_A
+                                tbRect.contains(pos) -> BtnType.TURBO_B
+                                startRect.contains(pos) -> BtnType.START
+                                selectRect.contains(pos) -> BtnType.SELECT
+                                else -> null
+                            }
+                            if (btnType != null) {
+                                var bits = 0
+                                var turboBits = 0
+                                when (btnType) {
+                                    BtnType.DPAD -> bits = computeDpadDirection(pos, dpadRect)
+                                    BtnType.A -> bits = BTN_A
+                                    BtnType.B -> bits = BTN_B
+                                    BtnType.TURBO_A -> turboBits = BTN_A
+                                    BtnType.TURBO_B -> turboBits = BTN_B
+                                    BtnType.START -> bits = BTN_START
+                                    BtnType.SELECT -> bits = BTN_SELECT
                                 }
-                            } else {
-                                // === Pointer released — clear this pointer's contribution ===
-                                val entry = activePointers.remove(pid)
-                                if (entry != null) {
-                                    val (bt, heldBits) = entry
-                                    when (bt) {
-                                        BtnType.DPAD, BtnType.A, BtnType.B, BtnType.START, BtnType.SELECT -> {
-                                            visualState = visualState and heldBits.inv()
-                                        }
-                                        BtnType.TURBO_A, BtnType.TURBO_B -> {
-                                            turboState = turboState and heldBits.inv()
-                                        }
+                                // Store ACTUAL bits so they can be cleared on release
+                                // (turbo buttons must store turboBits, not 0)
+                                activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
+                                if (turboBits != 0) {
+                                    turboState = turboState or turboBits
+                                } else {
+                                    visualState = visualState or bits
+                                }
+                            }
+                        } else if (change.changedToUp()) {
+                            // === Pointer UP — clear this pointer's contribution ===
+                            val entry = activePointers.remove(pid)
+                            if (entry != null) {
+                                val (bt, heldBits) = entry
+                                when (bt) {
+                                    BtnType.DPAD, BtnType.A, BtnType.B, BtnType.START, BtnType.SELECT -> {
+                                        visualState = visualState and heldBits.inv()
+                                    }
+                                    BtnType.TURBO_A, BtnType.TURBO_B -> {
+                                        turboState = turboState and heldBits.inv()
                                     }
                                 }
                             }
+                        } else if (change.positionChanged()) {
+                            // === Pointer MOVE — update D-pad direction only ===
+                            val entry = activePointers[pid]
+                            if (entry != null && entry.first == BtnType.DPAD) {
+                                val oldBits = entry.second
+                                visualState = visualState and oldBits.inv()
+                                val newBits = computeDpadDirection(change.position, dpadRect)
+                                visualState = visualState or newBits
+                                activePointers[pid] = BtnType.DPAD to newBits
+                            }
                         }
-
-                        // Exit when all pointers are up
-                        if (!anyPressed) break
                     }
                 }
             }
@@ -451,7 +442,8 @@ private fun OnScreenController(
     }
 }
 
-// Compute D-pad direction from touch position within dpad rect
+// Compute D-pad direction from touch position within dpad rect.
+// Supports 8 directions: up, down, left, right, and 4 diagonals.
 private fun computeDpadDirection(
     pos: Offset,
     rect: androidx.compose.ui.geometry.Rect
@@ -462,15 +454,17 @@ private fun computeDpadDirection(
     val dy = pos.y - cy
     val absX = kotlin.math.abs(dx)
     val absY = kotlin.math.abs(dy)
-    val deadZone = rect.width * 0.10f
-    return when {
-        absX < deadZone && absY < deadZone -> 0
-        absY > absX && dy < 0 -> BTN_UP
-        absY > absX && dy > 0 -> BTN_DOWN
-        absX > absY && dx < 0 -> BTN_LEFT
-        absX > absY && dx > 0 -> BTN_RIGHT
-        else -> 0
+    val deadZone = rect.width * 0.15f
+    if (absX < deadZone && absY < deadZone) return 0
+
+    var bits = 0
+    if (absX > deadZone) {
+        bits = bits or (if (dx < 0) BTN_LEFT else BTN_RIGHT)
     }
+    if (absY > deadZone) {
+        bits = bits or (if (dy < 0) BTN_UP else BTN_DOWN)
+    }
+    return bits
 }
 
 // ---------------------------------------------------------------------------
