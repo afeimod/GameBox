@@ -220,8 +220,11 @@ static void resetAudioRing() {
 std::string loadFromFile(const std::string& path, int& regionOut) {
     if (s_loaded) unload();
 
-    retro_init();
+    // CRITICAL: retro_set_environment MUST be called before retro_init().
+    // FCEUmm's retro_init() calls the environment callback (e.g. to get the
+    // log interface). If environ_cb is still NULL, it dereferences pc 0x0.
     retro_set_environment(cb_environment);
+    retro_init();
     retro_set_video_refresh(cb_video);
     retro_set_audio_sample(cb_audio_sample);
     retro_set_audio_sample_batch(cb_audio_batch);

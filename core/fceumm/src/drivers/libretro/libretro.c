@@ -1821,6 +1821,10 @@ void retro_set_environment(retro_environment_t cb)
       { NULL, false, false }
    };
 
+   /* Defensive: reject NULL callback to prevent crashes downstream */
+   if (!cb)
+      return;
+
    environ_cb = cb;
 
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
@@ -1909,6 +1913,12 @@ void retro_init(void)
 {
    bool achievements = true;
    log_cb.log=default_logger;
+
+   /* Defensive: if retro_set_environment() was not called yet,
+    * environ_cb is NULL and calling it would crash (pc 0x0). */
+   if (!environ_cb)
+      return;
+
    environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log_cb);
 
    environ_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
