@@ -382,17 +382,18 @@ private fun OnScreenController(
                 }
 
                 // Main gesture loop:
-                // awaitFirstDown() captures the FIRST finger's DOWN event (so
-                // single-touch works immediately). Then awaitPointerEventScope
-                // gives us AwaitPointerEventScope which has awaitPointerEvent()
-                // for processing all subsequent events (multi-touch, moves, ups).
-                while (true) {
-                    val firstDown = awaitFirstDown(requireUnconsumed = false)
-                    processDown(firstDown.id.value, firstDown.position)
+                // awaitFirstDown() and awaitPointerEvent() are members of
+                // AwaitPointerEventScope, so we wrap everything in
+                // awaitPointerEventScope { }. This captures the first finger
+                // DOWN immediately (single-touch works) and then processes all
+                // subsequent events (multi-touch, moves, ups) in the inner loop.
+                awaitPointerEventScope {
+                    while (true) {
+                        val firstDown = awaitFirstDown(requireUnconsumed = false)
+                        processDown(firstDown.id.value, firstDown.position)
 
-                    var pressedCount = 1 // firstDown gave us one pressed finger
+                        var pressedCount = 1 // firstDown gave us one pressed finger
 
-                    awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
 
