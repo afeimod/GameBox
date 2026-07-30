@@ -315,7 +315,7 @@ private fun keyToKeyCode(key: String): Int = when (key.lowercase()) {
 // JavaScript interface — exposes the SWF URL to the page
 // ---------------------------------------------------------------------------
 
-private class SwfInterface(val swfUrl: String) {
+private class SwfInterface(private val swfUrl: String) {
     @JavascriptInterface
     fun getSwfUrl(): String = swfUrl
 }
