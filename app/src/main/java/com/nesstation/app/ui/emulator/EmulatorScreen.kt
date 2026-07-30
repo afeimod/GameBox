@@ -135,6 +135,9 @@ fun EmulatorScreen(
             "hq2x" -> 5
             "hq4x" -> 6
             "xbr_dot" -> 7
+            "4xbr" -> 8
+            "4xbr_dot" -> 9
+            "hq4x_dot" -> 10
             else -> 0
         }
         engine.setVideoFilter(filterInt)
@@ -158,11 +161,8 @@ fun EmulatorScreen(
         }
         val romFile = java.io.File(romPath)
         if (romFile.exists()) {
-            // FDS games need the BIOS (disksys.rom) in the app's filesDir.
-            // The C++ core verifies the BIOS (size, first 64 bytes, reset vector)
-            // and returns a clear error message if it's missing or corrupted.
-            // Users can import a correct BIOS via Settings → FDS BIOS导入.
-            val isFds = romPath.endsWith(".fds", ignoreCase = true)
+            // FDS BIOS is auto-extracted from assets by NesApp on startup.
+            // If missing, the core will report the error; user can import via Settings.
             val filesDir = context.filesDir.absolutePath
             val ok = engine.loadRom(romFile, filesDir, filesDir) { }
             if (!ok) {
@@ -187,7 +187,6 @@ fun EmulatorScreen(
                     val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
-                    val isFds = ext == ".fds"
                     val filesDir = context.filesDir.absolutePath
                     val ok = engine.loadRom(tempFile, filesDir, filesDir) { }
                     if (!ok) {
@@ -335,10 +334,10 @@ private fun GameSurfaceView(
             },
             modifier = surfaceModifier
         )
-        // GPU-accelerated filter overlay — scanline/CRT/dot/XBR+dot drawn by Compose
-        if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot")) {
+        // GPU-accelerated filter overlay — scanline/CRT/dot/*+dot drawn by Compose
+        if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
             FilterOverlay(
-                if (videoFilter == "xbr_dot") "dot" else videoFilter,
+                if (videoFilter.endsWith("_dot")) "dot" else videoFilter,
                 surfaceModifier
             )
         }
@@ -1265,7 +1264,8 @@ private fun SettingsPanel(
 
         DropdownSetting("视频滤镜",
             listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
-                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵"),
+                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
+                   "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
             padLayout.videoFilter
         ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
 
@@ -1278,8 +1278,8 @@ private fun SettingsPanel(
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Spacer(Modifier.size(4.dp))
         Text(
-            "运行.fds游戏需要disksys.rom (8KB, MD5: ca30b50f880eb660a320674ed365ef7a)。" +
-            "请从合法渠道获取BIOS文件后导入。",
+            "如已将disksys.rom放入assets目录，FDS游戏将自动加载BIOS。" +
+            "也可手动导入disksys.rom (8KB)。",
             color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
         )
         Spacer(Modifier.size(6.dp))

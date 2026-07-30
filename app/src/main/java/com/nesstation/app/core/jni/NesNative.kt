@@ -109,14 +109,17 @@ object NesNative {
 
     /**
      * Set the frontend video post-processing filter.
-     *   0 = none (nearest-neighbor)
-     *   1 = scanline
-     *   2 = CRT (scanline + vignette)
-     *   3 = dot (LCD dot grid)
-     *   4 = XBR (edge-preserving smooth scaling)
-     *   5 = HQ2X (high-quality 2x scaler)
-     *   6 = HQ4X (high-quality 4x scaler)
-     *   7 = XBR + dot (XBR upscale with dot overlay)
+     *   0  = none (nearest-neighbor)
+     *   1  = scanline
+     *   2  = CRT (scanline + vignette)
+     *   3  = dot (LCD dot grid)
+     *   4  = XBR (2x edge-preserving smooth scaling)
+     *   5  = HQ2X (high-quality 2x scaler)
+     *   6  = HQ4X (high-quality 4x scaler)
+     *   7  = XBR + dot (XBR upscale with dot overlay)
+     *   8  = 4XBR (4x cascade two 2xBR passes)
+     *   9  = 4XBR + dot (4xBR with dot overlay)
+     *   10 = HQ4X + dot (HQ4X with dot overlay)
      */
     @JvmStatic external fun setVideoFilter(filter: Int)
 }

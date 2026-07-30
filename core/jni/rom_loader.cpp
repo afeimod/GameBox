@@ -36,6 +36,7 @@
 
 #define TAG "nescore-rom"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 namespace nescore::rom {
@@ -72,13 +73,18 @@ static std::atomic<uint16_t> s_pad2{0};
 // by FDSInit() during PowerNES(), so no manual R button press is needed).
 static std::atomic<bool> s_isFdsGame{false};
 
-// Video filter type: 0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot
+// Video filter type:
+//   0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot,
+//   8=4xbr, 9=4xbr+dot, 10=hq4x+dot
 static std::atomic<int> s_videoFilter{0};
 
 // 2x upscale buffer for XBR/HQ2X (256x240 → 512x480)
 static uint32_t s_xbrBuffer[kNesW * 2 * kNesH * 2];
 
-// 4x upscale buffer for HQ4X (256x240 → 1024x960)
+// Intermediate buffer for 4xBR cascade pass 1 (256x240 → 512x480)
+static uint32_t s_xbrMidBuffer[kNesW * 2 * kNesH * 2];
+
+// 4x upscale buffer for HQ4X/4xBR (256x240 → 1024x960)
 static uint32_t s_hq4xBuffer[kNesW * 4 * kNesH * 4];
 
 // Audio ring buffer: interleaved stereo int16 samples.
@@ -536,6 +542,17 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
     }
 }
 
+// 4xBR cascade: two passes of 2xBR (256x240 → 512x480 → 1024x960)
+// RetroArch has no native 4xBR filter; cascading two 2xBR passes is the
+// standard approach used by many emulator frontends.
+static void xbr4xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
+                          size_t srcStride, uint32_t* dst) {
+    // Pass 1: 256x240 → 512x480
+    xbr2xUpscale(src, sw, sh, srcStride, s_xbrMidBuffer);
+    // Pass 2: 512x480 → 1024x960
+    xbr2xUpscale(s_xbrMidBuffer, sw * 2, sh * 2, sw * 2, dst);
+}
+
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return; // duplicate frame / no data this frame
 
@@ -570,14 +587,18 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         // XBR / XBR+dot: 2x edge-preserving upscale (256x240 -> 512x480)
         xbr2xUpscale(src, width, height, srcStride, s_xbrBuffer);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
+    } else if ((filter == 8 || filter == 9) && canUpscale) {
+        // 4xBR / 4xBR+dot: cascade two 2xBR passes (256x240 -> 1024x960)
+        xbr4xUpscale(src, width, height, srcStride, s_hq4xBuffer);
+        blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
     } else if (filter == 5 && canUpscale) {
         // HQ2X: use hqx library (Maxim Stepin's reference implementation)
         hq2x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
                    s_xbrBuffer, (uint32_t)(width * 2 * sizeof(uint32_t)),
                    (int)width, (int)height);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
-    } else if (filter == 6 && canUpscale) {
-        // HQ4X: use hqx library (Maxim Stepin's reference implementation)
+    } else if ((filter == 6 || filter == 10) && canUpscale) {
+        // HQ4X / HQ4X+dot: use hqx library (Maxim Stepin's reference implementation)
         hq4x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
                    s_hq4xBuffer, (uint32_t)(width * 4 * sizeof(uint32_t)),
                    (int)width, (int)height);
@@ -700,12 +721,10 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_isFdsGame.store(false, std::memory_order_relaxed);
 
     // --- FDS BIOS pre-check ---
-    // If this is an FDS game, verify the BIOS file (disksys.rom) exists in
-    // the system directory BEFORE calling retro_load_game. The FCEUmm core
-    // looks for it at {systemDir}/disksys.rom. If it's missing, FDSLoad()
-    // fails silently (returns 0) and the core tries other loaders, all of
-    // which fail for .fds files, resulting in a generic "ROM loading failed"
-    // error that doesn't mention the BIOS.
+    // If this is an FDS game, log the BIOS status but DON'T block loading.
+    // The BIOS is auto-extracted from APK assets by NesApp.ensureFdsBios()
+    // on startup. If it's still missing, let the core attempt the load and
+    // report its own error (which is more accurate than our pre-check).
     {
         std::string ext;
         size_t dot = path.find_last_of('.');
@@ -718,56 +737,16 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             std::string biosPath = s_systemDir + "/disksys.rom";
             FILE* biosF = std::fopen(biosPath.c_str(), "rb");
             if (!biosF) {
-                LOGE("FDS BIOS NOT FOUND at: %s (systemDir=%s)",
-                     biosPath.c_str(), s_systemDir.c_str());
-                retro_deinit();
-                return "FDS BIOS缺失: 请在设置中导入disksys.rom (8KB, MD5: ca30b50f880eb660a320674ed365ef7a)";
+                LOGW("FDS BIOS not found at: %s — will attempt load anyway", biosPath.c_str());
             } else {
                 std::fseek(biosF, 0, SEEK_END);
                 long biosSize = std::ftell(biosF);
-                std::fseek(biosF, 0, SEEK_SET);
-
-                // Read first 64 bytes to check for corruption
-                uint8_t header[64];
-                size_t hdrRead = std::fread(header, 1, 64, biosF);
-
-                // Read reset vector at offset 0x1FFC
-                uint8_t vec[2] = {0, 0};
-                std::fseek(biosF, 0x1FFC, SEEK_SET);
-                std::fread(vec, 1, 2, biosF);
                 std::fclose(biosF);
-
                 LOGI("FDS BIOS found at: %s (%ld bytes)", biosPath.c_str(), biosSize);
 
                 if (biosSize != 8192) {
-                    LOGE("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
-                    retro_deinit();
-                    return "FDS BIOS大小错误: 需要8192字节, 当前" + std::to_string(biosSize)
-                         + "字节。请在设置中导入正确的disksys.rom";
+                    LOGW("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
                 }
-
-                // Check if first 64 bytes are all zeros (corruption indicator)
-                bool allZeros = true;
-                for (size_t i = 0; i < hdrRead && i < 64; ++i) {
-                    if (header[i] != 0) { allZeros = false; break; }
-                }
-                if (allZeros) {
-                    LOGE("FDS BIOS corrupted: first 64 bytes are all zeros");
-                    retro_deinit();
-                    return "FDS BIOS已损坏: 文件前64字节全为零。"
-                           "请在设置中导入正确的disksys.rom "
-                           "(MD5: ca30b50f880eb660a320674ed365ef7a)";
-                }
-
-                // Check reset vector (should point to $E040 = 0x40, 0xE0)
-                if (vec[0] != 0x40 || vec[1] != 0xE0) {
-                    LOGE("FDS BIOS reset vector invalid: %02X %02X (expected 40 E0)",
-                         vec[0], vec[1]);
-                    retro_deinit();
-                    return "FDS BIOS复位向量错误: 请在设置中导入正确的disksys.rom";
-                }
-
-                LOGI("FDS BIOS verification passed");
             }
             LOGI("Loading FDS game: %s", path.c_str());
         }

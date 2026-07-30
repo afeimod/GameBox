@@ -86,6 +86,9 @@ fun SettingsScreen(
             "hq2x" -> 5
             "hq4x" -> 6
             "xbr_dot" -> 7
+            "4xbr" -> 8
+            "4xbr_dot" -> 9
+            "hq4x_dot" -> 10
             else -> 0
         }
         engine.setVideoFilter(filterInt)
@@ -180,7 +183,8 @@ fun SettingsScreen(
 
                         DropdownRow("视频滤镜",
                             listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
-                                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵"),
+                                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
+                                   "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
                             padLayout.videoFilter
                         ) { updateLayout(padLayout.copy(videoFilter = it)) }
                     }
@@ -347,7 +351,7 @@ private fun FdsBiosRow(
         Column(modifier = Modifier.weight(1f)) {
             Text("FDS BIOS", color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                if (biosExists) "已导入 ✓" else "未导入 — 点击导入disksys.rom",
+                if (biosExists) "已导入 ✓" else "未导入 — 放入assets或点击导入",
                 color = if (biosExists) Color(0xFF388E3C) else Color(0xFFE74C3C),
                 fontSize = 11.sp
             )

@@ -43,44 +43,69 @@ class NesApp : Application() {
         tryInit("SettingsRepository") { SettingsRepository.init(this) }
         tryInit("AppContainer")       { _container = AppContainer(this) }
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
-        tryInit("FdsBios")            { cleanupFdsBios() }
+        tryInit("FdsBios")            { ensureFdsBios() }
     }
 
     /**
-     * Check and clean up the FDS BIOS file. The previous version deployed a
-     * corrupted disksys.rom from assets (all-zero data, wrong MD5). This
-     * function removes any corrupted BIOS so users can import a valid one
-     * via Settings → FDS BIOS导入.
+     * Auto-extract FDS BIOS (disksys.rom) from APK assets to filesDir.
      *
-     * The FDS BIOS (disksys.rom, 8KB, MD5: ca30b50f880eb660a320674ed365ef7a)
-     * is Nintendo's copyrighted code and cannot be bundled with the app.
-     * Users must obtain it from a legal source and import it manually.
+     * If a valid disksys.rom is bundled in app/src/main/assets/, it is
+     * automatically copied to filesDir on first launch, enabling FDS games
+     * to run without manual BIOS import.
+     *
+     * If the file is not in assets, or is invalid, this is a no-op and the
+     * user can still manually import via Settings.
      */
-    private fun cleanupFdsBios() {
+    private fun ensureFdsBios() {
         val dest = File(filesDir, "disksys.rom")
-        if (!dest.exists()) return
 
-        // Check if the existing BIOS is corrupted (wrong size or all zeros)
-        var corrupted = false
-        if (dest.length() != 8192L) {
-            corrupted = true
-        } else {
+        // If a valid BIOS already exists, keep it
+        if (dest.exists() && dest.length() == 8192L) {
             try {
                 dest.inputStream().use { input ->
                     val header = ByteArray(64)
                     input.read(header)
-                    if (header.all { it == 0.toByte() }) {
-                        corrupted = true
+                    if (!header.all { it == 0.toByte() }) {
+                        // Valid BIOS already present
+                        return
                     }
                 }
-            } catch (e: Exception) {
-                corrupted = true
-            }
+            } catch (_: Exception) { }
         }
 
-        if (corrupted) {
-            dest.delete()
-            Log.w("NesApp", "Removed corrupted FDS BIOS. Please import a valid disksys.rom via Settings.")
+        // Try to extract from assets
+        try {
+            assets.open("disksys.rom").use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            // Verify the extracted file
+            if (dest.length() != 8192L) {
+                dest.delete()
+                Log.w("NesApp", "FDS BIOS in assets has wrong size, deleted")
+                return
+            }
+            // Verify it's not all zeros (corrupted)
+            dest.inputStream().use { input ->
+                val header = ByteArray(64)
+                input.read(header)
+                if (header.all { it == 0.toByte() }) {
+                    dest.delete()
+                    Log.w("NesApp", "FDS BIOS in assets is corrupted (all zeros), deleted")
+                    return
+                }
+            }
+            Log.i("NesApp", "FDS BIOS extracted from assets to ${dest.absolutePath}")
+        } catch (e: java.io.FileNotFoundException) {
+            // No disksys.rom in assets — user must import manually
+            // Also clean up any leftover corrupted file
+            if (dest.exists() && dest.length() != 8192L) {
+                dest.delete()
+            }
+        } catch (e: Exception) {
+            Log.w("NesApp", "Failed to extract FDS BIOS from assets", e)
+            if (dest.exists() && dest.length() != 8192L) {
+                dest.delete()
+            }
         }
     }
 
