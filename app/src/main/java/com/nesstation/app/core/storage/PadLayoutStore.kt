@@ -47,7 +47,7 @@ data class PadLayout(
     // Video scaling — controls SurfaceView layout aspect ratio (frontend-level, not FCEUmm option)
     val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9
     // Video filter — applied in the native blit function (frontend-level post-processing)
-    val videoFilter: String = "none"      // none | scanline | crt | dot | xbr
+    val videoFilter: String = "none"      // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
 )
 
 /**

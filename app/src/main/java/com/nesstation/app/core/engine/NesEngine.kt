@@ -149,7 +149,8 @@ class NesEngine private constructor() {
 
     /**
      * Set the frontend video post-processing filter.
-     *   0 = none, 1 = scanline, 2 = crt, 3 = dot, 4 = xbr
+     *   0 = none, 1 = scanline, 2 = crt, 3 = dot, 4 = xbr,
+     *   5 = hq2x, 6 = hq4x, 7 = xbr+dot
      */
     fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
 

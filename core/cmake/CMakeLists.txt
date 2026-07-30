@@ -95,12 +95,21 @@ set(APP_JNI_SOURCES
     "${APP_JNI_DIR}/rom_loader.cpp"
 )
 
+# --- HQX library (Maxim Stepin's HQ2X/HQ4X reference implementation) -------
+set(HQX_DIR "${APP_JNI_DIR}/hqx")
+set(HQX_SOURCES
+    "${HQX_DIR}/init.c"
+    "${HQX_DIR}/hq2x.c"
+    "${HQX_DIR}/hq4x.c"
+)
+
 add_library(nescore SHARED
     ${FCEUMM_CORE_SOURCES}
     ${FCEUMM_BOARD_SOURCES}
     ${FCEUMM_INPUT_SOURCES}
     ${FCEUMM_LIBRETRO_COMMON_SOURCES}
     ${APP_JNI_SOURCES}
+    ${HQX_SOURCES}
 )
 
 target_include_directories(nescore PRIVATE
@@ -111,6 +120,7 @@ target_include_directories(nescore PRIVATE
     "${FCEUMM_SRC}/input"
     "${FCEUMM_SRC}/ntsc"
     "${APP_JNI_DIR}"
+    "${HQX_DIR}"
 )
 
 # Defines mirror upstream's COREDEFINES (Android profile) plus our 32-bpp

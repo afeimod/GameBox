@@ -14,6 +14,7 @@
 // threads read them concurrently.
 
 #include "rom_loader.h"
+#include "hqx/hqx.h"
 
 #include <libretro.h>
 #include <android/log.h>
@@ -23,6 +24,7 @@
 #include <atomic>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -329,101 +331,157 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
 }
 
 // ---------------------------------------------------------------------------
-// 2xBR — Edge-preserving 2x upscale
+// 2xBR — Hyllian's 2xBR v3.3a (CPU port based on RetroArch's 2xbr.c)
 //
-// Based on Hyllian's 2xBR-lv1 algorithm (single-pass CPU port of the
-// 2xBR-lv1-c-pass0 + pass1 reference shaders). Uses a full 5×5 neighborhood
-// with weighted-distance edge detection and interpolation restriction rules.
+// Copyright (C) 2011, 2014 Hyllian/Jararaca - sergiogdb@gmail.com
+// Adapted for ARGB (0xAARRGGBB) pixel format.
 //
-// Reference layout (XBR notation):
-//        A1 B1 C1
-//     A0  A  B  C  C4
-//     D0  D  E  F  F4
-//     G0  G  H  I  I4
-//        G5 H5 I5
-//
-// For each of the 4 output pixels (quadrants), the neighborhood is rotated
-// so that the edge detection always checks the "outward" diagonal direction.
+// The algorithm uses a 5x5 neighborhood with weighted-distance edge detection.
+// For each source pixel, the FILTRO macro is called 4 times, each time with
+// a rotated neighborhood, to compute the 4 output pixels of the 2x2 block.
+// Each call can apply one of four blend modes:
+//   LEFT_UP: 224/64 blend (corner)
+//   LEFT:    192/64 blend (left edge)
+//   UP:      192/64 blend (top edge)
+//   DIA:     128 blend (diagonal)
 // ---------------------------------------------------------------------------
 
-// Y-weighted luminance:  48 * (0.299 R + 0.587 G + 0.114 B)
-// Matches the reference shader's yuv_weighted[0] = (14.352, 28.176, 5.472).
-static inline int xbrYw(uint32_t px) {
-    int r = (px >> 16) & 0xFF;
-    int g = (px >> 8) & 0xFF;
-    int b = px & 0xFF;
-    return (r * 14352 + g * 28176 + b * 5472) / 1000;
+// ARGB pixel masks (0xAARRGGBB format, little-endian)
+static constexpr uint32_t XBR_RED_MASK   = 0x00FF0000;
+static constexpr uint32_t XBR_GREEN_MASK = 0x0000FF00;
+static constexpr uint32_t XBR_BLUE_MASK  = 0x000000FF;
+static constexpr uint32_t XBR_LBMASK     = 0xFEFEFEFE;
+static constexpr uint32_t XBR_ALPHA_MASK = 0xFF000000;
+
+// YUV color distance (computes on-the-fly, no lookup table needed)
+static inline float xbrDf8(uint32_t A, uint32_t B) {
+    int r = abs((int)((A & XBR_RED_MASK)   >> 16) - (int)((B & XBR_RED_MASK)   >> 16));
+    int g = abs((int)((A & XBR_GREEN_MASK) >>  8) - (int)((B & XBR_GREEN_MASK) >>  8));
+    int b = abs((int)((A & XBR_BLUE_MASK)        ) - (int)((B & XBR_BLUE_MASK)       ));
+    float y = fabsf(0.299f*r + 0.587f*g + 0.114f*b);
+    float u = fabsf(-0.169f*r - 0.331f*g + 0.500f*b);
+    float v = fabsf(0.500f*r - 0.419f*g - 0.081f*b);
+    return 48.0f*y + 7.0f*u + 6.0f*v;
 }
 
-// Absolute Y-weighted distance
-static inline int xbrDf(int ya, int yb) {
-    return ya > yb ? ya - yb : yb - ya;
+static inline int xbrEq8(uint32_t A, uint32_t B) {
+    int r = abs((int)((A & XBR_RED_MASK)   >> 16) - (int)((B & XBR_RED_MASK)   >> 16));
+    int g = abs((int)((A & XBR_GREEN_MASK) >>  8) - (int)((B & XBR_GREEN_MASK) >>  8));
+    int b = abs((int)((A & XBR_BLUE_MASK)        ) - (int)((B & XBR_BLUE_MASK)       ));
+    float y = fabsf(0.299f*r + 0.587f*g + 0.114f*b);
+    float u = fabsf(-0.169f*r - 0.331f*g + 0.500f*b);
+    float v = fabsf(0.500f*r - 0.419f*g - 0.081f*b);
+    return (y <= 48.0f && u <= 7.0f && v <= 6.0f) ? 1 : 0;
 }
 
-// "close" — Y-weighted distance below threshold (15, from reference)
-static inline bool xbrClose(int ya, int yb) {
-    return xbrDf(ya, yb) < 15;
-}
+// Blend macros adapted for ARGB format
+#define XBR_BLEND_128(dst, src) \
+    dst = ((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)
 
-// weighted_distance(a,b,c,d,e,f,g,h) = df(a,b) + df(a,c) + df(d,e) + df(d,f) + 4*df(g,h)
-static inline int xbrWd(int a, int b, int c, int d, int e, int f, int g, int h) {
-    return xbrDf(a, b) + xbrDf(a, c) + xbrDf(d, e) + xbrDf(d, f) + 4 * xbrDf(g, h);
-}
+#define XBR_BLEND_32(dst, src) \
+    dst = ( \
+        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
+            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK))) >> 3))) | \
+        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
+            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK))) >> 3))) | \
+        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
+            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK))) >> 3))) ) + \
+            XBR_ALPHA_MASK
 
-// 50 % alpha blend (alpha = 128 → 50 %)
-static inline uint32_t xbrBlend50(uint32_t c1, uint32_t c2) {
-    return ((((c1 & 0x00FF00FF) + (c2 & 0x00FF00FF)) >> 1) & 0x00FF00FF)
-         | ((((c1 & 0x0000FF00) + (c2 & 0x0000FF00)) >> 1) & 0x0000FF00)
-         | 0xFF000000u;
-}
+#define XBR_BLEND_64(dst, src) \
+    dst = ( \
+        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
+            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK))) >> 2))) | \
+        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
+            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK))) >> 2))) | \
+        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
+            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK))) >> 2))) ) + \
+            XBR_ALPHA_MASK
 
-// Process one quadrant of the 2x2 output block.
-// All 18 Y-weighted values must be pre-computed.
-// Returns the blended output color.
-//
-// Parameters follow the reference shader's variable names:
-//   e  = center, b = up, d = left, h = down, f = right
-//   c  = UR, a = UL, g = DL, i = DR  (diagonal neighbours)
-//   f4, h5, i4, i5 = extended neighbours
-//
-// The edge detection checks whether there is an edge running through the
-// diagonal `i` direction.  If yes, the pixel is blended 50 % toward the
-// closer of f (right) or h (down).
-static inline uint32_t xbrQuadrant(
-    uint32_t eColor, uint32_t fColor, uint32_t hColor,
-    int ye, int yb, int yd, int yh, int yf,
-    int yc, int ya, int yg, int yi,
-    int yf4, int yh5, int yi4, int yi5)
-{
-    // Interpolation restriction (r1-r7 from reference)
-    bool r1 = (ye != yf) && (ye != yh);
-    bool r2 = !xbrClose(yf, yb) && !xbrClose(yf, yc);
-    bool r3 = !xbrClose(yh, yd) && !xbrClose(yh, yg);
-    bool r4 = !xbrClose(yf, yf4) && !xbrClose(yf, yi4);
-    bool r5 = !xbrClose(yh, yh5) && !xbrClose(yh, yi5);
-    bool r6 = xbrClose(ye, yi) && (r4 || r5);
-    bool r7 = xbrClose(ye, yg) || xbrClose(ye, yc);
+#define XBR_BLEND_192(dst, src) \
+    dst = ( \
+        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
+            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK)) * 192) >> 8))) | \
+        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
+            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK)) * 192) >> 8))) | \
+        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
+            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK)) * 192) >> 8))) ) + \
+            XBR_ALPHA_MASK
 
-    if (!(r1 && (r2 || r3 || r6 || r7)))
-        return eColor;  // No interpolation needed
+#define XBR_BLEND_224(dst, src) \
+    dst = ( \
+        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
+            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK)) * 224) >> 8))) | \
+        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
+            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK)) * 224) >> 8))) | \
+        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
+            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK)) * 224) >> 8))) ) + \
+            XBR_ALPHA_MASK
 
-    // Edge detection: compare "no-edge" weight vs "edge" weight
-    int noEdge = xbrWd(ye, yc, yg, yi, yh5, yf4, yh, yf);
-    int edge   = xbrWd(yh, yd, yi5, yf, yi4, yb, ye, yi);
+// Four interpolation modes from 2xBR reference
+#define XBR_LEFT_UP(N3, N2, N1, px) \
+    XBR_BLEND_224(E[N3], px); \
+    XBR_BLEND_64(E[N2], px);  \
+    E[N1] = E[N2];
 
-    if (noEdge >= edge)
-        return eColor;  // No edge detected
+#define XBR_LEFT(N3, N2, px) \
+    XBR_BLEND_192(E[N3], px); \
+    XBR_BLEND_64(E[N2], px);
 
-    // Edge detected — blend 50 % toward the closer orthogonal neighbour
-    bool px = (xbrDf(ye, yf) <= xbrDf(ye, yh));
-    return xbrBlend50(eColor, px ? fColor : hColor);
-}
+#define XBR_UP(N3, N1, px) \
+    XBR_BLEND_192(E[N3], px); \
+    XBR_BLEND_64(E[N1], px);
 
+#define XBR_DIA(N3, px) \
+    XBR_BLEND_128(E[N3], px);
+
+// The core 2xBR filter macro — processes one output pixel of the 2x2 block.
+// Parameters follow Hyllian's reference: PE=center, _PI=DR, PH=down, PF=right,
+// PG=DL, PC=UR, PD=left, PB=up, PA=UL, plus extended neighbors.
+// N0-N3 are the 4 output pixel indices (TL, TR, BL, BR).
+#define XBR_FILTRO(PE, _PI, PH, PF, PG, PC, PD, PB, PA, \
+    G5, C4, G0, D0, C1, B1, F4, I4, H5, I5, A0, A1, N0, N1, N2, N3) \
+    ex = (PE != PH && PE != PF); \
+    if (ex) { \
+        e = (xbrDf8(PE,PC) + xbrDf8(PE,PG) + xbrDf8(_PI,H5) + xbrDf8(_PI,F4)) \
+             + (4.0f * xbrDf8(PH,PF)); \
+        i = (xbrDf8(PH,PD) + xbrDf8(PH,I5) + xbrDf8(PF,I4) + xbrDf8(PF,PB)) \
+             + (4.0f * xbrDf8(PE,_PI)); \
+        if ((e < i) && ( \
+            (!xbrEq8(PF,PB) && !xbrEq8(PF,PC)) || \
+            (!xbrEq8(PH,PD) && !xbrEq8(PH,PG)) || \
+            (xbrEq8(PE,_PI) && ((!xbrEq8(PF,F4) && !xbrEq8(PF,I4)) || \
+                                (!xbrEq8(PH,H5) && !xbrEq8(PH,I5)))) || \
+            xbrEq8(PE,PG) || xbrEq8(PE,PC))) \
+        { \
+            ke = xbrDf8(PF,PG); \
+            ki = xbrDf8(PH,PC); \
+            ex2 = (PE != PC && PB != PC); \
+            ex3 = (PE != PG && PD != PG); \
+            px = (xbrDf8(PE,PF) <= xbrDf8(PE,PH)) ? PF : PH; \
+            if ((ke*2 <= ki) && ex3 && (ke >= ki*2) && ex2) { \
+                XBR_LEFT_UP(N3, N2, N1, px) \
+            } else if ((ke*2 <= ki) && ex3) { \
+                XBR_LEFT(N3, N2, px); \
+            } else if ((ke >= ki*2) && ex2) { \
+                XBR_UP(N3, N1, px); \
+            } else { \
+                XBR_DIA(N3, px); \
+            } \
+        } else if (e <= i) { \
+            XBR_BLEND_128(E[N3], \
+                (xbrDf8(PE,PF) <= xbrDf8(PE,PH)) ? PF : PH); \
+        } \
+    }
+
+// 2xBR upscale: 256x240 -> 512x480
+// Based on RetroArch's twoxbr_generic_xrgb8888, adapted for ARGB format.
 static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
                           size_t srcStride, uint32_t* dst) {
     const unsigned dw = sw * 2;
+    const unsigned dstStride = dw;  // contiguous output rows
 
-    // Helper: get pixel at (x,y) with clamp-to-edge
+    // Border-clamped pixel fetch
     auto getPx = [&](int x, int y) -> uint32_t {
         if (x < 0) x = 0; else if (x >= (int)sw) x = sw - 1;
         if (y < 0) y = 0; else if (y >= (int)sh) y = sh - 1;
@@ -431,318 +489,49 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
     };
 
     for (unsigned y = 0; y < sh; ++y) {
-        const unsigned y2 = y * 2;
         for (unsigned x = 0; x < sw; ++x) {
-            const unsigned x2 = x * 2;
-
-            // Full 5×5 neighborhood (clamp at borders)
+            // 5x5 neighborhood (clamped at borders)
             //        A1 B1 C1
             //     A0  A  B  C  C4
             //     D0  D  E  F  F4
             //     G0  G  H  I  I4
             //        G5 H5 I5
             uint32_t A1=getPx(x-1,y-2), B1=getPx(x,y-2), C1=getPx(x+1,y-2);
-            uint32_t A0=getPx(x-2,y-1), A=getPx(x-1,y-1), B=getPx(x,y-1), C=getPx(x+1,y-1), C4=getPx(x+2,y-1);
-            uint32_t D0=getPx(x-2,y),   D=getPx(x-1,y),   E=getPx(x,y),   F=getPx(x+1,y),   F4=getPx(x+2,y);
-            uint32_t G0=getPx(x-2,y+1), G=getPx(x-1,y+1), H=getPx(x,y+1), I=getPx(x+1,y+1), I4=getPx(x+2,y+1);
+            uint32_t A0=getPx(x-2,y-1), PA=getPx(x-1,y-1), PB=getPx(x,y-1), PC=getPx(x+1,y-1), C4=getPx(x+2,y-1);
+            uint32_t D0=getPx(x-2,y),   PD=getPx(x-1,y),   PE=getPx(x,y),   PF=getPx(x+1,y),   F4=getPx(x+2,y);
+            uint32_t G0=getPx(x-2,y+1), PG=getPx(x-1,y+1), PH=getPx(x,y+1), _PI=getPx(x+1,y+1), I4=getPx(x+2,y+1);
             uint32_t G5=getPx(x-1,y+2), H5=getPx(x,y+2), I5=getPx(x+1,y+2);
 
-            // Pre-compute Y-weighted values
-            int yA1=xbrYw(A1), yB1=xbrYw(B1), yC1=xbrYw(C1);
-            int yA0=xbrYw(A0), yA=xbrYw(A), yB=xbrYw(B), yC=xbrYw(C), yC4=xbrYw(C4);
-            int yD0=xbrYw(D0), yD=xbrYw(D), yE=xbrYw(E), yF=xbrYw(F), yF4=xbrYw(F4);
-            int yG0=xbrYw(G0), yG=xbrYw(G), yH=xbrYw(H), yI=xbrYw(I), yI4=xbrYw(I4);
-            int yG5=xbrYw(G5), yH5=xbrYw(H5), yI5=xbrYw(I5);
+            uint32_t E[4];
+            float e, i, ke, ki;
+            uint32_t ex, ex2, ex3, px;
 
-            uint32_t* d0 = dst + y2 * dw;
-            uint32_t* d1 = dst + (y2 + 1) * dw;
+            // Initialize all 4 output pixels to center color
+            E[0] = E[1] = E[2] = E[3] = PE;
 
-            // TL quadrant: standard layout — edge in I (DR) direction, blend F or H
-            d0[x2] = xbrQuadrant(E, F, H,
-                yE, yB, yD, yH, yF,
-                yC, yA, yG, yI,
-                yF4, yH5, yI4, yI5);
+            // Call FILTRO 4 times with rotated neighborhoods.
+            // Each call modifies E[N3] (and potentially E[N2], E[N1]).
+            // The rotation is achieved by reordering the parameters.
+            //
+            // Call 1: TL pixel (N3=0) — edge in I (DR) direction
+            XBR_FILTRO(PE, _PI, PH, PF, PG, PC, PD, PB, PA,
+                G5, C4, G0, D0, C1, B1, F4, I4, H5, I5, A0, A1, 0, 1, 2, 3);
+            // Call 2: BL pixel (N3=2) — edge in C (UR) direction
+            XBR_FILTRO(PE, PC, PF, PB, _PI, PA, PH, PD, PG,
+                I4, A1, I5, H5, A0, D0, B1, C1, F4, C4, G5, G0, 2, 0, 3, 1);
+            // Call 3: BR pixel (N3=3) — edge in A (UL) direction
+            XBR_FILTRO(PE, PA, PB, PD, PC, PG, PF, PH, _PI,
+                C1, G0, C4, F4, G5, H5, D0, A0, B1, A1, I4, I5, 3, 2, 1, 0);
+            // Call 4: TR pixel (N3=1) — edge in G (DL) direction
+            XBR_FILTRO(PE, PG, PD, PH, PA, _PI, PB, PF, PC,
+                A0, I5, A1, B1, I4, F4, H5, G5, D0, G0, C1, C4, 1, 3, 0, 2);
 
-            // TR quadrant: horizontal mirror — edge in G (DL) direction, blend D or H
-            // Swap left↔right: D↔F, A↔C, G↔I, D0↔F4, G0↔I4, G5↔I5
-            d0[x2+1] = xbrQuadrant(E, D, H,
-                yE, yB, yF, yH, yD,
-                yA, yC, yI, yG,
-                yD0, yH5, yG0, yG5);
-
-            // BL quadrant: vertical mirror — edge in C (UR) direction, blend F or B
-            // Swap up↔down: B↔H, A↔G, C↔I, B1↔H5, A1↔G5, C1↔I5, A0↔G0, C4↔I4
-            d1[x2] = xbrQuadrant(E, F, B,
-                yE, yH, yD, yB, yF,
-                yI, yG, yA, yC,
-                yF4, yB1, yC4, yC1);
-
-            // BR quadrant: 180° rotation — edge in A (UL) direction, blend D or B
-            // Swap both up↔down and left↔right: B↔H, D↔F, A↔I, C↔G
-            d1[x2+1] = xbrQuadrant(E, D, B,
-                yE, yH, yF, yB, yD,
-                yG, yI, yC, yA,
-                yD0, yB1, yA0, yA1);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// HQ2X — High Quality 2x scaler by Maxim Stepin
-//
-// Based on the classic HQ2X algorithm. Uses YUV color space comparison with
-// threshold to build a 9-bit pattern from the 3x3 neighborhood, then blends
-// the 4 output pixels using interpolation rules based on the pattern and
-// cross-diagonal rules.
-//
-// Reference: https://web.archive.org/web/20131205091805/http://www.hiend3d.com/hq2x.html
-// ---------------------------------------------------------------------------
-
-// YUV threshold for HQ2X color difference detection
-// Thresholds from HQ2X: Y>48, U>7, V>6
-static inline bool hqDiff(uint32_t y1, uint32_t y2, uint32_t u1, uint32_t u2,
-                          uint32_t v1, uint32_t v2) {
-    int dy = (int)y1 - (int)y2; if (dy < 0) dy = -dy;
-    int du = (int)u1 - (int)u2; if (du < 0) du = -du;
-    int dv = (int)v1 - (int)v2; if (dv < 0) dv = -dv;
-    return dy > 48 || du > 7 || dv > 6;
-}
-
-// Compute YUV components from ARGB pixel
-static inline void toYUV(uint32_t px, uint8_t& y, uint8_t& u, uint8_t& v) {
-    int r = (px >> 16) & 0xFF;
-    int g = (px >> 8) & 0xFF;
-    int b = px & 0xFF;
-    y = (uint8_t)((r * 299 + g * 587 + b * 114) / 1000);
-    u = (uint8_t)((-r * 169 - g * 331 + b * 500) / 1000 + 128);
-    v = (uint8_t)((r * 500 - g * 419 - b * 81) / 1000 + 128);
-}
-
-// HQ2X interpolation helpers
-// interp1: 50% c1 + 50% c2
-static inline uint32_t hqInterp1(uint32_t c1, uint32_t c2) {
-    return ((((c1 & 0x00FF00FF) + (c2 & 0x00FF00FF)) >> 1) & 0x00FF00FF)
-         | ((((c1 & 0x0000FF00) + (c2 & 0x0000FF00)) >> 1) & 0x0000FF00)
-         | 0xFF000000u;
-}
-
-// interp2: 50% c1 + 25% c2 + 25% c3 = (2*c1 + c2 + c3) / 4
-static inline uint32_t hqInterp2(uint32_t c1, uint32_t c2, uint32_t c3) {
-    return ((((c1 & 0x00FF00FF) * 2 + (c2 & 0x00FF00FF) + (c3 & 0x00FF00FF)) >> 2) & 0x00FF00FF)
-         | ((((c1 & 0x0000FF00) * 2 + (c2 & 0x0000FF00) + (c3 & 0x0000FF00)) >> 2) & 0x0000FF00)
-         | 0xFF000000u;
-}
-
-// interp3: 75% c1 + 25% c2 = (3*c1 + c2) / 4
-static inline uint32_t hqInterp3(uint32_t c1, uint32_t c2) {
-    return ((((c1 & 0x00FF00FF) * 3 + (c2 & 0x00FF00FF)) >> 2) & 0x00FF00FF)
-         | ((((c1 & 0x0000FF00) * 3 + (c2 & 0x0000FF00)) >> 2) & 0x0000FF00)
-         | 0xFF000000u;
-}
-
-// HQ2X single output pixel computation for one quadrant.
-// Based on the standard HQ2X case analysis with cross-diagonal rules.
-//
-// Parameters:
-//   c  = center pixel
-//   d  = diagonal neighbor (w1 for TL, w3 for TR, w7 for BL, w9 for BR)
-//   o1 = first orthogonal neighbor (w2 for TL, w6 for TR, w4 for BL, w6 for BR)
-//   o2 = second orthogonal neighbor (w4 for TL, w2 for TR, w8 for BL, w8 for BR)
-//   dDiff = diagonal differs from center?
-//   o1Diff = first orthogonal differs from center?
-//   o2Diff = second orthogonal differs from center?
-//   cross = diagonal matches both orthogonal neighbors?
-static inline uint32_t hq2xPixel(
-    uint32_t c, uint32_t d, uint32_t o1, uint32_t o2,
-    bool dDiff, bool o1Diff, bool o2Diff, bool cross)
-{
-    if (dDiff) {
-        if (cross) {
-            // Cross: both orthogonals match center → diagonal is likely an
-            // isolated pixel.  Smooth toward the diagonal (standard HQ2X
-            // interpolates toward d in this case).
-            return hqInterp1(c, d);       // 50% c + 50% diagonal
-        } else {
-            // Corner detected at diagonal
-            if (o1Diff && o2Diff)
-                return hqInterp1(c, d);        // 50% c + 50% diagonal
-            else if (o1Diff)
-                return hqInterp1(c, o1);
-            else if (o2Diff)
-                return hqInterp1(c, o2);
-            else
-                return hqInterp1(c, d);
-        }
-    } else {
-        // Diagonal same as center
-        if (o1Diff && o2Diff)
-            return hqInterp2(c, o1, o2);       // 50% c + 25% each
-        else if (o1Diff)
-            return hqInterp3(c, o1);           // 75% c + 25% o1
-        else if (o2Diff)
-            return hqInterp3(c, o2);           // 75% c + 25% o2
-        else
-            return c;
-    }
-}
-
-static void hq2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
-                         size_t srcStride, uint32_t* dst) {
-    const unsigned dw = sw * 2;
-
-    auto getPx = [&](int x, int y) -> uint32_t {
-        if (x < 0) x = 0; else if (x >= (int)sw) x = sw - 1;
-        if (y < 0) y = 0; else if (y >= (int)sh) y = sh - 1;
-        return src[y * srcStride + x];
-    };
-
-    for (unsigned y = 0; y < sh; ++y) {
-        const unsigned y2 = y * 2;
-        for (unsigned x = 0; x < sw; ++x) {
             const unsigned x2 = x * 2;
-
-            // 3x3 neighborhood
-            uint32_t w1 = getPx(x-1, y-1);  // UL
-            uint32_t w2 = getPx(x,   y-1);  // U
-            uint32_t w3 = getPx(x+1, y-1);  // UR
-            uint32_t w4 = getPx(x-1, y);    // L
-            uint32_t c  = getPx(x,   y);    // center
-            uint32_t w6 = getPx(x+1, y);    // R
-            uint32_t w7 = getPx(x-1, y+1);  // DL
-            uint32_t w8 = getPx(x,   y+1);  // D
-            uint32_t w9 = getPx(x+1, y+1);  // DR
-
-            // YUV conversion of all 9 pixels
-            uint8_t cy, cu, cv;
-            toYUV(c, cy, cu, cv);
-            uint8_t y1,u1,v1, y2,u2,v2, y3,u3,v3, y4,u4,v4;
-            uint8_t y6,u6,v6, y7,u7,v7, y8,u8,v8, y9,u9,v9;
-            toYUV(w1, y1,u1,v1); toYUV(w2, y2,u2,v2); toYUV(w3, y3,u3,v3);
-            toYUV(w4, y4,u4,v4);                         toYUV(w6, y6,u6,v6);
-            toYUV(w7, y7,u7,v7); toYUV(w8, y8,u8,v8); toYUV(w9, y9,u9,v9);
-
-            // Pattern bits: 1 if neighbor differs from center
-            bool d1 = hqDiff(y1,cy,u1,cu,v1,cv);  // w1 != c
-            bool d2 = hqDiff(y2,cy,u2,cu,v2,cv);  // w2 != c
-            bool d3 = hqDiff(y3,cy,u3,cu,v3,cv);  // w3 != c
-            bool d4 = hqDiff(y4,cy,u4,cu,v4,cv);  // w4 != c
-            bool d6 = hqDiff(y6,cy,u6,cu,v6,cv);  // w6 != c
-            bool d7 = hqDiff(y7,cy,u7,cu,v7,cv);  // w7 != c
-            bool d8 = hqDiff(y8,cy,u8,cu,v8,cv);  // w8 != c
-            bool d9 = hqDiff(y9,cy,u9,cu,v9,cv);  // w9 != c
-
-            // Cross rules: diagonal matches both adjacent orthogonals
-            bool cross1 = !d2 && !d4;   // w1 cross: w2==c && w4==c → no corner at UL
-            bool cross3 = !d2 && !d6;   // w3 cross: w2==c && w6==c → no corner at UR
-            bool cross7 = !d4 && !d8;   // w7 cross: w4==c && w8==c → no corner at DL
-            bool cross9 = !d6 && !d8;   // w9 cross: w6==c && w8==c → no corner at DR
-
-            uint32_t* row0 = dst + y2 * dw;
-            uint32_t* row1 = dst + (y2 + 1) * dw;
-
-            // TL: diagonal=w1, orthogonals=w2(up), w4(left)
-            row0[x2] = hq2xPixel(c, w1, w2, w4, d1, d2, d4, cross1);
-
-            // TR: diagonal=w3, orthogonals=w2(up), w6(right)
-            row0[x2+1] = hq2xPixel(c, w3, w2, w6, d3, d2, d6, cross3);
-
-            // BL: diagonal=w7, orthogonals=w4(left), w8(down)
-            row1[x2] = hq2xPixel(c, w7, w4, w8, d7, d4, d8, cross7);
-
-            // BR: diagonal=w9, orthogonals=w6(right), w8(down)
-            row1[x2+1] = hq2xPixel(c, w9, w6, w8, d9, d6, d8, cross9);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// HQ4X — 4x scale using same HQ2X pattern detection with 4x4 output blocks.
-// Each source pixel → 4x4 output block. The 4 corner sub-pixels use the HQ2X
-// interpolation, and the edge/center sub-pixels use graduated interpolation
-// between the corner values and the center for smooth transitions.
-// ---------------------------------------------------------------------------
-static void hq4xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
-                         size_t srcStride, uint32_t* dst) {
-    const unsigned dw = sw * 4;
-
-    auto getPx = [&](int x, int y) -> uint32_t {
-        if (x < 0) x = 0; else if (x >= (int)sw) x = sw - 1;
-        if (y < 0) y = 0; else if (y >= (int)sh) y = sh - 1;
-        return src[y * srcStride + x];
-    };
-
-    for (unsigned y = 0; y < sh; ++y) {
-        const unsigned y4 = y * 4;
-        for (unsigned x = 0; x < sw; ++x) {
-            const unsigned x4 = x * 4;
-
-            uint32_t w1 = getPx(x-1, y-1), w2 = getPx(x, y-1), w3 = getPx(x+1, y-1);
-            uint32_t w4 = getPx(x-1, y),   c  = getPx(x, y),   w6 = getPx(x+1, y);
-            uint32_t w7 = getPx(x-1, y+1), w8 = getPx(x, y+1), w9 = getPx(x+1, y+1);
-
-            uint8_t cy, cu, cv;
-            toYUV(c, cy, cu, cv);
-            uint8_t y1,u1,v1, y2,u2,v2, y3,u3,v3, y4,u4,v4;
-            uint8_t y6,u6,v6, y7,u7,v7, y8,u8,v8, y9,u9,v9;
-            toYUV(w1, y1,u1,v1); toYUV(w2, y2,u2,v2); toYUV(w3, y3,u3,v3);
-            toYUV(w4, y4,u4,v4);                         toYUV(w6, y6,u6,v6);
-            toYUV(w7, y7,u7,v7); toYUV(w8, y8,u8,v8); toYUV(w9, y9,u9,v9);
-
-            bool d1 = hqDiff(y1,cy,u1,cu,v1,cv);
-            bool d2 = hqDiff(y2,cy,u2,cu,v2,cv);
-            bool d3 = hqDiff(y3,cy,u3,cu,v3,cv);
-            bool d4 = hqDiff(y4,cy,u4,cu,v4,cv);
-            bool d6 = hqDiff(y6,cy,u6,cu,v6,cv);
-            bool d7 = hqDiff(y7,cy,u7,cu,v7,cv);
-            bool d8 = hqDiff(y8,cy,u8,cu,v8,cv);
-            bool d9 = hqDiff(y9,cy,u9,cu,v9,cv);
-
-            bool cross1 = !d2 && !d4;
-            bool cross3 = !d2 && !d6;
-            bool cross7 = !d4 && !d8;
-            bool cross9 = !d6 && !d8;
-
-            // Compute the 4 corner colors using HQ2X interpolation
-            uint32_t tl = hq2xPixel(c, w1, w2, w4, d1, d2, d4, cross1);
-            uint32_t tr = hq2xPixel(c, w3, w2, w6, d3, d2, d6, cross3);
-            uint32_t bl = hq2xPixel(c, w7, w4, w8, d7, d4, d8, cross7);
-            uint32_t br = hq2xPixel(c, w9, w6, w8, d9, d6, d8, cross9);
-
-            uint32_t* rows[4] = {
-                dst + y4 * dw,
-                dst + (y4 + 1) * dw,
-                dst + (y4 + 2) * dw,
-                dst + (y4 + 3) * dw
-            };
-
-            // Fill 4x4 block with graduated interpolation:
-            //   0  1  2  3
-            //   4  5  6  7
-            //   8  9 10 11
-            //  12 13 14 15
-            // Corners use HQ2X result. Edge pixels graduate between the two
-            // adjacent corners (75% near / 25% far). Center 2x2 blends the
-            // source pixel with its nearest corner (75% c + 25% corner),
-            // producing a smooth gradient instead of a checkerboard.
-            rows[0][x4]   = tl;
-            rows[0][x4+1] = hqInterp3(tl, tr);  // 75% tl + 25% tr
-            rows[0][x4+2] = hqInterp3(tr, tl);  // 75% tr + 25% tl
-            rows[0][x4+3] = tr;
-
-            rows[1][x4]   = hqInterp3(tl, bl);  // 75% tl + 25% bl
-            rows[1][x4+1] = hqInterp3(c, tl);   // 75% c  + 25% tl
-            rows[1][x4+2] = hqInterp3(c, tr);   // 75% c  + 25% tr
-            rows[1][x4+3] = hqInterp3(tr, br);  // 75% tr + 25% br
-
-            rows[2][x4]   = hqInterp3(bl, tl);  // 75% bl + 25% tl
-            rows[2][x4+1] = hqInterp3(c, bl);   // 75% c  + 25% bl
-            rows[2][x4+2] = hqInterp3(c, br);   // 75% c  + 25% br
-            rows[2][x4+3] = hqInterp3(br, tr);  // 75% br + 25% tr
-
-            rows[3][x4]   = bl;
-            rows[3][x4+1] = hqInterp3(bl, br);  // 75% bl + 25% br
-            rows[3][x4+2] = hqInterp3(br, bl);  // 75% br + 25% bl
-            rows[3][x4+3] = br;
+            const unsigned y2 = y * 2;
+            dst[y2 * dstStride + x2]       = E[0];
+            dst[y2 * dstStride + x2 + 1]  = E[1];
+            dst[(y2+1) * dstStride + x2]   = E[2];
+            dst[(y2+1) * dstStride + x2+1] = E[3];
         }
     }
 }
@@ -775,22 +564,23 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
 
     // Blit directly to ANativeWindow if a surface is attached (hardware accel)
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
-    // Guard: upscaling buffers are sized for standard NES resolution (256x240).
-    // If NTSC filter is enabled, width can be 302 — skip upscale to prevent
-    // buffer overflow, fall back to nearest-neighbor blit.
     const bool canUpscale = (width <= kNesW && height <= kNesH);
 
     if ((filter == 4 || filter == 7) && canUpscale) {
-        // XBR / XBR+dot: 2x edge-preserving upscale (256x240 → 512x480)
+        // XBR / XBR+dot: 2x edge-preserving upscale (256x240 -> 512x480)
         xbr2xUpscale(src, width, height, srcStride, s_xbrBuffer);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
     } else if (filter == 5 && canUpscale) {
-        // HQ2X: 2x high-quality scaler (256x240 → 512x480)
-        hq2xUpscale(src, width, height, srcStride, s_xbrBuffer);
+        // HQ2X: use hqx library (Maxim Stepin's reference implementation)
+        hq2x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
+                   s_xbrBuffer, (uint32_t)(width * 2 * sizeof(uint32_t)),
+                   (int)width, (int)height);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
     } else if (filter == 6 && canUpscale) {
-        // HQ4X: 4x high-quality scaler (256x240 → 1024x960)
-        hq4xUpscale(src, width, height, srcStride, s_hq4xBuffer);
+        // HQ4X: use hqx library (Maxim Stepin's reference implementation)
+        hq4x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
+                   s_hq4xBuffer, (uint32_t)(width * 4 * sizeof(uint32_t)),
+                   (int)width, (int)height);
         blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
     } else {
         blitToSurface(src, width, height, srcStride);

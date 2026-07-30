@@ -114,6 +114,9 @@ object NesNative {
      *   2 = CRT (scanline + vignette)
      *   3 = dot (LCD dot grid)
      *   4 = XBR (edge-preserving smooth scaling)
+     *   5 = HQ2X (high-quality 2x scaler)
+     *   6 = HQ4X (high-quality 4x scaler)
+     *   7 = XBR + dot (XBR upscale with dot overlay)
      */
     @JvmStatic external fun setVideoFilter(filter: Int)
 }
