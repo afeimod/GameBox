@@ -136,7 +136,7 @@ fun VirtualKeyboard(
                                     onDragStart = { offset ->
                                         joystickActive = true
                                         updateJoystickDirection(
-                                            offset, size.width, size.height,
+                                            offset, size.width.toFloat(), size.height.toFloat(),
                                             dirKeys, pressedDirs.value, onKeyPress, onKeyRelease
                                         ) { newDirs, newKnob ->
                                             pressedDirs.value = newDirs
@@ -146,7 +146,7 @@ fun VirtualKeyboard(
                                     onDrag = { change, _ ->
                                         change.consume()
                                         updateJoystickDirection(
-                                            change.position, size.width, size.height,
+                                            change.position, size.width.toFloat(), size.height.toFloat(),
                                             dirKeys, pressedDirs.value, onKeyPress, onKeyRelease
                                         ) { newDirs, newKnob ->
                                             pressedDirs.value = newDirs
@@ -175,7 +175,8 @@ fun VirtualKeyboard(
                                 detectTapGestures(
                                     onPress = { offset ->
                                         val dirs = computeDpadDirections(
-                                            offset, size.width, size.height
+                                            offset.x, offset.y,
+                                            size.width.toFloat(), size.height.toFloat()
                                         )
                                         val newPressed = mutableSetOf<String>()
                                         for (d in dirs) {
