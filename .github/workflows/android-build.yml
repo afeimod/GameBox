@@ -26,11 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
-    env:
-      ANDROID_PLATFORM: "android-34"
-      ANDROID_BUILD_TOOLS: "34.0.0"
-      NDK_VERSION: "26.3.11579264"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,41 +46,51 @@ jobs:
           sdkmanager --list_installed 2>/dev/null || true
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager \
-            "platforms;${ANDROID_PLATFORM}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "ndk;${NDK_VERSION}" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
             "cmake;3.22.1" \
             > /dev/null 2>&1 || true
-          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
 
-      - name: Verify Gradle
+      - name: Generate Gradle Wrapper
         run: |
-          echo "=== 系统 Gradle 版本 ==="
-          gradle --version
-          echo ""
-          echo "=== 预装 init 脚本 ==="
-          ls -la ~/.gradle/init.d/ 2>/dev/null || echo "无 init 脚本"
+          echo "=== 诊断：预装的 Gradle init 脚本 ==="
+          ls -la ~/.gradle/init.d/ 2>/dev/null || echo "~/.gradle/init.d/ 不存在"
           for f in ~/.gradle/init.d/*.gradle; do
             [ -f "$f" ] && echo "--- $f ---" && cat "$f"
           done 2>/dev/null || true
+          echo ""
+          echo "=== 系统 Gradle 版本 ==="
+          gradle --version 2>/dev/null | head -5 || true
+          echo ""
+
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ ! -f gradlew ]; then
+            echo "Gradle wrapper 缺失，正在生成..."
+            gradle wrapper --gradle-version 8.7 --distribution-type bin
+          else
+            echo "Gradle wrapper 已存在"
+          fi
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
           else
-            gradle assembleDebug -PuseStubCore=false --stacktrace
+            ./gradlew assembleDebug -PuseStubCore=false --stacktrace
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
           else
-            gradle assembleRelease -PuseStubCore=false --stacktrace
+            ./gradlew assembleRelease -PuseStubCore=false --stacktrace
           fi
 
       - name: Upload APK
