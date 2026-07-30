@@ -457,32 +457,32 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
             uint32_t* d0 = dst + y2 * dw;
             uint32_t* d1 = dst + (y2 + 1) * dw;
 
-            // TL quadrant: identity — edge in I (DR) direction, blend F or H
+            // TL quadrant: standard layout — edge in I (DR) direction, blend F or H
             d0[x2] = xbrQuadrant(E, F, H,
                 yE, yB, yD, yH, yF,
                 yC, yA, yG, yI,
                 yF4, yH5, yI4, yI5);
 
-            // TR quadrant: vertical flip — edge in C (UR) direction, blend F or B
-            // From reference GLSL swizzling: b=H, d=D, h=B, f=F, c=I, a=G, g=A, i=C
-            d0[x2+1] = xbrQuadrant(E, F, B,
+            // TR quadrant: horizontal mirror — edge in G (DL) direction, blend D or H
+            // Swap left↔right: D↔F, A↔C, G↔I, D0↔F4, G0↔I4, G5↔I5
+            d0[x2+1] = xbrQuadrant(E, D, H,
+                yE, yB, yF, yH, yD,
+                yA, yC, yI, yG,
+                yD0, yH5, yG0, yG5);
+
+            // BL quadrant: vertical mirror — edge in C (UR) direction, blend F or B
+            // Swap up↔down: B↔H, A↔G, C↔I, B1↔H5, A1↔G5, C1↔I5, A0↔G0, C4↔I4
+            d1[x2] = xbrQuadrant(E, F, B,
                 yE, yH, yD, yB, yF,
                 yI, yG, yA, yC,
                 yF4, yB1, yC4, yC1);
 
-            // BL quadrant: horizontal flip — edge in A (UL) direction, blend D or B
-            // From reference GLSL swizzling: b=H, d=F, h=B, f=D, c=G, a=I, g=C, i=A
-            d1[x2] = xbrQuadrant(E, D, B,
+            // BR quadrant: 180° rotation — edge in A (UL) direction, blend D or B
+            // Swap both up↔down and left↔right: B↔H, D↔F, A↔I, C↔G
+            d1[x2+1] = xbrQuadrant(E, D, B,
                 yE, yH, yF, yB, yD,
                 yG, yI, yC, yA,
                 yD0, yB1, yA0, yA1);
-
-            // BR quadrant: 180° rotation — edge in G (DL) direction, blend D or H
-            // From reference GLSL swizzling: b=B, d=F, h=H, f=D, c=A, a=C, g=I, i=G
-            d1[x2+1] = xbrQuadrant(E, D, H,
-                yE, yB, yF, yH, yD,
-                yA, yC, yI, yG,
-                yD0, yH5, yG0, yG5);
         }
     }
 }
@@ -558,15 +558,10 @@ static inline uint32_t hq2xPixel(
 {
     if (dDiff) {
         if (cross) {
-            // Diagonal matches both orthogonals → smooth area
-            if (o1Diff && o2Diff)
-                return hqInterp2(c, o1, o2);  // 50% c + 25% each
-            else if (o1Diff)
-                return hqInterp1(c, o1);       // 50% c + 50% o1
-            else if (o2Diff)
-                return hqInterp1(c, o2);       // 50% c + 50% o2
-            else
-                return c;
+            // Cross: both orthogonals match center → diagonal is likely an
+            // isolated pixel.  Smooth toward the diagonal (standard HQ2X
+            // interpolates toward d in this case).
+            return hqInterp1(c, d);       // 50% c + 50% diagonal
         } else {
             // Corner detected at diagonal
             if (o1Diff && o2Diff)
@@ -725,26 +720,28 @@ static void hq4xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
             //   4  5  6  7
             //   8  9 10 11
             //  12 13 14 15
-            // Corners use HQ2X result, edges interpolate between corners,
-            // center uses center pixel.
+            // Corners use HQ2X result. Edge pixels graduate between the two
+            // adjacent corners (75% near / 25% far). Center 2x2 blends the
+            // source pixel with its nearest corner (75% c + 25% corner),
+            // producing a smooth gradient instead of a checkerboard.
             rows[0][x4]   = tl;
-            rows[0][x4+1] = hqInterp1(tl, tr);
-            rows[0][x4+2] = hqInterp1(tl, tr);
+            rows[0][x4+1] = hqInterp3(tl, tr);  // 75% tl + 25% tr
+            rows[0][x4+2] = hqInterp3(tr, tl);  // 75% tr + 25% tl
             rows[0][x4+3] = tr;
 
-            rows[1][x4]   = hqInterp1(tl, bl);
-            rows[1][x4+1] = hqInterp2(c, tl, br);
-            rows[1][x4+2] = hqInterp2(c, tr, bl);
-            rows[1][x4+3] = hqInterp1(tr, br);
+            rows[1][x4]   = hqInterp3(tl, bl);  // 75% tl + 25% bl
+            rows[1][x4+1] = hqInterp3(c, tl);   // 75% c  + 25% tl
+            rows[1][x4+2] = hqInterp3(c, tr);   // 75% c  + 25% tr
+            rows[1][x4+3] = hqInterp3(tr, br);  // 75% tr + 25% br
 
-            rows[2][x4]   = hqInterp1(tl, bl);
-            rows[2][x4+1] = hqInterp2(c, bl, tr);
-            rows[2][x4+2] = hqInterp2(c, br, tl);
-            rows[2][x4+3] = hqInterp1(tr, br);
+            rows[2][x4]   = hqInterp3(bl, tl);  // 75% bl + 25% tl
+            rows[2][x4+1] = hqInterp3(c, bl);   // 75% c  + 25% bl
+            rows[2][x4+2] = hqInterp3(c, br);   // 75% c  + 25% br
+            rows[2][x4+3] = hqInterp3(br, tr);  // 75% br + 25% tr
 
             rows[3][x4]   = bl;
-            rows[3][x4+1] = hqInterp1(bl, br);
-            rows[3][x4+2] = hqInterp1(bl, br);
+            rows[3][x4+1] = hqInterp3(bl, br);  // 75% bl + 25% br
+            rows[3][x4+2] = hqInterp3(br, bl);  // 75% br + 25% bl
             rows[3][x4+3] = br;
         }
     }
@@ -778,15 +775,20 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
 
     // Blit directly to ANativeWindow if a surface is attached (hardware accel)
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
-    if (filter == 4 || filter == 7) {
+    // Guard: upscaling buffers are sized for standard NES resolution (256x240).
+    // If NTSC filter is enabled, width can be 302 — skip upscale to prevent
+    // buffer overflow, fall back to nearest-neighbor blit.
+    const bool canUpscale = (width <= kNesW && height <= kNesH);
+
+    if ((filter == 4 || filter == 7) && canUpscale) {
         // XBR / XBR+dot: 2x edge-preserving upscale (256x240 → 512x480)
         xbr2xUpscale(src, width, height, srcStride, s_xbrBuffer);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
-    } else if (filter == 5) {
+    } else if (filter == 5 && canUpscale) {
         // HQ2X: 2x high-quality scaler (256x240 → 512x480)
         hq2xUpscale(src, width, height, srcStride, s_xbrBuffer);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
-    } else if (filter == 6) {
+    } else if (filter == 6 && canUpscale) {
         // HQ4X: 4x high-quality scaler (256x240 → 1024x960)
         hq4xUpscale(src, width, height, srcStride, s_hq4xBuffer);
         blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);

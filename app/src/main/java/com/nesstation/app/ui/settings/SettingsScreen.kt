@@ -83,6 +83,9 @@ fun SettingsScreen(
             "crt" -> 2
             "dot" -> 3
             "xbr" -> 4
+            "hq2x" -> 5
+            "hq4x" -> 6
+            "xbr_dot" -> 7
             else -> 0
         }
         engine.setVideoFilter(filterInt)
@@ -176,7 +179,8 @@ fun SettingsScreen(
                         ) { updateLayout(padLayout.copy(videoScale = it)) }
 
                         DropdownRow("视频滤镜",
-                            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵", "xbr" to "XBR"),
+                            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
+                                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵"),
                             padLayout.videoFilter
                         ) { updateLayout(padLayout.copy(videoFilter = it)) }
                     }
