@@ -69,7 +69,8 @@ jobs:
             "https://plugins.gradle.org" \
             "https://maven.aliyun.com" \
             "https://mirrors.aliyun.com" \
-            "https://mirrors.cloud.tencent.com"; do
+            "https://mirrors.cloud.tencent.com" \
+            "https://mirrors.huaweicloud.com"; do
             echo -n "$url → "
             code=$(curl -sI -m 10 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
             if [ $? -eq 0 ]; then
@@ -79,54 +80,99 @@ jobs:
             fi
           done
 
-      - name: Install Gradle 8.7 + pre-download AGP to local Maven repo
+      - name: Install Gradle 8.7 + pre-download all plugin artifacts
         run: |
+          set -e
+
           # 1. Install Gradle from aliyun mirror (services.gradle.org unreachable)
+          echo "=== Installing Gradle 8.7 ==="
           curl -fSL -o /tmp/gradle.zip \
             "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.7-bin.zip"
           sudo unzip -q /tmp/gradle.zip -d /opt
           sudo mv /opt/gradle-8.7 /opt/gradle
           echo "/opt/gradle/bin" >> "$GITHUB_PATH"
 
-          # 2. Pre-download AGP + Kotlin + KSP artifacts to a local Maven repo.
-          #    This bypasses Gradle's HTTP client for the critical plugin jars.
-          #    If maven.aliyun.com is reachable via curl, this will succeed even
-          #    if Gradle's own HTTP client can't reach it.
-          LOCAL_REPO="/tmp/local-maven"
-          ALIYUN="https://maven.aliyun.com/repository"
+          # 2. Pre-download AGP + Kotlin + KSP to ~/.m2/repository (standard Maven local repo).
+          #    Try multiple mirrors — whichever works, use it.
+          M2_REPO="$HOME/.m2/repository"
+          mkdir -p "$M2_REPO"
 
+          # Define mirror base URLs for Maven Central content
+          CENTRAL_MIRRORS=(
+            "https://maven.aliyun.com/repository/central"
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
+            "https://mirrors.huaweicloud.com/repository/maven"
+            "https://repo1.maven.org/maven2"
+          )
+          # Define mirror base URLs for Google Maven content
+          GOOGLE_MIRRORS=(
+            "https://maven.aliyun.com/repository/google"
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
+            "https://dl.google.com/dl/android/maven2"
+          )
+          # Define mirror base URLs for Gradle Plugin Portal content
+          PLUGIN_MIRRORS=(
+            "https://maven.aliyun.com/repository/gradle-plugin"
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
+            "https://plugins.gradle.org/m2"
+          )
+
+          # download_artifact <mirror_urls_array_name> <group_path> <artifact> <version>
           download_artifact() {
-            local repo="$1"   # google / central / gradle-plugin
-            local group_path="$2"  # e.g. com/android/tools/build
-            local artifact="$3"    # e.g. gradle
-            local version="$4"     # e.g. 8.5.2
+            local -n mirrors=$1
+            local group_path="$2"
+            local artifact="$3"
+            local version="$4"
 
-            local dest="${LOCAL_REPO}/${group_path}/${artifact}/${version}"
-            local src="${ALIYUN}/${repo}/${group_path}/${artifact}/${version}"
+            local dest="${M2_REPO}/${group_path}/${artifact}/${version}"
             mkdir -p "$dest"
 
             for ext in pom jar module; do
               local file="${artifact}-${version}.${ext}"
-              if [ "$ext" = "jar" ] || [ "$ext" = "pom" ] || [ "$ext" = "module" ]; then
-                echo "  Downloading ${file} from ${repo}..."
-                curl -sfSL -m 30 -o "${dest}/${file}" "${src}/${file}" 2>/dev/null && \
-                  echo "    OK ($(wc -c < "${dest}/${file}") bytes)" || \
-                  rm -f "${dest}/${file}"  # don't leave empty files
+              local dest_file="${dest}/${file}"
+
+              # Skip if already downloaded
+              if [ -f "$dest_file" ] && [ -s "$dest_file" ]; then
+                echo "  [SKIP] ${file} (already exists)"
+                continue
+              fi
+
+              for mirror in "${mirrors[@]}"; do
+                local url="${mirror}/${group_path}/${artifact}/${version}/${file}"
+                echo -n "  [TRY] ${file} from ${mirror}... "
+                if curl -sfSL -m 60 -o "$dest_file" "$url" 2>/dev/null; then
+                  local size=$(wc -c < "$dest_file")
+                  if [ "$size" -gt 0 ]; then
+                    echo "OK (${size} bytes)"
+                    break
+                  fi
+                fi
+                rm -f "$dest_file"
+                echo "FAIL"
+              done
+
+              if [ ! -f "$dest_file" ] || [ ! -s "$dest_file" ]; then
+                echo "  [WARN] ${file} could not be downloaded from any mirror"
+                rm -f "$dest_file"
               fi
             done
           }
 
-          echo "=== Pre-downloading plugin artifacts ==="
-          # AGP 8.5.2
-          download_artifact "google" "com/android/tools/build" "gradle" "8.5.2"
-          # Kotlin Gradle Plugin 1.9.24
-          download_artifact "central" "org/jetbrains/kotlin" "kotlin-gradle-plugin" "1.9.24"
-          # KSP 1.9.24-1.0.20
-          download_artifact "gradle-plugin" "com/google/devtools/ksp" "com.google.devtools.ksp.gradle.plugin" "1.9.24-1.0.20"
+          echo ""
+          echo "=== Pre-downloading AGP 8.5.2 ==="
+          download_artifact GOOGLE_MIRRORS "com/android/tools/build" "gradle" "8.5.2"
 
-          echo "=== Local Maven repo contents ==="
-          find "$LOCAL_REPO" -type f | head -30
-          echo "LOCAL_MAVEN_REPO=${LOCAL_REPO}" >> "$GITHUB_ENV"
+          echo ""
+          echo "=== Pre-downloading Kotlin Gradle Plugin 1.9.24 ==="
+          download_artifact CENTRAL_MIRRORS "org/jetbrains/kotlin" "kotlin-gradle-plugin" "1.9.24"
+
+          echo ""
+          echo "=== Pre-downloading KSP 1.9.24-1.0.20 ==="
+          download_artifact PLUGIN_MIRRORS "com/google/devtools/ksp" "com.google.devtools.ksp.gradle.plugin" "1.9.24-1.0.20"
+
+          echo ""
+          echo "=== Maven local repo contents ==="
+          find "$M2_REPO" -type f -name "*.jar" -o -name "*.pom" -o -name "*.module" | sort
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}

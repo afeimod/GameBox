@@ -19,14 +19,13 @@ pluginManagement {
         }
     }
     repositories {
-        // CI 预下载的关键插件 jar 放在本地 Maven 仓库，优先从这里解析。
-        val localRepo = providers.environmentVariable("LOCAL_MAVEN_REPO").orNull
-        if (localRepo != null) {
-            maven { url = uri(localRepo) }
-        }
+        // CI 预下载的插件 jar 放在标准 Maven 本地仓库，mavenLocal() 最可靠。
+        mavenLocal()
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
+        maven { url = uri("https://mirrors.huaweicloud.com/repository/maven/") }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -36,12 +35,11 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        val localRepo = providers.environmentVariable("LOCAL_MAVEN_REPO").orNull
-        if (localRepo != null) {
-            maven { url = uri(localRepo) }
-        }
+        mavenLocal()
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
+        maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
+        maven { url = uri("https://mirrors.huaweicloud.com/repository/maven/") }
         google()
         mavenCentral()
     }
