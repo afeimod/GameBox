@@ -1,7 +1,5 @@
 pluginManagement {
-    // resolutionStrategy: 让 Gradle 直接解析到主 jar 工件，不依赖
-    // plugin marker 工件（com.android.application.gradle.plugin 等）。
-    // marker 在某些镜像上可能未同步，直接用主 jar 最可靠。
+    // resolutionStrategy: 直接映射到主 jar 工件，不依赖 plugin marker。
     resolutionStrategy {
         eachPlugin {
             when (requested.id.id) {
@@ -21,6 +19,11 @@ pluginManagement {
         }
     }
     repositories {
+        // CI 预下载的关键插件 jar 放在本地 Maven 仓库，优先从这里解析。
+        val localRepo = providers.environmentVariable("LOCAL_MAVEN_REPO").orNull
+        if (localRepo != null) {
+            maven { url = uri(localRepo) }
+        }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
@@ -33,6 +36,10 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        val localRepo = providers.environmentVariable("LOCAL_MAVEN_REPO").orNull
+        if (localRepo != null) {
+            maven { url = uri(localRepo) }
+        }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         google()

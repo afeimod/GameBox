@@ -59,34 +59,91 @@ jobs:
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Install Gradle 8.7 (阿里云镜像)
+      - name: Network diagnostics
         run: |
-          # services.gradle.org 在 runner 上 Connection refused，
-          # 手动从阿里云下载 Gradle 并安装到系统路径，用 gradle 命令
-          # 构建而非 ./gradlew，彻底绕过 wrapper 的下载逻辑。
+          echo "=== Testing connectivity (10s timeout each) ==="
+          for url in \
+            "https://services.gradle.org" \
+            "https://dl.google.com" \
+            "https://repo1.maven.org" \
+            "https://plugins.gradle.org" \
+            "https://maven.aliyun.com" \
+            "https://mirrors.aliyun.com" \
+            "https://mirrors.cloud.tencent.com"; do
+            echo -n "$url → "
+            code=$(curl -sI -m 10 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+            if [ $? -eq 0 ]; then
+              echo "HTTP $code"
+            else
+              echo "UNREACHABLE"
+            fi
+          done
+
+      - name: Install Gradle 8.7 + pre-download AGP to local Maven repo
+        run: |
+          # 1. Install Gradle from aliyun mirror (services.gradle.org unreachable)
           curl -fSL -o /tmp/gradle.zip \
             "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.7-bin.zip"
           sudo unzip -q /tmp/gradle.zip -d /opt
           sudo mv /opt/gradle-8.7 /opt/gradle
           echo "/opt/gradle/bin" >> "$GITHUB_PATH"
-          gradle --version
+
+          # 2. Pre-download AGP + Kotlin + KSP artifacts to a local Maven repo.
+          #    This bypasses Gradle's HTTP client for the critical plugin jars.
+          #    If maven.aliyun.com is reachable via curl, this will succeed even
+          #    if Gradle's own HTTP client can't reach it.
+          LOCAL_REPO="/tmp/local-maven"
+          ALIYUN="https://maven.aliyun.com/repository"
+
+          download_artifact() {
+            local repo="$1"   # google / central / gradle-plugin
+            local group_path="$2"  # e.g. com/android/tools/build
+            local artifact="$3"    # e.g. gradle
+            local version="$4"     # e.g. 8.5.2
+
+            local dest="${LOCAL_REPO}/${group_path}/${artifact}/${version}"
+            local src="${ALIYUN}/${repo}/${group_path}/${artifact}/${version}"
+            mkdir -p "$dest"
+
+            for ext in pom jar module; do
+              local file="${artifact}-${version}.${ext}"
+              if [ "$ext" = "jar" ] || [ "$ext" = "pom" ] || [ "$ext" = "module" ]; then
+                echo "  Downloading ${file} from ${repo}..."
+                curl -sfSL -m 30 -o "${dest}/${file}" "${src}/${file}" 2>/dev/null && \
+                  echo "    OK ($(wc -c < "${dest}/${file}") bytes)" || \
+                  rm -f "${dest}/${file}"  # don't leave empty files
+              fi
+            done
+          }
+
+          echo "=== Pre-downloading plugin artifacts ==="
+          # AGP 8.5.2
+          download_artifact "google" "com/android/tools/build" "gradle" "8.5.2"
+          # Kotlin Gradle Plugin 1.9.24
+          download_artifact "central" "org/jetbrains/kotlin" "kotlin-gradle-plugin" "1.9.24"
+          # KSP 1.9.24-1.0.20
+          download_artifact "gradle-plugin" "com/google/devtools/ksp" "com.google.devtools.ksp.gradle.plugin" "1.9.24-1.0.20"
+
+          echo "=== Local Maven repo contents ==="
+          find "$LOCAL_REPO" -type f | head -30
+          echo "LOCAL_MAVEN_REPO=${LOCAL_REPO}" >> "$GITHUB_ENV"
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
           else
-            gradle assembleDebug -PuseStubCore=false --no-daemon --stacktrace
+            gradle assembleDebug -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace
+            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
           else
-            gradle assembleRelease -PuseStubCore=false --no-daemon --stacktrace
+            gradle assembleRelease -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
           fi
 
       - name: Upload APK
