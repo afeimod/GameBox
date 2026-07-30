@@ -59,43 +59,33 @@ jobs:
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Generate Gradle Wrapper
+      - name: Verify Gradle
         run: |
-          echo "=== 诊断：预装的 Gradle init 脚本 ==="
-          ls -la ~/.gradle/init.d/ 2>/dev/null || echo "~/.gradle/init.d/ 不存在"
-          for f in ~/.gradle/init.d/*.gradle; do
-            [ -f "$f" ] && echo "--- $f ---" && head -20 "$f"
-          done 2>/dev/null || true
-          echo ""
           echo "=== 系统 Gradle 版本 ==="
-          gradle --version 2>/dev/null | head -5 || true
+          gradle --version
           echo ""
-
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ ! -f gradlew ]; then
-            echo "Gradle wrapper 缺失，正在生成..."
-            gradle wrapper --gradle-version 8.7 --distribution-type bin
-          else
-            echo "Gradle wrapper 已存在"
-          fi
-          chmod +x gradlew
-          ./gradlew --version
+          echo "=== 预装 init 脚本 ==="
+          ls -la ~/.gradle/init.d/ 2>/dev/null || echo "无 init 脚本"
+          for f in ~/.gradle/init.d/*.gradle; do
+            [ -f "$f" ] && echo "--- $f ---" && cat "$f"
+          done 2>/dev/null || true
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
           else
-            ./gradlew assembleDebug -PuseStubCore=false --stacktrace
+            gradle assembleDebug -PuseStubCore=false --stacktrace
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
           else
-            ./gradlew assembleRelease -PuseStubCore=false --stacktrace
+            gradle assembleRelease -PuseStubCore=false --stacktrace
           fi
 
       - name: Upload APK
