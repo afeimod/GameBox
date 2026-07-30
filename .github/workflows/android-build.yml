@@ -80,11 +80,11 @@ jobs:
             fi
           done
 
-      - name: Install Gradle 8.7 + pre-download all plugin artifacts
+      - name: Install Gradle 8.7 + pre-download plugin artifacts + create init script
         run: |
-          set -e
-
-          # 1. Install Gradle from aliyun mirror (services.gradle.org unreachable)
+          # ============================================================
+          # 1. Install Gradle 8.7
+          # ============================================================
           echo "=== Installing Gradle 8.7 ==="
           curl -fSL -o /tmp/gradle.zip \
             "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.7-bin.zip"
@@ -92,104 +92,132 @@ jobs:
           sudo mv /opt/gradle-8.7 /opt/gradle
           echo "/opt/gradle/bin" >> "$GITHUB_PATH"
 
-          # 2. Pre-download AGP + Kotlin + KSP to ~/.m2/repository (standard Maven local repo).
-          #    Try multiple mirrors — whichever works, use it.
-          M2_REPO="$HOME/.m2/repository"
-          mkdir -p "$M2_REPO"
+          # ============================================================
+          # 2. Pre-download plugin artifacts to /tmp/local-maven
+          #    No bash functions, no namerefs — just explicit curl.
+          #    Try every mirror for each file, first success wins.
+          # ============================================================
+          LOCAL_MAVEN="/tmp/local-maven"
+          mkdir -p "$LOCAL_MAVEN"
 
-          # Define mirror base URLs for Maven Central content
-          CENTRAL_MIRRORS=(
-            "https://maven.aliyun.com/repository/central"
-            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
-            "https://mirrors.huaweicloud.com/repository/maven"
-            "https://repo1.maven.org/maven2"
-          )
-          # Define mirror base URLs for Google Maven content
-          GOOGLE_MIRRORS=(
-            "https://maven.aliyun.com/repository/google"
-            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
-            "https://dl.google.com/dl/android/maven2"
-          )
-          # Define mirror base URLs for Gradle Plugin Portal content
-          PLUGIN_MIRRORS=(
-            "https://maven.aliyun.com/repository/gradle-plugin"
-            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
-            "https://plugins.gradle.org/m2"
-          )
-
-          # download_artifact <mirror_urls_array_name> <group_path> <artifact> <version>
-          download_artifact() {
-            local -n mirrors=$1
-            local group_path="$2"
-            local artifact="$3"
-            local version="$4"
-
-            local dest="${M2_REPO}/${group_path}/${artifact}/${version}"
-            mkdir -p "$dest"
-
-            for ext in pom jar module; do
-              local file="${artifact}-${version}.${ext}"
-              local dest_file="${dest}/${file}"
-
-              # Skip if already downloaded
-              if [ -f "$dest_file" ] && [ -s "$dest_file" ]; then
-                echo "  [SKIP] ${file} (already exists)"
-                continue
-              fi
-
-              for mirror in "${mirrors[@]}"; do
-                local url="${mirror}/${group_path}/${artifact}/${version}/${file}"
-                echo -n "  [TRY] ${file} from ${mirror}... "
-                if curl -sfSL -m 60 -o "$dest_file" "$url" 2>/dev/null; then
-                  local size=$(wc -c < "$dest_file")
-                  if [ "$size" -gt 0 ]; then
-                    echo "OK (${size} bytes)"
-                    break
-                  fi
+          # Helper: try downloading a single file from multiple mirrors
+          # Usage: try_download <dest_path> <mirror1_url> <mirror2_url> ...
+          try_download() {
+            local dest="$1"
+            shift
+            mkdir -p "$(dirname "$dest")"
+            for url in "$@"; do
+              echo -n "    TRY: $(echo $url | sed 's|https://||;s|/.*||')... "
+              if curl -sfSL -m 60 -o "$dest" "$url" 2>/dev/null; then
+                local sz=$(wc -c < "$dest")
+                if [ "$sz" -gt 0 ]; then
+                  echo "OK (${sz} bytes)"
+                  return 0
                 fi
-                rm -f "$dest_file"
-                echo "FAIL"
-              done
-
-              if [ ! -f "$dest_file" ] || [ ! -s "$dest_file" ]; then
-                echo "  [WARN] ${file} could not be downloaded from any mirror"
-                rm -f "$dest_file"
               fi
+              rm -f "$dest"
+              echo "FAIL"
             done
+            echo "    ALL MIRRORS FAILED for $(basename "$dest")"
+            return 0  # don't fail the step
           }
 
           echo ""
           echo "=== Pre-downloading AGP 8.5.2 ==="
-          download_artifact GOOGLE_MIRRORS "com/android/tools/build" "gradle" "8.5.2"
+          B="com/android/tools/build/gradle/8.5.2"
+          try_download "$LOCAL_MAVEN/$B/gradle-8.5.2.pom" \
+            "https://maven.aliyun.com/repository/google/$B/gradle-8.5.2.pom" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/gradle-8.5.2.pom" \
+            "https://dl.google.com/dl/android/maven2/$B/gradle-8.5.2.pom"
+          try_download "$LOCAL_MAVEN/$B/gradle-8.5.2.jar" \
+            "https://maven.aliyun.com/repository/google/$B/gradle-8.5.2.jar" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/gradle-8.5.2.jar" \
+            "https://dl.google.com/dl/android/maven2/$B/gradle-8.5.2.jar"
 
           echo ""
           echo "=== Pre-downloading Kotlin Gradle Plugin 1.9.24 ==="
-          download_artifact CENTRAL_MIRRORS "org/jetbrains/kotlin" "kotlin-gradle-plugin" "1.9.24"
+          B="org/jetbrains/kotlin/kotlin-gradle-plugin/1.9.24"
+          try_download "$LOCAL_MAVEN/$B/kotlin-gradle-plugin-1.9.24.pom" \
+            "https://maven.aliyun.com/repository/central/$B/kotlin-gradle-plugin-1.9.24.pom" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/kotlin-gradle-plugin-1.9.24.pom" \
+            "https://mirrors.huaweicloud.com/repository/maven/$B/kotlin-gradle-plugin-1.9.24.pom" \
+            "https://repo1.maven.org/maven2/$B/kotlin-gradle-plugin-1.9.24.pom"
+          try_download "$LOCAL_MAVEN/$B/kotlin-gradle-plugin-1.9.24.jar" \
+            "https://maven.aliyun.com/repository/central/$B/kotlin-gradle-plugin-1.9.24.jar" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/kotlin-gradle-plugin-1.9.24.jar" \
+            "https://mirrors.huaweicloud.com/repository/maven/$B/kotlin-gradle-plugin-1.9.24.jar" \
+            "https://repo1.maven.org/maven2/$B/kotlin-gradle-plugin-1.9.24.jar"
 
           echo ""
           echo "=== Pre-downloading KSP 1.9.24-1.0.20 ==="
-          download_artifact PLUGIN_MIRRORS "com/google/devtools/ksp" "com.google.devtools.ksp.gradle.plugin" "1.9.24-1.0.20"
+          B="com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/1.9.24-1.0.20"
+          try_download "$LOCAL_MAVEN/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.pom" \
+            "https://maven.aliyun.com/repository/gradle-plugin/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.pom" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.pom" \
+            "https://plugins.gradle.org/m2/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.pom"
+          try_download "$LOCAL_MAVEN/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.jar" \
+            "https://maven.aliyun.com/repository/gradle-plugin/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.jar" \
+            "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.jar" \
+            "https://plugins.gradle.org/m2/$B/com.google.devtools.ksp.gradle.plugin-1.9.24-1.0.20.jar"
 
           echo ""
-          echo "=== Maven local repo contents ==="
-          find "$M2_REPO" -type f -name "*.jar" -o -name "*.pom" -o -name "*.module" | sort
+          echo "=== Verifying downloaded files ==="
+          find "$LOCAL_MAVEN" -type f \( -name "*.jar" -o -name "*.pom" \) -exec ls -la {} \;
+
+          # ============================================================
+          # 3. Create Gradle init script — runs BEFORE settings.gradle.kts.
+          #    beforeSettings can modify pluginManagement.repositories,
+          #    which allprojects/buildscript CANNOT do.
+          # ============================================================
+          echo ""
+          echo "=== Creating Gradle init script ==="
+          cat > /tmp/init.gradle << 'INITEOF'
+beforeSettings { settings ->
+    settings.pluginManagement {
+        repositories {
+            maven { url = uri('/tmp/local-maven') }
+            maven { url = uri('https://maven.aliyun.com/repository/google') }
+            maven { url = uri('https://maven.aliyun.com/repository/central') }
+            maven { url = uri('https://maven.aliyun.com/repository/gradle-plugin') }
+            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }
+            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }
+            google()
+            mavenCentral()
+            gradlePluginPortal()
+        }
+    }
+    settings.dependencyResolutionManagement {
+        repositories {
+            maven { url = uri('/tmp/local-maven') }
+            maven { url = uri('https://maven.aliyun.com/repository/google') }
+            maven { url = uri('https://maven.aliyun.com/repository/central') }
+            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }
+            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }
+            google()
+            mavenCentral()
+        }
+    }
+}
+INITEOF
+          echo "Init script created at /tmp/init.gradle"
+          cat /tmp/init.gradle
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type == 'debug' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
+            gradle assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000 --init-script /tmp/init.gradle
           else
-            gradle assembleDebug -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
+            gradle assembleDebug -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000 --init-script /tmp/init.gradle
           fi
 
       - name: Build Release APK
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
+            gradle assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000 --init-script /tmp/init.gradle
           else
-            gradle assembleRelease -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000
+            gradle assembleRelease -PuseStubCore=false --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=180000 -Dorg.gradle.internal.http.socketTimeout=180000 --init-script /tmp/init.gradle
           fi
 
       - name: Upload APK
