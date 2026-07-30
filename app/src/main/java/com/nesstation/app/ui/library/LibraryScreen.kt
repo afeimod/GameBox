@@ -66,6 +66,7 @@ val ROM_EXTENSIONS = listOf("nes", "fds", "unf", "unif", "zip", "7z", "gz")
 fun LibraryScreen(
     games: List<GameEntry>,
     onOpenGame: (GameEntry) -> Unit,
+    onBack: () -> Unit = {},
     onImport: () -> Unit,
     onSearch: () -> Unit,
     modifier: Modifier = Modifier

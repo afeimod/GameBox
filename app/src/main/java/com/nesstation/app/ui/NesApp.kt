@@ -25,6 +25,10 @@ import com.nesstation.app.ui.library.LibraryScreen
 import com.nesstation.app.ui.settings.KeyMapScreen
 import com.nesstation.app.ui.settings.SettingsScreen
 import com.nesstation.app.ui.tv.TvHomeScreen
+import com.nesstation.app.ui.files.FileListScreen
+import com.nesstation.app.ui.swf.SwfListScreen
+import com.nesstation.app.ui.swf.SwfPlayerScreen
+import com.nesstation.app.ui.about.AboutScreen
 
 object Routes {
     const val HOME = "home"
@@ -33,8 +37,13 @@ object Routes {
     const val HISTORY = "history"
     const val SETTINGS = "settings"
     const val KEYMAP = "keymap"
+    const val FILE_LIST = "file_list"
+    const val SWF_LIST = "swf_list"
+    const val ABOUT = "about"
     const val EMULATOR = "emulator/{gameId}"
+    const val SWF_PLAYER = "swf_player/{swfPath}"
     fun emulator(id: String) = "emulator/$id"
+    fun swfPlayer(path: String) = "swf_player/${java.net.URLEncoder.encode(path, "UTF-8")}"
 }
 
 @Composable
@@ -79,24 +88,42 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             HomeScreen(
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
-                onOpenFavorites = { nav.navigate(Routes.FAVORITES) },
-                onOpenHistory = { nav.navigate(Routes.HISTORY) },
+                onOpenFileList = { nav.navigate(Routes.FILE_LIST) },
+                onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
-                onOpenSearch = { nav.navigate(Routes.LIBRARY) }
+                onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } }
             )
         }
         composable(Routes.LIBRARY) {
             LibraryScreen(
                 games = games,
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onBack = { nav.popBackStack() },
                 onImport = { /* TODO: ACTION_OPEN_DOCUMENT */ },
                 onSearch = { /* TODO */ }
             )
+        }
+        composable(Routes.FILE_LIST) {
+            FileListScreen(
+                onBack = { nav.popBackStack() },
+                onOpenSwf = { path -> nav.navigate(Routes.swfPlayer(path)) }
+            )
+        }
+        composable(Routes.SWF_LIST) {
+            SwfListScreen(
+                onBack = { nav.popBackStack() },
+                onOpenSwf = { path -> nav.navigate(Routes.swfPlayer(path)) }
+            )
+        }
+        composable(Routes.ABOUT) {
+            AboutScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.FAVORITES) {
             LibraryScreen(
                 games = games.filter { it.isFavorite },
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onBack = { nav.popBackStack() },
                 onImport = { },
                 onSearch = { }
             )
@@ -105,6 +132,7 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             LibraryScreen(
                 games = games,
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onBack = { nav.popBackStack() },
                 onImport = { },
                 onSearch = { }
             )
@@ -128,6 +156,14 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
                 ?: RomStore.loadAll(ctx).firstOrNull { it.id == id }
                 ?: GameEntry(id, "未知游戏")
             EmulatorScreen(game = game, onExit = { nav.popBackStack() })
+        }
+        composable(
+            Routes.SWF_PLAYER,
+            arguments = listOf(navArgument("swfPath") { type = NavType.StringType })
+        ) { entry ->
+            val encodedPath = entry.arguments?.getString("swfPath") ?: ""
+            val swfPath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
+            SwfPlayerScreen(swfPath = swfPath, onExit = { nav.popBackStack() })
         }
     }
 }

@@ -50,15 +50,18 @@ import kotlinx.coroutines.delay
 /**
  * Main home screen — only shows "最近游玩" (recent games) section.
  * Compact header, content moved up, small centered dock at bottom.
+ *
+ * Dock buttons (left to right): 游戏库 / 文件 / SWF / 设置 / 关于 / 退出
  */
 @Composable
 fun HomeScreen(
     onOpenGame: (GameEntry) -> Unit,
     onOpenLibrary: () -> Unit,
-    onOpenFavorites: () -> Unit,
-    onOpenHistory: () -> Unit,
+    onOpenFileList: () -> Unit,
+    onOpenSwf: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenSearch: () -> Unit,
+    onOpenAbout: () -> Unit,
+    onExit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var time by remember { mutableLongStateOf(0L) }
@@ -113,8 +116,8 @@ fun HomeScreen(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenSearch)
-                    HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenHistory)
+                    HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenLibrary)
+                    HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenLibrary)
                 }
             }
 
@@ -180,12 +183,12 @@ fun HomeScreen(
                 selectedIndex = 0,
                 onSelect = { idx ->
                     when (idx) {
-                        0 -> onOpenLibrary()
-                        1 -> onOpenLibrary()
-                        2 -> onOpenFavorites()
-                        3 -> onOpenSettings()
-                        4 -> { /* help */ }
-                        5 -> { /* exit */ }
+                        0 -> onOpenLibrary()    // 游戏库
+                        1 -> onOpenFileList()   // 文件
+                        2 -> onOpenSwf()        // SWF
+                        3 -> onOpenSettings()   // 设置
+                        4 -> onOpenAbout()      // 关于
+                        5 -> onExit()           // 退出
                     }
                 }
             )

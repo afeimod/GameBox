@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -49,10 +50,10 @@ fun BottomDock(
 ) {
     val items = listOf(
         DockItem("游戏库", Icons.Rounded.GridView),
-        DockItem("文件夹", Icons.Rounded.Folder),
-        DockItem("收藏", Icons.Rounded.Casino),
+        DockItem("文件", Icons.Rounded.Folder),
+        DockItem("SWF", Icons.Rounded.PlayArrow),
         DockItem("设置", Icons.Rounded.Settings),
-        DockItem("帮助", Icons.Rounded.HelpOutline),
+        DockItem("关于", Icons.Rounded.HelpOutline),
         DockItem("退出", Icons.Rounded.Logout)
     )
 
