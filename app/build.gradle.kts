@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     id("kotlin-kapt")
 }
 
@@ -43,7 +43,7 @@ android {
         buildConfig = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.0"
+        kotlinCompilerExtensionVersion = "1.5.1"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -57,35 +57,6 @@ android {
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
         )
-    }
-
-    configurations.all {
-        resolutionStrategy {
-            force(
-                "androidx.compose.ui:ui:1.6.8",
-                "androidx.compose.ui:ui-graphics:1.6.8",
-                "androidx.compose.ui:ui-text:1.6.8",
-                "androidx.compose.ui:ui-tooling-preview:1.6.8",
-                "androidx.compose.foundation:foundation:1.6.8",
-                "androidx.compose.foundation:foundation-layout:1.6.8",
-                "androidx.compose.animation:animation:1.6.8",
-                "androidx.compose.animation:animation-core:1.6.8",
-                "androidx.compose.material3:material3:1.2.1",
-                "androidx.compose.material:material-icons-core:1.6.8",
-                "androidx.compose.material:material-icons-extended:1.6.8",
-                "androidx.compose.runtime:runtime:1.6.8",
-                "androidx.core:core:1.13.1",
-                "androidx.core:core-ktx:1.13.1",
-                "androidx.activity:activity:1.9.0",
-                "androidx.activity:activity-compose:1.9.0",
-                "androidx.lifecycle:lifecycle-runtime:2.8.2",
-                "androidx.lifecycle:lifecycle-runtime-ktx:2.8.2",
-                "androidx.lifecycle:lifecycle-viewmodel:2.8.2",
-                "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2",
-                "androidx.lifecycle:lifecycle-runtime-compose:2.8.2",
-                "androidx.transition:transition:1.5.1"
-            )
-        }
     }
 
     sourceSets {
@@ -152,7 +123,6 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    // Compose
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
@@ -163,42 +133,32 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
 
-    // TV support
     implementation(libs.androidx.tv.foundation)
     implementation(libs.androidx.tv.material)
 
-    // Lifecycle / ViewModel
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
-    // Core / Coroutines
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
-    // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
 
-    // Image
     implementation(libs.coil.compose)
 
-    // Leanback (TV launcher integration)
     implementation(libs.androidx.leanback)
     implementation(libs.androidx.leanback.preference)
 
-    // Documents (SAF)
     implementation(libs.androidx.documentfile)
 
-    // Debug
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

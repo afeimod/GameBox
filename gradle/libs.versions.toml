@@ -1,7 +1,11 @@
 [versions]
+# AGP 锁定 8.1.0：ubuntu-latest 镜像通过系统级 init 脚本把 AGP 8.1.0 注入 buildscript
+# classpath，改 GRADLE_USER_HOME 也无法绕过。声明相同版本即不冲突。
+# AGP 8.1.0 最高支持 compileSdk 34。
 agp = "8.1.0"
+# Kotlin 锁定 1.9.0：同样被镜像注入到 classpath（1.9.0），声明相同版本即不冲突。
+# Kotlin 1.9.0 与 AGP 8.1.0 兼容。
 kotlin = "1.9.0"
-ksp = "1.9.0-1.0.13"
 coreKtx = "1.13.1"
 lifecycle = "2.8.2"
 activityCompose = "1.9.0"
@@ -55,4 +59,3 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

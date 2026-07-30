@@ -1,13 +1,17 @@
+# NesStation - APK 构建 Workflow
+#
+# 触发方式：手动触发（GitHub 仓库 → Actions → Build APK → Run workflow）
+
 name: Build APK
 
 on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: '构建类型'
+        description: 构建类型
         required: true
-        default: 'debug'
         type: choice
+        default: debug
         options:
           - debug
           - release
@@ -16,6 +20,10 @@ on:
         required: false
         default: ''
         type: string
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -27,24 +35,34 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # ---------- 1. 检出代码 ----------
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
+      # ---------- 2. 配置 JDK 17 ----------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
+      # ---------- 3. 配置 Android SDK + NDK ----------
       - name: Set up Android SDK + NDK
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
-          sdkmanager --list_installed 2>/dev/null || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo ""
+          echo "=== 已安装的 platforms ==="
+          ls "$ANDROID_HOME/platforms/" 2>/dev/null || echo "platforms 目录不存在"
+          echo ""
+          echo "=== 已安装的 build-tools ==="
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null || echo "build-tools 目录不存在"
+          echo ""
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          # 安装 GameBox 需要的 SDK 组件
           sdkmanager \
             "platforms;android-34" \
             "build-tools;34.0.0" \
@@ -53,13 +71,21 @@ jobs:
             > /dev/null 2>&1 || true
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          echo ""
+          echo "=== 最终验证 ==="
+          ls "$ANDROID_HOME/platforms/" 2>/dev/null
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null
 
+      # ---------- 4. 生成 Gradle Wrapper ----------
+      # 说明：ubuntu-latest 镜像通过系统级 init 脚本把 AGP 8.1.0 注入 buildscript classpath，
+      # 改 GRADLE_USER_HOME 无法绕过。因此项目已锁定 AGP 8.1.0（见 libs.versions.toml），
+      # 声明相同版本即不冲突。
       - name: Generate Gradle Wrapper
         run: |
           echo "=== 诊断：预装的 Gradle init 脚本 ==="
           ls -la ~/.gradle/init.d/ 2>/dev/null || echo "~/.gradle/init.d/ 不存在"
           for f in ~/.gradle/init.d/*.gradle; do
-            [ -f "$f" ] && echo "--- $f ---" && cat "$f"
+            [ -f "$f" ] && echo "--- $f ---" && head -15 "$f"
           done 2>/dev/null || true
           echo ""
           echo "=== 系统 Gradle 版本 ==="
@@ -75,30 +101,53 @@ jobs:
           chmod +x gradlew
           ./gradlew --version
 
+      # ---------- 5. 构建 Debug APK ----------
       - name: Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'debug' }}
+        if: ${{ inputs.build_type == 'debug' }}
         run: |
-          if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+          if [ -n "${{ inputs.abi_filter }}" ]; then
+            ./gradlew assembleDebug -PuseStubCore=false -PabiFilter="${{ inputs.abi_filter }}" --stacktrace
           else
             ./gradlew assembleDebug -PuseStubCore=false --stacktrace
           fi
 
+      # ---------- 6. 构建 Release APK ----------
       - name: Build Release APK
-        if: ${{ github.event.inputs.build_type == 'release' }}
+        if: ${{ inputs.build_type == 'release' }}
         run: |
-          if [ -n "${{ github.event.inputs.abi_filter }}" ]; then
-            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ github.event.inputs.abi_filter }}" --stacktrace
+          if [ -n "${{ inputs.abi_filter }}" ]; then
+            ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="${{ inputs.abi_filter }}" --stacktrace
           else
             ./gradlew assembleRelease -PuseStubCore=false --stacktrace
           fi
 
+      # ---------- 7. 收集 APK ----------
+      - name: Collect APKs
+        run: |
+          echo "=== 构建产物 ==="
+          find app/build/outputs/apk -name "*.apk" 2>/dev/null || echo "未找到 APK"
+
+      # ---------- 8. 上传 Artifact ----------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NesStation-${{ github.event.inputs.build_type }}-apk
+          name: NesStation-${{ inputs.build_type }}-apk
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
           retention-days: 30
+
+      # ---------- 9. 构建摘要 ----------
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 构建结果" >> $GITHUB_STEP_SUMMARY
+          echo "- 构建类型: \`${{ inputs.build_type }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 提交: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          if find app/build/outputs/apk -name "*.apk" 2>/dev/null | grep -q .; then
+            echo "### 产物" >> $GITHUB_STEP_SUMMARY
+            find app/build/outputs/apk -name "*.apk" -exec ls -lh {} \; 2>/dev/null | awk '{print "- `" $NF "` (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ 无产物" >> $GITHUB_STEP_SUMMARY
+          fi
