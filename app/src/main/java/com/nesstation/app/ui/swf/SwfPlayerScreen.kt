@@ -395,7 +395,7 @@ fun SwfPlayerScreen(
 // Key injection into WebView via __gameKeys JS manager
 // ---------------------------------------------------------------------------
 
-private fun injectKeyDown(webView: WebView?, key: String, pressedKeys: HashSet<Int>) {
+private fun injectKeyDown(webView: WebView?, key: String, pressedKeys: MutableSet<Int>) {
     val info = keyToJsInfo(key)
     pressedKeys.add(info.keyCode)
     webView?.evaluateJavascript(
@@ -404,7 +404,7 @@ private fun injectKeyDown(webView: WebView?, key: String, pressedKeys: HashSet<I
     )
 }
 
-private fun injectKeyUp(webView: WebView?, key: String, pressedKeys: HashSet<Int>) {
+private fun injectKeyUp(webView: WebView?, key: String, pressedKeys: MutableSet<Int>) {
     val info = keyToJsInfo(key)
     pressedKeys.remove(info.keyCode)
     webView?.evaluateJavascript(
@@ -413,7 +413,7 @@ private fun injectKeyUp(webView: WebView?, key: String, pressedKeys: HashSet<Int
     )
 }
 
-private fun releaseAllKeys(webView: WebView?, pressedKeys: HashSet<Int>) {
+private fun releaseAllKeys(webView: WebView?, pressedKeys: MutableSet<Int>) {
     synchronized(pressedKeys) {
         pressedKeys.clear()
     }
