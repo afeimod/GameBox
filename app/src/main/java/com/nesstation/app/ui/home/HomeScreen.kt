@@ -58,6 +58,7 @@ fun HomeScreen(
     onOpenGame: (GameEntry) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenFileList: () -> Unit,
+    onOpenOnlineGames: () -> Unit,
     onOpenSwf: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -183,12 +184,12 @@ fun HomeScreen(
                 selectedIndex = 0,
                 onSelect = { idx ->
                     when (idx) {
-                        0 -> onOpenLibrary()    // 游戏库
-                        1 -> onOpenFileList()   // 文件
-                        2 -> onOpenSwf()        // SWF
-                        3 -> onOpenSettings()   // 设置
-                        4 -> onOpenAbout()      // 关于
-                        5 -> onExit()           // 退出
+                        0 -> onOpenLibrary()         // 游戏库
+                        1 -> onOpenOnlineGames()     // 在线游戏
+                        2 -> onOpenSwf()             // SWF
+                        3 -> onOpenSettings()        // 设置
+                        4 -> onOpenAbout()           // 关于
+                        5 -> onExit()                // 退出
                     }
                 }
             )

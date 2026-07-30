@@ -91,12 +91,11 @@ document.addEventListener('visibilitychange', function(){
 window.__setQuality = function(q){ /* WAFlash 不支持运行时切换画质 */ };
 
 // ---------------------------------------------------------------------------
-// WAFlash 引擎加载
+// WAFlash 引擎加载 — 如果引擎文件不存在，自动回退到 Ruffle
 // ---------------------------------------------------------------------------
 var canvas = document.getElementById('canvas');
 var statusEl = document.getElementById('waflashStatus');
 
-// 调整 canvas 尺寸
 function resizeCanvas(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -110,7 +109,6 @@ var Module = {
     onRuntimeInitialized: function(){
         statusEl.style.display = 'none';
         console.log('WAFLASH> module created!');
-        // 加载 SWF
         if(swfUrl && typeof WAFlash !== 'undefined'){
             try{
                 WAFlash.loadSwf(swfUrl);
@@ -130,26 +128,32 @@ script.src = 'waflash/waflash.min.js';
 script.async = true;
 
 var loadTimeout = setTimeout(function(){
-    showEngineNotFound();
-}, 15000);
+    autoFallbackToRuffle();
+}, 5000);
 
 script.onload = function(){
     clearTimeout(loadTimeout);
-    console.log('WAFLASH> engine loaded');
+    // 验证 WAFlash 是否真正可用
+    if(typeof WAFlash === 'undefined'){
+        console.log('WAFlash 引擎加载但 WAFlash 对象未定义，自动回退到 Ruffle');
+        autoFallbackToRuffle();
+    }else{
+        console.log('WAFLASH> engine loaded');
+    }
 };
 
 script.onerror = function(){
     clearTimeout(loadTimeout);
-    showEngineNotFound();
+    autoFallbackToRuffle();
 };
 
-function showEngineNotFound(){
-    statusEl.style.display = 'block';
-    statusEl.innerHTML =
-        'WAFlash 引擎文件未找到<br>' +
-        '<small style="color:#8899AA">请将 waflash.min.js 添加到 assets/waflash/ 目录</small><br>' +
-        '<small style="color:#8899AA">将回退到 Ruffle 引擎</small><br>' +
-        '<button id="switchBtn" onclick="switchToRuffle()">切换到 Ruffle 引擎</button>';
+/**
+ * 自动回退到 Ruffle 引擎（不再显示错误页面，直接跳转）。
+ * 保留 switchToRuffle() 供手动切换。
+ */
+function autoFallbackToRuffle(){
+    console.log('WAFlash 引擎不可用，自动回退到 Ruffle 引擎');
+    switchToRuffle();
 }
 
 function switchToRuffle(){
@@ -165,9 +169,9 @@ document.head.appendChild(script);
 // 初始化超时
 setTimeout(function(){
     if(statusEl.style.display !== 'none' && !statusEl.innerHTML.includes('切换到')){
-        showEngineNotFound();
+        autoFallbackToRuffle();
     }
-}, 30000);
+}, 10000);
 </script>
 </body>
 </html>

@@ -29,18 +29,29 @@ data class SwfButton(
 )
 
 /**
+ * D-pad / movement control mode.
+ * - DPAD: cross-shaped D-pad with arrow keys
+ * - WASD: cross-shaped D-pad with WASD keys
+ * - JOYSTICK: analog joystick with 8-direction WASD keys
+ */
+enum class DpadMode { DPAD, WASD, JOYSTICK }
+
+/**
  * Full layout for the SWF virtual keyboard.
  *
- * @param useWASD  when true, D-pad sends W/A/S/D instead of Arrow keys
- * @param showPad  whether the keyboard overlay is visible
- * @param buttons  ordered list of buttons (D-pad buttons are always present
- *                 and cannot be deleted — only their position/size changes)
+ * @param dpadMode  D-pad/Joystick mode (DPAD / WASD / JOYSTICK)
+ * @param showPad   whether the keyboard overlay is visible
+ * @param buttons   ordered list of buttons (D-pad buttons are always present
+ *                  and cannot be deleted — only their position/size changes)
  */
 data class SwfPadConfig(
-    val useWASD: Boolean = false,
+    val dpadMode: DpadMode = DpadMode.DPAD,
     val showPad: Boolean = true,
     val buttons: List<SwfButton> = defaultButtons()
 ) {
+    /** Backwards-compatible alias */
+    val useWASD: Boolean get() = dpadMode == DpadMode.WASD
+
     companion object {
         /** IDs of buttons that cannot be deleted (D-pad + essential keys). */
         val FIXED_IDS = setOf("dpad_up", "dpad_down", "dpad_left", "dpad_right",
@@ -129,7 +140,8 @@ object SwfPadStore {
             })
         }
         val obj = JSONObject().apply {
-            put("useWASD", config.useWASD)
+            put("dpadMode", config.dpadMode.name)
+            put("useWASD", config.useWASD) // backward compat
             put("showPad", config.showPad)
             put("buttons", arr)
         }
@@ -152,7 +164,14 @@ object SwfPadStore {
             ))
         }
         return SwfPadConfig(
-            useWASD = obj.optBoolean("useWASD", false),
+            dpadMode = run {
+                val modeStr = obj.optString("dpadMode", null)
+                when {
+                    !modeStr.isNullOrBlank() -> DpadMode.valueOf(modeStr)
+                    obj.optBoolean("useWASD", false) -> DpadMode.WASD
+                    else -> DpadMode.DPAD
+                }
+            },
             showPad = obj.optBoolean("showPad", true),
             buttons = if (buttons.isEmpty()) SwfPadConfig.defaultButtons() else buttons
         )

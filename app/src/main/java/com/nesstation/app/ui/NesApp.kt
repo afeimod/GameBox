@@ -29,6 +29,8 @@ import com.nesstation.app.ui.files.FileListScreen
 import com.nesstation.app.ui.swf.SwfListScreen
 import com.nesstation.app.ui.swf.SwfPlayerScreen
 import com.nesstation.app.ui.about.AboutScreen
+import com.nesstation.app.ui.online.OnlineGamesScreen
+import com.nesstation.app.ui.online.WebGameScreen
 
 object Routes {
     const val HOME = "home"
@@ -39,11 +41,15 @@ object Routes {
     const val KEYMAP = "keymap"
     const val FILE_LIST = "file_list"
     const val SWF_LIST = "swf_list"
+    const val ONLINE_GAMES = "online_games"
+    const val WEB_GAME = "web_game/{url}/{uaMode}"
     const val ABOUT = "about"
     const val EMULATOR = "emulator/{gameId}"
     const val SWF_PLAYER = "swf_player/{swfPath}"
     fun emulator(id: String) = "emulator/$id"
     fun swfPlayer(path: String) = "swf_player/${java.net.URLEncoder.encode(path, "UTF-8")}"
+    fun webGame(url: String, uaMode: String) =
+        "web_game/${java.net.URLEncoder.encode(url, "UTF-8")}/$uaMode"
 }
 
 @Composable
@@ -89,6 +95,7 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
                 onOpenFileList = { nav.navigate(Routes.FILE_LIST) },
+                onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
                 onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
@@ -114,6 +121,30 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             SwfListScreen(
                 onBack = { nav.popBackStack() },
                 onOpenSwf = { path -> nav.navigate(Routes.swfPlayer(path)) }
+            )
+        }
+        composable(Routes.ONLINE_GAMES) {
+            OnlineGamesScreen(
+                onBack = { nav.popBackStack() },
+                onOpenGame = { game ->
+                    nav.navigate(Routes.webGame(game.url, game.uaMode))
+                }
+            )
+        }
+        composable(
+            Routes.WEB_GAME,
+            arguments = listOf(
+                navArgument("url") { type = NavType.StringType },
+                navArgument("uaMode") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val encodedUrl = entry.arguments?.getString("url") ?: ""
+            val url = java.net.URLDecoder.decode(encodedUrl, "UTF-8")
+            val uaMode = entry.arguments?.getString("uaMode") ?: "desktop"
+            WebGameScreen(
+                url = url,
+                uaMode = uaMode,
+                onExit = { nav.popBackStack() }
             )
         }
         composable(Routes.ABOUT) {

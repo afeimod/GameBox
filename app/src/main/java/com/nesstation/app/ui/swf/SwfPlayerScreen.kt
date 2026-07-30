@@ -273,16 +273,25 @@ fun SwfPlayerScreen(
                         showMenu = false
                     }
                 )
-                // WASD toggle
+                // D-pad mode cycle: DPAD -> WASD -> JOYSTICK -> DPAD
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (padConfig.useWASD) "切换到方向键" else "切换到 WASD",
-                            color = PrimaryText, fontSize = 13.sp
+                            "方向模式: " + when (padConfig.dpadMode) {
+                                com.nesstation.app.core.storage.DpadMode.DPAD -> "方向键 (点击切换→WASD)"
+                                com.nesstation.app.core.storage.DpadMode.WASD -> "WASD (点击切换→摇杆)"
+                                com.nesstation.app.core.storage.DpadMode.JOYSTICK -> "摇杆 (点击切换→方向键)"
+                            },
+                            color = PrimaryText, fontSize = 12.sp
                         )
                     },
                     onClick = {
-                        updateConfig(padConfig.copy(useWASD = !padConfig.useWASD))
+                        val nextMode = when (padConfig.dpadMode) {
+                            com.nesstation.app.core.storage.DpadMode.DPAD -> com.nesstation.app.core.storage.DpadMode.WASD
+                            com.nesstation.app.core.storage.DpadMode.WASD -> com.nesstation.app.core.storage.DpadMode.JOYSTICK
+                            com.nesstation.app.core.storage.DpadMode.JOYSTICK -> com.nesstation.app.core.storage.DpadMode.DPAD
+                        }
+                        updateConfig(padConfig.copy(dpadMode = nextMode))
                         showMenu = false
                     }
                 )

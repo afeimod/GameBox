@@ -1,5 +1,6 @@
 package com.nesstation.app.ui.swf
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -22,15 +23,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.core.storage.DpadMode
 import com.nesstation.app.core.storage.SwfButton
 import com.nesstation.app.core.storage.SwfPadConfig
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 // ---------------------------------------------------------------------------
 // Colour palette
@@ -41,18 +51,21 @@ private val BtnText = Color.White
 private val EditModeBg = Color(0xFF2A3A4A).copy(alpha = 0.6f)
 private val AccentColor = Color(0xFF8A7BFF)
 private val DeleteColor = Color(0xFFE74C3C)
+private val DpadBg = Color.Black.copy(alpha = 0.35f)
+private val DpadArm = Color.White.copy(alpha = 0.5f)
+private val DpadArmPressed = Color(0xFFFF5722)
+private val DpadCenter = Color(0xFFCCCCCC).copy(alpha = 0.5f)
+private val JoystickRing = Color.White.copy(alpha = 0.5f)
+private val JoystickInnerRing = Color.White.copy(alpha = 0.25f)
+private val JoystickKnobIdle = Color(0xFFFFC107)
+private val JoystickKnobActive = Color(0xFFFF6E40)
+private val JoystickKnobHighlight = Color.White.copy(alpha = 0.3f)
+private val JoystickTriangle = Color.White.copy(alpha = 0.35f)
 
 // ---------------------------------------------------------------------------
-// Main virtual keyboard — renders buttons at custom positions
+// Main virtual keyboard
 // ---------------------------------------------------------------------------
 
-/**
- * SWF virtual keyboard overlay.
- *
- * In **play mode** each button dispatches key press/release events.
- * In **edit mode** buttons become draggable; a toolbar offers add / delete /
- * reset, and a size slider appears for the selected button.
- */
 @Composable
 fun VirtualKeyboard(
     config: SwfPadConfig,
@@ -65,6 +78,12 @@ fun VirtualKeyboard(
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedId by remember { mutableStateOf<String?>(null) }
 
+    // Track which D-pad directions are currently pressed
+    val pressedDirs = remember { mutableStateOf(setOf<String>()) }
+    // Joystick knob offset (in dp relative to center)
+    var knobOffset by remember { mutableStateOf(Offset.Zero) }
+    var joystickActive by remember { mutableStateOf(false) }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -74,55 +93,160 @@ fun VirtualKeyboard(
         val maxH = constraints.maxHeight.toFloat()
         val density = LocalDensity.current
 
-        // ---- Buttons ----
-        config.buttons.forEach { btn ->
-            // D-pad keys swap with WASD when useWASD is enabled
-            val effectiveKey = when {
-                !config.useWASD -> btn.key
-                btn.id == "dpad_up" -> "w"
-                btn.id == "dpad_down" -> "s"
-                btn.id == "dpad_left" -> "a"
-                btn.id == "dpad_right" -> "d"
-                else -> btn.key
-            }
-            val effectiveLabel = when {
-                !config.useWASD -> btn.label
-                btn.id == "dpad_up" -> "W"
-                btn.id == "dpad_down" -> "S"
-                btn.id == "dpad_left" -> "A"
-                btn.id == "dpad_right" -> "D"
-                else -> btn.label
+        // ---- D-pad / Joystick area (left side) ----
+        // Find the D-pad buttons from config to get position
+        val dpadUp = config.buttons.firstOrNull { it.id == "dpad_up" }
+        if (dpadUp != null) {
+            val dpadSize = 160f // dp
+            val dpadSizePx = with(density) { dpadSize.dp.toPx() }
+            // Use the position of dpad_up as the center of the D-pad area
+            val cxPct = dpadUp.xPct
+            val cyPct = dpadUp.yPct + 7.5f // adjust to center the dpad block
+            val centerX = cxPct / 100f * maxW
+            val centerY = cyPct / 100f * maxH
+
+            val dirKeys = when (config.dpadMode) {
+                DpadMode.DPAD -> mapOf(
+                    "up" to "ArrowUp", "down" to "ArrowDown",
+                    "left" to "ArrowLeft", "right" to "ArrowRight"
+                )
+                DpadMode.WASD, DpadMode.JOYSTICK -> mapOf(
+                    "up" to "w", "down" to "s",
+                    "left" to "a", "right" to "d"
+                )
             }
 
-            SwfKeyButton(
-                button = btn,
-                label = effectiveLabel,
-                key = effectiveKey,
-                editMode = editMode,
-                isSelected = selectedId == btn.id,
-                maxW = maxW,
-                maxH = maxH,
-                density = density,
-                onPress = onKeyPress,
-                onRelease = onKeyRelease,
-                onPositionChange = { newX, newY ->
-                    onConfigChange(config.copy(
-                        buttons = config.buttons.map {
-                            if (it.id == btn.id) it.copy(xPct = newX, yPct = newY) else it
+            // Draw the D-pad or Joystick using Canvas
+            Box(
+                modifier = Modifier
+                    .offset(
+                        x = with(density) { ((centerX - dpadSizePx / 2)).toDp() },
+                        y = with(density) { ((centerY - dpadSizePx / 2)).toDp() }
+                    )
+                    .size(with(density) { dpadSizePx.toDp() })
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(config.dpadMode, editMode) {
+                            if (editMode) return@pointerInput
+                            if (config.dpadMode == DpadMode.JOYSTICK) {
+                                // Joystick touch handling
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        joystickActive = true
+                                        updateJoystickDirection(
+                                            offset, size.width, size.height,
+                                            dirKeys, pressedDirs.value, onKeyPress, onKeyRelease
+                                        ) { newDirs, newKnob ->
+                                            pressedDirs.value = newDirs
+                                            knobOffset = newKnob
+                                        }
+                                    },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        updateJoystickDirection(
+                                            change.position, size.width, size.height,
+                                            dirKeys, pressedDirs.value, onKeyPress, onKeyRelease
+                                        ) { newDirs, newKnob ->
+                                            pressedDirs.value = newDirs
+                                            knobOffset = newKnob
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        releaseAllDirections(dirKeys, pressedDirs.value, onKeyRelease)
+                                        pressedDirs.value = emptySet()
+                                        joystickActive = false
+                                        knobOffset = Offset.Zero
+                                    },
+                                    onDragCancel = {
+                                        releaseAllDirections(dirKeys, pressedDirs.value, onKeyRelease)
+                                        pressedDirs.value = emptySet()
+                                        joystickActive = false
+                                        knobOffset = Offset.Zero
+                                    }
+                                )
+                            }
                         }
-                    ))
-                },
-                onSelect = { selectedId = btn.id },
-                onDelete = {
-                    if (btn.id !in SwfPadConfig.FIXED_IDS) {
-                        onConfigChange(config.copy(
-                            buttons = config.buttons.filter { it.id != btn.id }
-                        ))
-                        selectedId = null
+                        .pointerInput(config.dpadMode, editMode) {
+                            if (editMode) return@pointerInput
+                            if (config.dpadMode != DpadMode.JOYSTICK) {
+                                // D-pad touch handling
+                                detectTapGestures(
+                                    onPress = { offset ->
+                                        val dirs = computeDpadDirections(
+                                            offset, size.width, size.height
+                                        )
+                                        val newPressed = mutableSetOf<String>()
+                                        for (d in dirs) {
+                                            val key = dirKeys[d]
+                                            if (key != null && key !in pressedDirs.value) {
+                                                onKeyPress(key)
+                                                newPressed.add(d)
+                                            }
+                                        }
+                                        pressedDirs.value = pressedDirs.value + newPressed
+                                        tryAwaitRelease()
+                                        // Release all on release
+                                        for (d in newPressed) {
+                                            dirKeys[d]?.let { onKeyRelease(it) }
+                                        }
+                                        pressedDirs.value = pressedDirs.value - newPressed
+                                    }
+                                )
+                            }
+                        }
+                ) {
+                    val w = this.size.width
+                    val h = this.size.height
+                    val cx = w / 2f
+                    val cy = h / 2f
+                    val r = min(w, h) / 2f - 8f
+
+                    when (config.dpadMode) {
+                        DpadMode.DPAD, DpadMode.WASD -> {
+                            drawCrossDpad(cx, cy, r, pressedDirs.value)
+                        }
+                        DpadMode.JOYSTICK -> {
+                            drawJoystick(cx, cy, r, knobOffset, joystickActive)
+                        }
                     }
                 }
-            )
+            }
         }
+
+        // ---- Action buttons (right side) — excluding D-pad keys ----
+        config.buttons.filter { it.id !in setOf("dpad_up", "dpad_down", "dpad_left", "dpad_right") }
+            .forEach { btn ->
+                SwfKeyButton(
+                    button = btn,
+                    label = btn.label,
+                    key = btn.key,
+                    editMode = editMode,
+                    isSelected = selectedId == btn.id,
+                    maxW = maxW,
+                    maxH = maxH,
+                    density = density,
+                    onPress = onKeyPress,
+                    onRelease = onKeyRelease,
+                    onPositionChange = { newX, newY ->
+                        onConfigChange(config.copy(
+                            buttons = config.buttons.map {
+                                if (it.id == btn.id) it.copy(xPct = newX, yPct = newY) else it
+                            }
+                        ))
+                    },
+                    onSelect = { selectedId = btn.id },
+                    onDelete = {
+                        if (btn.id !in SwfPadConfig.FIXED_IDS) {
+                            onConfigChange(config.copy(
+                                buttons = config.buttons.filter { it.id != btn.id }
+                            ))
+                            selectedId = null
+                        }
+                    }
+                )
+            }
 
         // ---- Edit-mode toolbar ----
         if (editMode) {
@@ -140,13 +264,12 @@ fun VirtualKeyboard(
                     }
                 },
                 onReset = {
-                    onConfigChange(SwfPadConfig(useWASD = config.useWASD, showPad = config.showPad))
+                    onConfigChange(SwfPadConfig(dpadMode = config.dpadMode, showPad = config.showPad))
                     selectedId = null
                 },
                 hasSelection = selectedId != null && selectedId !in SwfPadConfig.FIXED_IDS
             )
 
-            // Size slider for selected button
             selectedId?.let { sid ->
                 val selected = config.buttons.firstOrNull { it.id == sid }
                 if (selected != null) {
@@ -169,7 +292,6 @@ fun VirtualKeyboard(
         }
     }
 
-    // ---- Add-button dialog ----
     if (showAddDialog) {
         AddButtonDialog(
             onAdd = { label, key ->
@@ -184,7 +306,225 @@ fun VirtualKeyboard(
 }
 
 // ---------------------------------------------------------------------------
-// Individual key button
+// D-pad / Joystick drawing
+// ---------------------------------------------------------------------------
+
+private fun DrawScope.drawCrossDpad(
+    cx: Float, cy: Float, r: Float, pressed: Set<String>
+) {
+    // Background circle
+    drawCircle(color = DpadBg, radius = r, center = Offset(cx, cy))
+
+    val armW = r * 0.42f
+    val armL = r * 0.95f
+
+    // Up arm
+    drawRoundRect(
+        color = if ("up" in pressed) DpadArmPressed else DpadArm,
+        topLeft = Offset(cx - armW, cy - armL),
+        size = androidx.compose.ui.geometry.Size(armW * 2, armL),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(armW * 0.5f, armW * 0.5f)
+    )
+    // Down arm
+    drawRoundRect(
+        color = if ("down" in pressed) DpadArmPressed else DpadArm,
+        topLeft = Offset(cx - armW, cy),
+        size = androidx.compose.ui.geometry.Size(armW * 2, armL),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(armW * 0.5f, armW * 0.5f)
+    )
+    // Left arm
+    drawRoundRect(
+        color = if ("left" in pressed) DpadArmPressed else DpadArm,
+        topLeft = Offset(cx - armL, cy - armW),
+        size = androidx.compose.ui.geometry.Size(armL, armW * 2),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(armW * 0.5f, armW * 0.5f)
+    )
+    // Right arm
+    drawRoundRect(
+        color = if ("right" in pressed) DpadArmPressed else DpadArm,
+        topLeft = Offset(cx, cy - armW),
+        size = androidx.compose.ui.geometry.Size(armL, armW * 2),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(armW * 0.5f, armW * 0.5f)
+    )
+
+    // Center circle
+    drawCircle(color = DpadCenter, radius = armW * 0.6f, center = Offset(cx, cy))
+}
+
+private fun DrawScope.drawJoystick(
+    cx: Float, cy: Float, r: Float, knobOffset: Offset, active: Boolean
+) {
+    // Outer ring background
+    drawCircle(color = DpadBg, radius = r, center = Offset(cx, cy))
+
+    // Outer ring border
+    drawCircle(
+        color = JoystickRing,
+        radius = r,
+        center = Offset(cx, cy),
+        style = Stroke(width = r * 0.06f)
+    )
+
+    // Inner scale ring
+    drawCircle(
+        color = JoystickInnerRing,
+        radius = r * 0.55f,
+        center = Offset(cx, cy),
+        style = Stroke(width = r * 0.03f)
+    )
+
+    // Direction triangles
+    val tri = r * 0.12f
+    val triOff = r * 0.80f
+    drawTriangle(Offset(cx, cy - triOff), tri, 0)
+    drawTriangle(Offset(cx, cy + triOff), tri, 2)
+    drawTriangle(Offset(cx - triOff, cy), tri, 3)
+    drawTriangle(Offset(cx + triOff, cy), tri, 1)
+
+    // Knob
+    val knobR = r * 0.42f
+    val kx = cx + knobOffset.x
+    val ky = cy + knobOffset.y
+    drawCircle(
+        color = if (active) JoystickKnobActive else JoystickKnobIdle,
+        radius = knobR,
+        center = Offset(kx, ky)
+    )
+    // Knob highlight ring
+    drawCircle(
+        color = JoystickKnobHighlight,
+        radius = knobR * 0.7f,
+        center = Offset(kx, ky),
+        style = Stroke(width = knobR * 0.14f)
+    )
+}
+
+private fun DrawScope.drawTriangle(center: Offset, size: Float, dir: Int) {
+    val p = Path()
+    when (dir) {
+        0 -> { // up
+            p.moveTo(center.x, center.y - size)
+            p.lineTo(center.x - size, center.y + size)
+            p.lineTo(center.x + size, center.y + size)
+        }
+        1 -> { // right
+            p.moveTo(center.x + size, center.y)
+            p.lineTo(center.x - size, center.y - size)
+            p.lineTo(center.x - size, center.y + size)
+        }
+        2 -> { // down
+            p.moveTo(center.x, center.y + size)
+            p.lineTo(center.x - size, center.y - size)
+            p.lineTo(center.x + size, center.y - size)
+        }
+        3 -> { // left
+            p.moveTo(center.x - size, center.y)
+            p.lineTo(center.x + size, center.y - size)
+            p.lineTo(center.x + size, center.y + size)
+        }
+    }
+    p.close()
+    drawPath(p, color = JoystickTriangle)
+}
+
+// ---------------------------------------------------------------------------
+// Touch direction computation
+// ---------------------------------------------------------------------------
+
+private fun computeDpadDirections(x: Float, y: Float, w: Float, h: Float): Set<String> {
+    val cx = w / 2f
+    val cy = h / 2f
+    val r = max(min(w, h) / 2f, 1f)
+    val dx = (x - cx) / r
+    val dy = (y - cy) / r
+    val deadZone = 0.25f
+    if (abs(dx) < deadZone && abs(dy) < deadZone) return emptySet()
+    val set = mutableSetOf<String>()
+    if (abs(dx) > abs(dy)) {
+        set.add(if (dx > 0) "right" else "left")
+    } else {
+        set.add(if (dy > 0) "down" else "up")
+    }
+    return set
+}
+
+private fun updateJoystickDirection(
+    position: Offset,
+    w: Float,
+    h: Float,
+    dirKeys: Map<String, String>,
+    currentPressed: Set<String>,
+    onKeyPress: (String) -> Unit,
+    onKeyRelease: (String) -> Unit,
+    onUpdate: (Set<String>, Offset) -> Unit
+) {
+    val cx = w / 2f
+    val cy = h / 2f
+    val outerR = max(min(w, h) / 2f - 8f, 1f)
+    var dx = position.x - cx
+    var dy = position.y - cy
+    val dist = hypot(dx, dy)
+    val maxDist = outerR * 0.85f
+    if (dist > maxDist) {
+        val ratio = maxDist / dist
+        dx *= ratio
+        dy *= ratio
+    }
+
+    val knobOffset = Offset(dx, dy)
+
+    // 8-direction detection
+    val active = mutableSetOf<String>()
+    val norm = dist / outerR
+    val deadZone = 0.25f
+    if (norm > deadZone) {
+        val ax = abs(dx)
+        val ay = abs(dy)
+        val diagRatio = 0.35f
+        if (ax > outerR * diagRatio) {
+            active.add(if (dx > 0) "right" else "left")
+        }
+        if (ay > outerR * diagRatio) {
+            active.add(if (dy > 0) "down" else "up")
+        }
+        if (active.isEmpty()) {
+            if (ax > ay) {
+                active.add(if (dx > 0) "right" else "left")
+            } else {
+                active.add(if (dy > 0) "down" else "up")
+            }
+        }
+    }
+
+    // Press new directions
+    for (d in active) {
+        val key = dirKeys[d]
+        if (key != null && key !in currentPressed.map { dirKeys[it] }.filterNotNull()) {
+            onKeyPress(key)
+        }
+    }
+    // Release old directions not in active
+    for (d in currentPressed) {
+        if (d !in active) {
+            dirKeys[d]?.let { onKeyRelease(it) }
+        }
+    }
+
+    onUpdate(active, knobOffset)
+}
+
+private fun releaseAllDirections(
+    dirKeys: Map<String, String>,
+    pressed: Set<String>,
+    onKeyRelease: (String) -> Unit
+) {
+    for (d in pressed) {
+        dirKeys[d]?.let { onKeyRelease(it) }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Individual key button (action buttons)
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -206,7 +546,6 @@ private fun SwfKeyButton(
     var pressed by remember { mutableStateOf(false) }
     val sizeDp = button.sizeDp.dp
 
-    // Convert percentage to dp offset, centered on the position
     val xOffset = with(density) { (button.xPct / 100f * maxW).toDp() } - sizeDp / 2
     val yOffset = with(density) { (button.yPct / 100f * maxH).toDp() } - sizeDp / 2
 
@@ -225,7 +564,6 @@ private fun SwfKeyButton(
             )
             .pointerInput(button.id, editMode) {
                 if (editMode) {
-                    // Edit mode: drag to move
                     detectDragGestures(
                         onDragStart = { onSelect() },
                         onDrag = { change, dragAmount ->
@@ -242,7 +580,6 @@ private fun SwfKeyButton(
             }
             .pointerInput(button.id, editMode) {
                 if (!editMode) {
-                    // Play mode: press and hold
                     detectTapGestures(
                         onPress = {
                             pressed = true
@@ -257,7 +594,6 @@ private fun SwfKeyButton(
             .clickable(enabled = editMode) { onSelect() },
         contentAlignment = Alignment.Center
     ) {
-        // Delete badge (non-fixed buttons only, in edit mode)
         if (editMode && button.id !in SwfPadConfig.FIXED_IDS) {
             Box(
                 modifier = Modifier
@@ -273,7 +609,6 @@ private fun SwfKeyButton(
             }
         }
 
-        // Font size scales with button size
         val fontSize = (button.sizeDp / 3.5f).coerceIn(8f, 20f)
         Text(
             text = label,
@@ -337,7 +672,7 @@ private fun ToolButton(
 }
 
 // ---------------------------------------------------------------------------
-// Size slider (shown in edit mode for the selected button)
+// Size slider
 // ---------------------------------------------------------------------------
 
 @Composable
