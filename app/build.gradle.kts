@@ -1,7 +1,7 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -14,15 +14,12 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
-        // Pin NDK to match the version CI installs; can be overridden via
-        // -PndkVersion=26.3.11579264 if you have a different one locally.
         ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "26.3.11579264"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
         ndk {
-            // Allow CI to narrow the ABIs via -PabiFilter=arm64-v8a
             val abiFilter = (project.findProperty("abiFilter") as String?)
             if (abiFilter.isNullOrBlank()) {
                 abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
@@ -62,10 +59,6 @@ android {
         )
     }
 
-    // Pin Compose to the BOM 2024.06 family and force Core / Activity /
-    // Lifecycle to the 1.13 / 1.8 / 1.9 line. This stops transitive
-    // upgrades pulling in Compose 1.10 / Core 1.16 which require
-    // compileSdk 35 and AGP 8.6+.
     configurations.all {
         resolutionStrategy {
             force(
@@ -97,28 +90,17 @@ android {
 
     sourceSets {
         getByName("main") {
-            // `jniLibs` is still supported. `jni` is deprecated and will be
-            // removed in AGP 9.0 — we keep the JNI sources inside the
-            // CMake build via `externalNativeBuild` instead, so no `jni`
-            // source set is needed.
             jniLibs.srcDirs("src/main/jniLibs")
         }
     }
 
-    // Native build: we configure externalNativeBuild when a CMakeLists.txt
-    // is found under core/. The path is relative to app/ (the module dir).
-    //   -PuseStubCore=true   (built-in stub, no real gameplay)
-    //   -PuseStubCore=false  (real FCEUmm core; requires submodule)
-    // Default to the REAL FCEUmm core (useStubCore=false). The stub doesn't
-    // exist in this repo, so the previous default of `true` was misleading.
-    // CI can still override with -PuseStubCore=true if a stub is added later.
     val useStub = (project.findProperty("useStubCore") as String?)?.toBoolean() ?: false
     val stubPath = file("../core/native-stub/CMakeLists.txt")
     val realPath = file("../core/cmake/CMakeLists.txt")
     val cmakePath = when {
         useStub && stubPath.exists() -> stubPath
         !useStub && realPath.exists() -> realPath
-        stubPath.exists() -> stubPath   // fall back to stub even if not requested
+        stubPath.exists() -> stubPath
         realPath.exists() -> realPath
         else -> null
     }
@@ -151,9 +133,6 @@ android {
     }
 
     packaging {
-        // Equivalent of android:extractNativeLibs="false" — keeps .so inside
-        // the APK instead of extracting at install time. This used to be set
-        // in AndroidManifest.xml but AGP 8+ wants it in the build file.
         jniLibs {
             useLegacyPackaging = false
         }
@@ -169,68 +148,59 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
     // Compose
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.runtime:runtime")
-    implementation("androidx.activity:activity-compose:1.9.0")
-    // Navigation 2.8.x requires Kotlin 2.0; pinned to 2.7.7 to stay on K1.9.
-    // 2.7.7 works fine with Compose 1.6.8 (BOM 2024.06) — but if you see a
-    // runtime AbstractMethodError, bump to 2.8.x + Kotlin 2.0.
-    implementation("androidx.navigation:navigation-compose:2.7.7")
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.navigation.compose)
 
-    // TV support — these deps are always present. The UI switches between
-    // phone and TV layouts at runtime via LocalContext.packageManager
-    // (see ui/NesApp.kt), so we don't need separate `tv` flavor configs.
-    //
-    // We pin to the last alpha of tv-foundation that still works with
-    // compileSdk 34 / AGP 8.5.x. tv-foundation 1.0.0 stable pulled in
-    // Compose 1.10 which forces compileSdk 35.
-    implementation("androidx.tv:tv-foundation:1.0.0-alpha10")
-    implementation("androidx.tv:tv-material:1.0.0-alpha10")
+    // TV support
+    implementation(libs.androidx.tv.foundation)
+    implementation(libs.androidx.tv.material)
 
     // Lifecycle / ViewModel
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
 
     // Core / Coroutines
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
 
     // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation(libs.androidx.datastore.preferences)
 
     // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
     // Image
-    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation(libs.coil.compose)
 
     // Leanback (TV launcher integration)
-    implementation("androidx.leanback:leanback:1.0.0")
-    implementation("androidx.leanback:leanback-preference:1.0.0")
+    implementation(libs.androidx.leanback)
+    implementation(libs.androidx.leanback.preference)
 
     // Documents (SAF)
-    implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation(libs.androidx.documentfile)
 
     // Debug
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // Test
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }
