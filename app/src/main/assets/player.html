@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SWF Player</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+  #container{width:100%;height:100%}
+  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    color:#8A7BFF;font-family:sans-serif;font-size:14px;text-align:center;z-index:100}
+  #loading small{color:#8899AA}
+  #error{color:#ff6b6b}
+  ruffle-player{width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<div id="loading">加载中...<br><small>正在初始化 Ruffle 引擎</small></div>
+<div id="container"></div>
+<script>
+// ---------------------------------------------------------------------------
+// URL 参数解析
+// ---------------------------------------------------------------------------
+var params = new URLSearchParams(location.search);
+var swfUrl = params.get('swf') || '';
+var quality = params.get('quality') || 'high';
+var autoplay = params.get('autoplay') || 'on';
+var scale = params.get('scale') || 'showAll';
+
+// ---------------------------------------------------------------------------
+// 按键状态管理器 — 确保虚拟键盘注入的按键事件被 Ruffle 可靠接收
+// ---------------------------------------------------------------------------
+window.__gameKeys = (function(){
+    var pressed = {};
+    function dispatch(type, key, code, keyCode){
+        try{
+            var ev = new KeyboardEvent(type, {
+                key:key, code:code, keyCode:keyCode, which:keyCode,
+                bubbles:true, cancelable:true
+            });
+            document.dispatchEvent(ev);
+            window.dispatchEvent(ev);
+            if(document.activeElement && document.activeElement !== document.body){
+                document.activeElement.dispatchEvent(ev);
+            }
+        }catch(e){}
+    }
+    return {
+        down: function(keyCode, key, code){
+            keyCode = parseInt(keyCode);
+            if(pressed[keyCode]) return;
+            pressed[keyCode] = {key:key, code:code};
+            dispatch('keydown', key, code, keyCode);
+        },
+        up: function(keyCode, key, code){
+            keyCode = parseInt(keyCode);
+            if(!pressed[keyCode]) return;
+            delete pressed[keyCode];
+            dispatch('keyup', key, code, keyCode);
+            // 冗余重发 keyup，确保引擎收到释放事件
+            setTimeout(function(){ dispatch('keyup', key, code, keyCode); }, 50);
+            setTimeout(function(){ dispatch('keyup', key, code, keyCode); }, 150);
+        },
+        releaseAll: function(){
+            for(var kc in pressed){
+                var info = pressed[kc];
+                dispatch('keyup', info.key, info.code, parseInt(kc));
+                dispatch('keyup', info.key, info.code, parseInt(kc));
+            }
+            pressed = {};
+        },
+        sync: function(androidKeys){
+            var androidSet = {};
+            androidKeys.forEach(function(kc){ androidSet[kc] = true; });
+            for(var kc in pressed){
+                if(!androidSet[kc]){
+                    var info = pressed[kc];
+                    dispatch('keyup', info.key, info.code, parseInt(kc));
+                    delete pressed[kc];
+                }
+            }
+        }
+    };
+})();
+
+// 页面失焦时自动释放所有按键
+window.addEventListener('blur', function(){ window.__gameKeys.releaseAll(); });
+document.addEventListener('visibilitychange', function(){
+    if(document.hidden) window.__gameKeys.releaseAll();
+});
+
+// ---------------------------------------------------------------------------
+// Ruffle 引擎配置与加载
+// ---------------------------------------------------------------------------
+window.RufflePlayer = window.RufflePlayer || {};
+window.RufflePlayer.config = {
+    "publicPath": "ruffle/",
+    "polyfills": true,
+    "autoplay": autoplay,
+    "unmuteOverlay": "visible",
+    "letterbox": "fullscreen",
+    "upgradeToHttps": true,
+    "allowScriptAccess": true,
+    "scale": scale,
+    "quality": quality,
+    "allowFullscreen": false,
+    "splashScreen": true,
+    "preloader": true,
+    "logLevel": "warn",
+    "maxExecutionDuration": {"secs": 15, "nanos": 0},
+    "fontSources": ["ruffle/simhei.ttf"],
+    "defaultFonts": {
+        "sans": ["SimHei"],
+        "serif": ["SimHei"],
+        "typewriter": ["SimHei"],
+        "japaneseGothic": ["SimHei"],
+        "japaneseGothicMono": ["SimHei"],
+        "japaneseMincho": ["SimHei"]
+    }
+};
+
+// 运行时切换画质
+window.__setQuality = function(q){
+    try{
+        if(window._rufflePlayer && window._rufflePlayer.config){
+            window._rufflePlayer.config.quality = q;
+        }
+        window.RufflePlayer.config.quality = q;
+    }catch(e){}
+};
+
+// 加载 Ruffle 引擎
+var script = document.createElement('script');
+script.src = 'ruffle/ruffle.js';
+script.async = true;
+script.onerror = function(){
+    var el = document.getElementById('loading');
+    el.innerHTML = 'Ruffle 引擎加载失败<br><small style="color:#ff6b6b">请检查资源文件是否完整</small>';
+    el.id = 'error';
+};
+document.head.appendChild(script);
+
+// 等待 Ruffle 就绪后创建播放器
+var initTimeout = setTimeout(function(){
+    var el = document.getElementById('loading');
+    if(el && el.id !== 'error'){
+        el.innerHTML = '引擎初始化超时<br><small style="color:#ff6b6b">请重试或切换引擎</small>';
+        el.id = 'error';
+    }
+}, 30000);
+
+function tryCreatePlayer(){
+    if(typeof window.RufflePlayer === 'undefined' || !window.RufflePlayer.newest){
+        setTimeout(tryCreatePlayer, 200);
+        return;
+    }
+    clearTimeout(initTimeout);
+    try{
+        var ruffle = window.RufflePlayer.newest();
+        if(!ruffle){
+            setTimeout(tryCreatePlayer, 200);
+            return;
+        }
+        var player = ruffle.createPlayer();
+        var container = document.getElementById('container');
+        container.innerHTML = '';
+        container.appendChild(player);
+        window._rufflePlayer = player;
+        player.style.width = '100%';
+        player.style.height = '100%';
+        player.style.display = 'block';
+        // 确保播放器有焦点以接收键盘事件
+        player.focus();
+        player.tabIndex = 0;
+
+        player.ruffle().load(swfUrl)
+            .then(function(){
+                document.getElementById('loading').style.display = 'none';
+                player.focus();
+            })
+            .catch(function(e){
+                var el = document.getElementById('loading');
+                el.innerHTML = 'SWF 加载失败<br><small style="color:#ff6b6b">' + e + '</small>';
+                el.id = 'error';
+            });
+    }catch(e){
+        var el = document.getElementById('loading');
+        el.innerHTML = '播放器创建失败<br><small style="color:#ff6b6b">' + e + '</small>';
+        el.id = 'error';
+    }
+}
+
+window.addEventListener('load', function(){
+    setTimeout(tryCreatePlayer, 300);
+});
+</script>
+</body>
+</html>

@@ -1,11 +1,11 @@
 package com.nesstation.app.ui.swf
 
 import android.annotation.SuppressLint
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,30 +21,55 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.nesstation.app.core.storage.SwfPadStore
-import java.io.File
+import java.net.URLEncoder
+import java.util.Collections
 
 // ---------------------------------------------------------------------------
 // Colour palette (dark retro)
 // ---------------------------------------------------------------------------
-private val Bg = Color(0xFF0D1117)
 private val PrimaryText = Color(0xFFE2E8F0)
 private val SecondaryText = Color(0xFF8899AA)
 private val Accent = Color(0xFF8A7BFF)
 
-/**
- * SWF player screen — loads a .swf file via Ruffle in a WebView.
- *
- * Features:
- *  - Ruffle loaded from CDN via assets/ruffle/ruffle.js loader
- *  - Virtual keyboard overlay with configurable layout
- *  - Edit mode: drag buttons, resize, add / delete buttons
- *  - WASD / Arrow key toggle for D-pad
- *  - Quality selector (low / medium / high)
- */
+// ---------------------------------------------------------------------------
+// Key mapping — converts key name strings to JS KeyboardEvent info
+// ---------------------------------------------------------------------------
+
+private data class JsKeyInfo(val keyCode: Int, val key: String, val code: String)
+
+private fun keyToJsInfo(key: String): JsKeyInfo = when (key.lowercase()) {
+    "arrowup"    -> JsKeyInfo(38, "ArrowUp", "ArrowUp")
+    "arrowdown"  -> JsKeyInfo(40, "ArrowDown", "ArrowDown")
+    "arrowleft"  -> JsKeyInfo(37, "ArrowLeft", "ArrowLeft")
+    "arrowright" -> JsKeyInfo(39, "ArrowRight", "ArrowRight")
+    " "          -> JsKeyInfo(32, " ", "Space")
+    "enter"      -> JsKeyInfo(13, "Enter", "Enter")
+    "shift"      -> JsKeyInfo(16, "Shift", "ShiftLeft")
+    "control"    -> JsKeyInfo(17, "Control", "ControlLeft")
+    "tab"        -> JsKeyInfo(9, "Tab", "Tab")
+    "escape"     -> JsKeyInfo(27, "Escape", "Escape")
+    else -> {
+        if (key.length == 1 && key[0].isLetter()) {
+            JsKeyInfo(key[0].code, key, "Key${key.uppercase()}")
+        } else if (key.length == 1 && key[0].isDigit()) {
+            JsKeyInfo(key[0].code, key, "Digit$key")
+        } else {
+            JsKeyInfo(0, key, key)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SWF Player Screen
+// ---------------------------------------------------------------------------
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun SwfPlayerScreen(
@@ -55,21 +80,30 @@ fun SwfPlayerScreen(
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(false) }
-    var quality by remember { mutableStateOf("medium") }
+    var engine by remember { mutableStateOf(FlashPrefs.getEngine(context)) }
+    var quality by remember { mutableStateOf(FlashPrefs.getQuality(context)) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // Track pressed keys for heartbeat sync
+    val pressedKeys = remember { Collections.synchronizedSet(HashSet<Int>()) }
 
     // Load persisted pad config
     var padConfig by remember { mutableStateOf(SwfPadStore.load(context)) }
 
-    // Copy SWF to cache dir for WebView access
-    val swfCachePath = remember {
-        try {
-            val src = File(swfPath)
-            val dest = File(context.cacheDir, "current.swf")
-            src.copyTo(dest, overwrite = true)
-            "file://${dest.absolutePath}"
-        } catch (_: Exception) {
-            swfPath
+    // Heartbeat handler — syncs key state every 300ms
+    val heartbeatHandler = remember { Handler(Looper.getMainLooper()) }
+    val heartbeatRunnable = remember {
+        object : Runnable {
+            override fun run() {
+                val keys = synchronized(pressedKeys) { pressedKeys.toIntArray() }
+                if (keys.isNotEmpty()) {
+                    val keysStr = keys.joinToString(",")
+                    webViewRef?.evaluateJavascript(
+                        "window.__gameKeys && window.__gameKeys.sync([$keysStr]);", null
+                    )
+                }
+                heartbeatHandler.postDelayed(this, 300)
+            }
         }
     }
 
@@ -84,14 +118,58 @@ fun SwfPlayerScreen(
         }
     }
 
-    // Save config whenever it changes
+    // Lifecycle: pause/resume heartbeat, release keys on pause
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    heartbeatHandler.postDelayed(heartbeatRunnable, 300)
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    heartbeatHandler.removeCallbacks(heartbeatRunnable)
+                    releaseAllKeys(webViewRef, pressedKeys)
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            heartbeatHandler.removeCallbacks(heartbeatRunnable)
+        }
+    }
+
+    // Release keys when keyboard is hidden
+    LaunchedEffect(padConfig.showPad) {
+        if (!padConfig.showPad) {
+            releaseAllKeys(webViewRef, pressedKeys)
+        }
+    }
+
     fun updateConfig(newConfig: com.nesstation.app.core.storage.SwfPadConfig) {
         padConfig = newConfig
         SwfPadStore.save(context, newConfig)
     }
 
+    // Build player URL based on engine selection
+    val playerUrl = remember(swfPath, engine, quality) {
+        val page = if (engine == FlashPrefs.Engine.WAFLASH) "waflash.html" else "player.html"
+        val swfProxy = "https://flash.local/local.swf?t=${System.currentTimeMillis()}"
+        val autoplay = if (FlashPrefs.isAutoplay(context)) "on" else "off"
+        val scale = FlashPrefs.getScale(context)
+        "https://flash.local/$page" +
+            "?swf=${URLEncoder.encode(swfProxy, "UTF-8")}" +
+            "&quality=$quality" +
+            "&autoplay=$autoplay" +
+            "&scale=$scale"
+    }
+
+    // Track which engine was loaded to trigger reload on change
+    var loadedEngine by remember { mutableStateOf<FlashPrefs.Engine?>(null) }
+
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
-        // ---- WebView (Ruffle player) ----
+        // ---- WebView (Flash player) ----
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
@@ -103,18 +181,34 @@ fun SwfPlayerScreen(
                     settings.domStorageEnabled = true
                     settings.allowFileAccess = true
                     settings.allowFileAccessFromFileURLs = true
+                    settings.allowUniversalAccessFromFileURLs = true
                     settings.mediaPlaybackRequiresUserGesture = false
-                    webViewClient = WebViewClient()
+                    settings.javaScriptCanOpenWindowsAutomatically = true
+                    settings.loadWithOverviewMode = true
+                    settings.useWideViewPort = true
+                    webViewClient = FlashWebViewClient(swfPath)
                     webChromeClient = WebChromeClient()
-                    addJavascriptInterface(SwfInterface(swfCachePath), "Android")
-
-                    val html = buildHtml(swfCachePath, quality)
-                    loadDataWithBaseURL(
-                        "file:///android_asset/ruffle/",
-                        html, "text/html", "UTF-8", null
-                    )
+                    isHorizontalScrollBarEnabled = false
+                    isVerticalScrollBarEnabled = false
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    loadUrl(playerUrl)
                     webViewRef = this
+                    loadedEngine = engine
                 }
+            },
+            update = { web ->
+                if (loadedEngine != engine) {
+                    web.loadUrl(playerUrl)
+                    loadedEngine = engine
+                    releaseAllKeys(web, pressedKeys)
+                }
+            },
+            onRelease = { web ->
+                releaseAllKeys(web, pressedKeys)
+                web.stopLoading()
+                web.destroy()
+                webViewRef = null
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -127,10 +221,20 @@ fun SwfPlayerScreen(
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onExit) {
+            IconButton(onClick = {
+                releaseAllKeys(webViewRef, pressedKeys)
+                onExit()
+            }) {
                 Icon(Icons.Rounded.ArrowBack, "退出", tint = PrimaryText)
             }
             Spacer(Modifier.weight(1f))
+            // Engine badge
+            Text(
+                engine.value.uppercase(),
+                color = Accent,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(end = 4.dp)
+            )
             IconButton(onClick = { editMode = !editMode }) {
                 Icon(
                     Icons.Rounded.DragHandle, "布局编辑",
@@ -196,13 +300,40 @@ fun SwfPlayerScreen(
                     }
                 )
                 HorizontalDivider(color = Color(0xFF2A3A4A))
+                // Engine selection
+                Text(
+                    "引擎选择",
+                    color = SecondaryText, fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                FlashPrefs.Engine.entries.forEach { eng ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = engine == eng,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(selectedColor = Accent)
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text(eng.displayName, color = PrimaryText, fontSize = 11.sp)
+                            }
+                        },
+                        onClick = {
+                            engine = eng
+                            FlashPrefs.setEngine(context, eng)
+                            showMenu = false
+                        }
+                    )
+                }
+                HorizontalDivider(color = Color(0xFF2A3A4A))
                 // Quality header
                 Text(
                     "画质: $quality",
                     color = SecondaryText, fontSize = 11.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
-                listOf("low", "medium", "high").forEach { q ->
+                listOf("low", "medium", "high", "best").forEach { q ->
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -217,8 +348,9 @@ fun SwfPlayerScreen(
                         },
                         onClick = {
                             quality = q
+                            FlashPrefs.setQuality(context, q)
                             webViewRef?.evaluateJavascript(
-                                "if(window._rufflePlayer){window._rufflePlayer.config.quality='$q';}", null
+                                "window.__setQuality && window.__setQuality('$q');", null
                             )
                             showMenu = false
                         }
@@ -232,8 +364,8 @@ fun SwfPlayerScreen(
             VirtualKeyboard(
                 config = padConfig,
                 editMode = editMode,
-                onKeyPress = { key -> injectKey(webViewRef, key, true) },
-                onKeyRelease = { key -> injectKey(webViewRef, key, false) },
+                onKeyPress = { key -> injectKeyDown(webViewRef, key, pressedKeys) },
+                onKeyRelease = { key -> injectKeyUp(webViewRef, key, pressedKeys) },
                 onConfigChange = { newConfig -> updateConfig(newConfig) },
                 modifier = Modifier.fillMaxSize()
             )
@@ -260,135 +392,33 @@ fun SwfPlayerScreen(
 }
 
 // ---------------------------------------------------------------------------
-// Key injection into WebView
+// Key injection into WebView via __gameKeys JS manager
 // ---------------------------------------------------------------------------
 
-private fun injectKey(webView: WebView?, key: String, down: Boolean) {
-    val type = if (down) "keydown" else "keyup"
-    val code = keyToCode(key)
-    val keyCode = keyToKeyCode(key)
-    val js = """
-        (function(){
-            var e = new KeyboardEvent('$type', {
-                key: '$key',
-                code: '$code',
-                keyCode: $keyCode,
-                which: $keyCode,
-                bubbles: true
-            });
-            document.dispatchEvent(e);
-            window.dispatchEvent(e);
-        })();
-    """.trimIndent()
-    webView?.evaluateJavascript(js, null)
+private fun injectKeyDown(webView: WebView?, key: String, pressedKeys: HashSet<Int>) {
+    val info = keyToJsInfo(key)
+    pressedKeys.add(info.keyCode)
+    webView?.evaluateJavascript(
+        "window.__gameKeys && window.__gameKeys.down(${info.keyCode}, '${info.key}', '${info.code}');",
+        null
+    )
 }
 
-private fun keyToCode(key: String): String = when (key.lowercase()) {
-    "arrowup" -> "ArrowUp"
-    "arrowdown" -> "ArrowDown"
-    "arrowleft" -> "ArrowLeft"
-    "arrowright" -> "ArrowRight"
-    " " -> "Space"
-    "enter" -> "Enter"
-    "shift" -> "ShiftLeft"
-    "control" -> "ControlLeft"
-    "tab" -> "Tab"
-    "escape" -> "Escape"
-    else -> "Key${key.uppercase()}"
+private fun injectKeyUp(webView: WebView?, key: String, pressedKeys: HashSet<Int>) {
+    val info = keyToJsInfo(key)
+    pressedKeys.remove(info.keyCode)
+    webView?.evaluateJavascript(
+        "window.__gameKeys && window.__gameKeys.up(${info.keyCode}, '${info.key}', '${info.code}');",
+        null
+    )
 }
 
-private fun keyToKeyCode(key: String): Int = when (key.lowercase()) {
-    "arrowup" -> 38
-    "arrowdown" -> 40
-    "arrowleft" -> 37
-    "arrowright" -> 39
-    " " -> 32
-    "enter" -> 13
-    "shift" -> 16
-    "control" -> 17
-    "tab" -> 9
-    "escape" -> 27
-    else -> key.firstOrNull()?.code ?: 0
-}
-
-// ---------------------------------------------------------------------------
-// JavaScript interface — exposes the SWF URL to the page
-// ---------------------------------------------------------------------------
-
-private class SwfInterface(private val swfUrl: String) {
-    @JavascriptInterface
-    fun getSwfUrl(): String = swfUrl
-}
-
-// ---------------------------------------------------------------------------
-// HTML template — loads Ruffle from CDN via assets/ruffle/ruffle.js
-// ---------------------------------------------------------------------------
-
-private fun buildHtml(swfUrl: String, quality: String): String {
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<style>
-  html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
-  #container{width:100%;height:100%}
-  #loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-    color:#8A7BFF;font-family:sans-serif;font-size:14px;text-align:center}
-  #error{color:#ff6b6b}
-</style>
-</head>
-<body>
-<div id="loading">加载中...<br><small style="color:#8899AA">正在初始化 Ruffle 引擎</small></div>
-<div id="container"></div>
-<script src="ruffle.js"></script>
-<script>
-window.RufflePlayer = window.RufflePlayer || {};
-window.RufflePlayer.config = {
-    autoplay: "on",
-    unmuteOverlay: "visible",
-    letterbox: "fullscreen",
-    allowScriptAccess: false,
-    quality: "$quality",
-    scale: "showAll",
-    backgroundColor: "#000000"
-};
-
-window.addEventListener("load", function() {
-    function tryCreatePlayer() {
-        if (typeof window.RufflePlayer === "undefined" || !window.RufflePlayer.newest) {
-            // Ruffle not loaded yet — retry after a short delay
-            setTimeout(tryCreatePlayer, 300);
-            return;
-        }
-        var ruffle = window.RufflePlayer.newest();
-        if (!ruffle) {
-            setTimeout(tryCreatePlayer, 300);
-            return;
-        }
-        var player = ruffle.createPlayer();
-        var container = document.getElementById("container");
-        container.innerHTML = "";
-        container.appendChild(player);
-        window._rufflePlayer = player;
-        player.style.width = "100%";
-        player.style.height = "100%";
-        player.ruffle().load("$swfUrl")
-            .then(function() {
-                document.getElementById("loading").style.display = "none";
-            })
-            .catch(function(e) {
-                var el = document.getElementById("loading");
-                el.innerHTML = "加载失败<br><small style='color:#ff6b6b'>" + e + "</small>";
-                el.id = "error";
-            });
+private fun releaseAllKeys(webView: WebView?, pressedKeys: HashSet<Int>) {
+    synchronized(pressedKeys) {
+        pressedKeys.clear()
     }
-    // Small delay to ensure ruffle.js (CDN loader) has finished
-    setTimeout(tryCreatePlayer, 500);
-});
-</script>
-</body>
-</html>
-    """.trimIndent()
+    webView?.evaluateJavascript(
+        "window.__gameKeys && window.__gameKeys.releaseAll();",
+        null
+    )
 }
