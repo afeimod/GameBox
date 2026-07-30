@@ -642,20 +642,20 @@ static void hq2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
             bool cross7 = !d4 && !d8;   // w7 cross: w4==c && w8==c → no corner at DL
             bool cross9 = !d6 && !d8;   // w9 cross: w6==c && w8==c → no corner at DR
 
-            uint32_t* d0 = dst + y2 * dw;
-            uint32_t* d1 = dst + (y2 + 1) * dw;
+            uint32_t* row0 = dst + y2 * dw;
+            uint32_t* row1 = dst + (y2 + 1) * dw;
 
             // TL: diagonal=w1, orthogonals=w2(up), w4(left)
-            d0[x2] = hq2xPixel(c, w1, w2, w4, d1, d2, d4, cross1);
+            row0[x2] = hq2xPixel(c, w1, w2, w4, d1, d2, d4, cross1);
 
             // TR: diagonal=w3, orthogonals=w2(up), w6(right)
-            d0[x2+1] = hq2xPixel(c, w3, w2, w6, d3, d2, d6, cross3);
+            row0[x2+1] = hq2xPixel(c, w3, w2, w6, d3, d2, d6, cross3);
 
             // BL: diagonal=w7, orthogonals=w4(left), w8(down)
-            d1[x2] = hq2xPixel(c, w7, w4, w8, d7, d4, d8, cross7);
+            row1[x2] = hq2xPixel(c, w7, w4, w8, d7, d4, d8, cross7);
 
             // BR: diagonal=w9, orthogonals=w6(right), w8(down)
-            d1[x2+1] = hq2xPixel(c, w9, w6, w8, d9, d6, d8, cross9);
+            row1[x2+1] = hq2xPixel(c, w9, w6, w8, d9, d6, d8, cross9);
         }
     }
 }
