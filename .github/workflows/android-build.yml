@@ -171,34 +171,34 @@ jobs:
           # ============================================================
           echo ""
           echo "=== Creating Gradle init script ==="
-          cat > /tmp/init.gradle << 'INITEOF'
-beforeSettings { settings ->
-    settings.pluginManagement {
-        repositories {
-            maven { url = uri('/tmp/local-maven') }
-            maven { url = uri('https://maven.aliyun.com/repository/google') }
-            maven { url = uri('https://maven.aliyun.com/repository/central') }
-            maven { url = uri('https://maven.aliyun.com/repository/gradle-plugin') }
-            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }
-            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }
-            google()
-            mavenCentral()
-            gradlePluginPortal()
-        }
-    }
-    settings.dependencyResolutionManagement {
-        repositories {
-            maven { url = uri('/tmp/local-maven') }
-            maven { url = uri('https://maven.aliyun.com/repository/google') }
-            maven { url = uri('https://maven.aliyun.com/repository/central') }
-            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }
-            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }
-            google()
-            mavenCentral()
-        }
-    }
-}
-INITEOF
+          printf '%s\n' \
+            "beforeSettings { settings ->" \
+            "    settings.pluginManagement {" \
+            "        repositories {" \
+            "            maven { url = uri('/tmp/local-maven') }" \
+            "            maven { url = uri('https://maven.aliyun.com/repository/google') }" \
+            "            maven { url = uri('https://maven.aliyun.com/repository/central') }" \
+            "            maven { url = uri('https://maven.aliyun.com/repository/gradle-plugin') }" \
+            "            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }" \
+            "            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }" \
+            "            google()" \
+            "            mavenCentral()" \
+            "            gradlePluginPortal()" \
+            "        }" \
+            "    }" \
+            "    settings.dependencyResolutionManagement {" \
+            "        repositories {" \
+            "            maven { url = uri('/tmp/local-maven') }" \
+            "            maven { url = uri('https://maven.aliyun.com/repository/google') }" \
+            "            maven { url = uri('https://maven.aliyun.com/repository/central') }" \
+            "            maven { url = uri('https://mirrors.cloud.tencent.com/nexus/repository/maven-public/') }" \
+            "            maven { url = uri('https://mirrors.huaweicloud.com/repository/maven/') }" \
+            "            google()" \
+            "            mavenCentral()" \
+            "        }" \
+            "    }" \
+            "}" \
+            > /tmp/init.gradle
           echo "Init script created at /tmp/init.gradle"
           cat /tmp/init.gradle
 
