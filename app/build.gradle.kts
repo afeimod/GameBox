@@ -155,7 +155,6 @@ dependencies {
     implementation(libs.androidx.leanback.preference)
 
     implementation(libs.androidx.documentfile)
-    implementation(libs.androidx.webkit)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
