@@ -313,7 +313,7 @@ open class GameWebViewClient(
                 ?: return null
 
             // Navigate to find the resource file
-            var current = docFile
+            var current: DocumentFile? = docFile
             val parts = resourcePath.split("/")
             for ((index, part) in parts.withIndex()) {
                 if (current == null) break
