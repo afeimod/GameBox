@@ -12,8 +12,8 @@ import com.nesstation.app.ui.swf.FlashPrefs.Engine
  *
  * 路径约定（本地模式）：
  * - flash.local/ruffle/ruffle.js         → assets/ruffle/ruffle.js
- * - flash.local/ruffle/core.ruffle.*.js  → assets/ruffle/core.ruffle.*.js
- * - flash.local/ruffle/*.wasm            → assets/ruffle/*.wasm
+ * - flash.local/ruffle/core.ruffle.星.js  → assets/ruffle/core.ruffle.星.js（星 = 通配符）
+ * - flash.local/ruffle/星.wasm           → assets/ruffle/星.wasm（星 = 通配符）
  * - flash.local/ruffle/simhei.ttf        → assets/ruffle/simhei.ttf （中文字体）
  * - flash.local/waflash/waflash.min.js   → assets/waflash/waflash.min.js
  * - flash.local/waflash/waflash.wasm     → assets/waflash/waflash.wasm
