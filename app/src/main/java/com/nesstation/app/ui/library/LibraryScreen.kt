@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -39,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -67,19 +69,35 @@ fun LibraryScreen(
     games: List<GameEntry>,
     onOpenGame: (GameEntry) -> Unit,
     onBack: () -> Unit = {},
+    onHome: () -> Unit = onBack,
     onImport: () -> Unit,
     onSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    // Load persisted ROMs on first composition
-    val importedGames = remember { mutableStateListOf<GameEntry>().apply { addAll(RomStore.loadAll(context)) } }
+    // 关键修复：之前的实现里 importedGames 和外部传入的 games 参数都从 RomStore.loadAll 加载，
+    //          然后 allGames = importedGames + games 把同一批数据拼了两份，导致每个游戏显示两次。
+    //          现在：把传入的 [games] 当作初次数据，导入/刷新时直接覆盖 importedGames，
+    //          列表用 importedGames.distinctBy { it.id } 显示，确保不会重复。
+    val importedGames = remember { mutableStateListOf<GameEntry>().apply { addAll(games) } }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var dialogMsg by remember { mutableStateOf<String?>(null) }
 
     fun refreshList() {
         importedGames.clear()
         importedGames.addAll(RomStore.loadAll(context))
+    }
+
+    // 当外部传入的 games 列表变化时（父级 NavHost 在 ON_RESUME 时重新加载），
+    // 同步到本地列表，保留本地可能的新增（避免和远端并发写入时丢数据）
+    LaunchedEffect(games) {
+        // 仅在外部列表比本地更新时合并：用 id 去重
+        val localIds = importedGames.map { it.id }.toSet()
+        val merged = (importedGames + games).distinctBy { it.id }
+        if (merged.size != importedGames.size || games.any { it.id !in localIds }) {
+            importedGames.clear()
+            importedGames.addAll(merged)
+        }
     }
 
     // SAF file picker for importing individual ROM files
@@ -185,7 +203,7 @@ fun LibraryScreen(
         }
     }
 
-    val allGames = importedGames + games
+    val allGames = importedGames.distinctBy { it.id }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
@@ -211,21 +229,28 @@ fun LibraryScreen(
                         fontSize = 11.sp
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExtendedFloatingActionButton(
-                        onClick = { importFolder() },
-                        icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
-                        text = { Text("导入文件夹") },
-                        containerColor = Color(0xFF4F8AC4),
-                        contentColor = Color.White
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 新增：返回主页按钮（首页风格：白底圆角 pill + 房子图标）
+                    HomePill(
+                        onClick = onHome,
+                        modifier = Modifier.padding(end = 8.dp)
                     )
-                    ExtendedFloatingActionButton(
-                        onClick = { importFiles() },
-                        icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        text = { Text("导入ROM") },
-                        containerColor = Color(0xFFE74C3C),
-                        contentColor = Color.White
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ExtendedFloatingActionButton(
+                            onClick = { importFolder() },
+                            icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+                            text = { Text("导入文件夹") },
+                            containerColor = Color(0xFF4F8AC4),
+                            contentColor = Color.White
+                        )
+                        ExtendedFloatingActionButton(
+                            onClick = { importFiles() },
+                            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                            text = { Text("导入ROM") },
+                            containerColor = Color(0xFFE74C3C),
+                            contentColor = Color.White
+                        )
+                    }
                 }
             }
 
@@ -430,5 +455,35 @@ private fun SearchPill(onClick: () -> Unit) {
             Spacer(Modifier.size(4.dp))
             Text("搜索", color = Color(0xFF1E2A3A), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/** 首页风格的「返回主页」按钮（与 SwfListScreen / OnlineGamesScreen 一致）。 */
+@Composable
+private fun HomePill(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.7f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Icon(
+            Icons.Rounded.Home,
+            contentDescription = "返回主页",
+            tint = Color(0xFF1E2A3A),
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.size(4.dp))
+        Text(
+            "主页",
+            color = Color(0xFF1E2A3A),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }

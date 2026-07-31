@@ -64,6 +64,7 @@ open class FlashWebViewClient(
          * 1. Fakes Flash plugin support (navigator.plugins, navigator.mimeTypes, ActiveXObject)
          * 2. Spoofs document.referrer
          * 3. For Ruffle mode: injects Ruffle polyfill configuration
+         *    (含 simhei.ttf 中文字体源 + defaultFonts) 并加载 ruffle.js
          * 4. For WAFlash mode: hooks SWF creation methods (swfobject.embedSWF,
          *    createFlash, AC_FL_RunContent) and DOM MutationObserver to detect
          *    SWF content and redirect to the WAFlash player
@@ -80,6 +81,11 @@ open class FlashWebViewClient(
         ): String {
             val isWaflash = engine == "waflash"
             val autoplayStr = if (autoplay) "on" else "off"
+            // 始终通过 flash.local 虚拟域名加载 Ruffle，让 GameWebViewClient.shouldInterceptRequest
+            // 可以从 assets 提供 ruffle.js、core.ruffle.*.js、*.wasm、simhei.ttf
+            // （不能在 https 页面里直接用 file:///android_asset/，会被跨域策略阻止）
+            val ruffleScriptUrl = "https://flash.local/ruffle/ruffle.js"
+            val fontSource = "[\"https://flash.local/ruffle/simhei.ttf\"]"
 
             return """
             <script>
@@ -141,24 +147,59 @@ open class FlashWebViewClient(
               // === 3. Engine-specific injection ===
               ${if (!isWaflash) """
               // --- Ruffle polyfill ---
+              // 关键修复 1：Ruffle config 必须包含 publicPath（指向 ruffle 资源目录），
+              //            否则 Ruffle 找不到 core.ruffle.*.js 和 .wasm
+              // 关键修复 2：fontSources/defaultFonts 必须在 Ruffle 引擎初始化前注入，
+              //            否则中文字体不会显示（4399 中文 Flash 游戏会变成方块）
               window.RufflePlayer = window.RufflePlayer || {};
               window.RufflePlayer.config = {
+                publicPath: 'https://flash.local/ruffle/',
+                polyfills: true,
                 autoplay: '$autoplayStr',
                 unmuteOverlay: 'visible',
-                backgroundColor: '#000000',
                 letterbox: 'on',
-                polyfills: true,
+                backgroundColor: '#000000',
+                upgradeToHttps: true,
+                allowScriptAccess: true,
+                scale: 'showAll',
+                quality: 'high',
+                allowFullscreen: false,
+                splashScreen: true,
+                preloader: true,
+                logLevel: 'warn',
                 maxExecutionDuration: 30,
-                logLevel: 'warn'
+                fontSources: $fontSource,
+                defaultFonts: {
+                  sans: ['SimHei'],
+                  serif: ['SimHei'],
+                  typewriter: ['SimHei'],
+                  japaneseGothic: ['SimHei'],
+                  japaneseGothicMono: ['SimHei'],
+                  japaneseMincho: ['SimHei'],
+                  chineseSimplified: ['SimHei']
+                }
               };
               var ruffleScript = document.createElement('script');
-              ruffleScript.src = 'https://flash.local/ruffle/ruffle.js';
+              ruffleScript.src = '$ruffleScriptUrl';
+              ruffleScript.async = true;
               ruffleScript.onload = function() {
                 console.log('[Ruffle] 引擎加载完成');
+                try {
+                  if (window.RufflePlayer && window.RufflePlayer.newest) {
+                    var r = window.RufflePlayer.newest();
+                    if (r && r.init) r.init();
+                  }
+                } catch(e) { console.warn('[Ruffle] init:', e); }
+              };
+              ruffleScript.onerror = function(e) {
+                console.error('[Ruffle] 加载失败:', '$ruffleScriptUrl', e);
               };
               document.head.appendChild(ruffleScript);
               """ else """
               // --- WAFlash mode: hook Flash creation, redirect to WAFlash player ---
+              // 当前模式：用户在菜单里选了 WAFlash。检测到 SWF 时跳转到 waflash.html。
+              // 目标页选择根据当前模式在 Java 端（WebAppInterface.openSwf）完成，
+              // 这里只负责把 SWF URL 上抛。
               var __wafRedirected = false;
               function __wafRedirect(swfUrl, baseUrl) {
                 if (__wafRedirected || !swfUrl) return;
@@ -171,6 +212,7 @@ open class FlashWebViewClient(
                 if (window.Android && window.Android.openSwf) {
                   window.Android.openSwf(swfUrl, baseUrl || window.location.href);
                 } else {
+                  // 兜底：Android 端接口未注入时，构造一个完整的 URL 走默认路径
                   window.location.href = 'https://flash.local/waflash.html?swf=' + encodeURIComponent(swfUrl);
                 }
               }

@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
@@ -59,6 +60,22 @@ import com.nesstation.app.ui.swf.FlashPrefs
 import com.nesstation.app.ui.swf.FlashWebViewClient
 import java.net.URLEncoder
 import kotlin.math.roundToInt
+
+/**
+ * 构造 Flash 播放器 URL（统一入口）。
+ * Ruffle → https://flash.local/player.html
+ * WAFlash → https://flash.local/waflash.html
+ *
+ * 关键修复：之前 webview 里把 WAFlash 检测到的 SWF 永远跳到 waflash.html，
+ * 即使用户在菜单里选了 Ruffle 也走 WAFlash 播放器。
+ * 现在按当前 flashEngine 选择目标页面，保持和 SwfPlayerScreen 的行为一致。
+ */
+private fun buildFlashPlayerUrl(swfUrl: String, pageUrl: String?, engine: FlashPrefs.Engine): String {
+    val encodedSwf = URLEncoder.encode(swfUrl, "UTF-8")
+    val encodedBase = pageUrl?.let { "&base=" + URLEncoder.encode(it, "UTF-8") } ?: ""
+    val page = if (engine == FlashPrefs.Engine.WAFLASH) "waflash.html" else "player.html"
+    return "https://flash.local/$page?swf=$encodedSwf$encodedBase"
+}
 
 // ---- Dark palette (matches app theme) ----
 private val Accent = Color(0xFF8A7BFF)
@@ -230,21 +247,39 @@ fun WebGameScreen(
                                 )
                             }
                         }
+
+                        // 用户直接点击 .swf 链接（如 http://xxx.com/yyy.swf）：
+                        // 之前版本用 evaluateJavascript 调用 Android.openSwf，openSwf 内部又是固定跳到
+                        // waflash.html，导致选 Ruffle 模式也被迫用 WAFlash 播放。
+                        // 现在直接根据当前 flashEngine 选 player.html / waflash.html。
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean {
+                            val url = request?.url?.toString() ?: return false
+                            if (url.endsWith(".swf", ignoreCase = true)) {
+                                Log.d("WebGameScreen", "拦截 SWF 链接: $url, engine=${flashEngine.value}")
+                                mainHandler.post {
+                                    val playerUrl = buildFlashPlayerUrl(url, view?.url, flashEngine)
+                                    webViewRef?.loadUrl(playerUrl)
+                                }
+                                return true
+                            }
+                            return super.shouldOverrideUrlLoading(view, request)
+                        }
                     }
 
-                    // WebAppInterface: WAFlash 检测到 SWF 后回调，加载 WAFlash 播放器
+                    // WebAppInterface: WAFlash 检测到 SWF 后回调，跳转到对应引擎的播放器
+                    // 关键修复：必须按当前 flashEngine 选择目标页（Ruffle → player.html，WAFlash → waflash.html）。
+                    // 之前硬编码 waflash.html 导致选 Ruffle 也会走 WAFlash 引擎。
                     addJavascriptInterface(object {
                         @JavascriptInterface
                         fun openSwf(swfUrl: String?, pageUrl: String?) {
                             if (swfUrl.isNullOrEmpty()) return
-                            Log.d("WebGameScreen", "WAFlash openSwf: $swfUrl (from: $pageUrl)")
+                            Log.d("WebGameScreen", "openSwf: $swfUrl, engine=${flashEngine.value} (from: $pageUrl)")
                             mainHandler.post {
-                                val encodedSwf = URLEncoder.encode(swfUrl, "UTF-8")
-                                val encodedBase = pageUrl?.let { 
-                                    "&base=" + URLEncoder.encode(it, "UTF-8") 
-                                } ?: ""
-                                val playerUrl = "https://flash.local/waflash.html?swf=$encodedSwf$encodedBase"
-                                Log.d("WebGameScreen", "Loading WAFlash player: $playerUrl")
+                                val playerUrl = buildFlashPlayerUrl(swfUrl, pageUrl, flashEngine)
+                                Log.d("WebGameScreen", "Loading player: $playerUrl")
                                 webViewRef?.loadUrl(playerUrl)
                             }
                         }

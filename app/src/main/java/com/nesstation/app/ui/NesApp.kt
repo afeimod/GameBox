@@ -107,6 +107,10 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
                 games = games,
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
                 onBack = { nav.popBackStack() },
+                onHome = {
+                    // 返回主页：弹出到 HOME 路由
+                    nav.popBackStack(Routes.HOME, inclusive = false)
+                },
                 onImport = { /* TODO: ACTION_OPEN_DOCUMENT */ },
                 onSearch = { /* TODO */ }
             )
@@ -120,12 +124,20 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
         composable(Routes.SWF_LIST) {
             SwfListScreen(
                 onBack = { nav.popBackStack() },
+                onHome = {
+                    // 返回主页：弹出到 HOME 路由为止，确保按返回键不会回到 SWF 列表
+                    nav.popBackStack(Routes.HOME, inclusive = false)
+                },
                 onOpenSwf = { path -> nav.navigate(Routes.swfPlayer(path)) }
             )
         }
         composable(Routes.ONLINE_GAMES) {
             OnlineGamesScreen(
                 onBack = { nav.popBackStack() },
+                onHome = {
+                    // 返回主页：弹出到 HOME 路由
+                    nav.popBackStack(Routes.HOME, inclusive = false)
+                },
                 onOpenGame = { game ->
                     nav.navigate(Routes.webGame(game.url, game.uaMode))
                 }
@@ -155,6 +167,7 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
                 games = games.filter { it.isFavorite },
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
                 onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
                 onSearch = { }
             )
@@ -164,6 +177,7 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
                 games = games,
                 onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
                 onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
                 onSearch = { }
             )
