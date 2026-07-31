@@ -536,4 +536,3 @@ fun WebGameScreen(
         }
     }
 }
-}
