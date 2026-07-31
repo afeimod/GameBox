@@ -165,17 +165,17 @@ fun SwfPlayerScreen(
         SwfPadStore.save(context, newConfig)
     }
 
-    // Build player URL based on engine selection
+    // Build player URL based on engine selection（统一走 NavHelper，与 WebGameScreen 行为一致）
     val playerUrl = remember(swfPath, engine, quality) {
-        val page = if (engine == FlashPrefs.Engine.WAFLASH) "waflash.html" else "player.html"
         val swfProxy = "https://flash.local/local.swf?t=${System.currentTimeMillis()}"
-        val autoplay = if (FlashPrefs.isAutoplay(context)) "on" else "off"
-        val scale = FlashPrefs.getScale(context)
-        "https://flash.local/$page" +
-            "?swf=${URLEncoder.encode(swfProxy, "UTF-8")}" +
-            "&quality=$quality" +
-            "&autoplay=$autoplay" +
-            "&scale=$scale"
+        NavHelper.playerUrl(
+            swfUrl = swfProxy,
+            base = null,
+            engine = engine,
+            quality = quality,
+            autoplay = FlashPrefs.isAutoplay(context),
+            title = null
+        )
     }
 
     // Track which engine was loaded to trigger reload on change

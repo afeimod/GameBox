@@ -11,22 +11,26 @@ import android.widget.Toast
 import android.net.Uri
 
 /**
- * JavaScript interface injected into WebView as `window.Android`.
+ * 注入到 WebView 的 JS 接口（window.Android）。
  *
- * Provides native capabilities to web pages:
- * - [openSwf] — redirect detected SWF to the built-in Flash player
- * - [readLocalSwf] — read local SWF file as Base64 (bypasses content:// CORS)
- * - [toast], [log], [vibrate], [finish] — utility methods
+ * 提供给 JS 调用的原生能力：
+ * - [openSwf]      WAFlash 钩子（注入脚本调用），按当前引擎跳到 player.html / waflash.html
+ * - [onSwfFound]   SWF 嗅探器回调（扫描页面中的 SWF URL 列表）
+ * - [toast] / [vibrate] / [log] / [finish] / [readLocalSwf]
  *
- * @param context Activity or application context
+ * 参考 3.3-fix2 WebAppInterface 设计。
  */
 class WebAppInterface(private val context: Context) {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    /** Callback invoked when a SWF is detected on the page */
+    /** SWF 打开回调（由 WebGameScreen / GameActivity 设置） */
     @Volatile
     var onSwfDetected: ((String, String) -> Unit)? = null
+
+    /** SWF 嗅探器回调（由 WebGameScreen / GameActivity 设置，接收 JSON 数组字符串） */
+    @Volatile
+    var swfExtractCallback: ((String) -> Unit)? = null
 
     @JavascriptInterface
     fun toast(msg: String?) {
@@ -46,11 +50,8 @@ class WebAppInterface(private val context: Context) {
     }
 
     /**
-     * Called by the WAFlash injection script when a SWF is detected on the page.
-     * Redirects to the built-in Flash player (waflash.html or player.html).
-     *
-     * @param swfUrl  The SWF URL detected on the page
-     * @param pageUrl The page URL where the SWF was found
+     * WAFlash 钩子（注入脚本调用）通知原生打开 SWF。
+     * 原生端按当前 FlashPrefs.engine 决定走 player.html 还是 waflash.html。
      */
     @JavascriptInterface
     fun openSwf(swfUrl: String?, pageUrl: String?) {
@@ -62,11 +63,21 @@ class WebAppInterface(private val context: Context) {
     }
 
     /**
-     * Read a local SWF file (content:// or file:// URI) as Base64.
-     * Used by JS to create a Blob URL, bypassing WebView's cross-origin restrictions.
-     *
-     * @param uri The content:// or file:// URI of the SWF file
-     * @return Base64-encoded SWF data, or null on failure
+     * SWF 嗅探器回调：JS 扫描器发现 SWF 列表（JSON 数组字符串）。
+     * @param json JSON 数组字符串，如 [{"url":"...","title":"...","size":"12MB"}, ...]
+     */
+    @JavascriptInterface
+    fun onSwfFound(json: String?) {
+        if (json.isNullOrEmpty()) return
+        Log.d("WebApp:SwfExtract", "发现 SWF: $json")
+        swfExtractCallback?.let { cb ->
+            handler.post { cb(json) }
+        }
+    }
+
+    /**
+     * 读取本地 SWF 文件（content:// / file://）并以 Base64 返回。
+     * 绕过 WebView 对 content:// URI 的跨域限制。
      */
     @JavascriptInterface
     fun readLocalSwf(uri: String?): String? {

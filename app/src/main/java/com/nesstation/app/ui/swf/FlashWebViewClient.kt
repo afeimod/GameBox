@@ -39,8 +39,31 @@ import java.net.URL
  */
 open class FlashWebViewClient(
     private val swfFilePath: String = "",
-    private val blockAds: Boolean = false
+    private val blockAds: Boolean = false,
+    /** Callback for SWF interception and engine selection (matches 3.3-fix2 design). */
+    private val callback: Callback? = null
 ) : WebViewClient() {
+
+    /**
+     * 回调接口（参考 3.3-fix2 GameWebViewClient.Callback）。
+     * 由 WebGameScreen / SwfPlayerScreen 实现。
+     */
+    interface Callback {
+        /** Flash 引擎是否启用（false → 跳过所有 Flash 注入） */
+        fun isFlashEnabled(): Boolean = true
+        /** 当前引擎（"ruffle" / "waflash"） */
+        fun getFlashEngine(): String = "ruffle"
+        /** Ruffle 画质（low/medium/high/best） */
+        fun getFlashQuality(): String = "high"
+        /** Ruffle 自动播放 */
+        fun isFlashAutoplay(): Boolean = true
+        /** 给定 URL 是否应该注入 Flash 支持（可排除登录/账号/接口等） */
+        fun shouldInjectRuffle(url: String?): Boolean = isFlashEnabled()
+        /** 当 .swf 链接被拦截时回调（用户直接点击 swf 文件） */
+        fun onSwfIntercepted(swfUrl: String, pageUrl: String) {}
+        /** 提取 SWF 列表回调（扫描页面中的 SWF URL） */
+        fun onSwfFound(json: String) {}
+    }
 
     companion object {
         private const val TAG = "FlashWebViewClient"
@@ -67,25 +90,56 @@ open class FlashWebViewClient(
          *    (含 simhei.ttf 中文字体源 + defaultFonts) 并加载 ruffle.js
          * 4. For WAFlash mode: hooks SWF creation methods (swfobject.embedSWF,
          *    createFlash, AC_FL_RunContent) and DOM MutationObserver to detect
-         *    SWF content and redirect to the WAFlash player
+         *    SWF content and notify Android via window.Android.openSwf.
+         *    目标页选择（waflash.html 还是 player.html）由 Android 端按当前
+         *    [com.nesstation.app.ui.swf.FlashPrefs.engine] 决定。
          *
          * @param pageUrl    The page URL (for referrer spoofing)
          * @param engine     "ruffle" or "waflash"
          * @param autoplay   Whether to autoplay Flash content
+         * @param quality    画质（low/medium/high/best）
          * @return The injection script as an HTML string
          */
         fun buildFlashInjectScript(
             pageUrl: String,
             engine: String = "ruffle",
-            autoplay: Boolean = true
+            autoplay: Boolean = true,
+            quality: String = "high"
         ): String {
             val isWaflash = engine == "waflash"
             val autoplayStr = if (autoplay) "on" else "off"
-            // 始终通过 flash.local 虚拟域名加载 Ruffle，让 GameWebViewClient.shouldInterceptRequest
-            // 可以从 assets 提供 ruffle.js、core.ruffle.*.js、*.wasm、simhei.ttf
-            // （不能在 https 页面里直接用 file:///android_asset/，会被跨域策略阻止）
+            // 通过 flash.local 虚拟域名加载 Ruffle，FlashWebViewClient.shouldInterceptRequest
+            // 会从 assets 提供 ruffle.js / core.ruffle.*.js / .wasm / simhei.ttf
             val ruffleScriptUrl = "https://flash.local/ruffle/ruffle.js"
-            val fontSource = "[\"https://flash.local/ruffle/simhei.ttf\"]"
+            val ruffleConfigObj = """
+                {
+                  publicPath: 'https://flash.local/ruffle/',
+                  polyfills: true,
+                  autoplay: '$autoplayStr',
+                  unmuteOverlay: 'visible',
+                  letterbox: 'on',
+                  backgroundColor: '#000000',
+                  upgradeToHttps: true,
+                  allowScriptAccess: true,
+                  scale: 'showAll',
+                  quality: '$quality',
+                  allowFullscreen: false,
+                  splashScreen: true,
+                  preloader: true,
+                  logLevel: 'warn',
+                  maxExecutionDuration: 30,
+                  fontSources: ["https://flash.local/ruffle/simhei.ttf"],
+                  defaultFonts: {
+                    sans: ['SimHei'],
+                    serif: ['SimHei'],
+                    typewriter: ['SimHei'],
+                    japaneseGothic: ['SimHei'],
+                    japaneseGothicMono: ['SimHei'],
+                    japaneseMincho: ['SimHei'],
+                    chineseSimplified: ['SimHei']
+                  }
+                }
+            """.trimIndent()
 
             return """
             <script>
@@ -152,33 +206,7 @@ open class FlashWebViewClient(
               // 关键修复 2：fontSources/defaultFonts 必须在 Ruffle 引擎初始化前注入，
               //            否则中文字体不会显示（4399 中文 Flash 游戏会变成方块）
               window.RufflePlayer = window.RufflePlayer || {};
-              window.RufflePlayer.config = {
-                publicPath: 'https://flash.local/ruffle/',
-                polyfills: true,
-                autoplay: '$autoplayStr',
-                unmuteOverlay: 'visible',
-                letterbox: 'on',
-                backgroundColor: '#000000',
-                upgradeToHttps: true,
-                allowScriptAccess: true,
-                scale: 'showAll',
-                quality: 'high',
-                allowFullscreen: false,
-                splashScreen: true,
-                preloader: true,
-                logLevel: 'warn',
-                maxExecutionDuration: 30,
-                fontSources: $fontSource,
-                defaultFonts: {
-                  sans: ['SimHei'],
-                  serif: ['SimHei'],
-                  typewriter: ['SimHei'],
-                  japaneseGothic: ['SimHei'],
-                  japaneseGothicMono: ['SimHei'],
-                  japaneseMincho: ['SimHei'],
-                  chineseSimplified: ['SimHei']
-                }
-              };
+              window.RufflePlayer.config = $ruffleConfigObj;
               var ruffleScript = document.createElement('script');
               ruffleScript.src = '$ruffleScriptUrl';
               ruffleScript.async = true;
@@ -196,10 +224,11 @@ open class FlashWebViewClient(
               };
               document.head.appendChild(ruffleScript);
               """ else """
-              // --- WAFlash mode: hook Flash creation, redirect to WAFlash player ---
-              // 当前模式：用户在菜单里选了 WAFlash。检测到 SWF 时跳转到 waflash.html。
-              // 目标页选择根据当前模式在 Java 端（WebAppInterface.openSwf）完成，
-              // 这里只负责把 SWF URL 上抛。
+              // --- WAFlash mode: hook Flash creation, notify Android ---
+              // 当前模式：用户在菜单里选了 WAFlash。检测到 SWF 时通知 Android 端
+              // window.Android.openSwf(url, baseUrl)；Android 端按当前引擎设置
+              // 决定跳到 waflash.html 还是 player.html，并保留 swfUrl + baseUrl。
+              // 这里不要直接 location.href 跳走（会丢失 baseUrl、来源页面等信息）。
               var __wafRedirected = false;
               function __wafRedirect(swfUrl, baseUrl) {
                 if (__wafRedirected || !swfUrl) return;
@@ -211,8 +240,9 @@ open class FlashWebViewClient(
                 console.log('[WAFlash] 检测到 SWF: ' + swfUrl);
                 if (window.Android && window.Android.openSwf) {
                   window.Android.openSwf(swfUrl, baseUrl || window.location.href);
-                } else {
-                  // 兜底：Android 端接口未注入时，构造一个完整的 URL 走默认路径
+                }
+                // 兜底：Android 端接口未注入时，构造一个完整 URL 走默认 WAFlash 路径
+                else {
                   window.location.href = 'https://flash.local/waflash.html?swf=' + encodeURIComponent(swfUrl);
                 }
               }
@@ -310,6 +340,95 @@ open class FlashWebViewClient(
             </script>
             """.trimIndent()
         }
+
+        /**
+         * SWF 嗅探脚本（参考 3.3-fix2 GameActivity.SWF_SNIFFER_SCRIPT）。
+         *
+         * 用法：在 WebView 中 evaluateJavascript(SWF_SNIFFER_SCRIPT) 执行。
+         * 脚本会扫描页面 DOM、iframe、Performance API，找到所有 .swf URL，
+         * 通过 window.Android.onSwfFound(jsonArray) 回调到原生。
+         */
+        const val SWF_SNIFFER_SCRIPT: String = """
+            (function(){
+              try {
+                var results = [];
+                var seen = {};
+                function add(url, title) {
+                  if (!url) return;
+                  if (seen[url]) return;
+                  seen[url] = true;
+                  results.push({url: url, title: title || '', size: ''});
+                }
+                // 1. 扫描 <object>/<embed> 元素
+                try {
+                  var sels = [
+                    'object[type="application/x-shockwave-flash"]',
+                    'embed[type="application/x-shockwave-flash"]',
+                    'object[data\$=".swf" i]',
+                    'embed[src\$=".swf" i]',
+                    'object[classid*="D27CDB6E" i]'
+                  ];
+                  var els = document.querySelectorAll(sels.join(','));
+                  for (var i = 0; i < els.length; i++) {
+                    var el = els[i];
+                    var s = el.getAttribute('data') || el.getAttribute('src') || el.getAttribute('movie') || '';
+                    if (!s) {
+                      var ps = el.querySelectorAll('param[name="movie"],param[name="src"]');
+                      for (var j = 0; j < ps.length; j++) {
+                        var v = ps[j].getAttribute('value') || '';
+                        if (v) { s = v; break; }
+                      }
+                    }
+                    if (s) add(s, el.getAttribute('title') || el.getAttribute('name') || '');
+                  }
+                } catch(e) {}
+                // 2. 扫描 iframe 中的 Flash
+                try {
+                  var iframes = document.querySelectorAll('iframe');
+                  for (var k = 0; k < iframes.length; k++) {
+                    try {
+                      var doc = iframes[k].contentDocument || (iframes[k].contentWindow && iframes[k].contentWindow.document);
+                      if (!doc) continue;
+                      var sels2 = ['object[type="application/x-shockwave-flash"]','embed[type="application/x-shockwave-flash"]','object[data\$=".swf" i]','embed[src\$=".swf" i]'];
+                      var els2 = doc.querySelectorAll(sels2.join(','));
+                      for (var m = 0; m < els2.length; m++) {
+                        var s2 = els2[m].getAttribute('data') || els2[m].getAttribute('src') || els2[m].getAttribute('movie') || '';
+                        if (s2) add(s2, els2[m].getAttribute('title') || '');
+                      }
+                    } catch(ee) {}
+                  }
+                } catch(e) {}
+                // 3. 扫描 Performance API 的网络请求
+                try {
+                  if (window.performance && performance.getEntries) {
+                    var entries = performance.getEntries();
+                    for (var n = 0; n < entries.length; n++) {
+                      var u = entries[n].name || '';
+                      if ((/\.swf(\?|$)/i).test(u) || (/\/dw-\d+/).test(u)) {
+                        add(u, '');
+                      }
+                    }
+                  }
+                } catch(e) {}
+                // 4. 兜底：扫描所有 script src / link href / a href
+                try {
+                  var sels3 = document.querySelectorAll('script[src*=".swf"],link[href*=".swf"],a[href*=".swf"]');
+                  for (var p = 0; p < sels3.length; p++) {
+                    var u2 = sels3[p].getAttribute('src') || sels3[p].getAttribute('href') || '';
+                    if (u2) add(u2, '');
+                  }
+                } catch(e) {}
+                // 5. 上报
+                if (window.Android && window.Android.onSwfFound) {
+                  try { window.Android.onSwfFound(JSON.stringify(results)); } catch(e) { console.error('[SWF sniffer] onSwfFound:', e); }
+                } else {
+                  console.log('[SWF sniffer] found ' + results.length + ' swf(s):', results);
+                }
+              } catch(e) {
+                console.error('[SWF sniffer]', e);
+              }
+            })();
+        """.trimIndent()
     }
 
     // -------------------------------------------------------------------------
@@ -321,11 +440,15 @@ open class FlashWebViewClient(
         // Intercept direct .swf links
         if (url.endsWith(".swf", ignoreCase = true)) {
             Log.d(TAG, "Intercepted SWF link: $url")
-            // Redirect to WAFlash/player via JS interface
-            view.evaluateJavascript(
-                "if(window.Android&&window.Android.openSwf){window.Android.openSwf('$url',window.location.href);}",
-                null
-            )
+            // 优先用 callback（3.3 模式），否则兜底走 JS 接口
+            if (callback != null) {
+                callback.onSwfIntercepted(url, view.url ?: url)
+            } else {
+                view.evaluateJavascript(
+                    "if(window.Android&&window.Android.openSwf){window.Android.openSwf('$url',window.location.href);}",
+                    null
+                )
+            }
             return true
         }
         return false
@@ -353,7 +476,10 @@ open class FlashWebViewClient(
             if (path.isEmpty()) return null
 
             return when {
-                path == "local.swf" -> interceptLocalSwf(view)
+                path == "local.swf" -> {
+                    // 仅在设置了 swfFilePath 时才拦截（SwfPlayerScreen 用，WebGameScreen 不用）
+                    if (swfFilePath.isEmpty()) null else interceptLocalSwf(view)
+                }
                 else -> interceptAsset(view, path)
             }
         }
