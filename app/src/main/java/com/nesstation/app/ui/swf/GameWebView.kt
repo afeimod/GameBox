@@ -109,7 +109,7 @@ open class GameWebView @JvmOverloads constructor(
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
         // Safe Browsing
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
-            WebSettingsCompat.setSafeBrowsingEnabled(wv, true)
+            WebSettingsCompat.setSafeBrowsingEnabled(this, true)
         }
         // Cookie
         CookieManager.getInstance().setAcceptCookie(true)
