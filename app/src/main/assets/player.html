@@ -58,6 +58,12 @@
     var CDN_PATH   = param('path', '');
     var AUTOPLAY   = param('autoplay', 'on');
 
+    // Multi-SWF support: When loading local SWF via flash.local/local.swf proxy,
+    // relative resource requests (e.g., "sub.swf", "assets/image.png") resolve to
+    // https://flash.local/<resource>. GameWebViewClient.shouldInterceptRequest
+    // intercepts these and serves them from the local SWF's parent directory.
+    // No explicit base URL needed - the proxy URL handles path resolution.
+
     document.title = TITLE;
     var loadText = document.getElementById('loadText');
     var stage = document.getElementById('stage');

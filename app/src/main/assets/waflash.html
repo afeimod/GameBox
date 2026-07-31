@@ -56,6 +56,13 @@
     var TITLE = params.get('title') || 'Flash 游戏';
     document.title = TITLE;
 
+    // Multi-SWF support: When loading local SWF via flash.local/local.swf proxy,
+    // relative resource requests (e.g., "sub.swf", "assets/image.png") resolve to
+    // https://flash.local/<resource>. GameWebViewClient.shouldInterceptRequest
+    // intercepts these and serves them from the local SWF's parent directory.
+    // The WAFlash engine loads SWF from flash.local/local.swf, so relative paths
+    // in the SWF will also resolve to flash.local/ and be intercepted.
+
     var statusEl = document.getElementById('waflashStatus');
     var canvas = document.getElementById('canvas');
 

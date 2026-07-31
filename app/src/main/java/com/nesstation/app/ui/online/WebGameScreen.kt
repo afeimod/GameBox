@@ -47,6 +47,19 @@ import com.nesstation.app.flash.webview.GameWebViewClient
 import com.nesstation.app.flash.webview.NavHelper
 import com.nesstation.app.flash.webview.WebAppInterface
 import com.nesstation.app.flash.widget.FloatingMenuView
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.nesstation.app.flash.download.DownloadStatus
+import com.nesstation.app.flash.download.SwfDownloadItem
+import com.nesstation.app.flash.download.SwfDownloadManager
 import kotlinx.coroutines.flow.MutableStateFlow
 
 private val PrimaryBackground = Color(0xFF0F1115)
@@ -77,9 +90,13 @@ fun WebGameScreen(
     var isMouseEnabled by remember { mutableStateOf(PrefsManager.isMouseEnabled) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isLandscape by remember { mutableStateOf(true) }
+    var isPositionEditMode by remember { mutableStateOf(false) }
     val errorMessage = remember { mutableStateOf<String?>(null) }
     val reloadTrigger = remember { mutableStateOf(0) }
+    val gamepadRebuildTrigger = remember { mutableStateOf(0) }
     val swfExtractJson = remember { mutableStateOf<String?>(null) }
+    val downloadProgress = remember { mutableStateOf<List<SwfDownloadItem>>(emptyList()) }
+    val isDownloadingActive = remember { mutableStateOf(false) }
     val showKeyDialog = remember { mutableStateOf(false) }
     val showFlashDialog = remember { mutableStateOf(false) }
     val showZoomDialog = remember { mutableStateOf(false) }
@@ -176,9 +193,14 @@ fun WebGameScreen(
         gamepadVisible = !gamepadVisible
     }
 
+    fun rebuildGamepad() {
+        gamepadRebuildTrigger.value = gamepadRebuildTrigger.value + 1
+    }
+
     fun toggleMouse() {
         isMouseEnabled = !isMouseEnabled
         PrefsManager.sp.edit().putBoolean("mouse_enabled", isMouseEnabled).apply()
+        PrefsManager.sp.edit().putBoolean("mouse_buttons_visible", isMouseEnabled).apply()
         val wv = webViewRef.value
         if (wv != null) {
             if (isMouseEnabled) {
@@ -312,6 +334,36 @@ fun WebGameScreen(
                 }
             }
         )
+
+        // Download progress overlay - fixed at top
+        if (isDownloadingActive.value) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xE61A1A2E))
+                    .padding(8.dp)
+                    .align(Alignment.TopCenter)
+            ) {
+                val items = downloadProgress.value
+                val completed = items.count { it.status == DownloadStatus.COMPLETED }
+                val total = items.size
+                val currentPercent = items.filter { it.status == DownloadStatus.DOWNLOADING }.maxByOrNull { it.progress }?.progress ?: 0
+
+                Column {
+                    Text("下载进度: $completed/$total" + if (currentPercent > 0) " (当前: $currentPercent%)" else "", color = Color.White, fontSize = 12.sp)
+                    LinearProgressIndicator(
+                        progress = if (total > 0) completed.toFloat() / total else 0f,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        color = Color(0xFFFFC107)
+                    )
+                    // Show individual file status
+                    items.filter { it.status != DownloadStatus.COMPLETED }.forEach { item ->
+                        Text("${item.title}: ${when (item.status) { DownloadStatus.DOWNLOADING -> "下载中 ${item.progress}%"; DownloadStatus.FAILED -> "失败(重试${item.retryCount})"; DownloadStatus.PENDING -> "等待中"; DownloadStatus.CANCELLED -> "已取消"; else -> "" }}",
+                            color = Color.White, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
     }
 
     // 在容器创建后用 LaunchedEffect 把各 view 加进去
@@ -383,6 +435,33 @@ fun WebGameScreen(
                 }
                 override fun getCachedSwfPath(): String? = null
                 override fun getLocalSwfUri(): String? = localSwfUri.value
+                override fun getLocalSwfDir(): String? {
+                    val uri = localSwfUri.value ?: return null
+                    return try {
+                        when {
+                            uri.startsWith("content://") -> {
+                                // For content:// URIs, return the parent document URI
+                                val parsed = android.net.Uri.parse(uri)
+                                // Try to get parent by removing the last path segment
+                                val parentUri = parsed.toString().substringBeforeLast("%2F")
+                                    .substringBeforeLast("/")
+                                if (parentUri != uri) parentUri else null
+                            }
+                            uri.startsWith("file://") -> {
+                                val path = android.net.Uri.parse(uri).path ?: return null
+                                val file = java.io.File(path)
+                                file.parentFile?.absolutePath
+                            }
+                            else -> {
+                                val file = java.io.File(uri)
+                                if (file.parentFile != null) file.parentFile?.absolutePath else null
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("WebGameScreen", "获取SWF目录失败: ${e.message}")
+                        null
+                    }
+                }
             }
 
             val wvClient = GameWebViewClient(viewClientCallback)
@@ -426,7 +505,7 @@ fun WebGameScreen(
     }
 
     // 创建手柄与菜单
-    LaunchedEffect(mainBoxRef.value, gamepadVisible, isMouseEnabled) {
+    LaunchedEffect(mainBoxRef.value, gamepadVisible, isMouseEnabled, gamepadRebuildTrigger.value) {
         val container = mainBoxRef.value ?: return@LaunchedEffect
         val density = container.resources.displayMetrics.density
 
@@ -440,7 +519,7 @@ fun WebGameScreen(
         val dpad = DPadView(container.context).apply {
             targetWebView = webViewRef.value
             overlayAlpha = PrefsManager.gamepadAlpha
-            isDragMode = false
+            isDragMode = isPositionEditMode
         }
         dpadRef.value = dpad
         val dpadSize = (140 * density).toInt()
@@ -455,7 +534,7 @@ fun WebGameScreen(
         val action = ActionButtonView(container.context).apply {
             targetWebView = webViewRef.value
             overlayAlpha = PrefsManager.gamepadAlpha
-            isDragMode = false
+            isDragMode = isPositionEditMode
         }
         actionRef.value = action
         val baseSize = (160 * density).toInt()
@@ -500,7 +579,7 @@ fun WebGameScreen(
         val mouse = MouseControlView(container.context).apply {
             targetWebView = webViewRef.value
             overlayAlpha = PrefsManager.gamepadAlpha
-            isDragMode = false
+            isDragMode = isPositionEditMode
         }
         mouseRef.value = mouse
         val mouseSize = (220 * density).toInt()
@@ -508,7 +587,7 @@ fun WebGameScreen(
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
             bottomMargin = (200 * density).toInt()
         }
-        if (PrefsManager.isMouseButtonsVisible) container.addView(mouse, mouseLp)
+        if (isMouseEnabled) container.addView(mouse, mouseLp)
 
         // 创建悬浮菜单
         val menu = FloatingMenuView(container.context)
@@ -575,9 +654,22 @@ fun WebGameScreen(
                 playSwfWithEngine(url)
                 swfExtractJson.value = null
             },
-            onDownload = { url ->
-                Toast.makeText(context, "开始下载 $url", Toast.LENGTH_SHORT).show()
-                swfExtractJson.value = null
+            onDownload = { items ->
+                if (!isDownloadingActive.value) {
+                    val manager = SwfDownloadManager(context)
+                    manager.setProgressListener { list -> downloadProgress.value = list }
+                    manager.setCompleteListener { list ->
+                        isDownloadingActive.value = false
+                        val success = list.count { it.status == DownloadStatus.COMPLETED }
+                        val failed = list.count { it.status == DownloadStatus.FAILED }
+                        Toast.makeText(context, "下载完成: $success 个成功" + if (failed > 0) ", $failed 个失败" else "", Toast.LENGTH_LONG).show()
+                    }
+                    isDownloadingActive.value = true
+                    val pageUrl = webViewRef.value?.url ?: ""
+                    manager.startDownload(items, pageUrl)
+                } else {
+                    Toast.makeText(context, "正在下载中，请等待", Toast.LENGTH_SHORT).show()
+                }
             }
         )
     }
@@ -618,57 +710,16 @@ fun WebGameScreen(
     // 按键设置对话框
     if (showKeyDialog.value) {
         KeyMappingDialog(
-            onAdd = {
-                val c = PrefsManager.gamepadKeyCount
-                if (c < 18) PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
-                showKeyDialog.value = false
-                reload()
+            onReload = { rebuildGamepad() },
+            onToggleMouseButtons = { toggleMouse() },
+            isPositionEditMode = isPositionEditMode,
+            onTogglePositionEdit = {
+                isPositionEditMode = !isPositionEditMode
+                dpadRef.value?.isDragMode = isPositionEditMode
+                actionRef.value?.isDragMode = isPositionEditMode
+                mouseRef.value?.isDragMode = isPositionEditMode
             },
-            onRemove = {
-                val c = PrefsManager.gamepadKeyCount
-                if (c > 2) PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
-                showKeyDialog.value = false
-                reload()
-            },
-            onPickKey = { idx ->
-                // 直接选择 key（J/K/L/U/I/O 等）
-                val keys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
-                val current = PrefsManager.gamepadKeys.getOrElse(idx) { "J" }
-                android.app.AlertDialog.Builder(context)
-                    .setTitle("按键 ${idx + 1} 映射")
-                    .setSingleChoiceItems(keys, keys.indexOf(current).coerceAtLeast(0)) { dlg, which ->
-                        PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", keys[which]).apply()
-                        dlg.dismiss()
-                        showKeyDialog.value = false
-                        reload()
-                    }
-                    .setNegativeButton("取消", null)
-                    .show()
-            },
-            onReset = {
-                PrefsManager.sp.edit()
-                    .putInt("gamepad_key_count", 6)
-                    .putString("gamepad_key_1", "J")
-                    .putString("gamepad_key_2", "K")
-                    .putString("gamepad_key_3", "L")
-                    .putString("gamepad_key_4", "U")
-                    .putString("gamepad_key_5", "I")
-                    .putString("gamepad_key_6", "O")
-                    .putString("select_key", "TAB")
-                    .putString("start_key", "ENTER")
-                    .putString("dpad_mode", "joystick")
-                    .putInt("dpad_scale", 100)
-                    .putInt("gamepad_scale", 100)
-                    .putFloat("dpad_pos_x", -1f)
-                    .putFloat("dpad_pos_y", -1f)
-                    .putFloat("action_pos_x", -1f)
-                    .putFloat("action_pos_y", -1f)
-                    .putFloat("system_pos_x", -1f)
-                    .putFloat("system_pos_y", -1f)
-                    .apply()
-                showKeyDialog.value = false
-                reload()
-            },
+            onToggleCameraRotation = { toggleCameraRotation() },
             onDismiss = { showKeyDialog.value = false }
         )
     }
@@ -701,7 +752,7 @@ private fun SwfExtractDialog(
     json: String,
     onDismiss: () -> Unit,
     onPlay: (String) -> Unit,
-    onDownload: (String) -> Unit
+    onDownload: (List<Pair<String, String>>) -> Unit
 ) {
     val swfList = remember(json) {
         try {
@@ -716,6 +767,8 @@ private fun SwfExtractDialog(
             }
         } catch (e: Exception) { emptyList() }
     }
+    val selected = remember(json) { mutableStateMapOf<Int, Boolean>() }
+
     if (swfList.isEmpty()) {
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -724,26 +777,60 @@ private fun SwfExtractDialog(
             confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("确定") } }
         )
     } else {
+        val allSelected = swfList.indices.all { selected[it] == true }
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("发现 ${swfList.size} 个 SWF") },
             text = {
                 androidx.compose.foundation.lazy.LazyColumn {
+                    item {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                if (allSelected) {
+                                    selected.clear()
+                                } else {
+                                    swfList.indices.forEach { selected[it] = true }
+                                }
+                            }
+                        ) {
+                            Text(if (allSelected) "取消全选" else "全选")
+                        }
+                    }
                     items(count = swfList.size) { idx ->
                         val it = swfList[idx]
-                        androidx.compose.material3.TextButton(
-                            onClick = { onPlay(it.url) },
-                            modifier = Modifier.fillMaxSize()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            androidx.compose.foundation.layout.Column {
-                                Text(it.title, color = androidx.compose.ui.graphics.Color.White, fontSize = androidx.compose.ui.unit.TextUnit(13f, androidx.compose.ui.unit.TextUnitType.Sp))
-                                Text(it.url, color = androidx.compose.ui.graphics.Color.Gray, fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp))
+                            Checkbox(
+                                checked = selected[idx] == true,
+                                onCheckedChange = { checked -> selected[idx] = checked }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(it.title, color = Color.White, fontSize = 13.sp)
+                                Text(it.url, color = Color.Gray, fontSize = 10.sp)
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onPlay(it.url) }) {
+                                Text("播放")
                             }
                         }
                     }
                 }
             },
-            confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") } }
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val toDownload = swfList.filterIndexed { i, _ -> selected[i] == true }
+                            .map { it.url to it.title }
+                        if (toDownload.isNotEmpty()) {
+                            onDownload(toDownload)
+                        }
+                    }
+                ) { Text("下载选中") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
+            }
         )
     }
 }
@@ -817,30 +904,194 @@ private fun UaModeDialog(
 
 @Composable
 private fun KeyMappingDialog(
-    onAdd: () -> Unit,
-    onRemove: () -> Unit,
-    onPickKey: (Int) -> Unit,
-    onReset: () -> Unit,
+    onReload: () -> Unit,
+    onToggleMouseButtons: () -> Unit,
+    isPositionEditMode: Boolean,
+    onTogglePositionEdit: () -> Unit,
+    onToggleCameraRotation: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val kmmItems = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
+    val keyCount = PrefsManager.gamepadKeyCount
+    val keys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
+
+    val menuItems = arrayOf(
+        "按键映射 (选择按键修改)",
+        "添加按键 (当前: $keyCount)",
+        "删除按键 (当前: $keyCount)",
+        "Start/Select 映射",
+        "方向键模式 (DPAD/WASD/摇杆)",
+        "方向键大小",
+        "动作按键大小",
+        "显示/隐藏按键",
+        "添加/隐藏鼠标按钮",
+        "位置编辑模式 (拖动调整)" + if (isPositionEditMode) " [已开启]" else "",
+        "视角旋转 (3D游戏)",
+        "恢复默认"
+    )
+
     android.app.AlertDialog.Builder(context)
-        .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
-        .setItems(kmmItems) { _, which ->
+        .setTitle("按键设置（共 $keyCount 个）")
+        .setItems(menuItems) { _, which ->
             when (which) {
                 0 -> {
-                    val keys = PrefsManager.gamepadKeys
-                    val labels = keys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
+                    // 按键映射 (选择按键修改)
+                    val gameKeys = PrefsManager.gamepadKeys
+                    val labels = gameKeys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
                     android.app.AlertDialog.Builder(context)
                         .setTitle("选择要修改的按键")
-                        .setItems(labels) { _, idx -> onPickKey(idx) }
+                        .setItems(labels) { _, idx ->
+                            val current = gameKeys.getOrElse(idx) { "J" }
+                            android.app.AlertDialog.Builder(context)
+                                .setTitle("按键 ${idx + 1} 映射")
+                                .setSingleChoiceItems(keys, keys.indexOf(current).coerceAtLeast(0)) { d2, w2 ->
+                                    PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", keys[w2]).apply()
+                                    d2.dismiss()
+                                    onReload()
+                                }
+                                .setNegativeButton("取消", null)
+                                .show()
+                        }
                         .setNegativeButton("取消", null)
                         .show()
                 }
-                1 -> onAdd()
-                2 -> onRemove()
-                3 -> onReset()
+                1 -> {
+                    // 添加按键
+                    val c = PrefsManager.gamepadKeyCount
+                    if (c < 18) PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
+                    onReload()
+                }
+                2 -> {
+                    // 删除按键
+                    val c = PrefsManager.gamepadKeyCount
+                    if (c > 2) PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
+                    onReload()
+                }
+                3 -> {
+                    // Start/Select 映射
+                    val startKey = PrefsManager.startKey
+                    val selectKey = PrefsManager.selectKey
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("Start/Select 映射")
+                        .setItems(arrayOf("Start 键 (当前: $startKey)", "Select 键 (当前: $selectKey)")) { _, idx ->
+                            val current = if (idx == 0) startKey else selectKey
+                            android.app.AlertDialog.Builder(context)
+                                .setTitle(if (idx == 0) "Start 键映射" else "Select 键映射")
+                                .setSingleChoiceItems(keys, keys.indexOf(current).coerceAtLeast(0)) { d2, w2 ->
+                                    if (idx == 0) {
+                                        PrefsManager.sp.edit().putString("start_key", keys[w2]).apply()
+                                    } else {
+                                        PrefsManager.sp.edit().putString("select_key", keys[w2]).apply()
+                                    }
+                                    d2.dismiss()
+                                }
+                                .setNegativeButton("取消", null)
+                                .show()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                4 -> {
+                    // 方向键模式 (DPAD/WASD/摇杆)
+                    val modes = arrayOf("摇杆 (joystick)", "十字键 (dpad)", "WASD (wasd)")
+                    val values = arrayOf("joystick", "dpad", "wasd")
+                    val current = PrefsManager.dpadMode
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("方向键模式")
+                        .setSingleChoiceItems(modes, values.indexOf(current).coerceAtLeast(0)) { d2, w2 ->
+                            PrefsManager.sp.edit().putString("dpad_mode", values[w2]).apply()
+                            d2.dismiss()
+                            onReload()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                5 -> {
+                    // 方向键大小
+                    val sizes = arrayOf("小 (80)", "中 (100)", "大 (120)", "超大 (150)")
+                    val values = intArrayOf(80, 100, 120, 150)
+                    val current = (PrefsManager.dpadScale * 100).toInt()
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("方向键大小")
+                        .setSingleChoiceItems(sizes, values.indexOf(current).coerceAtLeast(0)) { d2, w2 ->
+                            PrefsManager.sp.edit().putInt("dpad_scale", values[w2]).apply()
+                            d2.dismiss()
+                            onReload()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                6 -> {
+                    // 动作按键大小
+                    val sizes = arrayOf("小 (80)", "中 (100)", "大 (120)", "超大 (150)")
+                    val values = intArrayOf(80, 100, 120, 150)
+                    val current = (PrefsManager.gamepadScale * 100).toInt()
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("动作按键大小")
+                        .setSingleChoiceItems(sizes, values.indexOf(current).coerceAtLeast(0)) { d2, w2 ->
+                            PrefsManager.sp.edit().putInt("gamepad_scale", values[w2]).apply()
+                            d2.dismiss()
+                            onReload()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                7 -> {
+                    // 显示/隐藏按键
+                    val gameKeys = PrefsManager.gamepadKeys
+                    val visible = PrefsManager.gamepadKeyVisible
+                    val checked = visible.toBooleanArray()
+                    val labels = gameKeys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("显示/隐藏按键")
+                        .setMultiChoiceItems(labels, checked) { _, which2, isChecked ->
+                            checked[which2] = isChecked
+                        }
+                        .setPositiveButton("确定") { _, _ ->
+                            val editor = PrefsManager.sp.edit()
+                            checked.forEachIndexed { i, c -> editor.putBoolean("gamepad_key_${i + 1}_visible", c) }
+                            editor.apply()
+                            onReload()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                8 -> {
+                    // 添加/隐藏鼠标按钮
+                    onToggleMouseButtons()
+                }
+                9 -> {
+                    // 位置编辑模式 (拖动调整)
+                    onTogglePositionEdit()
+                }
+                10 -> {
+                    // 视角旋转 (3D游戏)
+                    onToggleCameraRotation()
+                }
+                11 -> {
+                    // 恢复默认
+                    PrefsManager.sp.edit()
+                        .putInt("gamepad_key_count", 6)
+                        .putString("gamepad_key_1", "J")
+                        .putString("gamepad_key_2", "K")
+                        .putString("gamepad_key_3", "L")
+                        .putString("gamepad_key_4", "U")
+                        .putString("gamepad_key_5", "I")
+                        .putString("gamepad_key_6", "O")
+                        .putString("select_key", "TAB")
+                        .putString("start_key", "ENTER")
+                        .putString("dpad_mode", "joystick")
+                        .putInt("dpad_scale", 100)
+                        .putInt("gamepad_scale", 100)
+                        .putFloat("dpad_pos_x", -1f)
+                        .putFloat("dpad_pos_y", -1f)
+                        .putFloat("action_pos_x", -1f)
+                        .putFloat("action_pos_y", -1f)
+                        .putFloat("system_pos_x", -1f)
+                        .putFloat("system_pos_y", -1f)
+                        .apply()
+                    onReload()
+                }
             }
         }
         .setNegativeButton("关闭", null)

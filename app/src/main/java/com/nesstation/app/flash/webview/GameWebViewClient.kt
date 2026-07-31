@@ -32,6 +32,8 @@ open class GameWebViewClient(
         fun getCachedSwfPath(): String?
         /** 获取本地 SWF 文件的真实 URI */
         fun getLocalSwfUri(): String?
+        /** 获取本地 SWF 所在的目录路径（用于多 SWF 资源加载） */
+        fun getLocalSwfDir(): String?
     }
 
     /** 常见广告域名 */
@@ -63,6 +65,15 @@ open class GameWebViewClient(
             // 本地 SWF 代理：flash.local/local.swf → 读取真实文件
             if (path == "local.swf") {
                 return interceptLocalSwfProxy(view)
+            }
+            // Multi-SWF: check if this is a resource file from the local SWF's directory
+            val localSwfDir = callback.getLocalSwfDir()
+            if (localSwfDir != null && path != "local.swf" &&
+                !path.startsWith("ruffle/") && !path.startsWith("waflash/") &&
+                path != "player.html" && path != "waflash.html") {
+                // Try to serve from local directory; fall through to assets if not found
+                val resourceResponse = interceptLocalResource(view, localSwfDir, path)
+                if (resourceResponse != null) return resourceResponse
             }
             return interceptAsset(view, path)
         }
@@ -233,6 +244,97 @@ open class GameWebViewClient(
             android.util.Log.e("GameWebViewClient", "local.swf 读取失败: ${e.message}")
             WebResourceResponse("application/x-shockwave-flash", null, 404, "Not Found",
                 mapOf("Access-Control-Allow-Origin" to "*"), java.io.ByteArrayInputStream(ByteArray(0)))
+        }
+    }
+
+    /**
+     * 拦截本地 SWF 资源文件请求（多 SWF 游戏）。
+     * 当主 SWF 尝试加载同目录下的其他 SWF/资源文件时，从本地目录读取。
+     */
+    private fun interceptLocalResource(view: WebView, dirPath: String, resourcePath: String): WebResourceResponse? {
+        return try {
+            // Handle both file:// paths and direct paths
+            val basePath = if (dirPath.startsWith("file://")) {
+                android.net.Uri.parse(dirPath).path ?: dirPath.removePrefix("file://")
+            } else {
+                dirPath
+            }
+
+            val resourceFile = java.io.File(basePath, resourcePath)
+            android.util.Log.d("GameWebViewClient", "Multi-SWF资源: 查找 $resourcePath 于 ${resourceFile.absolutePath}")
+
+            if (resourceFile.exists() && resourceFile.canRead()) {
+                val data = resourceFile.readBytes()
+                android.util.Log.d("GameWebViewClient", "Multi-SWF资源: 找到 $resourcePath (${data.size} bytes)")
+
+                // Determine MIME type based on extension
+                val mimeType = when {
+                    resourcePath.endsWith(".swf", ignoreCase = true) -> "application/x-shockwave-flash"
+                    resourcePath.endsWith(".xml", ignoreCase = true) -> "text/xml"
+                    resourcePath.endsWith(".json", ignoreCase = true) -> "application/json"
+                    resourcePath.endsWith(".txt", ignoreCase = true) -> "text/plain"
+                    resourcePath.endsWith(".png", ignoreCase = true) -> "image/png"
+                    resourcePath.endsWith(".jpg", ignoreCase = true) || resourcePath.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
+                    resourcePath.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                    resourcePath.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                    else -> "application/octet-stream"
+                }
+
+                WebResourceResponse(
+                    mimeType, null, 200, "OK",
+                    mapOf(
+                        "Access-Control-Allow-Origin" to "*",
+                        "Cache-Control" to "no-cache"
+                    ),
+                    java.io.ByteArrayInputStream(data)
+                )
+            } else {
+                // For content:// URIs, try using DocumentFile
+                tryContentUriResource(view, dirPath, resourcePath)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GameWebViewClient", "Multi-SWF资源: 未找到 $resourcePath - ${e.message}")
+            null  // Return null to let WebView handle normally (404)
+        }
+    }
+
+    /**
+     * 通过 ContentResolver/DocumentFile 读取 content:// URI 同目录下的资源文件。
+     */
+    private fun tryContentUriResource(view: WebView, dirUri: String, resourcePath: String): WebResourceResponse? {
+        return try {
+            if (!dirUri.startsWith("content://")) return null
+
+            val parsed = android.net.Uri.parse(dirUri)
+            // Try to get the parent document and find the child
+            val docFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(view.context, parsed)
+                ?: androidx.documentfile.provider.DocumentFile.fromUri(view.context, parsed)
+                ?: return null
+
+            // Navigate to find the resource file
+            var current = docFile
+            val parts = resourcePath.split("/")
+            for ((index, part) in parts.withIndex()) {
+                if (current == null) break
+                if (current.isDirectory) {
+                    current = current.findFile(part)
+                } else if (index == parts.size - 1) {
+                    // Last part - check if current file matches
+                    if (current.name == part) {
+                        val data = view.context.contentResolver.openInputStream(current.uri)?.use { it.readBytes() }
+                        if (data != null) {
+                            val mimeType = if (part.endsWith(".swf", true)) "application/x-shockwave-flash" else "application/octet-stream"
+                            return WebResourceResponse(mimeType, null, 200, "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                java.io.ByteArrayInputStream(data))
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            android.util.Log.w("GameWebViewClient", "ContentUri资源查找失败: ${e.message}")
+            null
         }
     }
 

@@ -70,8 +70,10 @@ fun SwfPlayerScreen(
     val showZoomDialog = remember { mutableStateOf(false) }
     val showUaDialog = remember { mutableStateOf(false) }
     val showAspectRatioDialog = remember { mutableStateOf(false) }
-    // 本地 SWF 打开时先弹出引擎选择
-    val showEnginePicker = remember { mutableStateOf(true) }
+    // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
+    val enginePickerShown = remember { mutableStateOf(false) }
+    // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
+    var isPositionEditMode by remember { mutableStateOf(false) }
 
     val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
     val dpadRef = remember { mutableStateOf<DPadView?>(null) }
@@ -122,7 +124,10 @@ fun SwfPlayerScreen(
 
     fun toggleMouse() {
         isMouseEnabled = !isMouseEnabled
-        PrefsManager.sp.edit().putBoolean("mouse_enabled", isMouseEnabled).apply()
+        PrefsManager.sp.edit()
+            .putBoolean("mouse_enabled", isMouseEnabled)
+            .putBoolean("mouse_buttons_visible", isMouseEnabled)
+            .apply()
         val wv = webViewRef.value
         if (wv != null) {
             if (isMouseEnabled) {
@@ -266,6 +271,33 @@ fun SwfPlayerScreen(
                 override fun shouldInjectRuffle(url: String?): Boolean = false
                 override fun getCachedSwfPath(): String? = null
                 override fun getLocalSwfUri(): String? = localSwfUri.value
+                override fun getLocalSwfDir(): String? {
+                    val uri = localSwfUri.value ?: return null
+                    return try {
+                        when {
+                            uri.startsWith("content://") -> {
+                                // For content:// URIs, return the parent document URI
+                                val parsed = android.net.Uri.parse(uri)
+                                // Try to get parent by removing the last path segment
+                                val parentUri = parsed.toString().substringBeforeLast("%2F")
+                                    .substringBeforeLast("/")
+                                if (parentUri != uri) parentUri else null
+                            }
+                            uri.startsWith("file://") -> {
+                                val path = android.net.Uri.parse(uri).path ?: return null
+                                val file = java.io.File(path)
+                                file.parentFile?.absolutePath
+                            }
+                            else -> {
+                                val file = java.io.File(uri)
+                                if (file.parentFile != null) file.parentFile?.absolutePath else null
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("SwfPlayerScreen", "获取SWF目录失败: ${e.message}")
+                        null
+                    }
+                }
             }
 
             wv.apply {
@@ -341,7 +373,7 @@ fun SwfPlayerScreen(
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
             bottomMargin = (200 * density).toInt()
         }
-        if (PrefsManager.isMouseButtonsVisible) container.addView(mouse, mouseLp)
+        if (isMouseEnabled) container.addView(mouse, mouseLp)
 
         val menu = FloatingMenuView(container.context)
         menu.setCallbacks(object : FloatingMenuView.Callbacks {
@@ -381,26 +413,24 @@ fun SwfPlayerScreen(
         }
     }
 
-    // ========== 本地 SWF 引擎选择弹窗（打开时先选择引擎） ==========
-    if (showEnginePicker.value) {
-        android.app.AlertDialog.Builder(context)
-            .setTitle("选择 Flash 引擎")
-            .setMessage("本地 SWF 文件需要选择播放引擎")
-            .setPositiveButton("Ruffle (推荐)") { dlg, _ ->
-                applyEngineAndReload("ruffle")
-                showEnginePicker.value = false
-                dlg.dismiss()
-            }
-            .setNegativeButton("WAFlash") { dlg, _ ->
-                applyEngineAndReload("waflash")
-                showEnginePicker.value = false
-                dlg.dismiss()
-            }
-            .setOnCancelListener {
-                showEnginePicker.value = false
-                onExit()
-            }
-            .show()
+    // ========== 本地 SWF 引擎选择弹窗（仅弹一次） ==========
+    LaunchedEffect(Unit) {
+        if (!enginePickerShown.value) {
+            enginePickerShown.value = true
+            android.app.AlertDialog.Builder(context)
+                .setTitle("选择 Flash 引擎")
+                .setMessage("本地 SWF 文件需要选择播放引擎")
+                .setPositiveButton("Ruffle (推荐)") { dlg, _ ->
+                    applyEngineAndReload("ruffle")
+                    dlg.dismiss()
+                }
+                .setNegativeButton("WAFlash") { dlg, _ ->
+                    applyEngineAndReload("waflash")
+                    dlg.dismiss()
+                }
+                .setOnCancelListener { onExit() }
+                .show()
+        }
     }
 
     // ========== Flash 引擎切换弹窗 ==========
@@ -425,26 +455,47 @@ fun SwfPlayerScreen(
             .show()
     }
 
-    // ========== 按键映射弹窗 ==========
+    // ========== 按键映射弹窗（增强版） ==========
     if (showKeyDialog.value) {
-        val items = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
+        val allKeys = arrayOf(
+            "J", "K", "L", "U", "I", "O",
+            "A", "B", "C", "D", "E", "F", "G", "H", "M", "N",
+            "P", "Q", "R", "S", "T", "V", "W", "X", "Y", "Z",
+            "SPACE", "ENTER", "TAB", "ESC",
+            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
+        )
+        val items = arrayOf(
+            "按键映射 (选择按键修改)",
+            "添加按键",
+            "删除按键",
+            "Start/Select 映射",
+            "方向键模式 (DPAD/WASD/摇杆)",
+            "方向键大小",
+            "动作按键大小",
+            "显示/隐藏按键",
+            "添加/隐藏鼠标按钮",
+            "位置编辑模式 (拖动调整)",
+            "视角旋转 (3D游戏)",
+            "恢复默认"
+        )
         android.app.AlertDialog.Builder(context)
-            .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
+            .setTitle("按键映射 (共 ${PrefsManager.gamepadKeyCount} 个)")
             .setItems(items) { _, which ->
                 when (which) {
+                    // 0: 按键映射 - 选择某个按键修改其映射
                     0 -> {
                         val keys = PrefsManager.gamepadKeys
                         val labels = keys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
                         android.app.AlertDialog.Builder(context)
                             .setTitle("选择要修改的按键")
                             .setItems(labels) { _, idx ->
-                                val allKeys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
                                 val cur = PrefsManager.gamepadKeys.getOrElse(idx) { "J" }
                                 android.app.AlertDialog.Builder(context)
                                     .setTitle("按键 ${idx + 1} 映射")
                                     .setSingleChoiceItems(allKeys, allKeys.indexOf(cur).coerceAtLeast(0)) { dlg, w ->
                                         PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", allKeys[w]).apply()
                                         dlg.dismiss()
+                                        Toast.makeText(context, "按键 ${idx + 1} 已设为 ${allKeys[w]}", Toast.LENGTH_SHORT).show()
                                     }
                                     .setNegativeButton("取消", null)
                                     .show()
@@ -452,15 +503,171 @@ fun SwfPlayerScreen(
                             .setNegativeButton("取消", null)
                             .show()
                     }
+                    // 1: 添加按键（最多 18 个）
                     1 -> {
                         val c = PrefsManager.gamepadKeyCount
-                        if (c < 18) PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
+                        if (c < 18) {
+                            PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
+                            Toast.makeText(context, "已添加按键，当前 ${c + 1} 个", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "已达最大按键数 18", Toast.LENGTH_SHORT).show()
+                        }
                     }
+                    // 2: 删除按键（最少 2 个）
                     2 -> {
                         val c = PrefsManager.gamepadKeyCount
-                        if (c > 2) PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
+                        if (c > 2) {
+                            PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
+                            Toast.makeText(context, "已删除按键，当前 ${c - 1} 个", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "已达最小按键数 2", Toast.LENGTH_SHORT).show()
+                        }
                     }
+                    // 3: Start/Select 映射
                     3 -> {
+                        val sysItems = arrayOf(
+                            "Start 键 (${PrefsManager.startKey})",
+                            "Select 键 (${PrefsManager.selectKey})"
+                        )
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("Start/Select 映射")
+                            .setItems(sysItems) { _, idx ->
+                                val title = if (idx == 0) "Start 键映射" else "Select 键映射"
+                                val current = if (idx == 0) PrefsManager.startKey else PrefsManager.selectKey
+                                android.app.AlertDialog.Builder(context)
+                                    .setTitle(title)
+                                    .setSingleChoiceItems(allKeys, allKeys.indexOf(current).coerceAtLeast(0)) { dlg, w ->
+                                        val prefKey = if (idx == 0) "start_key" else "select_key"
+                                        PrefsManager.sp.edit().putString(prefKey, allKeys[w]).apply()
+                                        dlg.dismiss()
+                                        Toast.makeText(context, "$title 已设为 ${allKeys[w]}", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .setNegativeButton("取消", null)
+                                    .show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    // 4: 方向键模式（摇杆/十字键/WASD）
+                    4 -> {
+                        val modes = arrayOf("摇杆 (joystick)", "十字键 (dpad)", "WASD (wasd)")
+                        val values = arrayOf("joystick", "dpad", "wasd")
+                        val checked = values.indexOf(PrefsManager.dpadMode).coerceAtLeast(0)
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("方向键模式")
+                            .setSingleChoiceItems(modes, checked) { dlg, w ->
+                                PrefsManager.sp.edit().putString("dpad_mode", values[w]).apply()
+                                dlg.dismiss()
+                                Toast.makeText(context, "方向键模式已设为 ${modes[w]}", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    // 5: 方向键大小
+                    5 -> {
+                        val sizes = arrayOf("小 (80%)", "中 (100%)", "大 (120%)", "超大 (150%)")
+                        val values = intArrayOf(80, 100, 120, 150)
+                        val current = PrefsManager.sp.getInt("dpad_scale", 100)
+                        val checked = values.indexOf(current).coerceAtLeast(0)
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("方向键大小")
+                            .setSingleChoiceItems(sizes, checked) { dlg, w ->
+                                PrefsManager.sp.edit().putInt("dpad_scale", values[w]).apply()
+                                dlg.dismiss()
+                                Toast.makeText(context, "方向键大小已设为 ${sizes[w]}", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    // 6: 动作按键大小
+                    6 -> {
+                        val sizes = arrayOf("小 (80%)", "中 (100%)", "大 (120%)", "超大 (150%)")
+                        val values = intArrayOf(80, 100, 120, 150)
+                        val current = PrefsManager.sp.getInt("gamepad_scale", 100)
+                        val checked = values.indexOf(current).coerceAtLeast(0)
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("动作按键大小")
+                            .setSingleChoiceItems(sizes, checked) { dlg, w ->
+                                PrefsManager.sp.edit().putInt("gamepad_scale", values[w]).apply()
+                                dlg.dismiss()
+                                Toast.makeText(context, "动作按键大小已设为 ${sizes[w]}", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    // 7: 显示/隐藏按键（多选）
+                    7 -> {
+                        val keys = PrefsManager.gamepadKeys
+                        val keyVisible = PrefsManager.gamepadKeyVisible
+                        val labels = ArrayList<String>()
+                        val prefKeys = ArrayList<String>()
+                        val checkedArr = ArrayList<Boolean>()
+                        keys.forEachIndexed { i, k ->
+                            labels.add("按键 ${i + 1} ($k)")
+                            prefKeys.add("gamepad_key_${i + 1}_visible")
+                            checkedArr.add(keyVisible.getOrElse(i) { true })
+                        }
+                        labels.add("方向键")
+                        prefKeys.add("dpad_visible")
+                        checkedArr.add(PrefsManager.isDpadVisible)
+                        labels.add("Start/Select")
+                        prefKeys.add("system_buttons_visible")
+                        checkedArr.add(PrefsManager.isSystemButtonsVisible)
+                        val checkedBooleans = checkedArr.toBooleanArray()
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("显示/隐藏按键")
+                            .setMultiChoiceItems(labels.toTypedArray(), checkedBooleans) { _, whichItem, isChecked ->
+                                checkedBooleans[whichItem] = isChecked
+                            }
+                            .setPositiveButton("确定") { dlg, _ ->
+                                val editor = PrefsManager.sp.edit()
+                                prefKeys.forEachIndexed { i, pk -> editor.putBoolean(pk, checkedBooleans[i]) }
+                                editor.apply()
+                                dlg.dismiss()
+                                Toast.makeText(context, "按键显示设置已保存", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    // 8: 添加/隐藏鼠标按钮
+                    8 -> {
+                        val visible = !PrefsManager.isMouseButtonsVisible
+                        PrefsManager.sp.edit()
+                            .putBoolean("mouse_buttons_visible", visible)
+                            .putBoolean("mouse_enabled", visible)
+                            .apply()
+                        isMouseEnabled = visible
+                        val wv = webViewRef.value
+                        if (wv != null) {
+                            if (visible) {
+                                wv.evaluateJavascript(GameWebViewClient.MOUSE_CURSOR_SCRIPT, null)
+                            } else {
+                                wv.evaluateJavascript(
+                                    "(function(){var c=document.getElementById('__mouseCursor');if(c)c.remove();window.__mouseEnabled=false;})();",
+                                    null
+                                )
+                            }
+                        }
+                        Toast.makeText(context, if (visible) "鼠标按钮已显示" else "鼠标按钮已隐藏", Toast.LENGTH_SHORT).show()
+                    }
+                    // 9: 位置编辑模式（拖动调整）
+                    9 -> {
+                        isPositionEditMode = !isPositionEditMode
+                        dpadRef.value?.isDragMode = isPositionEditMode
+                        actionRef.value?.isDragMode = isPositionEditMode
+                        mouseRef.value?.isDragMode = isPositionEditMode
+                        Toast.makeText(
+                            context,
+                            if (isPositionEditMode) "位置编辑模式已开启" else "位置编辑模式已关闭",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    // 10: 视角旋转 (3D游戏)
+                    10 -> {
+                        toggleCameraRotation()
+                    }
+                    // 11: 恢复默认
+                    11 -> {
                         PrefsManager.sp.edit()
                             .putInt("gamepad_key_count", 6)
                             .putString("gamepad_key_1", "J")
@@ -469,7 +676,21 @@ fun SwfPlayerScreen(
                             .putString("gamepad_key_4", "U")
                             .putString("gamepad_key_5", "I")
                             .putString("gamepad_key_6", "O")
+                            .putString("select_key", "TAB")
+                            .putString("start_key", "ENTER")
+                            .putString("dpad_mode", "joystick")
+                            .putInt("dpad_scale", 100)
+                            .putInt("gamepad_scale", 100)
+                            .putFloat("dpad_pos_x", -1f)
+                            .putFloat("dpad_pos_y", -1f)
+                            .putFloat("action_pos_x", -1f)
+                            .putFloat("action_pos_y", -1f)
+                            .putFloat("mouse_pos_x", -1f)
+                            .putFloat("mouse_pos_y", -1f)
+                            .putFloat("system_pos_x", -1f)
+                            .putFloat("system_pos_y", -1f)
                             .apply()
+                        Toast.makeText(context, "已恢复默认按键设置", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
