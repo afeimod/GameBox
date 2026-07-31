@@ -10,7 +10,6 @@ import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
-import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
@@ -248,25 +247,10 @@ fun WebGameScreen(
                             }
                         }
 
-                        // 用户直接点击 .swf 链接（如 http://xxx.com/yyy.swf）：
-                        // 之前版本用 evaluateJavascript 调用 Android.openSwf，openSwf 内部又是固定跳到
-                        // waflash.html，导致选 Ruffle 模式也被迫用 WAFlash 播放。
-                        // 现在直接根据当前 flashEngine 选 player.html / waflash.html。
-                        override fun shouldOverrideUrlLoading(
-                            view: WebView?,
-                            request: WebResourceRequest?
-                        ): Boolean {
-                            val url = request?.url?.toString() ?: return false
-                            if (url.endsWith(".swf", ignoreCase = true)) {
-                                Log.d("WebGameScreen", "拦截 SWF 链接: $url, engine=${flashEngine.value}")
-                                mainHandler.post {
-                                    val playerUrl = buildFlashPlayerUrl(url, view?.url, flashEngine)
-                                    webViewRef?.loadUrl(playerUrl)
-                                }
-                                return true
-                            }
-                            return super.shouldOverrideUrlLoading(view, request)
-                        }
+                        // 注：基类 FlashWebViewClient.shouldOverrideUrlLoading 已经会拦截
+                        // .swf 链接，并通过 evaluateJavascript 调用 window.Android.openSwf()。
+                        // openSwf 接口里已统一走 buildFlashPlayerUrl() 按当前 flashEngine 选
+                        // player.html / waflash.html。这里不需要再 override，避免和基类签名冲突。
                     }
 
                     // WebAppInterface: WAFlash 检测到 SWF 后回调，跳转到对应引擎的播放器
