@@ -348,7 +348,7 @@ open class FlashWebViewClient(
          * 脚本会扫描页面 DOM、iframe、Performance API，找到所有 .swf URL，
          * 通过 window.Android.onSwfFound(jsonArray) 回调到原生。
          */
-        const val SWF_SNIFFER_SCRIPT: String = """
+        const val SWF_SNIFFER_SCRIPT = """
             (function(){
               try {
                 var results = [];

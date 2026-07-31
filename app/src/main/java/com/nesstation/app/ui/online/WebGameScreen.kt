@@ -16,8 +16,11 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -38,6 +41,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -639,7 +643,7 @@ private fun SwfExtractDialog(
 ) {
     data class Item(val url: String, val title: String)
 
-    val items = remember(json) {
+    val swfList = remember(json) {
         try {
             val arr = org.json.JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
@@ -649,7 +653,7 @@ private fun SwfExtractDialog(
             }
         } catch (_: Exception) { emptyList() }
     }
-    if (items.isEmpty()) {
+    if (swfList.isEmpty()) {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("提取 SWF") },
@@ -661,11 +665,11 @@ private fun SwfExtractDialog(
     } else {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("发现 ${items.size} 个 SWF") },
+            title = { Text("发现 ${swfList.size} 个 SWF") },
             text = {
-                androidx.compose.foundation.lazy.LazyColumn {
-                    items(count = items.size) { idx ->
-                        val it = items[idx]
+                LazyColumn {
+                    items(count = swfList.size) { idx ->
+                        val it = swfList[idx]
                         androidx.compose.material3.TextButton(
                             onClick = { onPick(it.url) },
                             modifier = Modifier.fillMaxWidth()
