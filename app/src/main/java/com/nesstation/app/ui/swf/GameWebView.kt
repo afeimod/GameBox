@@ -84,7 +84,9 @@ open class GameWebView @JvmOverloads constructor(
         injectDocumentStartScripts()
     }
 
-    private fun configureSettings() = settings.apply {
+    private fun configureSettings() {
+        val wv = this
+        settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true                       // H5 游戏依赖 localStorage
         databaseEnabled = true
@@ -107,11 +109,12 @@ open class GameWebView @JvmOverloads constructor(
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
         // Safe Browsing
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
-            WebSettingsCompat.setSafeBrowsingEnabled(this, true)
+            WebSettingsCompat.setSafeBrowsingEnabled(wv, true)
         }
         // Cookie
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
+        }
     }
 
     /**

@@ -428,7 +428,7 @@ open class FlashWebViewClient(
                 console.error('[SWF sniffer]', e);
               }
             })();
-        """.trimIndent()
+        """
     }
 
     // -------------------------------------------------------------------------
