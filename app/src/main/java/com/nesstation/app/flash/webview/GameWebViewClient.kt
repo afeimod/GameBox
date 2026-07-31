@@ -207,7 +207,7 @@ open class GameWebViewClient(
         """.trimIndent()
     }
 
-    /** 读取本地 SWF 文件代理（flash.local/local.swf → 真实 content:// URI） */
+    /** 读取本地 SWF 文件代理（flash.local/local.swf → 真实 content:// / file:// / 路径） */
     private fun interceptLocalSwfProxy(view: WebView): WebResourceResponse? {
         val uri = callback.getLocalSwfUri()
         if (uri == null) {
@@ -217,8 +217,7 @@ open class GameWebViewClient(
         }
         return try {
             android.util.Log.d("GameWebViewClient", "local.swf 代理: 读取 $uri")
-            val parsed = android.net.Uri.parse(uri)
-            val data = view.context.contentResolver.openInputStream(parsed)?.use { it.readBytes() }
+            val data = readLocalSwfBytes(view, uri)
                 ?: throw java.io.IOException("无法打开文件流")
             android.util.Log.d("GameWebViewClient", "local.swf 读取完成: ${data.size} bytes")
             WebResourceResponse(
@@ -237,12 +236,44 @@ open class GameWebViewClient(
         }
     }
 
+    /**
+     * 统一读取本地 SWF 字节：兼容 content:// 、file:// 以及裸文件路径。
+     * 先用 ContentResolver，失败则回退到 File API（适配 MANAGE_EXTERNAL_STORAGE 授权后的直读）。
+     */
+    private fun readLocalSwfBytes(view: WebView, uri: String): ByteArray? {
+        // 1. content:// 必须走 ContentResolver
+        if (uri.startsWith("content://")) {
+            return try {
+                view.context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
+            } catch (e: Exception) {
+                android.util.Log.w("GameWebViewClient", "content 读取失败，尝试 File: ${e.message}")
+                null
+            }
+        }
+        // 2. file:// 或裸路径：优先 ContentResolver，失败回退 File 直读
+        val path = if (uri.startsWith("file://")) {
+            android.net.Uri.parse(uri).path ?: uri.removePrefix("file://")
+        } else {
+            uri
+        }
+        if (path.isNotEmpty()) {
+            try {
+                val f = java.io.File(path)
+                if (f.exists() && f.canRead()) return f.readBytes()
+            } catch (e: Exception) {
+                android.util.Log.w("GameWebViewClient", "File 直读失败: ${e.message}")
+            }
+        }
+        return try {
+            view.context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
+        } catch (e: Exception) { null }
+    }
+
     /** 读取本地 SWF 文件（content:// 或 file://），返回带 CORS 头的响应 */
     private fun interceptLocalFile(view: WebView, url: String): WebResourceResponse? {
         return try {
             android.util.Log.d("GameWebViewClient", "读取本地文件: $url")
-            val uri = android.net.Uri.parse(url)
-            val data = view.context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val data = readLocalSwfBytes(view, url)
                 ?: throw java.io.IOException("无法打开文件流")
             android.util.Log.d("GameWebViewClient", "本地文件读取完成: ${data.size} bytes")
             WebResourceResponse(
@@ -536,6 +567,20 @@ open class GameWebViewClient(
             view?.evaluateJavascript(buildViewportScript(), null)
         }
 
+        // 鼠标光标模拟：导航后会丢失，需重新注入
+        if (PrefsManager.isMouseEnabled) {
+            view?.evaluateJavascript(MOUSE_CURSOR_SCRIPT, null)
+        }
+        // 3D 视角旋转：导航后会丢失，需重新注入
+        if (PrefsManager.isCameraRotationEnabled) {
+            view?.evaluateJavascript(CAMERA_ROTATION_SCRIPT, null)
+        }
+        // 画面比例 letterbox（仅内置播放器页生效）
+        if (url != null && url.startsWith("https://flash.local/") &&
+            PrefsManager.gameAspectRatio != "auto") {
+            view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
+        }
+
         // 强制重绘：部分网页（如使用 View Transitions 的 SPA）加载完成后
         // 渲染管线未正确触发重绘，导致页面"卡住"（切后台再回来才显示）。
         // invalidate + requestLayout 强制 WebView 重新绘制当前帧。
@@ -583,8 +628,7 @@ open class GameWebViewClient(
     }
 
     /** 根据用户缩放设置构建 viewport 脚本 */
-    private fun buildViewportScript(): String {
-        val scale = if (PrefsManager.pageZoomMode == "manual") {
+    private fun buildViewportScript(): String {        val scale = if (PrefsManager.pageZoomMode == "manual") {
             PrefsManager.pageZoomManual / 100.0
         } else {
             -1.0
@@ -1109,5 +1153,171 @@ open class GameWebViewClient(
               }
             })();
         """
+
+        /**
+         * 鼠标光标模拟脚本：在 PC 网页上显示一个跟随触摸的鼠标光标，
+         * 触摸 = 鼠标移动，点击 = 鼠标左键点击。
+         * 用于兼容需要鼠标 hover 的 PC 网页。
+         * 1:1 移植自 3.3-fix2 GameActivity.MOUSE_CURSOR_SCRIPT。
+         */
+        const val MOUSE_CURSOR_SCRIPT = """
+            (function(){
+              if (window.__mouseEnabled) return; window.__mouseEnabled = true;
+              var cursor = document.createElement('div');
+              cursor.id = '__mouseCursor';
+              cursor.style.cssText = 'position:fixed;width:20px;height:20px;pointer-events:none;z-index:999999;left:0;top:0;transform:translate(-4px,-4px);';
+              cursor.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.5,3.5L18,12L11.5,12.5L15,19L12.5,20L9,13.5L5.5,17L5.5,3.5Z" fill="white" stroke="black" stroke-width="1.5"/></svg>';
+              document.body.appendChild(cursor);
+              var lastX = 0, lastY = 0;
+              document.addEventListener('touchstart', function(e){
+                var t = e.touches[0];
+                lastX = t.clientX; lastY = t.clientY;
+                cursor.style.left = lastX + 'px';
+                cursor.style.top = lastY + 'px';
+              }, {passive: true});
+              document.addEventListener('touchmove', function(e){
+                var t = e.touches[0];
+                lastX = t.clientX; lastY = t.clientY;
+                cursor.style.left = lastX + 'px';
+                cursor.style.top = lastY + 'px';
+                var el = document.elementFromPoint(lastX, lastY);
+                if (el) {
+                  var evt = new MouseEvent('mousemove', {bubbles:true, clientX:lastX, clientY:lastY});
+                  el.dispatchEvent(evt);
+                }
+              }, {passive: true});
+            })();
+        """
+
+        /**
+         * 3D 视角旋转脚本：
+         * 1. Hook requestPointerLock → 模拟指针锁定成功（移动端不支持原生 Pointer Lock）
+         * 2. 提供 window.__cameraRotate(dx, dy) → 分发带 movementX/movementY 的 mousemove 事件
+         * 3. 阻止页面滚动/选择，确保拖动只用于旋转视角
+         * 1:1 移植自 3.3-fix2 GameActivity.CAMERA_ROTATION_SCRIPT。
+         */
+        const val CAMERA_ROTATION_SCRIPT = """
+            (function(){
+              if (window.__cameraRotation) return; window.__cameraRotation = true;
+
+              // === 1. 模拟 Pointer Lock API ===
+              if (!window.__pointerLockHooked) {
+                window.__pointerLockHooked = true;
+                var _requestPointerLock = HTMLElement.prototype.requestPointerLock;
+                HTMLElement.prototype.requestPointerLock = function() {
+                  window.__pointerLocked = true;
+                  document.dispatchEvent(new Event('pointerlockchange'));
+                  document.pointerLockElement = this;
+                  return Promise.resolve();
+                };
+                document.exitPointerLock = function() {
+                  window.__pointerLocked = false;
+                  document.pointerLockElement = null;
+                  document.dispatchEvent(new Event('pointerlockchange'));
+                };
+                try {
+                  Object.defineProperty(document, 'pointerLockElement', {
+                    get: function() { return window.__pointerLockElement || null; },
+                    set: function(v) { window.__pointerLockElement = v; },
+                    configurable: true
+                  });
+                } catch(e) {}
+              }
+
+              // === 2. 提供视角旋转函数 ===
+              window.__cameraRotate = function(dx, dy) {
+                var target = document.pointerLockElement;
+                if (!target) {
+                  target = document.querySelector('canvas') ||
+                           document.querySelector('[id*="game"]') ||
+                           document.querySelector('[id*="flash"]') ||
+                           document.body;
+                }
+                if (!target) return;
+                var evt = new MouseEvent('mousemove', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: window.innerWidth / 2,
+                  clientY: window.innerHeight / 2,
+                  movementX: Math.round(dx),
+                  movementY: Math.round(dy)
+                });
+                target.dispatchEvent(evt);
+                document.dispatchEvent(evt);
+              };
+
+              // === 3. 阻止拖动时的页面滚动/选择 ===
+              var style = document.createElement('style');
+              style.id = '__cameraRotateStyle';
+              style.textContent = 'body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overflow:hidden !important;}canvas{touch-action:none !important;}';
+              document.head.appendChild(style);
+
+              console.log('[CameraRotation] 视角旋转模式已启用');
+            })();
+        """
+
+        /**
+         * 构建画面比例 letterbox 脚本。
+         * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
+         * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
+         *
+         * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
+         */
+        fun buildAspectRatioScript(ratio: String): String {
+            if (ratio == "auto") return "(function(){})();"
+            val parts = ratio.split(":")
+            if (parts.size != 2) return "(function(){})();"
+            val w = parts[0].toFloatOrNull() ?: return "(function(){})();"
+            val h = parts[1].toFloatOrNull() ?: return "(function(){})();"
+            val targetRatio = w / h
+            return """
+            (function(){
+              if (window.__aspectRatioApplied) return;
+              window.__aspectRatioApplied = true;
+              var targetRatio = $targetRatio;
+              var style = document.createElement('style');
+              style.id = '__aspectRatioStyle';
+              style.textContent = [
+                'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
+                '#ruffle-container,#player,canvas,object,embed{margin:auto!important;display:block!important;}',
+                '#ruffle-container{position:absolute!important;top:0;left:0;width:100%!important;height:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;}',
+                '#ruffle-container canvas{position:relative!important;width:100%!important;height:100%!important;object-fit:contain!important;}'
+              ].join('\n');
+              document.head.appendChild(style);
+
+              function applyLetterbox() {
+                var sw = window.innerWidth;
+                var sh = window.innerHeight;
+                var screenRatio = sw / sh;
+                var canvas = document.querySelector('canvas') ||
+                             document.querySelector('#ruffle-player') ||
+                             document.querySelector('object') ||
+                             document.querySelector('embed');
+                if (!canvas) {
+                  setTimeout(applyLetterbox, 300);
+                  return;
+                }
+                if (screenRatio > targetRatio) {
+                  var newW = Math.round(sh * targetRatio);
+                  canvas.style.width = newW + 'px';
+                  canvas.style.height = sh + 'px';
+                  canvas.style.marginLeft = Math.round((sw - newW) / 2) + 'px';
+                  canvas.style.marginTop = '0';
+                } else {
+                  var newH = Math.round(sw / targetRatio);
+                  canvas.style.width = sw + 'px';
+                  canvas.style.height = newH + 'px';
+                  canvas.style.marginLeft = '0';
+                  canvas.style.marginTop = Math.round((sh - newH) / 2) + 'px';
+                }
+              }
+              applyLetterbox();
+              window.addEventListener('resize', applyLetterbox);
+              setTimeout(applyLetterbox, 500);
+              setTimeout(applyLetterbox, 2000);
+            })();
+            """.trimIndent()
+        }
     }
 }

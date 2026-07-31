@@ -84,6 +84,7 @@ fun WebGameScreen(
     val showFlashDialog = remember { mutableStateOf(false) }
     val showZoomDialog = remember { mutableStateOf(false) }
     val showUaDialog = remember { mutableStateOf(false) }
+    val showAspectRatioDialog = remember { mutableStateOf(false) }
 
     // 持有各 view 的引用
     val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
@@ -224,6 +225,32 @@ fun WebGameScreen(
             }
         }
         reload()
+    }
+
+    fun toggleCameraRotation() {
+        val enabled = !PrefsManager.isCameraRotationEnabled
+        PrefsManager.sp.edit().putBoolean("camera_rotation_enabled", enabled).apply()
+        val wv = webViewRef.value
+        if (wv != null) {
+            wv.cameraRotationEnabled = enabled
+            if (enabled) {
+                wv.evaluateJavascript(GameWebViewClient.CAMERA_ROTATION_SCRIPT, null)
+                Toast.makeText(context, "视角旋转已开启，拖动屏幕旋转视角", Toast.LENGTH_LONG).show()
+            } else {
+                wv.evaluateJavascript(
+                    "(function(){window.__cameraRotation=false;var s=document.getElementById('__cameraRotateStyle');if(s)s.remove();})();", null
+                )
+                Toast.makeText(context, "视角旋转已关闭", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun applyAspectRatio(ratio: String) {
+        PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
+        val wv = webViewRef.value
+        if (wv != null && ratio != "auto") {
+            wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
+        }
     }
 
     fun showSwfActions(swfUrl: String) {
@@ -372,6 +399,7 @@ fun WebGameScreen(
                 } else {
                     useDesktopMode(true)
                 }
+                cameraRotationEnabled = PrefsManager.isCameraRotationEnabled
                 setOnKeyListener { _, keyCode, event ->
                     keyEventHandler(event)
                 }
@@ -500,6 +528,8 @@ fun WebGameScreen(
             }
             override fun onClose() = onExit()
             override fun onExtractSwf() = extractSwfFromPage()
+            override fun onToggleCameraRotation() = toggleCameraRotation()
+            override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
@@ -604,7 +634,7 @@ fun WebGameScreen(
                 // 直接选择 key（J/K/L/U/I/O 等）
                 val keys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
                 val current = PrefsManager.gamepadKeys.getOrElse(idx) { "J" }
-                androidx.appcompat.app.AlertDialog.Builder(context)
+                android.app.AlertDialog.Builder(context)
                     .setTitle("按键 ${idx + 1} 映射")
                     .setSingleChoiceItems(keys, keys.indexOf(current).coerceAtLeast(0)) { dlg, which ->
                         PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", keys[which]).apply()
@@ -641,6 +671,24 @@ fun WebGameScreen(
             },
             onDismiss = { showKeyDialog.value = false }
         )
+    }
+
+    // ========== 画面比例弹窗 ==========
+    if (showAspectRatioDialog.value) {
+        val ratios = arrayOf("全屏自适应 (auto)", "4:3", "16:9", "16:10", "5:4")
+        val values = arrayOf("auto", "4:3", "16:9", "16:10", "5:4")
+        val current = PrefsManager.gameAspectRatio
+        val checked = values.indexOf(current).coerceAtLeast(0)
+        android.app.AlertDialog.Builder(context)
+            .setTitle("画面比例")
+            .setSingleChoiceItems(ratios, checked) { dlg, which ->
+                applyAspectRatio(values[which])
+                dlg.dismiss()
+                showAspectRatioDialog.value = false
+            }
+            .setNegativeButton("取消", null)
+            .setOnDismissListener { showAspectRatioDialog.value = false }
+            .show()
     }
 }
 
@@ -712,7 +760,7 @@ private fun FlashEngineDialog(
     val values = arrayOf("ruffle", "waflash", "off")
     val current = if (PrefsManager.isFlashEnabled) PrefsManager.flashEngine else "off"
     val checked = values.indexOf(current).coerceAtLeast(0)
-    androidx.appcompat.app.AlertDialog.Builder(context)
+    android.app.AlertDialog.Builder(context)
         .setTitle("Flash 引擎")
         .setSingleChoiceItems(engines, checked) { dlg, which ->
             if (values[which] == "off") {
@@ -737,7 +785,7 @@ private fun PageZoomDialog(
     val context = LocalContext.current
     val mode = PrefsManager.pageZoomMode
     val manual = PrefsManager.pageZoomManual
-    androidx.appcompat.app.AlertDialog.Builder(context)
+    android.app.AlertDialog.Builder(context)
         .setTitle("页面缩放")
         .setMessage("当前：${if (mode == "auto") "自动" else "${manual}%"}\n\n点击确定切换缩放模式（自动 ↔ 75%）。")
         .setPositiveButton("自动") { _, _ -> onApply("auto", manual) }
@@ -756,7 +804,7 @@ private fun UaModeDialog(
     val modes = arrayOf("desktop" to "桌面模式 (Chrome)", "ie_compat" to "兼容模式 (IE11)", "mobile" to "移动模式")
     val current = PrefsManager.uaMode
     val checked = modes.indexOfFirst { it.first == current }.coerceAtLeast(0)
-    androidx.appcompat.app.AlertDialog.Builder(context)
+    android.app.AlertDialog.Builder(context)
         .setTitle("浏览器兼容模式")
         .setSingleChoiceItems(modes.map { it.second }.toTypedArray(), checked) { dlg, which ->
             onPick(modes[which].first)
@@ -777,14 +825,14 @@ private fun KeyMappingDialog(
 ) {
     val context = LocalContext.current
     val kmmItems = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
-    androidx.appcompat.app.AlertDialog.Builder(context)
+    android.app.AlertDialog.Builder(context)
         .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
         .setItems(kmmItems) { _, which ->
             when (which) {
                 0 -> {
                     val keys = PrefsManager.gamepadKeys
                     val labels = keys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
-                    androidx.appcompat.app.AlertDialog.Builder(context)
+                    android.app.AlertDialog.Builder(context)
                         .setTitle("选择要修改的按键")
                         .setItems(labels) { _, idx -> onPickKey(idx) }
                         .setNegativeButton("取消", null)

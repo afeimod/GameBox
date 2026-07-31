@@ -67,6 +67,11 @@ fun SwfPlayerScreen(
     val localSwfUri = remember { mutableStateOf(swfPath) }
     val showFlashDialog = remember { mutableStateOf(false) }
     val showKeyDialog = remember { mutableStateOf(false) }
+    val showZoomDialog = remember { mutableStateOf(false) }
+    val showUaDialog = remember { mutableStateOf(false) }
+    val showAspectRatioDialog = remember { mutableStateOf(false) }
+    // 本地 SWF 打开时先弹出引擎选择
+    val showEnginePicker = remember { mutableStateOf(true) }
 
     val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
     val dpadRef = remember { mutableStateOf<DPadView?>(null) }
@@ -118,6 +123,65 @@ fun SwfPlayerScreen(
     fun toggleMouse() {
         isMouseEnabled = !isMouseEnabled
         PrefsManager.sp.edit().putBoolean("mouse_enabled", isMouseEnabled).apply()
+        val wv = webViewRef.value
+        if (wv != null) {
+            if (isMouseEnabled) {
+                wv.evaluateJavascript(GameWebViewClient.MOUSE_CURSOR_SCRIPT, null)
+                Toast.makeText(context, "鼠标光标已开启", Toast.LENGTH_SHORT).show()
+            } else {
+                wv.evaluateJavascript(
+                    "(function(){var c=document.getElementById('__mouseCursor');if(c)c.remove();window.__mouseEnabled=false;})();", null
+                )
+                Toast.makeText(context, "鼠标光标已关闭", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun toggleCameraRotation() {
+        val enabled = !PrefsManager.isCameraRotationEnabled
+        PrefsManager.sp.edit().putBoolean("camera_rotation_enabled", enabled).apply()
+        val wv = webViewRef.value
+        if (wv != null) {
+            wv.cameraRotationEnabled = enabled
+            if (enabled) {
+                wv.evaluateJavascript(GameWebViewClient.CAMERA_ROTATION_SCRIPT, null)
+                Toast.makeText(context, "视角旋转已开启，拖动屏幕旋转视角", Toast.LENGTH_LONG).show()
+            } else {
+                wv.evaluateJavascript(
+                    "(function(){window.__cameraRotation=false;var s=document.getElementById('__cameraRotateStyle');if(s)s.remove();})();", null
+                )
+                Toast.makeText(context, "视角旋转已关闭", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun applyAspectRatio(ratio: String) {
+        PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
+        val wv = webViewRef.value
+        if (wv != null && ratio != "auto") {
+            wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
+        }
+    }
+
+    fun applyZoom(mode: String, manual: Int) {
+        PrefsManager.sp.edit()
+            .putString("page_zoom_mode", mode)
+            .putInt("page_zoom_manual", manual)
+            .apply()
+        webViewRef.value?.reload()
+    }
+
+    fun applyUa(mode: String) {
+        PrefsManager.sp.edit().putString("ua_mode", mode).apply()
+        val wv = webViewRef.value
+        if (wv != null) {
+            if (mode == "desktop") {
+                wv.useDesktopMode(true)
+            } else {
+                wv.useUaMode(mode)
+            }
+        }
+        webViewRef.value?.reload()
     }
 
     fun reload() {
@@ -131,6 +195,21 @@ fun SwfPlayerScreen(
     fun applyEngineAndReload(engine: String) {
         PrefsManager.sp.edit().putString("flash_engine", engine).putBoolean("flash_enabled", true).apply()
         reload()
+    }
+
+    fun extractSwfFromPage() {
+        Toast.makeText(context, "正在扫描页面中的 SWF...", Toast.LENGTH_SHORT).show()
+        val iface = webAppInterfaceRef.value
+        if (iface != null) {
+            iface.swfExtractCallback = { json ->
+                if (json.isNullOrEmpty()) {
+                    Toast.makeText(context, "未发现 SWF", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "发现 SWF: $json", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        webViewRef.value?.evaluateJavascript(SWF_SNIFFER_SCRIPT, null)
     }
 
     BoxWithConstraints(
@@ -194,6 +273,7 @@ fun SwfPlayerScreen(
                 webChromeClient = object : GameWebChromeClient(chromeCallback) {}
                 webViewClient = GameWebViewClient(viewClientCallback)
                 useDesktopMode(true)
+                cameraRotationEnabled = PrefsManager.isCameraRotationEnabled
                 setOnKeyListener { _, keyCode, event ->
                     if (keyCode == KeyEvent.KEYCODE_BACK) {
                         if (event.action == KeyEvent.ACTION_UP) onExit()
@@ -211,10 +291,6 @@ fun SwfPlayerScreen(
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
             webViewRef.value = wv
-
-            val swfProxy = "https://flash.local/local.swf?t=${System.currentTimeMillis()}"
-            val playerUrl = NavHelper.playerUrl(swfProxy, base = null, title = null)
-            wv.loadUrl(playerUrl)
         }
     }
 
@@ -275,14 +351,16 @@ fun SwfPlayerScreen(
             override fun onToggleMouse() = toggleMouse()
             override fun onOpenKeyMapping() { showKeyDialog.value = true }
             override fun onOpenFlashSettings() { showFlashDialog.value = true }
-            override fun onOpenPageZoom() {}
-            override fun onOpenUaMode() {}
+            override fun onOpenPageZoom() { showZoomDialog.value = true }
+            override fun onOpenUaMode() { showUaDialog.value = true }
             override fun onRefresh() = reload()
             override fun onBack() {
                 if (webViewRef.value?.canGoBack() == true) webViewRef.value?.goBack() else onExit()
             }
             override fun onClose() = onExit()
-            override fun onExtractSwf() {}
+            override fun onExtractSwf() = extractSwfFromPage()
+            override fun onToggleCameraRotation() = toggleCameraRotation()
+            override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
@@ -303,12 +381,35 @@ fun SwfPlayerScreen(
         }
     }
 
+    // ========== 本地 SWF 引擎选择弹窗（打开时先选择引擎） ==========
+    if (showEnginePicker.value) {
+        android.app.AlertDialog.Builder(context)
+            .setTitle("选择 Flash 引擎")
+            .setMessage("本地 SWF 文件需要选择播放引擎")
+            .setPositiveButton("Ruffle (推荐)") { dlg, _ ->
+                applyEngineAndReload("ruffle")
+                showEnginePicker.value = false
+                dlg.dismiss()
+            }
+            .setNegativeButton("WAFlash") { dlg, _ ->
+                applyEngineAndReload("waflash")
+                showEnginePicker.value = false
+                dlg.dismiss()
+            }
+            .setOnCancelListener {
+                showEnginePicker.value = false
+                onExit()
+            }
+            .show()
+    }
+
+    // ========== Flash 引擎切换弹窗 ==========
     if (showFlashDialog.value) {
         val engines = arrayOf("Ruffle", "WAFlash", "关闭 Flash")
         val values = arrayOf("ruffle", "waflash", "off")
         val current = if (PrefsManager.isFlashEnabled) PrefsManager.flashEngine else "off"
         val checked = values.indexOf(current).coerceAtLeast(0)
-        androidx.appcompat.app.AlertDialog.Builder(context)
+        android.app.AlertDialog.Builder(context)
             .setTitle("Flash 引擎")
             .setSingleChoiceItems(engines, checked) { dlg, which ->
                 if (values[which] == "off") {
@@ -320,24 +421,26 @@ fun SwfPlayerScreen(
                 showFlashDialog.value = false
             }
             .setNegativeButton("取消", null)
+            .setOnDismissListener { showFlashDialog.value = false }
             .show()
     }
 
+    // ========== 按键映射弹窗 ==========
     if (showKeyDialog.value) {
         val items = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
-        androidx.appcompat.app.AlertDialog.Builder(context)
+        android.app.AlertDialog.Builder(context)
             .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> {
                         val keys = PrefsManager.gamepadKeys
                         val labels = keys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
-                        androidx.appcompat.app.AlertDialog.Builder(context)
+                        android.app.AlertDialog.Builder(context)
                             .setTitle("选择要修改的按键")
                             .setItems(labels) { _, idx ->
                                 val allKeys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
                                 val cur = PrefsManager.gamepadKeys.getOrElse(idx) { "J" }
-                                androidx.appcompat.app.AlertDialog.Builder(context)
+                                android.app.AlertDialog.Builder(context)
                                     .setTitle("按键 ${idx + 1} 映射")
                                     .setSingleChoiceItems(allKeys, allKeys.indexOf(cur).coerceAtLeast(0)) { dlg, w ->
                                         PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", allKeys[w]).apply()
@@ -374,7 +477,113 @@ fun SwfPlayerScreen(
             .setOnDismissListener { showKeyDialog.value = false }
             .show()
     }
+
+    // ========== 页面缩放弹窗 ==========
+    if (showZoomDialog.value) {
+        val mode = PrefsManager.pageZoomMode
+        val manual = PrefsManager.pageZoomManual
+        android.app.AlertDialog.Builder(context)
+            .setTitle("页面缩放")
+            .setMessage("当前：${if (mode == "auto") "自动" else "${manual}%"}")
+            .setPositiveButton("自动") { _, _ -> applyZoom("auto", manual); showZoomDialog.value = false }
+            .setNegativeButton("75%") { _, _ -> applyZoom("manual", 75); showZoomDialog.value = false }
+            .setNeutralButton("100%") { _, _ -> applyZoom("manual", 100); showZoomDialog.value = false }
+            .setOnCancelListener { showZoomDialog.value = false }
+            .show()
+    }
+
+    // ========== 兼容模式（UA）弹窗 ==========
+    if (showUaDialog.value) {
+        val modes = arrayOf("桌面模式 (Chrome)", "兼容模式 (IE11)", "移动模式")
+        val values = arrayOf("desktop", "ie_compat", "mobile")
+        val current = PrefsManager.uaMode
+        val checked = values.indexOf(current).coerceAtLeast(0)
+        android.app.AlertDialog.Builder(context)
+            .setTitle("浏览器兼容模式")
+            .setSingleChoiceItems(modes, checked) { dlg, which ->
+                applyUa(values[which])
+                dlg.dismiss()
+                showUaDialog.value = false
+            }
+            .setNegativeButton("取消", null)
+            .setOnDismissListener { showUaDialog.value = false }
+            .show()
+    }
+
+    // ========== 画面比例弹窗 ==========
+    if (showAspectRatioDialog.value) {
+        val ratios = arrayOf("全屏自适应 (auto)", "4:3", "16:9", "16:10", "5:4")
+        val values = arrayOf("auto", "4:3", "16:9", "16:10", "5:4")
+        val current = PrefsManager.gameAspectRatio
+        val checked = values.indexOf(current).coerceAtLeast(0)
+        android.app.AlertDialog.Builder(context)
+            .setTitle("画面比例")
+            .setSingleChoiceItems(ratios, checked) { dlg, which ->
+                applyAspectRatio(values[which])
+                dlg.dismiss()
+                showAspectRatioDialog.value = false
+            }
+            .setNegativeButton("取消", null)
+            .setOnDismissListener { showAspectRatioDialog.value = false }
+            .show()
+    }
 }
 
 @SuppressLint("ViewConstructor")
 private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context)
+
+// ============== SWF 嗅探器脚本（与 3.3 一致） ==============
+private const val SWF_SNIFFER_SCRIPT = """
+(function(){
+  var found = {};
+  function addUrl(url, title){
+    if(!url) return;
+    try { url = new URL(url, location.href).href; } catch(e) { return; }
+    if(!/\.swf([?#]|$)/i.test(url) && !/application\/x-shockwave-flash/i.test(url)){
+      if(!/^data:application\/x-shockwave-flash/i.test(url)) return;
+    }
+    if(found[url]) return;
+    var t = title || '';
+    if(!t){
+      try { t = decodeURIComponent(url.split('/').pop().split('?')[0].replace(/\.swf$/i,'')); } catch(e){}
+    }
+    found[url] = {url:url, title:t, size:''};
+  }
+  function scanDOM(){
+    var objs = document.querySelectorAll('object[data], embed[src]');
+    objs.forEach(function(el){
+      var u = el.getAttribute('data') || el.getAttribute('src') || '';
+      var t = el.getAttribute('title') || el.getAttribute('name') || '';
+      if(u) addUrl(u, t);
+    });
+    var params = document.querySelectorAll('param[name="movie"], param[name="src"]');
+    params.forEach(function(p){
+      var v = p.getAttribute('value') || '';
+      if(v) addUrl(v, '');
+    });
+    var all = document.querySelectorAll('[data*=".swf"], [src*=".swf"], [href*=".swf"]');
+    all.forEach(function(el){
+      ['data','src','href'].forEach(function(attr){
+        var v = el.getAttribute(attr);
+        if(v && /\.swf/i.test(v)) addUrl(v, el.getAttribute('title') || '');
+      });
+    });
+  }
+  scanDOM();
+  var arr = [];
+  for(var u in found) arr.push(found[u]);
+  if(arr.length > 0 && window.Android && window.Android.onSwfFound){
+    window.Android.onSwfFound(JSON.stringify(arr));
+  } else if (window.Android && window.Android.toast) {
+    window.Android.toast('未发现 SWF');
+  }
+  setTimeout(function(){
+    scanDOM();
+    arr = [];
+    for(var u in found) arr.push(found[u]);
+    if(arr.length > 0 && window.Android && window.Android.onSwfFound){
+      window.Android.onSwfFound(JSON.stringify(arr));
+    }
+  }, 1500);
+})();
+"""

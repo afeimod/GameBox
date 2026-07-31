@@ -41,6 +41,8 @@ class FloatingMenuView @JvmOverloads constructor(
         fun onBack()
         fun onClose()
         fun onExtractSwf()
+        fun onToggleCameraRotation()
+        fun onOpenAspectRatio()
     }
 
     private val triggerBtn: ImageButton
@@ -152,7 +154,9 @@ class FloatingMenuView @JvmOverloads constructor(
             MenuItem("按键映射", android.R.drawable.ic_menu_agenda) { callbacks?.onOpenKeyMapping() },
             MenuItem("Flash 引擎", android.R.drawable.ic_menu_preferences) { callbacks?.onOpenFlashSettings() },
             MenuItem("页面缩放", android.R.drawable.ic_menu_zoom) { callbacks?.onOpenPageZoom() },
+            MenuItem("画面比例", android.R.drawable.ic_menu_crop) { callbacks?.onOpenAspectRatio() },
             MenuItem("兼容模式", android.R.drawable.ic_menu_help) { callbacks?.onOpenUaMode() },
+            MenuItem("视角旋转(3D)", android.R.drawable.ic_menu_rotate) { callbacks?.onToggleCameraRotation() },
             MenuItem("提取 SWF", android.R.drawable.ic_menu_search) { callbacks?.onExtractSwf() },
             MenuItem("刷新", android.R.drawable.ic_menu_revert) { callbacks?.onRefresh() },
             MenuItem("返回", android.R.drawable.ic_menu_revert) { callbacks?.onBack() },
