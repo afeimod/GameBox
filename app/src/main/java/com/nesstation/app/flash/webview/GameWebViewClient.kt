@@ -7,6 +7,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.documentfile.provider.DocumentFile
 import com.nesstation.app.flash.data.PrefsManager
 import java.io.ByteArrayInputStream
 
@@ -307,8 +308,8 @@ open class GameWebViewClient(
 
             val parsed = android.net.Uri.parse(dirUri)
             // Try to get the parent document and find the child
-            val docFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(view.context, parsed)
-                ?: androidx.documentfile.provider.DocumentFile.fromUri(view.context, parsed)
+            val docFile = DocumentFile.fromTreeUri(view.context, parsed)
+                ?: DocumentFile.fromSingleUri(view.context, parsed)
                 ?: return null
 
             // Navigate to find the resource file
