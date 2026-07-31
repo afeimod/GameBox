@@ -46,8 +46,9 @@ import com.nesstation.app.flash.webview.GameWebViewClient
 import com.nesstation.app.flash.webview.NavHelper
 import com.nesstation.app.flash.webview.WebAppInterface
 import com.nesstation.app.flash.widget.FloatingMenuView
-import com.nesstation.app.ui.theme.PrimaryBackground
 import kotlinx.coroutines.flow.MutableStateFlow
+
+private val PrimaryBackground = Color(0xFF0F1115)
 
 /**
  * 在线网页游戏/Flash 游戏的 Compose 入口。
@@ -376,7 +377,7 @@ fun WebGameScreen(
             }
             wv.injectDocumentStartScripts()
 
-            container.addView(wv, FrameLayoutGameContainer.LayoutParams(
+            container.addView(wv, android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
@@ -414,7 +415,7 @@ fun WebGameScreen(
         }
         dpadRef.value = dpad
         val dpadSize = (140 * density).toInt()
-        val dpadLp = FrameLayoutGameContainer.LayoutParams(dpadSize, dpadSize).apply {
+        val dpadLp = android.widget.FrameLayout.LayoutParams(dpadSize, dpadSize).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
             bottomMargin = (24 * density).toInt()
             marginStart = (16 * density).toInt()
@@ -432,7 +433,7 @@ fun WebGameScreen(
         val count = PrefsManager.gamepadKeyCount
         val sizeMult = if (count > 6) 1f + (count - 6) * 0.12f else 1f
         val actionSize = (baseSize * PrefsManager.gamepadScale * sizeMult).toInt()
-        val actionLp = FrameLayoutGameContainer.LayoutParams(actionSize, actionSize).apply {
+        val actionLp = android.widget.FrameLayout.LayoutParams(actionSize, actionSize).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
             bottomMargin = (24 * density).toInt()
             marginEnd = (16 * density).toInt()
@@ -457,7 +458,7 @@ fun WebGameScreen(
         systemButtonsRef.value = sysContainer
         startBtnRef.value = startBtn
         selectBtnRef.value = selectBtn
-        val sysLp = FrameLayoutGameContainer.LayoutParams(
+        val sysLp = android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
@@ -474,7 +475,7 @@ fun WebGameScreen(
         }
         mouseRef.value = mouse
         val mouseSize = (220 * density).toInt()
-        val mouseLp = FrameLayoutGameContainer.LayoutParams(mouseSize, (80 * density).toInt()).apply {
+        val mouseLp = android.widget.FrameLayout.LayoutParams(mouseSize, (80 * density).toInt()).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
             bottomMargin = (200 * density).toInt()
         }
@@ -653,7 +654,7 @@ private fun SwfExtractDialog(
     onPlay: (String) -> Unit,
     onDownload: (String) -> Unit
 ) {
-    val items = remember(json) {
+    val swfList = remember(json) {
         try {
             val arr = org.json.JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
@@ -666,7 +667,7 @@ private fun SwfExtractDialog(
             }
         } catch (e: Exception) { emptyList() }
     }
-    if (items.isEmpty()) {
+    if (swfList.isEmpty()) {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("提取 SWF") },
@@ -676,11 +677,11 @@ private fun SwfExtractDialog(
     } else {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("发现 ${items.size} 个 SWF") },
+            title = { Text("发现 ${swfList.size} 个 SWF") },
             text = {
                 androidx.compose.foundation.lazy.LazyColumn {
-                    androidx.compose.foundation.lazy.items(count = items.size) { idx ->
-                        val it = items[idx]
+                    androidx.compose.foundation.lazy.items(count = swfList.size) { idx ->
+                        val it = swfList[idx]
                         androidx.compose.material3.TextButton(
                             onClick = { onPlay(it.url) },
                             modifier = Modifier.fillMaxSize()
