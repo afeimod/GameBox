@@ -1,6 +1,8 @@
 package com.nesstation.app.ui.swf
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
@@ -83,6 +85,17 @@ fun SwfPlayerScreen(
     var engine by remember { mutableStateOf(FlashPrefs.getEngine(context)) }
     var quality by remember { mutableStateOf(FlashPrefs.getQuality(context)) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var orientation by remember { mutableStateOf("landscape") }
+
+    // Apply orientation
+    fun applyOrientation(mode: String) {
+        val activity = context as? Activity ?: return
+        activity.requestedOrientation = when (mode) {
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "auto" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
 
     // Track pressed keys for heartbeat sync
     val pressedKeys = remember { Collections.synchronizedSet(HashSet<Int>()) }
@@ -209,6 +222,8 @@ fun SwfPlayerScreen(
                 web.stopLoading()
                 web.destroy()
                 webViewRef = null
+                // Restore landscape orientation on exit
+                applyOrientation("landscape")
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -273,23 +288,23 @@ fun SwfPlayerScreen(
                         showMenu = false
                     }
                 )
-                // D-pad mode cycle: DPAD -> WASD -> JOYSTICK -> DPAD
+                // D-pad mode cycle: JOYSTICK -> DPAD -> WASD -> JOYSTICK
                 DropdownMenuItem(
                     text = {
                         Text(
                             "方向模式: " + when (padConfig.dpadMode) {
+                                com.nesstation.app.core.storage.DpadMode.JOYSTICK -> "摇杆WASD (点击切换→方向键)"
                                 com.nesstation.app.core.storage.DpadMode.DPAD -> "方向键 (点击切换→WASD)"
-                                com.nesstation.app.core.storage.DpadMode.WASD -> "WASD (点击切换→摇杆)"
-                                com.nesstation.app.core.storage.DpadMode.JOYSTICK -> "摇杆 (点击切换→方向键)"
+                                com.nesstation.app.core.storage.DpadMode.WASD -> "WASD十字 (点击切换→摇杆)"
                             },
                             color = PrimaryText, fontSize = 12.sp
                         )
                     },
                     onClick = {
                         val nextMode = when (padConfig.dpadMode) {
+                            com.nesstation.app.core.storage.DpadMode.JOYSTICK -> com.nesstation.app.core.storage.DpadMode.DPAD
                             com.nesstation.app.core.storage.DpadMode.DPAD -> com.nesstation.app.core.storage.DpadMode.WASD
                             com.nesstation.app.core.storage.DpadMode.WASD -> com.nesstation.app.core.storage.DpadMode.JOYSTICK
-                            com.nesstation.app.core.storage.DpadMode.JOYSTICK -> com.nesstation.app.core.storage.DpadMode.DPAD
                         }
                         updateConfig(padConfig.copy(dpadMode = nextMode))
                         showMenu = false
@@ -309,32 +324,71 @@ fun SwfPlayerScreen(
                     }
                 )
                 HorizontalDivider(color = Color(0xFF2A3A4A))
-                // Engine selection
+                // Screen orientation
                 Text(
-                    "引擎选择",
+                    "屏幕方向: " + when (orientation) {
+                        "portrait" -> "竖屏"
+                        "auto" -> "自动旋转"
+                        else -> "横屏"
+                    },
                     color = SecondaryText, fontSize = 11.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
-                FlashPrefs.Engine.entries.forEach { eng ->
-                    DropdownMenuItem(
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(
-                                    selected = engine == eng,
-                                    onClick = null,
-                                    colors = RadioButtonDefaults.colors(selectedColor = Accent)
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(eng.displayName, color = PrimaryText, fontSize = 11.sp)
-                            }
-                        },
-                        onClick = {
-                            engine = eng
-                            FlashPrefs.setEngine(context, eng)
-                            showMenu = false
+                DropdownMenuItem(
+                    text = { Text("横屏", color = if (orientation == "landscape") Accent else PrimaryText, fontSize = 12.sp) },
+                    onClick = { orientation = "landscape"; applyOrientation("landscape"); showMenu = false }
+                )
+                DropdownMenuItem(
+                    text = { Text("竖屏", color = if (orientation == "portrait") Accent else PrimaryText, fontSize = 12.sp) },
+                    onClick = { orientation = "portrait"; applyOrientation("portrait"); showMenu = false }
+                )
+                DropdownMenuItem(
+                    text = { Text("自动旋转", color = if (orientation == "auto") Accent else PrimaryText, fontSize = 12.sp) },
+                    onClick = { orientation = "auto"; applyOrientation("auto"); showMenu = false }
+                )
+                HorizontalDivider(color = Color(0xFF2A3A4A))
+                // Engine selection — Ruffle / WAFlash
+                Text(
+                    "引擎: " + engine.displayName,
+                    color = Accent, fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = engine == FlashPrefs.Engine.RUFFLE,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(selectedColor = Accent)
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text("Ruffle (AS1/2/3, 内置中文字体)", color = PrimaryText, fontSize = 12.sp)
                         }
-                    )
-                }
+                    },
+                    onClick = {
+                        engine = FlashPrefs.Engine.RUFFLE
+                        FlashPrefs.setEngine(context, FlashPrefs.Engine.RUFFLE)
+                        showMenu = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = engine == FlashPrefs.Engine.WAFLASH,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(selectedColor = Accent)
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text("WAFlash (AS2/AS3, Canvas渲染)", color = PrimaryText, fontSize = 12.sp)
+                        }
+                    },
+                    onClick = {
+                        engine = FlashPrefs.Engine.WAFLASH
+                        FlashPrefs.setEngine(context, FlashPrefs.Engine.WAFLASH)
+                        showMenu = false
+                    }
+                )
                 HorizontalDivider(color = Color(0xFF2A3A4A))
                 // Quality header
                 Text(

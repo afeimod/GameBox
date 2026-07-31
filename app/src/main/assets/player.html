@@ -94,7 +94,7 @@ document.addEventListener('visibilitychange', function(){
 // ---------------------------------------------------------------------------
 window.RufflePlayer = window.RufflePlayer || {};
 window.RufflePlayer.config = {
-    "publicPath": "ruffle/",
+    "publicPath": "https://flash.local/ruffle/",
     "polyfills": true,
     "autoplay": autoplay,
     "unmuteOverlay": "visible",
@@ -108,7 +108,7 @@ window.RufflePlayer.config = {
     "preloader": true,
     "logLevel": "warn",
     "maxExecutionDuration": {"secs": 15, "nanos": 0},
-    "fontSources": ["ruffle/simhei.ttf"],
+    "fontSources": ["https://flash.local/ruffle/simhei.ttf"],
     "defaultFonts": {
         "sans": ["SimHei"],
         "serif": ["SimHei"],
@@ -131,7 +131,7 @@ window.__setQuality = function(q){
 
 // 加载 Ruffle 引擎
 var script = document.createElement('script');
-script.src = 'ruffle/ruffle.js';
+script.src = 'https://flash.local/ruffle/ruffle.js';
 script.async = true;
 script.onerror = function(){
     var el = document.getElementById('loading');

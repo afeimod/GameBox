@@ -45,7 +45,7 @@ enum class DpadMode { DPAD, WASD, JOYSTICK }
  *                  and cannot be deleted — only their position/size changes)
  */
 data class SwfPadConfig(
-    val dpadMode: DpadMode = DpadMode.DPAD,
+    val dpadMode: DpadMode = DpadMode.JOYSTICK,
     val showPad: Boolean = true,
     val buttons: List<SwfButton> = defaultButtons()
 ) {

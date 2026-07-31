@@ -62,6 +62,22 @@ private val JoystickKnobActive = Color(0xFFFF6E40)
 private val JoystickKnobHighlight = Color.White.copy(alpha = 0.3f)
 private val JoystickTriangle = Color.White.copy(alpha = 0.35f)
 
+// Multi-colour palette for action buttons (mirrors 3.3 ActionButtonView design)
+private val ButtonColors = listOf(
+    Color(0xFFE53935), // 红
+    Color(0xFF1E88E5), // 蓝
+    Color(0xFF43A047), // 绿
+    Color(0xFFFFB300), // 琥珀
+    Color(0xFF8E24AA), // 紫
+    Color(0xFFFF6E40), // 橙
+    Color(0xFF00BFC4), // 青绿
+    Color(0xFFEC407A), // 粉
+    Color(0xFF7E57C2), // 靛
+    Color(0xFF66BB6A), // 浅绿
+    Color(0xFFFFA726), // 橙黄
+    Color(0xFF42A5F5)  // 浅蓝
+)
+
 // ---------------------------------------------------------------------------
 // Main virtual keyboard
 // ---------------------------------------------------------------------------
@@ -218,13 +234,14 @@ fun VirtualKeyboard(
 
         // ---- Action buttons (right side) — excluding D-pad keys ----
         config.buttons.filter { it.id !in setOf("dpad_up", "dpad_down", "dpad_left", "dpad_right") }
-            .forEach { btn ->
+            .forEachIndexed { index, btn ->
                 SwfKeyButton(
                     button = btn,
                     label = btn.label,
                     key = btn.key,
                     editMode = editMode,
                     isSelected = selectedId == btn.id,
+                    buttonColor = ButtonColors[index % ButtonColors.size],
                     maxW = maxW,
                     maxH = maxH,
                     density = density,
@@ -535,6 +552,7 @@ private fun SwfKeyButton(
     key: String,
     editMode: Boolean,
     isSelected: Boolean,
+    buttonColor: Color,
     maxW: Float,
     maxH: Float,
     density: androidx.compose.ui.unit.Density,
@@ -554,13 +572,13 @@ private fun SwfKeyButton(
         modifier = Modifier
             .offset(x = xOffset, y = yOffset)
             .size(sizeDp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CircleShape)
             .background(
                 when {
                     editMode && isSelected -> AccentColor.copy(alpha = 0.4f)
                     editMode -> EditModeBg
-                    pressed -> BtnActive
-                    else -> BtnBg
+                    pressed -> Color.White.copy(alpha = 0.85f)
+                    else -> buttonColor.copy(alpha = 0.72f)
                 }
             )
             .pointerInput(button.id, editMode) {
@@ -608,6 +626,17 @@ private fun SwfKeyButton(
             ) {
                 Text("×", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
+        }
+
+        // Inner highlight ring (mirrors 3.3 ActionButtonView inner glow)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val r = min(size.width, size.height) / 2f
+            drawCircle(
+                color = Color.White.copy(alpha = 0.3f),
+                radius = r * 0.82f,
+                center = Offset(size.width / 2f, size.height / 2f),
+                style = Stroke(width = r * 0.12f)
+            )
         }
 
         val fontSize = (button.sizeDp / 3.5f).coerceIn(8f, 20f)

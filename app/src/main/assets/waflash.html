@@ -9,7 +9,7 @@
   #canvas{display:block;width:100%;height:100%;background:#000;outline:none}
   #waflashStatus{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
     width:70%;color:#fff;margin:0 auto;padding:20px;font-size:1rem;text-align:center;
-    background-color:rgba(0,0,0,0.7);border-radius:8px;z-index:100}
+    background-color:rgba(0,0,0,0.7);border-radius:8px;z-index:100;display:none}
   #switchBtn{margin-top:12px;padding:8px 20px;background:#8A7BFF;color:#fff;
     border:none;border-radius:4px;cursor:pointer;font-size:14px}
   #switchBtn:hover{background:#7A6BEF}
@@ -91,7 +91,7 @@ document.addEventListener('visibilitychange', function(){
 window.__setQuality = function(q){ /* WAFlash 不支持运行时切换画质 */ };
 
 // ---------------------------------------------------------------------------
-// WAFlash 引擎加载 — 如果引擎文件不存在，自动回退到 Ruffle
+// WAFlash 引擎加载 — 使用 WAFlashFactory (Emscripten Module 模式)
 // ---------------------------------------------------------------------------
 var canvas = document.getElementById('canvas');
 var statusEl = document.getElementById('waflashStatus');
@@ -103,59 +103,185 @@ function resizeCanvas(){
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// Emscripten Module 配置
-var Module = {
-    canvas: canvas,
-    onRuntimeInitialized: function(){
-        statusEl.style.display = 'none';
-        console.log('WAFLASH> module created!');
-        if(swfUrl && typeof WAFlash !== 'undefined'){
-            try{
-                WAFlash.loadSwf(swfUrl);
-            }catch(e){
-                statusEl.style.display = 'block';
-                statusEl.innerHTML = 'SWF 加载失败: ' + e;
-            }
-        }
-    },
-    print: function(text){ console.log('WAFLASH> ' + text); },
-    printErr: function(text){ console.error('WAFLASH> ' + text); }
-};
+// 显示状态信息
+function setStatus(msg){
+    if(msg){
+        console.log('WAFLASH> ' + msg);
+        statusEl.innerHTML = msg;
+        statusEl.style.display = 'block';
+    }
+}
 
-// 尝试加载本地 WAFlash 引擎
+function showStatus(){ statusEl.style.display = 'block'; }
+function hideStatus(){ statusEl.style.display = 'none'; }
+
+// 加载 WAFlash 引擎脚本
 var script = document.createElement('script');
 script.src = 'waflash/waflash.min.js';
 script.async = true;
 
 var loadTimeout = setTimeout(function(){
-    autoFallbackToRuffle();
-}, 5000);
+    setStatus('WAFlash 引擎加载超时，正在切换到 Ruffle...');
+    setTimeout(switchToRuffle, 2000);
+}, 15000);
 
 script.onload = function(){
     clearTimeout(loadTimeout);
-    // 验证 WAFlash 是否真正可用
-    if(typeof WAFlash === 'undefined'){
-        console.log('WAFlash 引擎加载但 WAFlash 对象未定义，自动回退到 Ruffle');
-        autoFallbackToRuffle();
-    }else{
-        console.log('WAFLASH> engine loaded');
+    console.log('WAFlash: 脚本已加载');
+
+    if(typeof WAFlashFactory === 'undefined'){
+        console.log('WAFlash: WAFlashFactory 未定义，切换到 Ruffle');
+        switchToRuffle();
+        return;
     }
+
+    // 构建 Emscripten Module 配置
+    var moduleConfig = {
+        // SWF 文件 URL 作为参数传递给 WAFlash
+        arguments: swfUrl ? [swfUrl] : [],
+        preRun: [],
+        postRun: [],
+        // WASM 文件路径解析 — 从 flash.local 虚拟域名加载
+        locateFile: function(path, prefix){
+            return 'https://flash.local/waflash/' + path;
+        },
+        // 日志输出
+        print: function(text){ console.log('WAFLASH> ' + text); },
+        printErr: function(text){ console.error('WAFLASH> ' + text); },
+        // Canvas 元素
+        canvas: canvas,
+        // 状态显示元素
+        statusElement: statusEl,
+        setStatus: function(msg){
+            if(msg){
+                // 格式化下载进度
+                msg = msg.replace(/Downloading data\.\.\. \((\d+)\/(\d+)\)/, function(m, cur, total){
+                    return '下载引擎... ' + Math.floor(parseInt(cur)/parseInt(total)*100) + '%';
+                });
+                console.log('WAFLASH> ' + msg);
+                if(msg.indexOf('Loading SWF...') === 0){
+                    msg = '正在加载 SWF...';
+                }
+                statusEl.innerHTML = msg;
+                statusEl.style.display = 'block';
+            }
+        },
+        showStatus: showStatus,
+        hideStatus: hideStatus,
+        unload: function(){},
+        // WAFlash HAL 配置
+        WAFLASH: {
+            hal: {
+                url_transformRequestUrl: function(url){
+                    // 转换 hangame 资源 URL（如有需要）
+                    var idx = url.lastIndexOf('/');
+                    if(idx >= 0){
+                        var base = url.substr(0, idx + 1);
+                        var name = url.substr(idx + 1);
+                        if(base === 'http://images.hangame.co.kr/static/flash/flashgame/game/lang/'){
+                            return '/assets/hangame/' + name;
+                        }
+                    }
+                    return url;
+                }
+            }
+        }
+    };
+
+    // 保存到全局供调试
+    window.waflash = moduleConfig;
+
+    // Canvas 事件处理
+    canvas.addEventListener('webglcontextlost', function(e){
+        console.warn('WAFlash: WebGL context lost');
+        e.preventDefault();
+    }, false);
+
+    // 防止键盘事件被 canvas 拦截
+    canvas.addEventListener('keydown', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    // 点击 canvas 获取焦点
+    var mouseDown = false;
+    document.onmousedown = function(e){
+        if(e.target === canvas){
+            if(!mouseDown){
+                canvas.focus();
+                mouseDown = true;
+            }
+        } else {
+            mouseDown = false;
+        }
+    };
+
+    setStatus('正在初始化 WAFlash 引擎...');
+
+    // 初始化 WAFlash 引擎
+    WAFlashFactory(moduleConfig).then(function(module){
+        console.log('WAFLASH> Waflash module created!');
+        hideStatus();
+
+        // 如果没有指定 SWF URL，启用拖放功能
+        if(!swfUrl){
+            setStatus('拖放 SWF 文件到此处播放');
+            enableDragDrop(moduleConfig, module);
+        }
+    }).catch(function(err){
+        console.error('WAFlash 初始化失败:', err);
+        setStatus('WAFlash 初始化失败: ' + err);
+        setTimeout(switchToRuffle, 3000);
+    });
 };
 
 script.onerror = function(){
     clearTimeout(loadTimeout);
-    autoFallbackToRuffle();
+    console.error('WAFlash: 脚本加载失败');
+    setStatus('WAFlash 引擎加载失败，正在切换到 Ruffle...');
+    setTimeout(switchToRuffle, 2000);
 };
 
-/**
- * 自动回退到 Ruffle 引擎（不再显示错误页面，直接跳转）。
- * 保留 switchToRuffle() 供手动切换。
- */
-function autoFallbackToRuffle(){
-    console.log('WAFlash 引擎不可用，自动回退到 Ruffle 引擎');
-    switchToRuffle();
+document.head.appendChild(script);
+
+// ---------------------------------------------------------------------------
+// 拖放支持（无 SWF URL 时）
+// ---------------------------------------------------------------------------
+function enableDragDrop(config, module){
+    document.addEventListener('dragenter', function(e){ e.preventDefault(); e.stopPropagation(); }, false);
+    document.addEventListener('dragleave', function(e){ e.preventDefault(); e.stopPropagation(); }, false);
+    document.addEventListener('dragover', function(e){ e.preventDefault(); e.stopPropagation(); }, false);
+    document.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if(e.dataTransfer.files.length > 0){
+            var file = e.dataTransfer.files[0];
+            if(file.size < 268435456){ // 256MB limit
+                var reader = new FileReader();
+                reader.onload = function(ev){
+                    console.log('WAFLASH> file loaded!');
+                    var result = ev.target.result;
+                    if(result){
+                        var data = new Uint8Array(result);
+                        var ptr = module._malloc(data.length);
+                        module.HEAP8.set(data, ptr);
+                        module.ccall('reopenBuffer', 'int',
+                            ['string', 'number', 'number'],
+                            [file.name, ptr, data.length]);
+                        module._free(ptr);
+                        hideStatus();
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+        hideStatus();
+    }, false);
 }
 
+// ---------------------------------------------------------------------------
+// 回退到 Ruffle 引擎
+// ---------------------------------------------------------------------------
 function switchToRuffle(){
     var q = '?swf=' + encodeURIComponent(swfUrl) +
             '&quality=' + quality +
@@ -163,15 +289,6 @@ function switchToRuffle(){
             '&scale=' + scale;
     location.href = 'player.html' + q;
 }
-
-document.head.appendChild(script);
-
-// 初始化超时
-setTimeout(function(){
-    if(statusEl.style.display !== 'none' && !statusEl.innerHTML.includes('切换到')){
-        autoFallbackToRuffle();
-    }
-}, 10000);
 </script>
 </body>
 </html>
