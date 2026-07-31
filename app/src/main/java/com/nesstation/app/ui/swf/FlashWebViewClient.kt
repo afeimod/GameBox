@@ -37,7 +37,7 @@ import java.net.URL
  *                    Pass `""` when used only for web browsing (WebGameScreen).
  * @param blockAds    Whether to block known ad domains.
  */
-class FlashWebViewClient(
+open class FlashWebViewClient(
     private val swfFilePath: String = "",
     private val blockAds: Boolean = false
 ) : WebViewClient() {
