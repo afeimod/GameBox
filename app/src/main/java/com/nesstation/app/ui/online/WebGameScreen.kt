@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -680,7 +681,7 @@ private fun SwfExtractDialog(
             title = { Text("发现 ${swfList.size} 个 SWF") },
             text = {
                 androidx.compose.foundation.lazy.LazyColumn {
-                    androidx.compose.foundation.lazy.items(count = swfList.size) { idx ->
+                    items(count = swfList.size) { idx ->
                         val it = swfList[idx]
                         androidx.compose.material3.TextButton(
                             onClick = { onPlay(it.url) },
@@ -775,10 +776,10 @@ private fun KeyMappingDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val items = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
+    val kmmItems = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
     androidx.appcompat.app.AlertDialog.Builder(context)
         .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
-        .setItems(items) { _, which ->
+        .setItems(kmmItems) { _, which ->
             when (which) {
                 0 -> {
                     val keys = PrefsManager.gamepadKeys
