@@ -3,75 +3,52 @@ package com.nesstation.app.ui.swf
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
+import android.view.View
 import android.view.ViewGroup
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.DragHandle
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import com.nesstation.app.core.storage.SwfPadStore
-import java.net.URLEncoder
-import java.util.Collections
+import com.nesstation.app.flash.data.PrefsManager
+import com.nesstation.app.flash.input.ActionButtonView
+import com.nesstation.app.flash.input.DPadView
+import com.nesstation.app.flash.input.KeyMapper
+import com.nesstation.app.flash.input.MouseControlView
+import com.nesstation.app.flash.webview.GameWebChromeClient
+import com.nesstation.app.flash.webview.GameWebView
+import com.nesstation.app.flash.webview.GameWebViewClient
+import com.nesstation.app.flash.webview.NavHelper
+import com.nesstation.app.flash.webview.WebAppInterface
+import com.nesstation.app.flash.widget.FloatingMenuView
 
-// ---------------------------------------------------------------------------
-// Colour palette (dark retro)
-// ---------------------------------------------------------------------------
-private val PrimaryText = Color(0xFFE2E8F0)
-private val SecondaryText = Color(0xFF8899AA)
-private val Accent = Color(0xFF8A7BFF)
-
-// ---------------------------------------------------------------------------
-// Key mapping — converts key name strings to JS KeyboardEvent info
-// ---------------------------------------------------------------------------
-
-private data class JsKeyInfo(val keyCode: Int, val key: String, val code: String)
-
-private fun keyToJsInfo(key: String): JsKeyInfo = when (key.lowercase()) {
-    "arrowup"    -> JsKeyInfo(38, "ArrowUp", "ArrowUp")
-    "arrowdown"  -> JsKeyInfo(40, "ArrowDown", "ArrowDown")
-    "arrowleft"  -> JsKeyInfo(37, "ArrowLeft", "ArrowLeft")
-    "arrowright" -> JsKeyInfo(39, "ArrowRight", "ArrowRight")
-    " "          -> JsKeyInfo(32, " ", "Space")
-    "enter"      -> JsKeyInfo(13, "Enter", "Enter")
-    "shift"      -> JsKeyInfo(16, "Shift", "ShiftLeft")
-    "control"    -> JsKeyInfo(17, "Control", "ControlLeft")
-    "tab"        -> JsKeyInfo(9, "Tab", "Tab")
-    "escape"     -> JsKeyInfo(27, "Escape", "Escape")
-    else -> {
-        if (key.length == 1 && key[0].isLetter()) {
-            JsKeyInfo(key[0].code, key, "Key${key.uppercase()}")
-        } else if (key.length == 1 && key[0].isDigit()) {
-            JsKeyInfo(key[0].code, key, "Digit$key")
-        } else {
-            JsKeyInfo(0, key, key)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SWF Player Screen
-// ---------------------------------------------------------------------------
-
+/**
+ * SWF 播放器 Compose 入口。
+ * 1:1 移植自 3.3-fix2 GameActivity（仅 SWF 模式）。所有 webview/input/widget 都用
+ * com.nesstation.app.flash 包下的 3.3 类。
+ *
+ * @param swfPath  本地 SWF 文件 URI（content:// / file://）
+ * @param onExit   退出回调
+ */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun SwfPlayerScreen(
@@ -80,408 +57,324 @@ fun SwfPlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var showMenu by remember { mutableStateOf(false) }
-    var editMode by remember { mutableStateOf(false) }
-    var engine by remember { mutableStateOf(FlashPrefs.getEngine(context)) }
-    var quality by remember { mutableStateOf(FlashPrefs.getQuality(context)) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var orientation by remember { mutableStateOf("landscape") }
+    remember { PrefsManager.init(context) }
+    val activity = context as? Activity
 
-    // Apply orientation
-    fun applyOrientation(mode: String) {
-        val activity = context as? Activity ?: return
-        activity.requestedOrientation = when (mode) {
-            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "auto" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
-    }
+    var gamepadVisible by remember { mutableStateOf(PrefsManager.isGamepadEnabled) }
+    var isMouseEnabled by remember { mutableStateOf(PrefsManager.isMouseEnabled) }
+    var isFullscreen by remember { mutableStateOf(false) }
+    var isLandscape by remember { mutableStateOf(true) }
+    val localSwfUri = remember { mutableStateOf(swfPath) }
+    val showFlashDialog = remember { mutableStateOf(false) }
+    val showKeyDialog = remember { mutableStateOf(false) }
 
-    // Track pressed keys for heartbeat sync
-    val pressedKeys = remember { Collections.synchronizedSet(HashSet<Int>()) }
+    val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
+    val dpadRef = remember { mutableStateOf<DPadView?>(null) }
+    val actionRef = remember { mutableStateOf<ActionButtonView?>(null) }
+    val mouseRef = remember { mutableStateOf<MouseControlView?>(null) }
+    val floatingMenuRef = remember { mutableStateOf<FloatingMenuView?>(null) }
+    val webAppInterfaceRef = remember { mutableStateOf<WebAppInterface?>(null) }
+    val mainBoxRef = remember { mutableStateOf<ViewGroup?>(null) }
 
-    // Load persisted pad config
-    var padConfig by remember { mutableStateOf(SwfPadStore.load(context)) }
-
-    // Heartbeat handler — syncs key state every 300ms
-    val heartbeatHandler = remember { Handler(Looper.getMainLooper()) }
-    val heartbeatRunnable = remember {
-        object : Runnable {
-            override fun run() {
-                val keys = synchronized(pressedKeys) { pressedKeys.toIntArray() }
-                if (keys.isNotEmpty()) {
-                    val keysStr = keys.joinToString(",")
-                    webViewRef?.evaluateJavascript(
-                        "window.__gameKeys && window.__gameKeys.sync([$keysStr]);", null
-                    )
-                }
-                heartbeatHandler.postDelayed(this, 300)
-            }
-        }
-    }
-
-    // System back: exit edit mode first, then exit player
     BackHandler {
-        if (editMode) {
-            editMode = false
-        } else if (showMenu) {
-            showMenu = false
-        } else {
-            onExit()
-        }
+        if (webViewRef.value?.canGoBack() == true) webViewRef.value?.goBack() else onExit()
     }
 
-    // Lifecycle: pause/resume heartbeat, release keys on pause
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    heartbeatHandler.postDelayed(heartbeatRunnable, 300)
-                }
-                Lifecycle.Event.ON_PAUSE -> {
-                    heartbeatHandler.removeCallbacks(heartbeatRunnable)
-                    releaseAllKeys(webViewRef, pressedKeys)
-                }
-                else -> {}
+    fun applyOrientation(landscape: Boolean) {
+        activity?.requestedOrientation = if (landscape)
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        else
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+
+    fun toggleFullscreen() {
+        isFullscreen = !isFullscreen
+        activity?.window?.let { w ->
+            if (isFullscreen) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+                androidx.core.view.WindowInsetsControllerCompat(w, w.decorView).hide(
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                )
+            } else {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, true)
+                androidx.core.view.WindowInsetsControllerCompat(w, w.decorView).show(
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                )
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            heartbeatHandler.removeCallbacks(heartbeatRunnable)
-        }
+        floatingMenuRef.value?.isFullscreen = isFullscreen
     }
 
-    // Release keys when keyboard is hidden
-    LaunchedEffect(padConfig.showPad) {
-        if (!padConfig.showPad) {
-            releaseAllKeys(webViewRef, pressedKeys)
-        }
+    fun toggleOrientation() {
+        isLandscape = !isLandscape
+        applyOrientation(isLandscape)
+        floatingMenuRef.value?.isLandscape = isLandscape
     }
 
-    fun updateConfig(newConfig: com.nesstation.app.core.storage.SwfPadConfig) {
-        padConfig = newConfig
-        SwfPadStore.save(context, newConfig)
+    fun toggleGamepad() {
+        gamepadVisible = !gamepadVisible
     }
 
-    // Build player URL based on engine selection（统一走 NavHelper，与 WebGameScreen 行为一致）
-    val playerUrl = remember(swfPath, engine, quality) {
+    fun toggleMouse() {
+        isMouseEnabled = !isMouseEnabled
+        PrefsManager.sp.edit().putBoolean("mouse_enabled", isMouseEnabled).apply()
+    }
+
+    fun reload() {
+        val wv = webViewRef.value ?: return
         val swfProxy = "https://flash.local/local.swf?t=${System.currentTimeMillis()}"
-        NavHelper.playerUrl(
-            swfUrl = swfProxy,
-            base = null,
-            engine = engine,
-            quality = quality,
-            autoplay = FlashPrefs.isAutoplay(context),
-            title = null
-        )
+        val playerUrl = NavHelper.playerUrl(swfProxy, base = null, title = null)
+        wv.releaseAllKeys()
+        wv.loadUrl(playerUrl)
     }
 
-    // Track which engine was loaded to trigger reload on change
-    var loadedEngine by remember { mutableStateOf<FlashPrefs.Engine?>(null) }
+    fun applyEngineAndReload(engine: String) {
+        PrefsManager.sp.edit().putString("flash_engine", engine).putBoolean("flash_enabled", true).apply()
+        reload()
+    }
 
-    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
-        // ---- WebView (Flash player) ----
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
         AndroidView(
+            modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                WebView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = true
-                    settings.allowFileAccessFromFileURLs = true
-                    settings.allowUniversalAccessFromFileURLs = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    settings.loadWithOverviewMode = true
-                    settings.useWideViewPort = true
-                    webViewClient = FlashWebViewClient(swfPath)
-                    webChromeClient = WebChromeClient()
-                    isHorizontalScrollBarEnabled = false
-                    isVerticalScrollBarEnabled = false
-                    isFocusable = true
-                    isFocusableInTouchMode = true
-                    loadUrl(playerUrl)
-                    webViewRef = this
-                    loadedEngine = engine
+                FrameLayoutSwfContainer(ctx).apply {
+                    mainBoxRef.value = this
                 }
-            },
-            update = { web ->
-                if (loadedEngine != engine) {
-                    web.loadUrl(playerUrl)
-                    loadedEngine = engine
-                    releaseAllKeys(web, pressedKeys)
-                }
-            },
-            onRelease = { web ->
-                releaseAllKeys(web, pressedKeys)
-                web.stopLoading()
-                web.destroy()
-                webViewRef = null
-                // Restore landscape orientation on exit
-                applyOrientation("landscape")
-            },
-            modifier = Modifier.fillMaxSize()
+            }
         )
+    }
 
-        // ---- Top bar ----
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = {
-                releaseAllKeys(webViewRef, pressedKeys)
-                onExit()
-            }) {
-                Icon(Icons.Rounded.ArrowBack, "退出", tint = PrimaryText)
-            }
-            Spacer(Modifier.weight(1f))
-            // Engine badge
-            Text(
-                engine.value.uppercase(),
-                color = Accent,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(end = 4.dp)
-            )
-            IconButton(onClick = { editMode = !editMode }) {
-                Icon(
-                    Icons.Rounded.DragHandle, "布局编辑",
-                    tint = if (editMode) Accent else PrimaryText
-                )
-            }
-            IconButton(onClick = { showMenu = !showMenu }) {
-                Icon(Icons.Rounded.MoreVert, "菜单", tint = PrimaryText)
-            }
-        }
+    LaunchedEffect(mainBoxRef.value) {
+        val container = mainBoxRef.value ?: return@LaunchedEffect
+        if (webViewRef.value == null) {
+            val wv = GameWebView(container.context)
+            val webAppInterface = WebAppInterface(container.context)
+            webAppInterfaceRef.value = webAppInterface
 
-        // ---- Menu dropdown ----
-        if (showMenu) {
-            DropdownMenu(
-                expanded = true,
-                onDismissRequest = { showMenu = false },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 48.dp)
-                    .background(Color(0xFF1E2A3A))
-            ) {
-                // Toggle keyboard visibility
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Keyboard, null, tint = Accent, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(8.dp))
-                            Text(
-                                if (padConfig.showPad) "隐藏键盘" else "显示键盘",
-                                color = PrimaryText, fontSize = 13.sp
-                            )
-                        }
-                    },
-                    onClick = {
-                        updateConfig(padConfig.copy(showPad = !padConfig.showPad))
-                        showMenu = false
-                    }
-                )
-                // D-pad mode cycle: JOYSTICK -> DPAD -> WASD -> JOYSTICK
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            "方向模式: " + when (padConfig.dpadMode) {
-                                com.nesstation.app.core.storage.DpadMode.JOYSTICK -> "摇杆WASD (点击切换→方向键)"
-                                com.nesstation.app.core.storage.DpadMode.DPAD -> "方向键 (点击切换→WASD)"
-                                com.nesstation.app.core.storage.DpadMode.WASD -> "WASD十字 (点击切换→摇杆)"
-                            },
-                            color = PrimaryText, fontSize = 12.sp
-                        )
-                    },
-                    onClick = {
-                        val nextMode = when (padConfig.dpadMode) {
-                            com.nesstation.app.core.storage.DpadMode.JOYSTICK -> com.nesstation.app.core.storage.DpadMode.DPAD
-                            com.nesstation.app.core.storage.DpadMode.DPAD -> com.nesstation.app.core.storage.DpadMode.WASD
-                            com.nesstation.app.core.storage.DpadMode.WASD -> com.nesstation.app.core.storage.DpadMode.JOYSTICK
-                        }
-                        updateConfig(padConfig.copy(dpadMode = nextMode))
-                        showMenu = false
-                    }
-                )
-                // Layout editor toggle
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (editMode) "退出布局编辑" else "进入布局编辑",
-                            color = Accent, fontSize = 13.sp
-                        )
-                    },
-                    onClick = {
-                        editMode = !editMode
-                        showMenu = false
-                    }
-                )
-                HorizontalDivider(color = Color(0xFF2A3A4A))
-                // Screen orientation
-                Text(
-                    "屏幕方向: " + when (orientation) {
-                        "portrait" -> "竖屏"
-                        "auto" -> "自动旋转"
-                        else -> "横屏"
-                    },
-                    color = SecondaryText, fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                DropdownMenuItem(
-                    text = { Text("横屏", color = if (orientation == "landscape") Accent else PrimaryText, fontSize = 12.sp) },
-                    onClick = { orientation = "landscape"; applyOrientation("landscape"); showMenu = false }
-                )
-                DropdownMenuItem(
-                    text = { Text("竖屏", color = if (orientation == "portrait") Accent else PrimaryText, fontSize = 12.sp) },
-                    onClick = { orientation = "portrait"; applyOrientation("portrait"); showMenu = false }
-                )
-                DropdownMenuItem(
-                    text = { Text("自动旋转", color = if (orientation == "auto") Accent else PrimaryText, fontSize = 12.sp) },
-                    onClick = { orientation = "auto"; applyOrientation("auto"); showMenu = false }
-                )
-                HorizontalDivider(color = Color(0xFF2A3A4A))
-                // Engine selection — Ruffle / WAFlash
-                Text(
-                    "引擎: " + engine.displayName,
-                    color = Accent, fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = engine == FlashPrefs.Engine.RUFFLE,
-                                onClick = null,
-                                colors = RadioButtonDefaults.colors(selectedColor = Accent)
-                            )
-                            Spacer(Modifier.size(6.dp))
-                            Text("Ruffle (AS1/2/3, 内置中文字体)", color = PrimaryText, fontSize = 12.sp)
-                        }
-                    },
-                    onClick = {
-                        engine = FlashPrefs.Engine.RUFFLE
-                        FlashPrefs.setEngine(context, FlashPrefs.Engine.RUFFLE)
-                        showMenu = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = engine == FlashPrefs.Engine.WAFLASH,
-                                onClick = null,
-                                colors = RadioButtonDefaults.colors(selectedColor = Accent)
-                            )
-                            Spacer(Modifier.size(6.dp))
-                            Text("WAFlash (AS2/AS3, Canvas渲染)", color = PrimaryText, fontSize = 12.sp)
-                        }
-                    },
-                    onClick = {
-                        engine = FlashPrefs.Engine.WAFLASH
-                        FlashPrefs.setEngine(context, FlashPrefs.Engine.WAFLASH)
-                        showMenu = false
-                    }
-                )
-                HorizontalDivider(color = Color(0xFF2A3A4A))
-                // Quality header
-                Text(
-                    "画质: $quality",
-                    color = SecondaryText, fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                listOf("low", "medium", "high", "best").forEach { q ->
-                    DropdownMenuItem(
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(
-                                    selected = quality == q,
-                                    onClick = null,
-                                    colors = RadioButtonDefaults.colors(selectedColor = Accent)
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(q, color = PrimaryText, fontSize = 12.sp)
-                            }
-                        },
-                        onClick = {
-                            quality = q
-                            FlashPrefs.setQuality(context, q)
-                            webViewRef?.evaluateJavascript(
-                                "window.__setQuality && window.__setQuality('$q');", null
-                            )
-                            showMenu = false
-                        }
-                    )
+            webAppInterface.openSwfCallback = { swfUrl, _ ->
+                val wv2 = webViewRef.value
+                if (wv2 != null) {
+                    val playerUrl = NavHelper.playerUrl(swfUrl, base = wv2.url, title = null)
+                    wv2.loadUrl(playerUrl)
                 }
             }
-        }
 
-        // ---- Virtual keyboard overlay ----
-        if (padConfig.showPad) {
-            VirtualKeyboard(
-                config = padConfig,
-                editMode = editMode,
-                onKeyPress = { key -> injectKeyDown(webViewRef, key, pressedKeys) },
-                onKeyRelease = { key -> injectKeyUp(webViewRef, key, pressedKeys) },
-                onConfigChange = { newConfig -> updateConfig(newConfig) },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+            val chromeCallback = object : GameWebChromeClient.Callback {
+                override fun onProgress(progress: Int) {}
+                override fun onTitle(title: String?) {}
+                override fun onConsole(level: String, msg: String, sourceId: String?, line: Int) {}
+                override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {}
+                override fun onHideFullscreen() {}
+                override fun onFileChooser(callback: ValueCallback<Array<android.net.Uri>>, accept: String?): Boolean { return true }
+            }
 
-        // ---- Edit-mode hint banner ----
-        if (editMode) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 52.dp),
-                color = Accent.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "拖动按钮移动 · 点击选择 · × 删除 · 完成后点击右上角图标退出",
-                    color = PrimaryText,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+            val viewClientCallback = object : GameWebViewClient.Callback {
+                override fun onPageStarted(url: String?) { webViewRef.value?.releaseAllKeys() }
+                override fun onPageFinished(url: String?) {}
+                override fun onProgress(progress: Int) {}
+                override fun onError(url: String?, errorCode: Int, description: String?) {}
+                override fun onSwfIntercepted(swfUrl: String, pageUrl: String) {
+                    val wv2 = webViewRef.value
+                    if (wv2 != null) {
+                        val playerUrl = NavHelper.playerUrl(swfUrl, base = pageUrl, title = null)
+                        wv2.loadUrl(playerUrl)
+                    }
+                }
+                override fun shouldInjectRuffle(url: String?): Boolean = false
+                override fun getCachedSwfPath(): String? = null
+                override fun getLocalSwfUri(): String? = localSwfUri.value
+            }
+
+            wv.apply {
+                addJavascriptInterface(webAppInterface, "Android")
+                webChromeClient = object : GameWebChromeClient(chromeCallback) {}
+                webViewClient = GameWebViewClient(viewClientCallback)
+                useDesktopMode(true)
+                setOnKeyListener { _, keyCode, event ->
+                    if (keyCode == KeyEvent.KEYCODE_BACK) {
+                        if (event.action == KeyEvent.ACTION_UP) onExit()
+                        true
+                    } else if (keyCode in GameWebView.GAME_KEYS) {
+                        dispatchKeyEvent(event)
+                        true
+                    } else false
+                }
+            }
+            wv.injectDocumentStartScripts()
+
+            container.addView(wv, android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            webViewRef.value = wv
+
+            val swfProxy = "https://flash.local/local.swf?t=${System.currentTimeMillis()}"
+            val playerUrl = NavHelper.playerUrl(swfProxy, base = null, title = null)
+            wv.loadUrl(playerUrl)
+        }
+    }
+
+    LaunchedEffect(mainBoxRef.value, gamepadVisible, isMouseEnabled) {
+        val container = mainBoxRef.value ?: return@LaunchedEffect
+        val density = container.resources.displayMetrics.density
+
+        listOfNotNull(
+            dpadRef.value, actionRef.value, mouseRef.value, floatingMenuRef.value
+        ).forEach { container.removeView(it) }
+
+        val dpad = DPadView(container.context).apply {
+            targetWebView = webViewRef.value
+            overlayAlpha = PrefsManager.gamepadAlpha
+        }
+        dpadRef.value = dpad
+        val dpadSize = (140 * density).toInt()
+        val dpadLp = android.widget.FrameLayout.LayoutParams(dpadSize, dpadSize).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
+            bottomMargin = (24 * density).toInt()
+            marginStart = (16 * density).toInt()
+        }
+        if (gamepadVisible) container.addView(dpad, dpadLp)
+
+        val action = ActionButtonView(container.context).apply {
+            targetWebView = webViewRef.value
+            overlayAlpha = PrefsManager.gamepadAlpha
+        }
+        actionRef.value = action
+        val baseSize = (160 * density).toInt()
+        val count = PrefsManager.gamepadKeyCount
+        val sizeMult = if (count > 6) 1f + (count - 6) * 0.12f else 1f
+        val actionSize = (baseSize * PrefsManager.gamepadScale * sizeMult).toInt()
+        val actionLp = android.widget.FrameLayout.LayoutParams(actionSize, actionSize).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            bottomMargin = (24 * density).toInt()
+            marginEnd = (16 * density).toInt()
+        }
+        if (gamepadVisible) container.addView(action, actionLp)
+
+        val mouse = MouseControlView(container.context).apply {
+            targetWebView = webViewRef.value
+            overlayAlpha = PrefsManager.gamepadAlpha
+        }
+        mouseRef.value = mouse
+        val mouseSize = (220 * density).toInt()
+        val mouseLp = android.widget.FrameLayout.LayoutParams(mouseSize, (80 * density).toInt()).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            bottomMargin = (200 * density).toInt()
+        }
+        if (PrefsManager.isMouseButtonsVisible) container.addView(mouse, mouseLp)
+
+        val menu = FloatingMenuView(container.context)
+        menu.setCallbacks(object : FloatingMenuView.Callbacks {
+            override fun onToggleFullscreen() = toggleFullscreen()
+            override fun onToggleOrientation() = toggleOrientation()
+            override fun onToggleGamepad() = toggleGamepad()
+            override fun onToggleMouse() = toggleMouse()
+            override fun onOpenKeyMapping() { showKeyDialog.value = true }
+            override fun onOpenFlashSettings() { showFlashDialog.value = true }
+            override fun onOpenPageZoom() {}
+            override fun onOpenUaMode() {}
+            override fun onRefresh() = reload()
+            override fun onBack() {
+                if (webViewRef.value?.canGoBack() == true) webViewRef.value?.goBack() else onExit()
+            }
+            override fun onClose() = onExit()
+            override fun onExtractSwf() {}
+        })
+        menu.isFullscreen = isFullscreen
+        menu.isLandscape = isLandscape
+        floatingMenuRef.value = menu
+        menu.attachTo(container)
+    }
+
+    LaunchedEffect(gamepadVisible) {
+        if (!gamepadVisible) webViewRef.value?.releaseAllKeys()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef.value?.let { wv ->
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.destroy()
             }
         }
     }
-}
 
-// ---------------------------------------------------------------------------
-// Key injection into WebView via __gameKeys JS manager
-// ---------------------------------------------------------------------------
-
-private fun injectKeyDown(webView: WebView?, key: String, pressedKeys: MutableSet<Int>) {
-    val info = keyToJsInfo(key)
-    pressedKeys.add(info.keyCode)
-    webView?.evaluateJavascript(
-        "window.__gameKeys && window.__gameKeys.down(${info.keyCode}, '${info.key}', '${info.code}');",
-        null
-    )
-}
-
-private fun injectKeyUp(webView: WebView?, key: String, pressedKeys: MutableSet<Int>) {
-    val info = keyToJsInfo(key)
-    pressedKeys.remove(info.keyCode)
-    webView?.evaluateJavascript(
-        "window.__gameKeys && window.__gameKeys.up(${info.keyCode}, '${info.key}', '${info.code}');",
-        null
-    )
-}
-
-private fun releaseAllKeys(webView: WebView?, pressedKeys: MutableSet<Int>) {
-    synchronized(pressedKeys) {
-        pressedKeys.clear()
+    if (showFlashDialog.value) {
+        val engines = arrayOf("Ruffle", "WAFlash", "关闭 Flash")
+        val values = arrayOf("ruffle", "waflash", "off")
+        val current = if (PrefsManager.isFlashEnabled) PrefsManager.flashEngine else "off"
+        val checked = values.indexOf(current).coerceAtLeast(0)
+        androidx.appcompat.app.AlertDialog.Builder(context)
+            .setTitle("Flash 引擎")
+            .setSingleChoiceItems(engines, checked) { dlg, which ->
+                if (values[which] == "off") {
+                    PrefsManager.sp.edit().putBoolean("flash_enabled", false).apply()
+                } else {
+                    applyEngineAndReload(values[which])
+                }
+                dlg.dismiss()
+                showFlashDialog.value = false
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
-    webView?.evaluateJavascript(
-        "window.__gameKeys && window.__gameKeys.releaseAll();",
-        null
-    )
+
+    if (showKeyDialog.value) {
+        val items = arrayOf("修改按键映射", "添加按键", "删除按键", "重置为默认")
+        androidx.appcompat.app.AlertDialog.Builder(context)
+            .setTitle("按键设置（共 ${PrefsManager.gamepadKeyCount} 个）")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> {
+                        val keys = PrefsManager.gamepadKeys
+                        val labels = keys.mapIndexed { i, k -> "按键 ${i + 1} ($k)" }.toTypedArray()
+                        androidx.appcompat.app.AlertDialog.Builder(context)
+                            .setTitle("选择要修改的按键")
+                            .setItems(labels) { _, idx ->
+                                val allKeys = arrayOf("J","K","L","U","I","O","A","B","C","D","E","F","G","H","M","N","P","Q","R","S","T","W","X","Y","Z","SPACE","ENTER","TAB","ESC","0","1","2","3","4","5","6","7","8","9")
+                                val cur = PrefsManager.gamepadKeys.getOrElse(idx) { "J" }
+                                androidx.appcompat.app.AlertDialog.Builder(context)
+                                    .setTitle("按键 ${idx + 1} 映射")
+                                    .setSingleChoiceItems(allKeys, allKeys.indexOf(cur).coerceAtLeast(0)) { dlg, w ->
+                                        PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", allKeys[w]).apply()
+                                        dlg.dismiss()
+                                    }
+                                    .setNegativeButton("取消", null)
+                                    .show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    1 -> {
+                        val c = PrefsManager.gamepadKeyCount
+                        if (c < 18) PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
+                    }
+                    2 -> {
+                        val c = PrefsManager.gamepadKeyCount
+                        if (c > 2) PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
+                    }
+                    3 -> {
+                        PrefsManager.sp.edit()
+                            .putInt("gamepad_key_count", 6)
+                            .putString("gamepad_key_1", "J")
+                            .putString("gamepad_key_2", "K")
+                            .putString("gamepad_key_3", "L")
+                            .putString("gamepad_key_4", "U")
+                            .putString("gamepad_key_5", "I")
+                            .putString("gamepad_key_6", "O")
+                            .apply()
+                    }
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .setOnDismissListener { showKeyDialog.value = false }
+            .show()
+    }
 }
+
+@SuppressLint("ViewConstructor")
+private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context)
