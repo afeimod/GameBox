@@ -98,8 +98,7 @@ object PrefsManager {
     // ---- 3D 视角旋转 ----
     val isCameraRotationEnabled: Boolean get() = sp.getBoolean("camera_rotation_enabled", false)
 
-    // ---- 画面比例（游戏画面 letterbox）----
-    // auto(全屏自适应) / 4:3 / 16:9 / 16:10 / 5:4
+    // ---- 画面比例 ----
     val gameAspectRatio: String get() = sp.getString("game_aspect_ratio", "auto") ?: "auto"
 
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =

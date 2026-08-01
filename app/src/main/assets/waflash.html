@@ -23,17 +23,9 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  /* WAFlash 容器居中：防止画面靠左显示 */
-  #waflashContainer {
-    position: fixed !important; inset: 0 !important;
-    width: 100vw !important; height: 100vh !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-    background: #000 !important;
-  }
-  canvas, canvas.waflashCanvas {
-    width: 100% !important; height: 100% !important; display: block !important; outline: none !important;
-    touch-action: none !important;
-    margin: 0 auto !important;
+  canvas {
+    width: 100%; height: 100%; display: block; outline: none;
+    touch-action: none;
     font-family: "SimHei", "Microsoft YaHei", "SimSun", "Noto Sans CJK SC",
                  Arial, Helvetica, sans-serif !important;
   }
@@ -56,9 +48,6 @@
     <div id="waflashStatus">Loading...</div>
     <div id="hint">WAFlash · AS2/AS3</div>
   </div>
-  <!-- 隐藏输入框：用于唤起 Android 输入法 (IME)，将输入文本转发给 WAFlash -->
-  <input type="text" id="imeInput" autocomplete="off" autocorrect="off" autocapitalize="off"
-    style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:none;outline:none;font-size:16px;" />
 
   <script>
     var params = new URLSearchParams(location.search);
@@ -67,103 +56,12 @@
     var TITLE = params.get('title') || 'Flash 游戏';
     document.title = TITLE;
 
-    // Multi-SWF support: When loading local SWF via flash.local/local.swf proxy,
-    // relative resource requests (e.g., "sub.swf", "assets/image.png") resolve to
-    // https://flash.local/<resource>. GameWebViewClient.shouldInterceptRequest
-    // intercepts these and serves them from the local SWF's parent directory.
-    // The WAFlash engine loads SWF from flash.local/local.swf, so relative paths
-    // in the SWF will also resolve to flash.local/ and be intercepted.
-
     var statusEl = document.getElementById('waflashStatus');
     var canvas = document.getElementById('canvas');
 
     // === Canvas 交互处理（来自 WAFlash 官方源码） ===
     // 1. 点击 canvas 获取焦点（键盘输入需要）
     canvas.addEventListener('click', function() { canvas.focus(); });
-
-    // === IME 输入法支持 ===
-    // 通过隐藏 input 唤起 Android 输入法，将文本输入转发给 WAFlash
-    var imeInput = document.getElementById('imeInput');
-    var lastImeValue = '';
-    var isComposing = false;
-
-    // 双击 canvas 唤起输入法（单击仍保留焦点行为）
-    var lastTap = 0;
-    canvas.addEventListener('click', function() {
-      var now = Date.now();
-      if (now - lastTap < 400) {
-        // 双击唤起输入法
-        imeInput.value = '';
-        lastImeValue = '';
-        imeInput.focus();
-        try { imeInput.click(); } catch(e) {}
-      }
-      lastTap = now;
-    });
-
-    // 长按也唤起输入法
-    var touchTimer = null;
-    canvas.addEventListener('touchstart', function() {
-      touchTimer = setTimeout(function() {
-        imeInput.value = '';
-        lastImeValue = '';
-        imeInput.focus();
-        try { imeInput.click(); } catch(e) {}
-      }, 600);
-    }, { passive: true });
-    canvas.addEventListener('touchend', function() {
-      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, { passive: true });
-    canvas.addEventListener('touchmove', function() {
-      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, { passive: true });
-
-    // 输入法组合事件
-    imeInput.addEventListener('compositionstart', function() {
-      isComposing = true;
-    });
-    imeInput.addEventListener('compositionend', function(e) {
-      isComposing = false;
-      var text = e.data || imeInput.value || '';
-      if (text) {
-        sendTextToCanvas(text);
-      }
-      imeInput.value = '';
-      lastImeValue = '';
-    });
-
-    // 输入事件：组合中不处理，组合完成后发送
-    imeInput.addEventListener('input', function(e) {
-      if (isComposing) return;
-      var val = imeInput.value;
-      if (val && val !== lastImeValue) {
-        sendTextToCanvas(val);
-        lastImeValue = val;
-        imeInput.value = '';
-        lastImeValue = '';
-      }
-    });
-
-    // 将文本以 keydown/keypress/keyup 序列注入 canvas（供 WAFlash 接收）
-    function sendTextToCanvas(text) {
-      for (var i = 0; i < text.length; i++) {
-        var ch = text.charCodeAt(i);
-        // 派发 keydown
-        canvas.dispatchEvent(new KeyboardEvent('keydown', { key: text[i], keyCode: ch, which: ch, bubbles: true }));
-        // 派发 keypress（Flash 通常监听此事件获取字符）
-        canvas.dispatchEvent(new KeyboardEvent('keypress', { key: text[i], keyCode: ch, which: ch, charCode: ch, bubbles: true }));
-        // 派发 input 事件（部分 Flash 组件监听 input）
-        canvas.dispatchEvent(new InputEvent('input', { data: text[i], inputType: 'insertText', bubbles: true }));
-        // 派发 keyup
-        canvas.dispatchEvent(new KeyboardEvent('keyup', { key: text[i], keyCode: ch, which: ch, bubbles: true }));
-      }
-      // 输入完成后让 canvas 重新获得焦点
-      try { canvas.focus(); } catch(e) {}
-    }
-
-    // 阻止输入框上的键盘事件冒泡到 WAFlash（避免重复输入）
-    imeInput.addEventListener('keydown', function(e) { e.stopPropagation(); });
-    imeInput.addEventListener('keyup', function(e) { e.stopPropagation(); });
 
     // 2. 阻止 canvas 上的默认键盘行为（仅阻止滚动相关按键）
     //    注意：不再 stopPropagation，否则 WAFlash 引擎的 window 级监听器收不到事件
@@ -200,8 +98,10 @@
 
     // 4. 自动恢复焦点：定期检查并确保 canvas 有焦点（虚拟手柄操作时可能失焦）
     setInterval(function() {
-      if (document.activeElement !== canvas && document.activeElement !== document.body) {
-        // 如果焦点不在 canvas 也不在 body，尝试恢复
+      var active = document.activeElement;
+      if (active !== canvas && active !== document.body) {
+        // 如果焦点在 input/textarea 上（WAFlash 引擎创建的输入框），不要抢焦点
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
         try { canvas.focus(); } catch(e) {}
       }
     }, 1000);
@@ -254,17 +154,14 @@
         var fn = (module && module.createWaflash) || window.createWaflash;
         if (!fn) {
           console.log('[WAF] createWaflash 未导出，可能已自动启动');
-          setTimeout(function() { statusEl.style.display = 'none'; }, 1500);
+          setTimeout(function() { statusEl.style.display = 'none'; }, 3000);
           return;
         }
 
         try {
           fn(swfUrlToLoad, { gpu: true });
           console.log('[WAF] createWaflash 已调用: ' + swfUrlToLoad);
-          // 缩短 loading 隐藏时间（从 3s 改为 1.5s）
-          setTimeout(function() { statusEl.style.display = 'none'; }, 1500);
-          // 兜底：5 秒后强制隐藏（防止卡在加载）
-          setTimeout(function() { statusEl.style.display = 'none'; }, 5000);
+          setTimeout(function() { statusEl.style.display = 'none'; }, 3000);
         } catch(e) {
           statusEl.textContent = '加载失败: ' + e.message;
           console.error('[WAF] ' + e.message);
@@ -286,17 +183,8 @@
       loadEngine(SWF_URL);
     }
 
-    document.addEventListener('contextmenu', function(e) { e.preventDefault(); e.stopPropagation(); return false; }, true);
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
     document.addEventListener('selectstart', function(e) { e.preventDefault(); });
-
-    // 拦截 Fullscreen API：防止全屏卡死
-    if (Element.prototype.requestFullscreen) {
-      Element.prototype.requestFullscreen = function() { return Promise.reject(new Error('fullscreen disabled')); };
-    }
-    if (Element.prototype.webkitRequestFullscreen) {
-      Element.prototype.webkitRequestFullscreen = function() {};
-    }
-    document.addEventListener('dblclick', function(e) { e.preventDefault(); }, true);
 
     // WebGL 上下文丢失处理
     canvas.addEventListener('webglcontextlost', function(e) {

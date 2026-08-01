@@ -26,10 +26,6 @@ class WebAppInterface(private val context: Context) {
     @Volatile
     var openSwfCallback: ((String, String) -> Unit)? = null
 
-    /** 全屏切换回调（由 WebGameScreen / SwfPlayerScreen 设置） */
-    @Volatile
-    var fullscreenCallback: (() -> Unit)? = null
-
     @JavascriptInterface
     fun toast(msg: String?) {
         handler.post { Toast.makeText(context, msg ?: "", Toast.LENGTH_SHORT).show() }
@@ -63,15 +59,6 @@ class WebAppInterface(private val context: Context) {
     @JavascriptInterface
     fun finish() {
         if (context is Activity) handler.post { context.finish() }
-    }
-
-    /**
-     * 切换全屏状态（由 player.html 的 CSS 全屏调用）。
-     * 通过 fullscreenCallback 回调到 Activity 层隐藏/恢复系统栏。
-     */
-    @JavascriptInterface
-    fun toggleFullscreen() {
-        fullscreenCallback?.let { cb -> handler.post { cb() } }
     }
 
     /**
