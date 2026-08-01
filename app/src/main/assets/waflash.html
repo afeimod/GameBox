@@ -23,9 +23,17 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  canvas {
-    width: 100%; height: 100%; display: block; outline: none;
-    touch-action: none;
+  /* WAFlash 容器居中：防止画面靠左显示 */
+  #waflashContainer {
+    position: fixed !important; inset: 0 !important;
+    width: 100vw !important; height: 100vh !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    background: #000 !important;
+  }
+  canvas, canvas.waflashCanvas {
+    width: 100% !important; height: 100% !important; display: block !important; outline: none !important;
+    touch-action: none !important;
+    margin: 0 auto !important;
     font-family: "SimHei", "Microsoft YaHei", "SimSun", "Noto Sans CJK SC",
                  Arial, Helvetica, sans-serif !important;
   }
@@ -159,14 +167,17 @@
         var fn = (module && module.createWaflash) || window.createWaflash;
         if (!fn) {
           console.log('[WAF] createWaflash 未导出，可能已自动启动');
-          setTimeout(function() { statusEl.style.display = 'none'; }, 3000);
+          setTimeout(function() { statusEl.style.display = 'none'; }, 1500);
           return;
         }
 
         try {
           fn(swfUrlToLoad, { gpu: true });
           console.log('[WAF] createWaflash 已调用: ' + swfUrlToLoad);
-          setTimeout(function() { statusEl.style.display = 'none'; }, 3000);
+          // 缩短 loading 隐藏时间（从 3s 改为 1.5s）
+          setTimeout(function() { statusEl.style.display = 'none'; }, 1500);
+          // 兜底：5 秒后强制隐藏（防止卡在加载）
+          setTimeout(function() { statusEl.style.display = 'none'; }, 5000);
         } catch(e) {
           statusEl.textContent = '加载失败: ' + e.message;
           console.error('[WAF] ' + e.message);
@@ -188,8 +199,17 @@
       loadEngine(SWF_URL);
     }
 
-    document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); e.stopPropagation(); return false; }, true);
     document.addEventListener('selectstart', function(e) { e.preventDefault(); });
+
+    // 拦截 Fullscreen API：防止全屏卡死
+    if (Element.prototype.requestFullscreen) {
+      Element.prototype.requestFullscreen = function() { return Promise.reject(new Error('fullscreen disabled')); };
+    }
+    if (Element.prototype.webkitRequestFullscreen) {
+      Element.prototype.webkitRequestFullscreen = function() {};
+    }
+    document.addEventListener('dblclick', function(e) { e.preventDefault(); }, true);
 
     // WebGL 上下文丢失处理
     canvas.addEventListener('webglcontextlost', function(e) {

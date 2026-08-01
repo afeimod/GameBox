@@ -122,8 +122,32 @@
         player.style.display = 'block';
         var opt = { url: SWF_URL, allowScriptAccess: true };
         if (BASE_URL) opt.base = BASE_URL;
+
+        // 隐藏 loading 的函数（防重复调用）
+        var loadingHidden = false;
+        function hideLoading() {
+          if (loadingHidden) return;
+          loadingHidden = true;
+          var ld = document.getElementById('loading');
+          if (ld) ld.style.display = 'none';
+        }
+
+        // 监听 Ruffle 加载完成/错误事件
+        player.addEventListener('loadeddata', hideLoading);
+        player.addEventListener('load', hideLoading);
+        player.addEventListener('canplay', hideLoading);
+        player.addEventListener('loaderror', function(e) {
+          if (loadingHidden) return;
+          loadText.textContent = '游戏加载失败: ' + (e && e.detail ? e.detail.error : '未知错误');
+          console.error('[Ruffle] loaderror', e);
+        });
+
         player.ruffle().load(opt);
-        document.getElementById('loading').style.display = 'none';
+        // 立即隐藏 loading（load 是异步的，但 loading 遮罩不应阻塞交互）
+        hideLoading();
+
+        // 兜底：5 秒后强制隐藏 loading（防止某些游戏卡在加载）
+        setTimeout(hideLoading, 5000);
       } catch (e) {
         loadText.textContent = '加载失败: ' + e.message;
         console.error(e);
@@ -146,13 +170,32 @@
         var opt = { url: url, allowScriptAccess: true };
         if (base) opt.base = base;
         player.ruffle().load(opt);
+        var ld = document.getElementById('loading');
+        if (ld) ld.style.display = 'none';
       } catch(e) { console.error(e); }
     };
 
     // 禁用长按选择 / 上下文菜单 / 缩放
-    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    // 在 document 和所有元素上阻止右键菜单（防止 Ruffle 全屏菜单卡死）
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); return false; }, true);
     document.addEventListener('selectstart', function (e) { e.preventDefault(); });
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+
+    // 拦截 Fullscreen API：防止 Ruffle 右键菜单进入全屏导致卡死
+    if (Element.prototype.requestFullscreen) {
+      Element.prototype.requestFullscreen = function() { return Promise.reject(new Error('fullscreen disabled')); };
+    }
+    if (Element.prototype.webkitRequestFullscreen) {
+      Element.prototype.webkitRequestFullscreen = function() {};
+    }
+    if (Element.prototype.mozRequestFullScreen) {
+      Element.prototype.mozRequestFullScreen = function() {};
+    }
+    if (Element.prototype.msRequestFullscreen) {
+      Element.prototype.msRequestFullscreen = function() {};
+    }
+    // 阻止双击全屏
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); }, true);
   </script>
 </body>
 </html>

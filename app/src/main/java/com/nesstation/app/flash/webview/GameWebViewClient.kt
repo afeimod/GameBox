@@ -1365,10 +1365,31 @@ open class GameWebViewClient(
          * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
          * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
          *
+         * 同时适配 Ruffle（#stage > ruffle-player）和 WAFlash（#waflashContainer > canvas）。
+         * 每次调用会先移除旧样式再重新应用，确保切换比例时生效。
+         *
          * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
          */
         fun buildAspectRatioScript(ratio: String): String {
-            if (ratio == "auto") return "(function(){})();"
+            if (ratio == "auto") {
+                // 恢复默认：移除自定义样式，让引擎自身设置生效
+                return """
+                (function(){
+                  var old = document.getElementById('__aspectRatioStyle');
+                  if (old) old.remove();
+                  var els = document.querySelectorAll('#stage, ruffle-player, #waflashContainer, canvas.waflashCanvas');
+                  els.forEach(function(el){
+                    el.style.width = '';
+                    el.style.height = '';
+                    el.style.marginLeft = '';
+                    el.style.marginTop = '';
+                    el.style.maxWidth = '';
+                    el.style.maxHeight = '';
+                    el.style.objectFit = '';
+                  });
+                })();
+                """.trimIndent()
+            }
             val parts = ratio.split(":")
             if (parts.size != 2) return "(function(){})();"
             val w = parts[0].toFloatOrNull() ?: return "(function(){})();"
@@ -1376,16 +1397,21 @@ open class GameWebViewClient(
             val targetRatio = w / h
             return """
             (function(){
-              if (window.__aspectRatioApplied) return;
-              window.__aspectRatioApplied = true;
+              // 移除旧样式，确保切换比例时重新生效
+              var old = document.getElementById('__aspectRatioStyle');
+              if (old) old.remove();
+
               var targetRatio = $targetRatio;
               var style = document.createElement('style');
               style.id = '__aspectRatioStyle';
               style.textContent = [
                 'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
-                '#ruffle-container,#player,canvas,object,embed{margin:auto!important;display:block!important;}',
-                '#ruffle-container{position:absolute!important;top:0;left:0;width:100%!important;height:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;}',
-                '#ruffle-container canvas{position:relative!important;width:100%!important;height:100%!important;object-fit:contain!important;}'
+                // Ruffle: #stage 作为 flex 容器居中 ruffle-player
+                '#stage{display:flex!important;align-items:center!important;justify-content:center!important;}',
+                'ruffle-player{margin:0 auto!important;display:block!important;}',
+                // WAFlash: #waflashContainer 作为 flex 容器居中 canvas
+                '#waflashContainer{display:flex!important;align-items:center!important;justify-content:center!important;width:100vw!important;height:100vh!important;}',
+                'canvas.waflashCanvas{margin:0 auto!important;display:block!important;}'
               ].join('\n');
               document.head.appendChild(style);
 
@@ -1393,32 +1419,71 @@ open class GameWebViewClient(
                 var sw = window.innerWidth;
                 var sh = window.innerHeight;
                 var screenRatio = sw / sh;
-                var canvas = document.querySelector('canvas') ||
-                             document.querySelector('#ruffle-player') ||
-                             document.querySelector('object') ||
-                             document.querySelector('embed');
-                if (!canvas) {
-                  setTimeout(applyLetterbox, 300);
-                  return;
+
+                // Ruffle player
+                var rufflePlayer = document.querySelector('ruffle-player');
+                if (rufflePlayer) {
+                  if (screenRatio > targetRatio) {
+                    var newW = Math.round(sh * targetRatio);
+                    rufflePlayer.style.width = newW + 'px';
+                    rufflePlayer.style.height = sh + 'px';
+                    rufflePlayer.style.maxWidth = newW + 'px';
+                    rufflePlayer.style.maxHeight = sh + 'px';
+                  } else {
+                    var newH = Math.round(sw / targetRatio);
+                    rufflePlayer.style.width = sw + 'px';
+                    rufflePlayer.style.height = newH + 'px';
+                    rufflePlayer.style.maxWidth = sw + 'px';
+                    rufflePlayer.style.maxHeight = newH + 'px';
+                  }
                 }
-                if (screenRatio > targetRatio) {
-                  var newW = Math.round(sh * targetRatio);
-                  canvas.style.width = newW + 'px';
-                  canvas.style.height = sh + 'px';
-                  canvas.style.marginLeft = Math.round((sw - newW) / 2) + 'px';
-                  canvas.style.marginTop = '0';
-                } else {
-                  var newH = Math.round(sw / targetRatio);
-                  canvas.style.width = sw + 'px';
-                  canvas.style.height = newH + 'px';
-                  canvas.style.marginLeft = '0';
-                  canvas.style.marginTop = Math.round((sh - newH) / 2) + 'px';
+
+                // WAFlash canvas
+                var waflashCanvas = document.querySelector('canvas.waflashCanvas') ||
+                                    document.querySelector('#canvas');
+                if (waflashCanvas) {
+                  if (screenRatio > targetRatio) {
+                    var newW = Math.round(sh * targetRatio);
+                    waflashCanvas.style.width = newW + 'px';
+                    waflashCanvas.style.height = sh + 'px';
+                    waflashCanvas.style.marginLeft = 'auto';
+                    waflashCanvas.style.marginRight = 'auto';
+                  } else {
+                    var newH = Math.round(sw / targetRatio);
+                    waflashCanvas.style.width = sw + 'px';
+                    waflashCanvas.style.height = newH + 'px';
+                    waflashCanvas.style.marginTop = 'auto';
+                    waflashCanvas.style.marginBottom = 'auto';
+                  }
+                }
+
+                // Generic fallback: any canvas/object/embed
+                if (!rufflePlayer && !waflashCanvas) {
+                  var generic = document.querySelector('canvas') ||
+                                document.querySelector('object') ||
+                                document.querySelector('embed');
+                  if (generic) {
+                    if (screenRatio > targetRatio) {
+                      var newW = Math.round(sh * targetRatio);
+                      generic.style.width = newW + 'px';
+                      generic.style.height = sh + 'px';
+                      generic.style.marginLeft = Math.round((sw - newW) / 2) + 'px';
+                      generic.style.marginTop = '0';
+                    } else {
+                      var newH = Math.round(sw / targetRatio);
+                      generic.style.width = sw + 'px';
+                      generic.style.height = newH + 'px';
+                      generic.style.marginLeft = '0';
+                      generic.style.marginTop = Math.round((sh - newH) / 2) + 'px';
+                    }
+                  }
                 }
               }
               applyLetterbox();
               window.addEventListener('resize', applyLetterbox);
-              setTimeout(applyLetterbox, 500);
-              setTimeout(applyLetterbox, 2000);
+              setTimeout(applyLetterbox, 300);
+              setTimeout(applyLetterbox, 1000);
+              setTimeout(applyLetterbox, 3000);
             })();
             """.trimIndent()
         }

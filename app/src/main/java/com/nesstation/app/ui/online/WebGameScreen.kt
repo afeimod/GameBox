@@ -270,7 +270,7 @@ fun WebGameScreen(
     fun applyAspectRatio(ratio: String) {
         PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
         val wv = webViewRef.value
-        if (wv != null && ratio != "auto") {
+        if (wv != null) {
             wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
         }
     }
@@ -666,7 +666,20 @@ fun WebGameScreen(
                     }
                     isDownloadingActive.value = true
                     val pageUrl = webViewRef.value?.url ?: ""
-                    manager.startDownload(items, pageUrl)
+                    // 分离 SWF 和资源文件
+                    val swfItems = items.filter { it.type == "swf" }
+                    val resItems = items.filter { it.type == "resource" }
+                    // 生成游戏文件夹名（取第一个 SWF 的标题，清理非法字符）
+                    val gameFolder = if (swfItems.isNotEmpty()) {
+                        swfItems.first().title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(50).ifBlank { "GameBox" }
+                    } else if (resItems.isNotEmpty()) {
+                        "resources"
+                    } else {
+                        ""
+                    }
+                    val swfUrls = swfItems.map { it.url to it.title }
+                    val resUrls = resItems.map { it.url to it.subDir }
+                    manager.startDownload(swfUrls, pageUrl, gameFolder, resUrls)
                 } else {
                     Toast.makeText(context, "正在下载中，请等待", Toast.LENGTH_SHORT).show()
                 }
@@ -752,9 +765,9 @@ private fun SwfExtractDialog(
     json: String,
     onDismiss: () -> Unit,
     onPlay: (String) -> Unit,
-    onDownload: (List<Pair<String, String>>) -> Unit
+    onDownload: (List<SwfItem>) -> Unit
 ) {
-    val swfList = remember(json) {
+    val allItems = remember(json) {
         try {
             val arr = org.json.JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
@@ -762,14 +775,18 @@ private fun SwfExtractDialog(
                 val u = o.optString("url", "")
                 if (u.isEmpty()) null else SwfItem(
                     url = u,
-                    title = o.optString("title", u.substringAfterLast('/'))
+                    title = o.optString("title", u.substringAfterLast('/')),
+                    type = o.optString("type", "swf"),
+                    subDir = o.optString("subDir", "")
                 )
             }
         } catch (e: Exception) { emptyList() }
     }
-    val selected = remember(json) { mutableStateMapOf<Int, Boolean>() }
+    val swfList = allItems.filter { it.type == "swf" }
+    val resList = allItems.filter { it.type == "resource" }
+    val selected = remember(json) { mutableStateMapOf<String, Boolean>() }
 
-    if (swfList.isEmpty()) {
+    if (allItems.isEmpty()) {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("提取 SWF") },
@@ -777,24 +794,29 @@ private fun SwfExtractDialog(
             confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("确定") } }
         )
     } else {
-        val allSelected = swfList.indices.all { selected[it] == true }
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("发现 ${swfList.size} 个 SWF") },
+            title = { Text("发现 ${swfList.size} 个 SWF" + if (resList.isNotEmpty()) " + ${resList.size} 个资源" else "") },
             text = {
                 androidx.compose.foundation.lazy.LazyColumn {
                     item {
-                        androidx.compose.material3.TextButton(
-                            onClick = {
-                                if (allSelected) {
-                                    selected.clear()
-                                } else {
-                                    swfList.indices.forEach { selected[it] = true }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    val allUrls = allItems.map { it.url }
+                                    val allSelected = allUrls.all { selected[it] == true }
+                                    if (allSelected) {
+                                        selected.clear()
+                                    } else {
+                                        allUrls.forEach { selected[it] = true }
+                                    }
                                 }
-                            }
-                        ) {
-                            Text(if (allSelected) "取消全选" else "全选")
+                            ) { Text(if (allItems.all { selected[it.url] == true }) "取消全选" else "全选") }
                         }
+                    }
+                    // SWF 文件列表
+                    if (swfList.isNotEmpty()) {
+                        item { Text("SWF 文件", color = Color(0xFFFFC107), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
                     }
                     items(count = swfList.size) { idx ->
                         val it = swfList[idx]
@@ -803,8 +825,8 @@ private fun SwfExtractDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
-                                checked = selected[idx] == true,
-                                onCheckedChange = { checked -> selected[idx] = checked }
+                                checked = selected[it.url] == true,
+                                onCheckedChange = { checked -> selected[it.url] = checked }
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(it.title, color = Color.White, fontSize = 13.sp)
@@ -815,13 +837,33 @@ private fun SwfExtractDialog(
                             }
                         }
                     }
+                    // 资源文件列表
+                    if (resList.isNotEmpty()) {
+                        item { Text("资源文件 (${resList.size})", color = Color(0xFF4FC3F7), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
+                    }
+                    items(count = resList.size) { idx ->
+                        val it = resList[idx]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selected[it.url] == true,
+                                onCheckedChange = { checked -> selected[it.url] = checked }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(it.title, color = Color.White, fontSize = 12.sp)
+                                Text(if (it.subDir.isNotEmpty()) "${it.subDir}${it.title}" else it.url,
+                                    color = Color.Gray, fontSize = 9.sp, maxLines = 1)
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = {
-                        val toDownload = swfList.filterIndexed { i, _ -> selected[i] == true }
-                            .map { it.url to it.title }
+                        val toDownload = allItems.filter { selected[it.url] == true }
                         if (toDownload.isNotEmpty()) {
                             onDownload(toDownload)
                         }
@@ -835,7 +877,7 @@ private fun SwfExtractDialog(
     }
 }
 
-private data class SwfItem(val url: String, val title: String)
+private data class SwfItem(val url: String, val title: String, val type: String = "swf", val subDir: String = "")
 
 @Composable
 private fun FlashEngineDialog(
@@ -872,14 +914,62 @@ private fun PageZoomDialog(
     val context = LocalContext.current
     val mode = PrefsManager.pageZoomMode
     val manual = PrefsManager.pageZoomManual
-    android.app.AlertDialog.Builder(context)
+
+    // 用 LinearLayout 放 SeekBar + 文字提示
+    val container = android.widget.LinearLayout(context).apply {
+        orientation = android.widget.LinearLayout.VERTICAL
+        setPadding(48, 32, 48, 16)
+    }
+
+    val currentText = android.widget.TextView(context).apply {
+        text = if (mode == "auto") "模式：自动" else "缩放：$manual%"
+        textSize = 16f
+        gravity = android.view.Gravity.CENTER
+    }
+    container.addView(currentText)
+
+    val seekBar = android.widget.SeekBar(context).apply {
+        max = 175          // 25% ~ 200% → 0 ~ 175
+        progress = (manual - 25).coerceIn(0, 175)
+        // 拖动时实时更新文字
+        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                val pct = p + 25
+                currentText.text = "缩放：$pct%"
+            }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+        })
+    }
+    // 给 SeekBar 设置 layoutParams，确保宽度填满
+    seekBar.layoutParams = android.widget.LinearLayout.LayoutParams(
+        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+    )
+    container.addView(seekBar)
+
+    val hint = android.widget.TextView(context).apply {
+        text = "范围：25% — 200%"
+        textSize = 12f
+        gravity = android.view.Gravity.CENTER
+        setTextColor(android.graphics.Color.GRAY)
+    }
+    container.addView(hint)
+
+    val dialog = android.app.AlertDialog.Builder(context)
         .setTitle("页面缩放")
-        .setMessage("当前：${if (mode == "auto") "自动" else "${manual}%"}\n\n点击确定切换缩放模式（自动 ↔ 75%）。")
-        .setPositiveButton("自动") { _, _ -> onApply("auto", manual) }
-        .setNegativeButton("75%") { _, _ -> onApply("manual", 75) }
+        .setView(container)
+        .setPositiveButton("应用") { _, _ ->
+            onApply("manual", seekBar.progress + 25)
+        }
+        .setNegativeButton("自动") { _, _ ->
+            onApply("auto", manual)
+        }
         .setNeutralButton("取消", null)
         .setOnDismissListener { onDismiss() }
-        .show()
+        .create()
+
+    dialog.show()
 }
 
 @Composable
@@ -1099,12 +1189,16 @@ private fun KeyMappingDialog(
         .show()
 }
 
-// ============== 内部脚本（与 3.3 SWF_SNIFFER_SCRIPT 1:1 移植） ==============
+// ============== 内部脚本（SWF + 资源文件嗅探器） ==============
 
 private const val SWF_SNIFFER_SCRIPT = """
 (function(){
   var found = {};
-  function addUrl(url, title){
+  var resources = {};
+  // 资源文件扩展名（Flash 游戏常见外部资源）
+  var resExts = /\.(jpe?g|png|gif|bmp|svg|mp3|wav|ogg|flv|mp4|f4v|xml|json|txt|csv|css|js|php|asp)([?#]|$)/i;
+
+  function addSwf(url, title){
     if(!url) return;
     try { url = new URL(url, location.href).href; } catch(e) { return; }
     if(!/\.swf([?#]|$)/i.test(url) && !/application\/x-shockwave-flash/i.test(url)){
@@ -1115,69 +1209,125 @@ private const val SWF_SNIFFER_SCRIPT = """
     if(!t){
       try { t = decodeURIComponent(url.split('/').pop().split('?')[0].replace(/\.swf$/i,'')); } catch(e){}
     }
-    found[url] = {url:url, title:t, size:''};
+    found[url] = {url:url, title:t, size:'', type:'swf'};
   }
+
+  function addResource(url){
+    if(!url) return;
+    try { url = new URL(url, location.href).href; } catch(e) { return; }
+    // 跳过 data:、blob:、javascript: 等非 HTTP 资源
+    if(!/^https?:/i.test(url)) return;
+    // 跳过已收集的 SWF
+    if(/\.swf([?#]|$)/i.test(url)) return;
+    // 只收集已知资源扩展名
+    if(!resExts.test(url)) return;
+    if(resources[url]) return;
+    // 提取子目录路径（相对于 origin 的目录结构）
+    var subDir = '';
+    try {
+      var p = new URL(url).pathname;
+      var dir = p.substring(0, p.lastIndexOf('/') + 1);
+      // 去掉开头的 /
+      if(dir.startsWith('/')) dir = dir.substring(1);
+      subDir = dir;
+    } catch(e) {}
+    var name = url.split('/').pop().split('?')[0] || 'resource';
+    resources[url] = {url:url, title:name, size:'', type:'resource', subDir:subDir};
+  }
+
   function scanDOM(){
+    // SWF 扫描
     var objs = document.querySelectorAll('object[data], embed[src]');
     objs.forEach(function(el){
       var u = el.getAttribute('data') || el.getAttribute('src') || '';
       var t = el.getAttribute('title') || el.getAttribute('name') || '';
-      if(u) addUrl(u, t);
+      if(u) addSwf(u, t);
     });
     var params = document.querySelectorAll('param[name="movie"], param[name="src"]');
     params.forEach(function(p){
       var v = p.getAttribute('value') || '';
-      if(v) addUrl(v, '');
+      if(v) addSwf(v, '');
     });
     var iframes = document.querySelectorAll('iframe[src]');
     iframes.forEach(function(f){
       var s = f.getAttribute('src') || '';
-      if(/\.swf/i.test(s)) addUrl(s, '');
+      if(/\.swf/i.test(s)) addSwf(s, '');
     });
     var all = document.querySelectorAll('[data*=".swf"], [src*=".swf"], [href*=".swf"]');
     all.forEach(function(el){
       ['data','src','href'].forEach(function(attr){
         var v = el.getAttribute(attr);
-        if(v && /\.swf/i.test(v)) addUrl(v, el.getAttribute('title') || '');
+        if(v && /\.swf/i.test(v)) addSwf(v, el.getAttribute('title') || '');
       });
     });
+
+    // 资源文件扫描
+    var imgs = document.querySelectorAll('img[src]');
+    imgs.forEach(function(el){
+      var s = el.getAttribute('src') || '';
+      if(s) addResource(s);
+    });
+    var sources = document.querySelectorAll('source[src], video[src], audio[src]');
+    sources.forEach(function(el){
+      var s = el.getAttribute('src') || '';
+      if(s) addResource(s);
+    });
+    var links = document.querySelectorAll('link[href]');
+    links.forEach(function(el){
+      var s = el.getAttribute('href') || '';
+      if(s && resExts.test(s)) addResource(s);
+    });
   }
+
   function scanPerformance(){
     try {
       var entries = performance.getEntriesByType('resource');
       entries.forEach(function(e){
-        if(/\.swf([?#]|$)/i.test(e.name)) addUrl(e.name, '');
+        if(/\.swf([?#]|$)/i.test(e.name)) {
+          addSwf(e.name, '');
+        } else if(resExts.test(e.name)) {
+          addResource(e.name);
+        }
       });
     } catch(e) {}
   }
+
   function scanScripts(){
     var scripts = document.querySelectorAll('script:not([src])');
-    var re = /(?:https?:)?[^\s'"<>]+\.swf[^\s'"<>]*/gi;
+    var swfRe = /(?:https?:)?[^\s'"<>]+\.swf[^\s'"<>]*/gi;
+    var resRe = /(?:https?:)?[^\s'"<>]+\.(?:jpe?g|png|gif|bmp|svg|mp3|wav|ogg|flv|mp4|f4v|xml|json|txt|csv|php)[^\s'"<>]*/gi;
     scripts.forEach(function(s){
       var text = s.textContent || '';
       var m;
-      while((m = re.exec(text)) !== null){
-        addUrl(m[0], '');
+      while((m = swfRe.exec(text)) !== null){
+        addSwf(m[0], '');
+      }
+      while((m = resRe.exec(text)) !== null){
+        addResource(m[0]);
       }
     });
     var extScripts = document.querySelectorAll('script[src]');
     extScripts.forEach(function(s){
       var src = s.getAttribute('src') || '';
-      if(/\.swf/i.test(src)) addUrl(src, '');
+      if(/\.swf/i.test(src)) addSwf(src, '');
+      else if(resExts.test(src)) addResource(src);
     });
   }
+
   if(!window.__swfSniffHooked){
     window.__swfSniffHooked = true;
     var origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url){
-      if(url && /\.swf([?#]|$)/i.test(url)) addUrl(url, '');
+      if(url && /\.swf([?#]|$)/i.test(url)) addSwf(url, '');
+      else if(url && resExts.test(url)) addResource(url);
       return origOpen.apply(this, arguments);
     };
     var origFetch = window.fetch;
     if(origFetch){
       window.fetch = function(input){
         var u = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-        if(u && /\.swf([?#]|$)/i.test(u)) addUrl(u, '');
+        if(u && /\.swf([?#]|$)/i.test(u)) addSwf(u, '');
+        else if(u && resExts.test(u)) addResource(u);
         return origFetch.apply(this, arguments);
       };
     }
@@ -1191,12 +1341,14 @@ private const val SWF_SNIFFER_SCRIPT = """
         m.addedNodes.forEach(function(n){
           if(n.nodeType === 1){
             var u = n.getAttribute && (n.getAttribute('data') || n.getAttribute('src') || n.getAttribute('href') || '');
-            if(u && /\.swf/i.test(u)) addUrl(u, n.getAttribute('title') || '');
+            if(u && /\.swf/i.test(u)) addSwf(u, n.getAttribute('title') || '');
+            else if(u && resExts.test(u)) addResource(u);
             if(n.querySelectorAll){
-              var inner = n.querySelectorAll('[data*=".swf"], [src*=".swf"], [href*=".swf"], param[name="movie"]');
+              var inner = n.querySelectorAll('[data*=".swf"], [src*=".swf"], [href*=".swf"], param[name="movie"], img[src], source[src], link[href]');
               inner.forEach(function(el){
                 var v = el.getAttribute('data') || el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('value') || '';
-                if(v && /\.swf/i.test(v)) addUrl(v, '');
+                if(v && /\.swf/i.test(v)) addSwf(v, '');
+                else if(v && resExts.test(v)) addResource(v);
               });
             }
           }
@@ -1212,6 +1364,7 @@ private const val SWF_SNIFFER_SCRIPT = """
     scanScripts();
     var arr = [];
     for(var u in found) arr.push(found[u]);
+    for(var u in resources) arr.push(resources[u]);
     if(window.Android && window.Android.onSwfFound){
       window.Android.onSwfFound(JSON.stringify(arr));
     }
@@ -1219,6 +1372,7 @@ private const val SWF_SNIFFER_SCRIPT = """
   setTimeout(function(){
     var arr = [];
     for(var u in found) arr.push(found[u]);
+    for(var u in resources) arr.push(resources[u]);
     if(arr.length > 0 && window.Android && window.Android.onSwfFound){
       window.Android.onSwfFound(JSON.stringify(arr));
     }

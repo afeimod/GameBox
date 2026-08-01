@@ -163,7 +163,7 @@ fun SwfPlayerScreen(
     fun applyAspectRatio(ratio: String) {
         PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
         val wv = webViewRef.value
-        if (wv != null && ratio != "auto") {
+        if (wv != null) {
             wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
         }
     }
@@ -703,13 +703,48 @@ fun SwfPlayerScreen(
     if (showZoomDialog.value) {
         val mode = PrefsManager.pageZoomMode
         val manual = PrefsManager.pageZoomManual
+
+        val container = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+        }
+        val currentText = android.widget.TextView(context).apply {
+            text = if (mode == "auto") "模式：自动" else "缩放：$manual%"
+            textSize = 16f
+            gravity = android.view.Gravity.CENTER
+        }
+        container.addView(currentText)
+        val seekBar = android.widget.SeekBar(context).apply {
+            max = 175
+            progress = (manual - 25).coerceIn(0, 175)
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                    currentText.text = "缩放：${p + 25}%"
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        seekBar.layoutParams = android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        container.addView(seekBar)
+        val hint = android.widget.TextView(context).apply {
+            text = "范围：25% — 200%"
+            textSize = 12f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.GRAY)
+        }
+        container.addView(hint)
+
         android.app.AlertDialog.Builder(context)
             .setTitle("页面缩放")
-            .setMessage("当前：${if (mode == "auto") "自动" else "${manual}%"}")
-            .setPositiveButton("自动") { _, _ -> applyZoom("auto", manual); showZoomDialog.value = false }
-            .setNegativeButton("75%") { _, _ -> applyZoom("manual", 75); showZoomDialog.value = false }
-            .setNeutralButton("100%") { _, _ -> applyZoom("manual", 100); showZoomDialog.value = false }
-            .setOnCancelListener { showZoomDialog.value = false }
+            .setView(container)
+            .setPositiveButton("应用") { _, _ -> applyZoom("manual", seekBar.progress + 25); showZoomDialog.value = false }
+            .setNegativeButton("自动") { _, _ -> applyZoom("auto", manual); showZoomDialog.value = false }
+            .setNeutralButton("取消") { _, _ -> showZoomDialog.value = false }
+            .setOnDismissListener { showZoomDialog.value = false }
             .show()
     }
 
