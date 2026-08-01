@@ -83,6 +83,13 @@ fun SwfPlayerScreen(
     val webAppInterfaceRef = remember { mutableStateOf<WebAppInterface?>(null) }
     val mainBoxRef = remember { mutableStateOf<ViewGroup?>(null) }
 
+    // 虚拟手柄重建触发器：添加/删除/修改按键后递增，触发 LaunchedEffect 重建手柄
+    val gamepadRebuildTrigger = remember { mutableStateOf(0) }
+
+    fun rebuildGamepad() {
+        gamepadRebuildTrigger.value = gamepadRebuildTrigger.value + 1
+    }
+
     BackHandler {
         if (webViewRef.value?.canGoBack() == true) webViewRef.value?.goBack() else onExit()
     }
@@ -246,6 +253,7 @@ fun SwfPlayerScreen(
                     wv2.loadUrl(playerUrl)
                 }
             }
+            webAppInterface.fullscreenCallback = { toggleFullscreen() }
 
             val chromeCallback = object : GameWebChromeClient.Callback {
                 override fun onProgress(progress: Int) {}
@@ -326,7 +334,7 @@ fun SwfPlayerScreen(
         }
     }
 
-    LaunchedEffect(mainBoxRef.value, gamepadVisible, isMouseEnabled) {
+    LaunchedEffect(mainBoxRef.value, gamepadVisible, isMouseEnabled, gamepadRebuildTrigger.value) {
         val container = mainBoxRef.value ?: return@LaunchedEffect
         val density = container.resources.displayMetrics.density
 
@@ -495,6 +503,7 @@ fun SwfPlayerScreen(
                                     .setSingleChoiceItems(allKeys, allKeys.indexOf(cur).coerceAtLeast(0)) { dlg, w ->
                                         PrefsManager.sp.edit().putString("gamepad_key_${idx + 1}", allKeys[w]).apply()
                                         dlg.dismiss()
+                                        rebuildGamepad()
                                         Toast.makeText(context, "按键 ${idx + 1} 已设为 ${allKeys[w]}", Toast.LENGTH_SHORT).show()
                                     }
                                     .setNegativeButton("取消", null)
@@ -508,6 +517,7 @@ fun SwfPlayerScreen(
                         val c = PrefsManager.gamepadKeyCount
                         if (c < 18) {
                             PrefsManager.sp.edit().putInt("gamepad_key_count", c + 1).apply()
+                            rebuildGamepad()
                             Toast.makeText(context, "已添加按键，当前 ${c + 1} 个", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "已达最大按键数 18", Toast.LENGTH_SHORT).show()
@@ -518,6 +528,7 @@ fun SwfPlayerScreen(
                         val c = PrefsManager.gamepadKeyCount
                         if (c > 2) {
                             PrefsManager.sp.edit().putInt("gamepad_key_count", c - 1).apply()
+                            rebuildGamepad()
                             Toast.makeText(context, "已删除按键，当前 ${c - 1} 个", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "已达最小按键数 2", Toast.LENGTH_SHORT).show()
@@ -540,6 +551,7 @@ fun SwfPlayerScreen(
                                         val prefKey = if (idx == 0) "start_key" else "select_key"
                                         PrefsManager.sp.edit().putString(prefKey, allKeys[w]).apply()
                                         dlg.dismiss()
+                                        rebuildGamepad()
                                         Toast.makeText(context, "$title 已设为 ${allKeys[w]}", Toast.LENGTH_SHORT).show()
                                     }
                                     .setNegativeButton("取消", null)
@@ -558,6 +570,7 @@ fun SwfPlayerScreen(
                             .setSingleChoiceItems(modes, checked) { dlg, w ->
                                 PrefsManager.sp.edit().putString("dpad_mode", values[w]).apply()
                                 dlg.dismiss()
+                                rebuildGamepad()
                                 Toast.makeText(context, "方向键模式已设为 ${modes[w]}", Toast.LENGTH_SHORT).show()
                             }
                             .setNegativeButton("取消", null)
@@ -574,6 +587,7 @@ fun SwfPlayerScreen(
                             .setSingleChoiceItems(sizes, checked) { dlg, w ->
                                 PrefsManager.sp.edit().putInt("dpad_scale", values[w]).apply()
                                 dlg.dismiss()
+                                rebuildGamepad()
                                 Toast.makeText(context, "方向键大小已设为 ${sizes[w]}", Toast.LENGTH_SHORT).show()
                             }
                             .setNegativeButton("取消", null)
@@ -590,6 +604,7 @@ fun SwfPlayerScreen(
                             .setSingleChoiceItems(sizes, checked) { dlg, w ->
                                 PrefsManager.sp.edit().putInt("gamepad_scale", values[w]).apply()
                                 dlg.dismiss()
+                                rebuildGamepad()
                                 Toast.makeText(context, "动作按键大小已设为 ${sizes[w]}", Toast.LENGTH_SHORT).show()
                             }
                             .setNegativeButton("取消", null)
@@ -624,6 +639,7 @@ fun SwfPlayerScreen(
                                 prefKeys.forEachIndexed { i, pk -> editor.putBoolean(pk, checkedBooleans[i]) }
                                 editor.apply()
                                 dlg.dismiss()
+                                rebuildGamepad()
                                 Toast.makeText(context, "按键显示设置已保存", Toast.LENGTH_SHORT).show()
                             }
                             .setNegativeButton("取消", null)
@@ -690,6 +706,7 @@ fun SwfPlayerScreen(
                             .putFloat("system_pos_x", -1f)
                             .putFloat("system_pos_y", -1f)
                             .apply()
+                        rebuildGamepad()
                         Toast.makeText(context, "已恢复默认按键设置", Toast.LENGTH_SHORT).show()
                     }
                 }

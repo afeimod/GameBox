@@ -387,6 +387,8 @@ fun WebGameScreen(
             webAppInterface.swfExtractCallback = { json ->
                 swfExtractJson.value = json
             }
+            // 注入全屏切换回调（player.html CSS 全屏调用）
+            webAppInterface.fullscreenCallback = { toggleFullscreen() }
 
             // 客户端与回调
             val chromeCallback = object : GameWebChromeClient.Callback {
