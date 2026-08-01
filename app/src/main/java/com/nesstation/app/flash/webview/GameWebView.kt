@@ -250,16 +250,19 @@ open class GameWebView @JvmOverloads constructor(
     /**
      * 自定义 InputConnection：捕获输入法提交的文本，
      * 通过 JavaScript KeyboardEvent 转发给网页（供 WAFlash 接收）。
-     * 仅在 imeRequested=true 时启用，否则委托给 WebView 默认实现。
+     * 仅在 imeRequested=true 时启用。
+     *
+     * 注意：WebView 的 onCreateInputConnection() 不能返回 null（系统会 NPE 崩溃），
+     * 因此 imeRequested=false 时必须委托给 super，不能 new BaseInputConnection(this, false) 顶替。
      */
-    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val base = super.onCreateInputConnection(outAttrs) ?: return null
         if (!imeRequested) {
-            return super.onCreateInputConnection(outAttrs)
+            return base
         }
-        val baseIc = BaseInputConnection(this, false)
         outAttrs.inputType = InputType.TYPE_CLASS_TEXT
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_NONE
-        return object : InputConnectionWrapper(baseIc, false) {
+        return object : InputConnectionWrapper(base, true) {
             override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
                 val textStr = text.toString()
                 if (textStr.isNotEmpty()) {

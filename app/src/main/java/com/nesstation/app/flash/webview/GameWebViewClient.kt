@@ -678,8 +678,11 @@ open class GameWebViewClient(
         if (PrefsManager.isCameraRotationEnabled) {
             view?.evaluateJavascript(CAMERA_ROTATION_SCRIPT, null)
         }
-        // 画面比例 letterbox（仅内置播放器页生效）
-        if (url != null && url.startsWith("https://flash.local/") &&
+        // 画面比例 letterbox
+        // 修复:对 Ruffle 页面(letterbox: "fullscreen" + scale: "showAll")不要再注入 CSS letterbox,
+        // Ruffle 引擎内部已经按 SWF 原生比例 letterbox,外层 CSS 覆盖会破坏它导致画面跑出屏幕/失真。
+        // 只对 WAFlash 页面(waflash.html)注入 CSS letterbox,因为 WAFlash 引擎自身不做 letterbox。
+        if (url != null && url.startsWith("https://flash.local/waflash") &&
             PrefsManager.gameAspectRatio != "auto") {
             view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
         }
@@ -1365,8 +1368,8 @@ open class GameWebViewClient(
          * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
          * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
          *
-         * 同时适配 Ruffle（#stage > ruffle-player）和 WAFlash（#waflashContainer > canvas）。
-         * 每次调用会先移除旧样式再重新应用，确保切换比例时生效。
+         * 重要:只对 WAFlash 引擎生效(Ruffle 引擎用 letterbox: "fullscreen" + scale: "showAll"
+         * 自身 letterbox,外层 CSS 改 ruffle-player 宽高会破坏引擎内部布局,导致画面溢出/失真)。
          *
          * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
          */
@@ -1377,16 +1380,19 @@ open class GameWebViewClient(
                 (function(){
                   var old = document.getElementById('__aspectRatioStyle');
                   if (old) old.remove();
-                  var els = document.querySelectorAll('#stage, ruffle-player, #waflashContainer, canvas.waflashCanvas');
-                  els.forEach(function(el){
-                    el.style.width = '';
-                    el.style.height = '';
-                    el.style.marginLeft = '';
-                    el.style.marginTop = '';
-                    el.style.maxWidth = '';
-                    el.style.maxHeight = '';
-                    el.style.objectFit = '';
-                  });
+                  // 只清理 WAFlash 相关元素,Ruffle 不动(它走自身 letterbox 引擎)
+                  var waflashEl = document.getElementById('waflashContainer');
+                  if (waflashEl) {
+                    waflashEl.style.width = '';
+                    waflashEl.style.height = '';
+                  }
+                  var waflashCanvas = document.querySelector('canvas.waflashCanvas') || document.querySelector('#canvas');
+                  if (waflashCanvas) {
+                    waflashCanvas.style.width = '';
+                    waflashCanvas.style.height = '';
+                    waflashCanvas.style.marginLeft = '';
+                    waflashCanvas.style.marginTop = '';
+                  }
                 })();
                 """.trimIndent()
             }
@@ -1397,7 +1403,11 @@ open class GameWebViewClient(
             val targetRatio = w / h
             return """
             (function(){
-              // 移除旧样式，确保切换比例时重新生效
+              // Ruffle 引擎页面:Ruffle 自身 letterbox: "fullscreen" 已处理比例,不要外层 CSS 干预
+              if (document.querySelector('ruffle-player')) {
+                return;
+              }
+              // 移除旧样式
               var old = document.getElementById('__aspectRatioStyle');
               if (old) old.remove();
 
@@ -1406,10 +1416,7 @@ open class GameWebViewClient(
               style.id = '__aspectRatioStyle';
               style.textContent = [
                 'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
-                // Ruffle: #stage 作为 flex 容器居中 ruffle-player
-                '#stage{display:flex!important;align-items:center!important;justify-content:center!important;}',
-                'ruffle-player{margin:0 auto!important;display:block!important;}',
-                // WAFlash: #waflashContainer 作为 flex 容器居中 canvas
+                // WAFlash: #waflashContainer flex 居中,canvas margin auto
                 '#waflashContainer{display:flex!important;align-items:center!important;justify-content:center!important;width:100vw!important;height:100vh!important;}',
                 'canvas.waflashCanvas{margin:0 auto!important;display:block!important;}'
               ].join('\n');
@@ -1420,25 +1427,6 @@ open class GameWebViewClient(
                 var sh = window.innerHeight;
                 var screenRatio = sw / sh;
 
-                // Ruffle player
-                var rufflePlayer = document.querySelector('ruffle-player');
-                if (rufflePlayer) {
-                  if (screenRatio > targetRatio) {
-                    var newW = Math.round(sh * targetRatio);
-                    rufflePlayer.style.width = newW + 'px';
-                    rufflePlayer.style.height = sh + 'px';
-                    rufflePlayer.style.maxWidth = newW + 'px';
-                    rufflePlayer.style.maxHeight = sh + 'px';
-                  } else {
-                    var newH = Math.round(sw / targetRatio);
-                    rufflePlayer.style.width = sw + 'px';
-                    rufflePlayer.style.height = newH + 'px';
-                    rufflePlayer.style.maxWidth = sw + 'px';
-                    rufflePlayer.style.maxHeight = newH + 'px';
-                  }
-                }
-
-                // WAFlash canvas
                 var waflashCanvas = document.querySelector('canvas.waflashCanvas') ||
                                     document.querySelector('#canvas');
                 if (waflashCanvas) {
@@ -1454,28 +1442,6 @@ open class GameWebViewClient(
                     waflashCanvas.style.height = newH + 'px';
                     waflashCanvas.style.marginTop = 'auto';
                     waflashCanvas.style.marginBottom = 'auto';
-                  }
-                }
-
-                // Generic fallback: any canvas/object/embed
-                if (!rufflePlayer && !waflashCanvas) {
-                  var generic = document.querySelector('canvas') ||
-                                document.querySelector('object') ||
-                                document.querySelector('embed');
-                  if (generic) {
-                    if (screenRatio > targetRatio) {
-                      var newW = Math.round(sh * targetRatio);
-                      generic.style.width = newW + 'px';
-                      generic.style.height = sh + 'px';
-                      generic.style.marginLeft = Math.round((sw - newW) / 2) + 'px';
-                      generic.style.marginTop = '0';
-                    } else {
-                      var newH = Math.round(sw / targetRatio);
-                      generic.style.width = sw + 'px';
-                      generic.style.height = newH + 'px';
-                      generic.style.marginLeft = '0';
-                      generic.style.marginTop = Math.round((sh - newH) / 2) + 'px';
-                    }
                   }
                 }
               }
