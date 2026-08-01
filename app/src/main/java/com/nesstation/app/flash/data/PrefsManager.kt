@@ -95,12 +95,11 @@ object PrefsManager {
     val gamepadAKey: String get() = sp.getString("gamepad_a_key", "SPACE") ?: "SPACE"
     val gamepadBKey: String get() = sp.getString("gamepad_b_key", "ENTER") ?: "ENTER"
 
+    // ---- 画面比例 ----
+    val gameAspectRatio: String get() = sp.getString("game_aspect_ratio", "auto") ?: "auto"
+
     // ---- 3D 视角旋转 ----
     val isCameraRotationEnabled: Boolean get() = sp.getBoolean("camera_rotation_enabled", false)
-
-    // ---- 画面比例（游戏画面 letterbox）----
-    // auto(全屏自适应) / 4:3 / 16:9 / 16:10 / 5:4
-    val gameAspectRatio: String get() = sp.getString("game_aspect_ratio", "auto") ?: "auto"
 
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =
         sp.registerOnSharedPreferenceChangeListener(listener)

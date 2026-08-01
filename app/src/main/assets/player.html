@@ -20,8 +20,6 @@
                  "PingFang SC", "Heiti SC", "SimHei", "WenQuanYi Micro Hei",
                  Arial, Helvetica, sans-serif !important;
   }
-  /* Ruffle player 不强制 100%，让引擎内部 letterbox 自适应 */
-  ruffle-player { display: block; }
   #loading {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     flex-direction: column; color: #FFC107; font-family: -apple-system, "Microsoft YaHei", sans-serif;
@@ -77,15 +75,12 @@
       "polyfills": true,
       "autoplay": AUTOPLAY,
       "unmuteOverlay": "visible",
-      // letterbox: "on" 让引擎用 CSS 信箱模式，避免画面截断或超出
-      "letterbox": "on",
+      "letterbox": "fullscreen",
       "upgradeToHttps": true,
       "allowScriptAccess": true,
-      // scale: "showAll" 缩放整个 SWF 以适应容器（保持宽高比）
       "scale": "showAll",
       "quality": "high",
-      // 允许全屏（通过 CSS 全屏实现，不使用原生 Fullscreen API 避免卡死）
-      "allowFullscreen": true,
+      "allowFullscreen": false,
       "splashScreen": true,
       "preloader": true,
       "logLevel": "warn",
@@ -115,35 +110,13 @@
         var ruffle = window.RufflePlayer.newest();
         var player = ruffle.createPlayer();
         stage.appendChild(player);
-        // 不强制 100%，让 Ruffle 内部 letterbox 引擎处理尺寸
         player.style.width = '100%';
         player.style.height = '100%';
         player.style.display = 'block';
         var opt = { url: SWF_URL, allowScriptAccess: true };
         if (BASE_URL) opt.base = BASE_URL;
-
-        // 隐藏 loading 的函数（防重复调用）
-        var loadingHidden = false;
-        function hideLoading() {
-          if (loadingHidden) return;
-          loadingHidden = true;
-          var ld = document.getElementById('loading');
-          if (ld) ld.style.display = 'none';
-        }
-
-        // 监听 Ruffle 加载完成/错误事件
-        player.addEventListener('loadeddata', hideLoading);
-        player.addEventListener('load', hideLoading);
-        player.addEventListener('canplay', hideLoading);
-        player.addEventListener('loaderror', function(e) {
-          if (loadingHidden) return;
-          loadText.textContent = '游戏加载失败: ' + (e && e.detail ? e.detail.error : '未知错误');
-          console.error('[Ruffle] loaderror', e);
-        });
-
         player.ruffle().load(opt);
-        hideLoading();
-        setTimeout(hideLoading, 5000);
+        document.getElementById('loading').style.display = 'none';
       } catch (e) {
         loadText.textContent = '加载失败: ' + e.message;
         console.error(e);
@@ -166,107 +139,13 @@
         var opt = { url: url, allowScriptAccess: true };
         if (base) opt.base = base;
         player.ruffle().load(opt);
-        var ld = document.getElementById('loading');
-        if (ld) ld.style.display = 'none';
       } catch(e) { console.error(e); }
     };
 
-    // 禁用长按选择 / 缩放
+    // 禁用长按选择 / 上下文菜单 / 缩放
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     document.addEventListener('selectstart', function (e) { e.preventDefault(); });
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
-
-    // === 全屏处理 ===
-    // 不阻止 contextmenu（让 Ruffle 菜单可用），但拦截 Fullscreen API 用 CSS 全屏替代
-    document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, true);
-
-    // CSS 全屏：将 player 元素撑满屏幕，避免原生 Fullscreen API 在 WebView 中卡死
-    var __cssFullscreen = false;
-    var __savedStyles = {};
-    function enterCssFullscreen(el) {
-      if (__cssFullscreen) return;
-      __cssFullscreen = true;
-      __savedStyles.position = el.style.position;
-      __savedStyles.width = el.style.width;
-      __savedStyles.height = el.style.height;
-      __savedStyles.zIndex = el.style.zIndex;
-      __savedStyles.top = el.style.top;
-      __savedStyles.left = el.style.left;
-      el.style.position = 'fixed';
-      el.style.top = '0';
-      el.style.left = '0';
-      el.style.width = '100vw';
-      el.style.height = '100vh';
-      el.style.zIndex = '99999';
-      // 隐藏 loading 和 hint 元素
-      var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
-      var ht = document.getElementById('hint'); if (ht) ht.style.display = 'none';
-      // 通知 Android 隐藏系统栏
-      try { if (window.Android && window.Android.toggleFullscreen) window.Android.toggleFullscreen(); } catch(e) {}
-      // 派发 fullscreenchange 事件让 Ruffle 更新菜单状态
-      setTimeout(function() {
-        document.dispatchEvent(new Event('fullscreenchange'));
-      }, 50);
-    }
-    function exitCssFullscreen(el) {
-      if (!__cssFullscreen) return;
-      __cssFullscreen = false;
-      el.style.position = __savedStyles.position || '';
-      el.style.width = __savedStyles.width || '100%';
-      el.style.height = __savedStyles.height || '100%';
-      el.style.zIndex = __savedStyles.zIndex || '';
-      el.style.top = __savedStyles.top || '';
-      el.style.left = __savedStyles.left || '';
-      // 通知 Android 恢复系统栏
-      try { if (window.Android && window.Android.toggleFullscreen) window.Android.toggleFullscreen(); } catch(e) {}
-      // 派发 fullscreenchange 事件
-      setTimeout(function() {
-        document.dispatchEvent(new Event('fullscreenchange'));
-      }, 50);
-    }
-
-    // 拦截原生 Fullscreen API，用 CSS 全屏替代
-    if (Element.prototype.requestFullscreen) {
-      Element.prototype.requestFullscreen = function() {
-        enterCssFullscreen(this);
-        return Promise.resolve();
-      };
-    }
-    if (Element.prototype.webkitRequestFullscreen) {
-      Element.prototype.webkitRequestFullscreen = function() {
-        enterCssFullscreen(this);
-      };
-    }
-    if (Element.prototype.mozRequestFullScreen) {
-      Element.prototype.mozRequestFullScreen = function() {
-        enterCssFullscreen(this);
-      };
-    }
-    if (Element.prototype.msRequestFullscreen) {
-      Element.prototype.msRequestFullscreen = function() {
-        enterCssFullscreen(this);
-      };
-    }
-    // 拦截 exitFullscreen
-    if (document.exitFullscreen) {
-      var origExit = document.exitFullscreen.bind(document);
-      document.exitFullscreen = function() {
-        var player = document.querySelector('ruffle-player');
-        if (player) exitCssFullscreen(player);
-        return Promise.resolve();
-      };
-    }
-    // fullscreenElement 返回值模拟
-    Object.defineProperty(document, 'fullscreenElement', {
-      get: function() { return __cssFullscreen ? document.querySelector('ruffle-player') : null; },
-      configurable: true
-    });
-    // 监听 ESC 退出 CSS 全屏
-    document.addEventListener('keydown', function(e) {
-      if (e.keyCode === 27 && __cssFullscreen) {
-        var player = document.querySelector('ruffle-player');
-        if (player) exitCssFullscreen(player);
-      }
-    });
   </script>
 </body>
 </html>

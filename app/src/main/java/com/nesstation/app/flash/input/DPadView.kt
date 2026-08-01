@@ -51,13 +51,8 @@ class DPadView @JvmOverloads constructor(
     private val pressed = HashSet<Int>()              // 当前按下的方向 KeyCode
     private val pointerDir = HashMap<Int, Int>()      // 指针 ID → 方向 KeyCode（0 表示无）
 
-    // 方向阈值：触点偏离中心超过半径的 35% 才算按下方向（增大死区减少误触）
-    private val deadZoneRatio = 0.35f
-    // 释放阈值：已按下的方向，触点回到半径 20% 以内才释放（迟滞 hysteresis 防抖）
-    private val releaseZoneRatio = 0.20f
-    // 方向切换最小间隔（毫秒），防止快速抖动产生多次方向切换
-    private val dirChangeMinInterval = 80L
-    private var lastDirChangeTime = 0L
+    // 方向阈值：触点偏离中心超过半径的 25% 才算按下方向
+    private val deadZoneRatio = 0.25f
 
     private val dirKeys = intArrayOf(
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
@@ -90,7 +85,6 @@ class DPadView @JvmOverloads constructor(
             joystickPointerId = -1
             knobDx = 0f
             knobDy = 0f
-            lastDirChangeTime = 0L
             invalidate()
         }
     }
@@ -378,22 +372,23 @@ class DPadView @JvmOverloads constructor(
         }
         knobDx = dx
         knobDy = dy
-
-        // 计算方向（4 方向模式：仅取主轴方向，防止对角线同时触发两个方向导致菜单跳两格）
+        // 计算方向（4 方向：同一时间只激活一个主轴方向，避免对角线导致菜单跳两格）
         val active = HashSet<Int>()
         val norm = dist / outerR
-        val axNorm = abs(dx) / outerR
-        val ayNorm = abs(dy) / outerR
-
         if (norm > deadZoneRatio) {
-            // 只激活主轴方向（X 或 Y 中偏移量更大的那个）
+            val axNorm = abs(dx) / outerR
+            val ayNorm = abs(dy) / outerR
+            // 释放区比死区更小：已按下的方向需要回到更靠近中心才释放，避免边界抖动
+            val releaseZoneRatio = deadZoneRatio * 0.6f
             if (axNorm > ayNorm) {
+                // X 轴为主轴：只激活左/右
                 val xThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_LEFT) || pressed.contains(KeyEvent.KEYCODE_DPAD_RIGHT))
                     releaseZoneRatio else deadZoneRatio
                 if (axNorm > xThreshold) {
                     active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
                 }
             } else {
+                // Y 轴为主轴：只激活上/下
                 val yThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_UP) || pressed.contains(KeyEvent.KEYCODE_DPAD_DOWN))
                     releaseZoneRatio else deadZoneRatio
                 if (ayNorm > yThreshold) {
@@ -401,23 +396,8 @@ class DPadView @JvmOverloads constructor(
                 }
             }
         }
-
-        // 计算方向变化
         val toDown = active - pressed
         val toUp = pressed - active
-
-        // 防抖：方向切换时检查时间间隔，防止快速抖动产生多次方向切换
-        if (toDown.isNotEmpty() || toUp.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            if (now - lastDirChangeTime < dirChangeMinInterval && active.isNotEmpty()) {
-                // 时间间隔太短且有新方向按下，跳过本次切换（防止抖动）
-                // 但仍然更新摇杆头位置
-                invalidate()
-                return
-            }
-            lastDirChangeTime = now
-        }
-
         toDown.forEach { injectDown(it) }
         toUp.forEach { injectUp(it) }
         pressed.clear()
@@ -430,7 +410,6 @@ class DPadView @JvmOverloads constructor(
         joystickPointerId = -1
         knobDx = 0f
         knobDy = 0f
-        lastDirChangeTime = 0L
         pressed.forEach { injectUp(it) }
         pressed.clear()
         invalidate()

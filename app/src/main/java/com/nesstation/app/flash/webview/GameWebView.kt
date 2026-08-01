@@ -1,19 +1,12 @@
 package com.nesstation.app.flash.webview
 
 import android.content.Context
-import android.text.InputType
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.inputmethod.BaseInputConnection
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputConnectionWrapper
-import android.view.inputmethod.InputMethodManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.webkit.WebSettingsCompat
@@ -57,9 +50,6 @@ open class GameWebView @JvmOverloads constructor(
     /** 是否正在拖动旋转视角 */
     private var cameraDragging = false
 
-    /** IME 是否被请求（仅 WAFlash 等需要文本输入的场景开启） */
-    private var imeRequested = false
-
     /**
      * 当前通过虚拟手柄按下的按键集合（Android KeyCode）。
      * 用于在页面导航、Activity 暂停、手柄隐藏时统一释放，
@@ -79,26 +69,6 @@ open class GameWebView @JvmOverloads constructor(
         isFocusableInTouchMode = true
         // 屏蔽长按系统菜单
         setOnLongClickListener { blockLongPressMenu }
-        // 添加原生 IME 接口，供 WAFlash 等网页调用唤起输入法
-        addJavascriptInterface(object {
-            @JavascriptInterface
-            fun showIme() {
-                imeRequested = true
-                post {
-                    requestFocus()
-                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.showSoftInput(this@GameWebView, 0)
-                }
-            }
-            @JavascriptInterface
-            fun hideIme() {
-                imeRequested = false
-                post {
-                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.hideSoftInputFromWindow(this@GameWebView.windowToken, 0)
-                }
-            }
-        }, "NativeIme")
     }
 
     private fun configureSettings() = settings.apply {
@@ -180,69 +150,6 @@ open class GameWebView @JvmOverloads constructor(
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
-
-    // ---------------- IME 输入法支持 ----------------
-    /**
-     * 当网页调用 NativeIme.showIme() 时，imeRequested 设为 true，
-     * 系统据此认定本 View 为文本编辑器，从而弹出软键盘。
-     * 正常游戏时 imeRequested=false，不影响 WebView 默认行为。
-     */
-    override fun onCheckIsTextEditor(): Boolean {
-        if (imeRequested) return true
-        return super.onCheckIsTextEditor()
-    }
-
-    /**
-     * 自定义 InputConnection：捕获输入法提交的文本，
-     * 通过 JavaScript KeyboardEvent 转发给网页（供 WAFlash 接收）。
-     * 仅在 imeRequested=true 时启用，否则委托给 WebView 默认实现。
-     */
-    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        if (!imeRequested) {
-            return super.onCreateInputConnection(outAttrs)
-        }
-        val baseIc = BaseInputConnection(this, false)
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_NONE
-        return object : InputConnectionWrapper(baseIc, false) {
-            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-                val textStr = text.toString()
-                if (textStr.isNotEmpty()) {
-                    // 转义特殊字符后通过 JS 注入到网页
-                    val escaped = textStr
-                        .replace("\\", "\\\\")
-                        .replace("'", "\\'")
-                        .replace("\n", "\\n")
-                        .replace("\r", "")
-                    evaluateJavascript("""
-                        (function(){
-                          var text = '$escaped';
-                          for (var i = 0; i < text.length; i++) {
-                            var ch = text.charCodeAt(i);
-                            var target = document.activeElement || document;
-                            target.dispatchEvent(new KeyboardEvent('keydown', {key: text[i], keyCode: ch, which: ch, bubbles: true}));
-                            target.dispatchEvent(new KeyboardEvent('keypress', {key: text[i], keyCode: ch, which: ch, charCode: ch, bubbles: true}));
-                            target.dispatchEvent(new KeyboardEvent('keyup', {key: text[i], keyCode: ch, which: ch, bubbles: true}));
-                          }
-                        })();
-                    """.trimIndent(), null)
-                }
-                return super.commitText(text, newCursorPosition)
-            }
-
-            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                // 删除键：注入 Backspace 键事件
-                evaluateJavascript("""
-                    (function(){
-                      var target = document.activeElement || document;
-                      target.dispatchEvent(new KeyboardEvent('keydown', {key: 'Backspace', keyCode: 8, which: 8, bubbles: true}));
-                      target.dispatchEvent(new KeyboardEvent('keyup', {key: 'Backspace', keyCode: 8, which: 8, bubbles: true}));
-                    })();
-                """.trimIndent(), null)
-                return super.deleteSurroundingText(beforeLength, afterLength)
-            }
-        }
-    }
 
     /**
      * 3D 视角旋转触摸处理：

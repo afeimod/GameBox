@@ -197,6 +197,9 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
+
+                        // FDS BIOS import
+                        FdsBiosRow(context) { msg -> dialogText = msg }
                     }
                 }
 
@@ -316,3 +319,89 @@ private fun DropdownRow(
 
 @Composable private fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Color(0xFF4A5568), modifier = Modifier.size(18.dp))
 @Composable private fun ValueText(v: String) = Text(v, color = Color(0xFF4A5568), fontSize = 12.sp)
+
+// ---------------------------------------------------------------------------
+// FDS BIOS import — allows users to import disksys.rom for FDS game support.
+// The FCEUmm core requires this 8KB BIOS file at {filesDir}/disksys.rom.
+// MD5: ca30b50f880eb660a320674ed365ef7a
+// ---------------------------------------------------------------------------
+@Composable
+private fun FdsBiosRow(
+    context: android.content.Context,
+    onResult: (String) -> Unit
+) {
+    var biosExists by remember { mutableStateOf(checkBiosExists(context)) }
+
+    val biosPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val msg = importBios(context, uri)
+            biosExists = checkBiosExists(context)
+            onResult(msg)
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable {
+            biosPicker.launch(arrayOf("*/*"))
+        }.padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("FDS BIOS", color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (biosExists) "已导入 ✓" else "未导入 — 放入assets或点击导入",
+                color = if (biosExists) Color(0xFF388E3C) else Color(0xFFE74C3C),
+                fontSize = 11.sp
+            )
+        }
+        Arrow()
+    }
+}
+
+private fun checkBiosExists(context: android.content.Context): Boolean {
+    val biosFile = java.io.File(context.filesDir, "disksys.rom")
+    if (!biosFile.exists()) return false
+    if (biosFile.length() != 8192L) return false
+    // Check first byte isn't zero (corruption check)
+    biosFile.inputStream().use { input ->
+        val firstByte = input.read()
+        if (firstByte == 0) {
+            val header = ByteArray(64)
+            input.read(header)
+            if (header.all { it == 0.toByte() }) return false
+        }
+    }
+    return true
+}
+
+private fun importBios(context: android.content.Context, uri: android.net.Uri): String {
+    return try {
+        val biosFile = java.io.File(context.filesDir, "disksys.rom")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            biosFile.outputStream().use { output -> input.copyTo(output) }
+        } ?: return "导入失败: 无法读取文件"
+
+        val size = biosFile.length()
+        if (size != 8192L) {
+            return "导入失败: 文件大小${size}字节不正确 (需要8192字节)"
+        }
+
+        // Verify not corrupted (all zeros)
+        biosFile.inputStream().use { input ->
+            val firstByte = input.read()
+            if (firstByte == 0) {
+                val header = ByteArray(64)
+                input.read(header)
+                if (header.all { it == 0.toByte() }) {
+                    biosFile.delete()
+                    return "导入失败: 文件已损坏 (全零数据)"
+                }
+            }
+        }
+        "FDS BIOS导入成功! 现在可以运行.fds游戏了"
+    } catch (e: Exception) {
+        "导入失败: ${e.message}"
+    }
+}
