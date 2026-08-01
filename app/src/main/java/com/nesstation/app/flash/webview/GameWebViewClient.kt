@@ -679,12 +679,22 @@ open class GameWebViewClient(
             view?.evaluateJavascript(CAMERA_ROTATION_SCRIPT, null)
         }
         // 画面比例 letterbox
-        // 修复:对 Ruffle 页面(letterbox: "fullscreen" + scale: "showAll")不要再注入 CSS letterbox,
-        // Ruffle 引擎内部已经按 SWF 原生比例 letterbox,外层 CSS 覆盖会破坏它导致画面跑出屏幕/失真。
-        // 只对 WAFlash 页面(waflash.html)注入 CSS letterbox,因为 WAFlash 引擎自身不做 letterbox。
-        if (url != null && url.startsWith("https://flash.local/waflash") &&
-            PrefsManager.gameAspectRatio != "auto") {
-            view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
+        // - WAFlash 页面(waflash.html):WAFlash 引擎自身不做 letterbox,必须外层 CSS 强制按比例。
+        // - Ruffle 页面(flash.local/player.html):引擎内部已经按 SWF 原生 stageSize 比例 letterbox +
+        //   scale:showAll 不变形显示,这里只对 ruffle-player 外层做 CSS 居中 + max-width/max-height
+        //   letterbox 容器,让它按用户指定的 4:3 / 16:9 / 16:10 / 5:4 居中显示,不破坏引擎内部渲染。
+        if (PrefsManager.gameAspectRatio != "auto" && url != null) {
+            val isWaflashPage = url.startsWith("https://flash.local/waflash")
+            val isRufflePage = !isWaflashPage &&
+                url.startsWith("https://flash.local/player")
+            when {
+                isRufflePage -> view?.evaluateJavascript(
+                    buildRuffleAspectRatioScript(PrefsManager.gameAspectRatio), null
+                )
+                isWaflashPage -> view?.evaluateJavascript(
+                    buildAspectRatioScript(PrefsManager.gameAspectRatio), null
+                )
+            }
         }
 
         // 强制重绘：部分网页（如使用 View Transitions 的 SPA）加载完成后
@@ -1450,6 +1460,93 @@ open class GameWebViewClient(
               setTimeout(applyLetterbox, 300);
               setTimeout(applyLetterbox, 1000);
               setTimeout(applyLetterbox, 3000);
+            })();
+            """.trimIndent()
+        }
+
+        /**
+         * Ruffle 引擎页面的画面比例 letterbox 脚本。
+         *
+         * 与 WAFlash 方案不同:Ruffle 引擎内部已经按 SWF 原生 stageSize 比例 letterbox +
+         * scale:showAll 不变形显示,这里**只对 #stage 容器(play.html 里 ruffle-player 的父节点)
+         * 做 CSS 居中 + max-width/max-height letterbox**,让 ruffle-player 整体按用户指定的
+         * 4:3 / 16:9 / 16:10 / 5:4 居中显示,不破坏 Ruffle 引擎内部的 stage 计算。
+         *
+         * 实现细节:
+         * - 注入样式让 #stage 脱离 fixed inset:0,改为按 targetRatio 居中 + max-width/max-height
+         * - Ruffle-player 内部继续走引擎自身的 letterbox+showAll,只控制外层画框
+         * - auto 时移除注入的样式,让 Ruffle 自身 letterbox 生效(全屏自适应)
+         */
+        fun buildRuffleAspectRatioScript(ratio: String): String {
+            if (ratio == "auto") {
+                return """
+                (function(){
+                  var old = document.getElementById('__ruffleAspectRatioStyle');
+                  if (old) old.remove();
+                  if (window.__ruffleAspectObserver) {
+                    window.__ruffleAspectObserver.disconnect();
+                    window.__ruffleAspectObserver = null;
+                  }
+                })();
+                """.trimIndent()
+            }
+            val parts = ratio.split(":")
+            if (parts.size != 2) return "(function(){})();"
+            val w = parts[0].toFloatOrNull() ?: return "(function(){})();"
+            val h = parts[1].toFloatOrNull() ?: return "(function(){})();"
+            val targetRatio = w / h
+            return """
+            (function(){
+              var targetRatio = $targetRatio;
+              function applyLetterbox() {
+                var sw = window.innerWidth;
+                var sh = window.innerHeight;
+                if (sw <= 0 || sh <= 0) return;
+
+                // 注入或更新样式
+                var old = document.getElementById('__ruffleAspectRatioStyle');
+                if (old) old.remove();
+                var style = document.createElement('style');
+                style.id = '__ruffleAspectRatioStyle';
+                style.textContent = [
+                  'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
+                  // #stage 是 player.html 里 ruffle-player 的父节点,
+                  // 把它从 fixed inset:0 改为按 targetRatio 居中+受限的画框。
+                  // right/bottom 也重置为 auto,否则跟 width/height 同时设置会被忽略。
+                  '#stage{position:fixed!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important;transform:translate(-50%,-50%)!important;background:#000!important;box-sizing:border-box!important;}',
+                  // ruffle-player 撑满 #stage 内部
+                  '#stage > ruffle-player{display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;}'
+                ].join('\n');
+                if (document.head) document.head.appendChild(style);
+
+                // 计算外框尺寸:在视口内按 targetRatio 居中,留 4px 安全边距
+                var availW = Math.max(1, sw - 4);
+                var availH = Math.max(1, sh - 4);
+                var boxW, boxH;
+                if (availW / availH > targetRatio) {
+                  // 视口比 target 更宽,高度受限
+                  boxH = availH;
+                  boxW = Math.round(boxH * targetRatio);
+                } else {
+                  boxW = availW;
+                  boxH = Math.round(boxW / targetRatio);
+                }
+                var stage = document.getElementById('stage');
+                if (stage) {
+                  stage.style.width = boxW + 'px';
+                  stage.style.height = boxH + 'px';
+                }
+              }
+              applyLetterbox();
+              window.addEventListener('resize', applyLetterbox);
+              // ruffle-player 是异步创建的(#stage 已存在,内容会被 player.html 的脚本填充),
+              // #stage 的尺寸在 player 加载过程中可能会被 player.html 脚本改回 100% 100%,
+              // 因此需要定时重试几次以确保最终生效。
+              setTimeout(applyLetterbox, 100);
+              setTimeout(applyLetterbox, 300);
+              setTimeout(applyLetterbox, 800);
+              setTimeout(applyLetterbox, 2000);
+              setTimeout(applyLetterbox, 4000);
             })();
             """.trimIndent()
         }

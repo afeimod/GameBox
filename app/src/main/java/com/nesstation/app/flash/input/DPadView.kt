@@ -51,13 +51,12 @@ class DPadView @JvmOverloads constructor(
     private val pressed = HashSet<Int>()              // 当前按下的方向 KeyCode
     private val pointerDir = HashMap<Int, Int>()      // 指针 ID → 方向 KeyCode（0 表示无）
 
-    // 方向阈值：触点偏离中心超过半径的 35% 才算按下方向（增大死区减少误触）
-    private val deadZoneRatio = 0.35f
-    // 释放阈值：已按下的方向，触点回到半径 20% 以内才释放（迟滞 hysteresis 防抖）
-    private val releaseZoneRatio = 0.20f
-    // 方向切换最小间隔（毫秒），防止快速抖动产生多次方向切换
-    private val dirChangeMinInterval = 80L
-    private var lastDirChangeTime = 0L
+    // 方向阈值：触点偏离中心超过半径的 25% 才算按下方向（与 3.3 一致）
+    private val deadZoneRatio = 0.25f
+    // 中心解锁阈值：再次触发同一方向前必须先回到这个半径以内，
+    // 防止摇杆头在死区边界抖动时出现"down → up → down"短脉冲，
+    // 避免菜单接收两次方向事件而多走几格。
+    private val centerUnlockRatio = 0.10f
 
     private val dirKeys = intArrayOf(
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
@@ -72,6 +71,12 @@ class DPadView @JvmOverloads constructor(
     private var joystickActive = false
     /** 摇杆当前激活的指针 ID */
     private var joystickPointerId = -1
+    /**
+     * 摇杆上一帧是否处于"在中心解锁区"（norm <= centerUnlockRatio）。
+     * 用于中心解锁防抖：必须先回到中心，再次推出到死区外才算新的方向事件，
+     * 避免一次完整推杆在死区边界抖动时重复触发 down。
+     */
+    private var joystickInCenter = true
 
     private val isJoystick: Boolean get() = PrefsManager.dpadMode == "joystick"
 
@@ -90,7 +95,7 @@ class DPadView @JvmOverloads constructor(
             joystickPointerId = -1
             knobDx = 0f
             knobDy = 0f
-            lastDirChangeTime = 0L
+            joystickInCenter = true
             invalidate()
         }
     }
@@ -379,49 +384,66 @@ class DPadView @JvmOverloads constructor(
         knobDx = dx
         knobDy = dy
 
-        // 计算方向（4 方向模式：仅取主轴方向，防止对角线同时触发两个方向导致菜单跳两格）
+        // 计算方向（8 方向独立判定，与 3.3 一致）。
+        // 对角线：两轴都超过 35% 外环时同时激活 X 和 Y；
+        // 否则按主轴兜底,避免对角线时两个轴同时触发导致菜单跳两格。
         val active = HashSet<Int>()
         val norm = dist / outerR
-        val axNorm = abs(dx) / outerR
-        val ayNorm = abs(dy) / outerR
-
         if (norm > deadZoneRatio) {
-            // 只激活主轴方向（X 或 Y 中偏移量更大的那个）
-            if (axNorm > ayNorm) {
-                val xThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_LEFT) || pressed.contains(KeyEvent.KEYCODE_DPAD_RIGHT))
-                    releaseZoneRatio else deadZoneRatio
-                if (axNorm > xThreshold) {
+            val ax = abs(dx)
+            val ay = abs(dy)
+            val diagRatio = 0.35f
+            if (ax > outerR * diagRatio) {
+                active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
+            }
+            if (ay > outerR * diagRatio) {
+                active.add(if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP)
+            }
+            // 若两轴都不足，按主轴方向
+            if (active.isEmpty()) {
+                if (ax > ay) {
                     active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
-                }
-            } else {
-                val yThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_UP) || pressed.contains(KeyEvent.KEYCODE_DPAD_DOWN))
-                    releaseZoneRatio else deadZoneRatio
-                if (ayNorm > yThreshold) {
+                } else {
                     active.add(if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP)
                 }
             }
         }
 
-        // 计算方向变化
-        val toDown = active - pressed
-        val toUp = pressed - active
-
-        // 防抖：方向切换时检查时间间隔，防止快速抖动产生多次方向切换
-        if (toDown.isNotEmpty() || toUp.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            if (now - lastDirChangeTime < dirChangeMinInterval && active.isNotEmpty()) {
-                // 时间间隔太短且有新方向按下，跳过本次切换（防止抖动）
-                // 但仍然更新摇杆头位置
-                invalidate()
-                return
+        // 中心解锁门控:必须先回到中心(norm <= centerUnlockRatio),
+        // 再次推出到死区外时才算"新的"方向事件,避免一次推杆过程中
+        // 在死区边界抖动产生 down -> up -> down 短脉冲(菜单会因此多走 1 格)。
+        //
+        // 关键:按下期间(pressed 非空)即使摇杆在死区内小幅抖动,
+        // 只要没有完全回到中心解锁区,就保留当前 pressed,不重新发 down。
+        val nowInCenter = norm <= centerUnlockRatio
+        when {
+            nowInCenter -> {
+                // 完全回到中心:释放所有残留方向,允许下一次推杆重新触发
+                if (pressed.isNotEmpty()) {
+                    pressed.forEach { injectUp(it) }
+                    pressed.clear()
+                }
             }
-            lastDirChangeTime = now
+            pressed.isEmpty() -> {
+                // 从中心首次推出到死区外:正常发 down
+                active.forEach { injectDown(it) }
+                pressed.clear()
+                pressed.addAll(active)
+            }
+            // 按下期间(已发出 down)的小幅抖动:忽略小幅回到死区内的帧,
+            // 保留 pressed 不变,避免误发 up 后再发新 down。
+            // 仍在死区外,但方向变了(从 DOWN 推到 RIGHT):发差量。
+            active.isNotEmpty() -> {
+                val toDown = active - pressed
+                val toUp = pressed - active
+                toDown.forEach { injectDown(it) }
+                toUp.forEach { injectUp(it) }
+                pressed.clear()
+                pressed.addAll(active)
+            }
+            // 按下期间摇杆小幅回到死区内(active 为空,但没完全到中心):保留 pressed,不重复发 down/up
         }
-
-        toDown.forEach { injectDown(it) }
-        toUp.forEach { injectUp(it) }
-        pressed.clear()
-        pressed.addAll(active)
+        joystickInCenter = nowInCenter
         invalidate()
     }
 
@@ -430,7 +452,7 @@ class DPadView @JvmOverloads constructor(
         joystickPointerId = -1
         knobDx = 0f
         knobDy = 0f
-        lastDirChangeTime = 0L
+        joystickInCenter = true
         pressed.forEach { injectUp(it) }
         pressed.clear()
         invalidate()
