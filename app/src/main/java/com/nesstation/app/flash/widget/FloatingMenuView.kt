@@ -37,7 +37,6 @@ class FloatingMenuView @JvmOverloads constructor(
         fun onOpenFlashSettings()
         fun onOpenPageZoom()
         fun onOpenUaMode()
-        fun onOpenAspectRatio()
         fun onRefresh()
         fun onBack()
         fun onClose()
@@ -152,7 +151,6 @@ class FloatingMenuView @JvmOverloads constructor(
             MenuItem("鼠标光标", android.R.drawable.ic_menu_camera) { callbacks?.onToggleMouse() },
             MenuItem("按键映射", android.R.drawable.ic_menu_agenda) { callbacks?.onOpenKeyMapping() },
             MenuItem("Flash 引擎", android.R.drawable.ic_menu_preferences) { callbacks?.onOpenFlashSettings() },
-            MenuItem("画面比例", android.R.drawable.ic_menu_crop) { callbacks?.onOpenAspectRatio() },
             MenuItem("页面缩放", android.R.drawable.ic_menu_zoom) { callbacks?.onOpenPageZoom() },
             MenuItem("兼容模式", android.R.drawable.ic_menu_help) { callbacks?.onOpenUaMode() },
             MenuItem("提取 SWF", android.R.drawable.ic_menu_search) { callbacks?.onExtractSwf() },

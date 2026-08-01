@@ -372,26 +372,25 @@ class DPadView @JvmOverloads constructor(
         }
         knobDx = dx
         knobDy = dy
-        // 计算方向（4 方向：同一时间只激活一个主轴方向，避免对角线导致菜单跳两格）
+        // 计算方向（8 方向）
         val active = HashSet<Int>()
         val norm = dist / outerR
         if (norm > deadZoneRatio) {
-            val axNorm = abs(dx) / outerR
-            val ayNorm = abs(dy) / outerR
-            // 释放区比死区更小：已按下的方向需要回到更靠近中心才释放，避免边界抖动
-            val releaseZoneRatio = deadZoneRatio * 0.6f
-            if (axNorm > ayNorm) {
-                // X 轴为主轴：只激活左/右
-                val xThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_LEFT) || pressed.contains(KeyEvent.KEYCODE_DPAD_RIGHT))
-                    releaseZoneRatio else deadZoneRatio
-                if (axNorm > xThreshold) {
+            val ax = abs(dx)
+            val ay = abs(dy)
+            // 对角线判定阈值：两轴都超过 35% 外环
+            val diagRatio = 0.35f
+            if (ax > outerR * diagRatio) {
+                active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
+            }
+            if (ay > outerR * diagRatio) {
+                active.add(if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP)
+            }
+            // 若两轴都不足，按主轴方向
+            if (active.isEmpty()) {
+                if (ax > ay) {
                     active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
-                }
-            } else {
-                // Y 轴为主轴：只激活上/下
-                val yThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_UP) || pressed.contains(KeyEvent.KEYCODE_DPAD_DOWN))
-                    releaseZoneRatio else deadZoneRatio
-                if (ayNorm > yThreshold) {
+                } else {
                     active.add(if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP)
                 }
             }

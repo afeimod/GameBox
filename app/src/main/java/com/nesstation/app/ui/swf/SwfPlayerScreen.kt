@@ -67,7 +67,6 @@ fun SwfPlayerScreen(
     val localSwfUri = remember { mutableStateOf(swfPath) }
     val showFlashDialog = remember { mutableStateOf(false) }
     val showKeyDialog = remember { mutableStateOf(false) }
-    val showAspectRatioDialog = remember { mutableStateOf(false) }
     val gamepadVersion = remember { mutableStateOf(0) } // 按键设置变更后递增，触发手柄重建
 
     val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
@@ -279,7 +278,6 @@ fun SwfPlayerScreen(
             override fun onOpenFlashSettings() { showFlashDialog.value = true }
             override fun onOpenPageZoom() {}
             override fun onOpenUaMode() {}
-            override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
             override fun onRefresh() = reload()
             override fun onBack() {
                 if (webViewRef.value?.canGoBack() == true) webViewRef.value?.goBack() else onExit()
@@ -378,28 +376,6 @@ fun SwfPlayerScreen(
                 showKeyDialog.value = false
                 gamepadVersion.value++ // 触发手柄重建，让按键变更立即生效
             }
-            .show()
-    }
-
-    if (showAspectRatioDialog.value) {
-        val ratios = arrayOf("自动（铺满）", "拉伸填充", "4:3", "16:9", "3:2", "1:1")
-        val values = arrayOf("auto", "stretch", "4:3", "16:9", "3:2", "1:1")
-        val current = PrefsManager.gameAspectRatio
-        val checked = values.indexOf(current).coerceAtLeast(0)
-        androidx.appcompat.app.AlertDialog.Builder(context)
-            .setTitle("画面比例")
-            .setSingleChoiceItems(ratios, checked) { dlg, which ->
-                val ratio = values[which]
-                PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
-                // 立即注入比例脚本
-                webViewRef.value?.evaluateJavascript(
-                    GameWebViewClient.buildAspectRatioScript(ratio), null
-                )
-                dlg.dismiss()
-                showAspectRatioDialog.value = false
-            }
-            .setNegativeButton("关闭", null)
-            .setOnDismissListener { showAspectRatioDialog.value = false }
             .show()
     }
 }

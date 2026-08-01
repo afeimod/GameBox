@@ -494,23 +494,6 @@ fun WebGameScreen(
             override fun onOpenFlashSettings() { showFlashDialog.value = true }
             override fun onOpenPageZoom() { showZoomDialog.value = true }
             override fun onOpenUaMode() { showUaDialog.value = true }
-            override fun onOpenAspectRatio() {
-                val wv = webViewRef.value ?: return
-                val ratios = arrayOf("自动（铺满）", "拉伸填充", "4:3", "16:9", "3:2", "1:1")
-                val values = arrayOf("auto", "stretch", "4:3", "16:9", "3:2", "1:1")
-                val current = PrefsManager.gameAspectRatio
-                val checked = values.indexOf(current).coerceAtLeast(0)
-                androidx.appcompat.app.AlertDialog.Builder(wv.context)
-                    .setTitle("画面比例")
-                    .setSingleChoiceItems(ratios, checked) { dlg, which ->
-                        val ratio = values[which]
-                        PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
-                        wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
-                        dlg.dismiss()
-                    }
-                    .setNegativeButton("关闭", null)
-                    .show()
-            }
             override fun onRefresh() = reload()
             override fun onBack() {
                 val wv = webViewRef.value

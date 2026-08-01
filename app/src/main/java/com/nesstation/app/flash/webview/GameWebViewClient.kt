@@ -513,10 +513,6 @@ open class GameWebViewClient(
                 view?.evaluateJavascript(WAFLASH_DETECT_SCRIPT, null)
             }
         }
-        // 内置播放器页面：尽早注入画面比例
-        if (url != null && url.startsWith("https://flash.local/")) {
-            view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
-        }
         if (url != null && !url.startsWith("file:///android_asset/") && !url.startsWith("https://flash.local/")) {
             view?.evaluateJavascript(buildViewportScript(), null)
         }
@@ -535,10 +531,6 @@ open class GameWebViewClient(
         }
         if (isFlashPage) {
             view?.evaluateJavascript(CSS_INJECTION, null)
-        }
-        // 内置播放器页面（player.html / waflash.html）：注入画面比例脚本
-        if (url != null && url.startsWith("https://flash.local/")) {
-            view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
         }
         if (url != null && !url.startsWith("file:///android_asset/") && !url.startsWith("https://flash.local/")) {
             view?.evaluateJavascript(buildViewportScript(), null)
@@ -915,114 +907,6 @@ open class GameWebViewClient(
               } catch(e) {}
             })();
         """
-
-        /**
-         * 构建画面比例调整脚本。
-         * - "auto": 恢复默认（铺满屏幕，contain）
-         * - "4:3"/"16:9"/"3:2"/"1:1": 按指定比例居中显示，两侧/上下留黑边
-         * - "stretch": 强制拉伸铺满
-         *
-         * 关键：Ruffle player 元素是 ruffle.js 异步加载后才创建的，
-         * onPageFinished 时 #stage 里还没有 ruffle-player。
-         * 因此用 MutationObserver 监听 #stage 子元素变化，
-         * 一旦 ruffle-player 被添加就立即应用比例。
-         * 同时用 CSS !important 规则确保 player.html 的内联样式不会覆盖。
-         */
-        fun buildAspectRatioScript(ratio: String): String {
-            if (ratio == "auto" || ratio == "stretch") {
-                val fill = ratio == "stretch"
-                return """
-                (function(){
-                  var old = document.getElementById('__aspectRatioStyle');
-                  if (old) old.remove();
-                  var oldObs = window.__aspectRatioObserver;
-                  if (oldObs) { oldObs.disconnect(); window.__aspectRatioObserver = null; }
-                  var s = document.createElement('style');
-                  s.id = '__aspectRatioStyle';
-                  s.textContent = [
-                    '#stage { display:flex !important; align-items:center !important; justify-content:center !important; width:100vw !important; height:100vh !important; overflow:hidden !important; }',
-                    '#stage ruffle-player { width:100% !important; height:100% !important; max-width:100vw !important; max-height:100vh !important; object-fit:${if (fill) "fill" else "contain"} !important; }',
-                    '#waflashContainer { width:100vw !important; height:100vh !important; display:flex !important; align-items:center !important; justify-content:center !important; }',
-                    'canvas.waflashCanvas { max-width:100vw !important; max-height:100vh !important; object-fit:${if (fill) "fill" else "contain"} !important; }'
-                  ].join('\n');
-                  document.head.appendChild(s);
-                  var els = document.querySelectorAll('#stage ruffle-player, canvas.waflashCanvas');
-                  els.forEach(function(el){
-                    el.style.width=''; el.style.height=''; el.style.maxWidth=''; el.style.maxHeight='';
-                    el.style.margin=''; el.style.position=''; el.style.left=''; el.style.top=''; el.style.transform='';
-                  });
-                })();
-                """.trimIndent()
-            }
-            // 解析比例
-            val parts = ratio.split(":")
-            if (parts.size != 2) return ""
-            val w = parts[0].toFloatOrNull() ?: return ""
-            val h = parts[1].toFloatOrNull() ?: return ""
-            val ratioVal = w / h
-            return """
-            (function(){
-              var ratio = $ratioVal;
-              var old = document.getElementById('__aspectRatioStyle');
-              if (old) old.remove();
-              var oldObs = window.__aspectRatioObserver;
-              if (oldObs) { oldObs.disconnect(); window.__aspectRatioObserver = null; }
-
-              function applyRatio() {
-                var sw = window.innerWidth, sh = window.innerHeight;
-                var screenRatio = sw / sh;
-                var targetW, targetH;
-                if (screenRatio > ratio) {
-                  targetH = sh; targetW = sh * ratio;
-                } else {
-                  targetW = sw; targetH = sw / ratio;
-                }
-                var els = document.querySelectorAll('#stage ruffle-player, canvas.waflashCanvas');
-                els.forEach(function(el){
-                  el.style.setProperty('width', targetW + 'px', 'important');
-                  el.style.setProperty('height', targetH + 'px', 'important');
-                  el.style.setProperty('max-width', targetW + 'px', 'important');
-                  el.style.setProperty('max-height', targetH + 'px', 'important');
-                  el.style.setProperty('margin', 'auto', 'important');
-                });
-              }
-
-              var s = document.createElement('style');
-              s.id = '__aspectRatioStyle';
-              s.textContent = [
-                '#stage { display:flex !important; align-items:center !important; justify-content:center !important; width:100vw !important; height:100vh !important; overflow:hidden !important; }',
-                '#stage ruffle-player { object-fit:contain !important; }',
-                '#waflashContainer { width:100vw !important; height:100vh !important; display:flex !important; align-items:center !important; justify-content:center !important; }',
-                'canvas.waflashCanvas { object-fit:contain !important; }'
-              ].join('\n');
-              document.head.appendChild(s);
-
-              applyRatio();
-
-              // MutationObserver: 监听 #stage 子元素变化
-              // Ruffle player 是异步创建的，onPageFinished 时还不存在
-              var stage = document.getElementById('stage');
-              if (stage && window.MutationObserver) {
-                var obs = new MutationObserver(function(mutations){
-                  applyRatio();
-                });
-                obs.observe(stage, { childList: true, subtree: true, attributes: true, attributeFilter: ['style','width','height'] });
-                window.__aspectRatioObserver = obs;
-              }
-
-              window.addEventListener('resize', applyRatio);
-              window.addEventListener('orientationchange', function(){ setTimeout(applyRatio, 200); });
-
-              // 定时重试：ruffle.js 加载可能需要几秒，期间持续尝试应用比例
-              var retries = 0;
-              var timer = setInterval(function(){
-                applyRatio();
-                retries++;
-                if (retries > 30) clearInterval(timer);
-              }, 500);
-            })();
-            """.trimIndent()
-        }
 
         private const val CSS_INJECTION = """
             (function(){

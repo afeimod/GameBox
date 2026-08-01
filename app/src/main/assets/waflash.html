@@ -164,9 +164,12 @@
     });
 
     // 4. 自动恢复焦点：定期检查并确保 canvas 有焦点（虚拟手柄操作时可能失焦）
+    //    注意：不能从 imeInput 抢焦点，否则输入法会被打断
     setInterval(function() {
-      if (document.activeElement !== canvas && document.activeElement !== document.body) {
-        // 如果焦点不在 canvas 也不在 body，尝试恢复
+      if (document.activeElement !== canvas &&
+          document.activeElement !== document.body &&
+          document.activeElement !== imeInput) {
+        // 如果焦点不在 canvas/body/imeInput，尝试恢复
         try { canvas.focus(); } catch(e) {}
       }
     }, 1000);
