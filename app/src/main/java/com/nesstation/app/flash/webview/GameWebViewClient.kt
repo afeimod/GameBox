@@ -620,17 +620,19 @@ open class GameWebViewClient(
         }
     }
 
-    /**
-     * 构建画面比例 letterbox 脚本。
-     * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
-     * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
-     *
-     * 同时适配 Ruffle（#stage > ruffle-player）和 WAFlash（#waflashContainer > canvas）。
-     * 每次调用会先移除旧样式再重新应用，确保切换比例时生效。
-     *
-     * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
-     */
-    fun buildAspectRatioScript(ratio: String): String {
+    companion object {
+
+        /**
+         * 构建画面比例 letterbox 脚本。
+         * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
+         * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
+         *
+         * 同时适配 Ruffle（#stage > ruffle-player）和 WAFlash（#waflashContainer > canvas）。
+         * 每次调用会先移除旧样式再重新应用，确保切换比例时生效。
+         *
+         * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
+         */
+        fun buildAspectRatioScript(ratio: String): String {
         if (ratio == "auto") {
             return """
             (function(){
@@ -717,9 +719,7 @@ open class GameWebViewClient(
           setTimeout(applyLetterbox, 3000);
         })();
         """.trimIndent()
-    }
-
-    companion object {
+        }
 
         /**
          * 按键安全钩子：在页面失焦（blur/visibilitychange）时自动释放所有按键。
