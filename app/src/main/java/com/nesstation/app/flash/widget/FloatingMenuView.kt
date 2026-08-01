@@ -215,9 +215,16 @@ class FloatingMenuView @JvmOverloads constructor(
             ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             isOutsideTouchable = true
-            elevation = dp(8).toFloat()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                elevation = dp(8).toFloat()
+            }
             setOnDismissListener { isMenuOpen = false }
-            showAsDropDown(triggerBtn, -dp(160), 0, Gravity.END)
+            // showAsDropDown(View, int, int, int) 需要 API 24+，低版本使用三参数版本
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                showAsDropDown(triggerBtn, -dp(160), 0, Gravity.END)
+            } else {
+                showAsDropDown(triggerBtn, -dp(160), 0)
+            }
         }
         isMenuOpen = true
     }
