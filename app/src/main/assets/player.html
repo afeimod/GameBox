@@ -20,6 +20,8 @@
                  "PingFang SC", "Heiti SC", "SimHei", "WenQuanYi Micro Hei",
                  Arial, Helvetica, sans-serif !important;
   }
+  /* Ruffle player 不强制 100%，让引擎内部 letterbox 自适应 */
+  ruffle-player { display: block; }
   #loading {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     flex-direction: column; color: #FFC107; font-family: -apple-system, "Microsoft YaHei", sans-serif;
@@ -69,6 +71,8 @@
     var rufflePath = CDN_PATH || 'https://flash.local/ruffle/';
 
     // 1) 预置 Ruffle 配置（必须早于 ruffle.js）
+    // 取自 3.3-fix2：letterbox="fullscreen" + scale="showAll" 是 Ruffle 官方推荐组合，
+    // 让引擎内部按 SWF 原生比例 letterbox + 缩放，避免画面拉伸溢出或变形。
     window.RufflePlayer = window.RufflePlayer || {};
     var ruffleConfig = {
       "publicPath": rufflePath,
@@ -80,6 +84,7 @@
       "allowScriptAccess": true,
       "scale": "showAll",
       "quality": "high",
+      // 关闭原生 Fullscreen（WebView 内容易卡死），改走我们注入的 CSS 全屏 hook
       "allowFullscreen": false,
       "splashScreen": true,
       "preloader": true,
@@ -115,8 +120,26 @@
         player.style.display = 'block';
         var opt = { url: SWF_URL, allowScriptAccess: true };
         if (BASE_URL) opt.base = BASE_URL;
+
+        // 隐藏 loading（防重复调用）
+        var loadingHidden = false;
+        function hideLoading() {
+          if (loadingHidden) return;
+          loadingHidden = true;
+          var ld = document.getElementById('loading');
+          if (ld) ld.style.display = 'none';
+        }
+        player.addEventListener('loadeddata', hideLoading);
+        player.addEventListener('load', hideLoading);
+        player.addEventListener('canplay', hideLoading);
+        player.addEventListener('loaderror', function(e) {
+          if (loadingHidden) return;
+          loadText.textContent = '游戏加载失败: ' + (e && e.detail ? e.detail.error : '未知错误');
+          console.error('[Ruffle] loaderror', e);
+        });
         player.ruffle().load(opt);
-        document.getElementById('loading').style.display = 'none';
+        hideLoading();
+        setTimeout(hideLoading, 5000);
       } catch (e) {
         loadText.textContent = '加载失败: ' + e.message;
         console.error(e);
@@ -136,16 +159,103 @@
         stage.appendChild(player);
         player.style.width = '100%';
         player.style.height = '100%';
+        player.style.display = 'block';
         var opt = { url: url, allowScriptAccess: true };
         if (base) opt.base = base;
         player.ruffle().load(opt);
+        var ld = document.getElementById('loading');
+        if (ld) ld.style.display = 'none';
       } catch(e) { console.error(e); }
     };
 
-    // 禁用长按选择 / 上下文菜单 / 缩放
-    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    // 禁用长按选择 / 缩放
     document.addEventListener('selectstart', function (e) { e.preventDefault(); });
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+
+    // === 全屏处理 ===
+    // 不阻止 contextmenu（让 Ruffle 菜单可用），但拦截 Fullscreen API 用 CSS 全屏替代
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, true);
+
+    // CSS 全屏：将 player 元素撑满屏幕，避免原生 Fullscreen API 在 WebView 中卡死
+    var __cssFullscreen = false;
+    var __savedStyles = {};
+    function enterCssFullscreen(el) {
+      if (__cssFullscreen) return;
+      __cssFullscreen = true;
+      __savedStyles.position = el.style.position;
+      __savedStyles.width = el.style.width;
+      __savedStyles.height = el.style.height;
+      __savedStyles.zIndex = el.style.zIndex;
+      __savedStyles.top = el.style.top;
+      __savedStyles.left = el.style.left;
+      el.style.position = 'fixed';
+      el.style.top = '0';
+      el.style.left = '0';
+      el.style.width = '100vw';
+      el.style.height = '100vh';
+      el.style.zIndex = '99999';
+      var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
+      var ht = document.getElementById('hint'); if (ht) ht.style.display = 'none';
+      try { if (window.Android && window.Android.toggleFullscreen) window.Android.toggleFullscreen(); } catch(e) {}
+      setTimeout(function() {
+        document.dispatchEvent(new Event('fullscreenchange'));
+      }, 50);
+    }
+    function exitCssFullscreen(el) {
+      if (!__cssFullscreen) return;
+      __cssFullscreen = false;
+      el.style.position = __savedStyles.position || '';
+      el.style.width = __savedStyles.width || '100%';
+      el.style.height = __savedStyles.height || '100%';
+      el.style.zIndex = __savedStyles.zIndex || '';
+      el.style.top = __savedStyles.top || '';
+      el.style.left = __savedStyles.left || '';
+      try { if (window.Android && window.Android.toggleFullscreen) window.Android.toggleFullscreen(); } catch(e) {}
+      setTimeout(function() {
+        document.dispatchEvent(new Event('fullscreenchange'));
+      }, 50);
+    }
+
+    // 拦截原生 Fullscreen API，用 CSS 全屏替代
+    if (Element.prototype.requestFullscreen) {
+      Element.prototype.requestFullscreen = function() {
+        enterCssFullscreen(this);
+        return Promise.resolve();
+      };
+    }
+    if (Element.prototype.webkitRequestFullscreen) {
+      Element.prototype.webkitRequestFullscreen = function() {
+        enterCssFullscreen(this);
+      };
+    }
+    if (Element.prototype.mozRequestFullScreen) {
+      Element.prototype.mozRequestFullScreen = function() {
+        enterCssFullscreen(this);
+      };
+    }
+    if (Element.prototype.msRequestFullscreen) {
+      Element.prototype.msRequestFullscreen = function() {
+        enterCssFullscreen(this);
+      };
+    }
+    if (document.exitFullscreen) {
+      var origExit = document.exitFullscreen.bind(document);
+      document.exitFullscreen = function() {
+        var player = document.querySelector('ruffle-player');
+        if (player) exitCssFullscreen(player);
+        return Promise.resolve();
+      };
+    }
+    Object.defineProperty(document, 'fullscreenElement', {
+      get: function() { return __cssFullscreen ? document.querySelector('ruffle-player') : null; },
+      configurable: true
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.keyCode === 27 && __cssFullscreen) {
+        var player = document.querySelector('ruffle-player');
+        if (player) exitCssFullscreen(player);
+      }
+    });
   </script>
 </body>
 </html>

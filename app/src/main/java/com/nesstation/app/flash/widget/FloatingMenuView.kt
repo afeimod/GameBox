@@ -41,6 +41,8 @@ class FloatingMenuView @JvmOverloads constructor(
         fun onBack()
         fun onClose()
         fun onExtractSwf()
+        fun onToggleCameraRotation()
+        fun onOpenAspectRatio()
     }
 
     private val triggerBtn: ImageButton
@@ -152,7 +154,9 @@ class FloatingMenuView @JvmOverloads constructor(
             MenuItem("按键映射", android.R.drawable.ic_menu_agenda) { callbacks?.onOpenKeyMapping() },
             MenuItem("Flash 引擎", android.R.drawable.ic_menu_preferences) { callbacks?.onOpenFlashSettings() },
             MenuItem("页面缩放", android.R.drawable.ic_menu_zoom) { callbacks?.onOpenPageZoom() },
+            MenuItem("画面比例", android.R.drawable.ic_menu_crop) { callbacks?.onOpenAspectRatio() },
             MenuItem("兼容模式", android.R.drawable.ic_menu_help) { callbacks?.onOpenUaMode() },
+            MenuItem("视角旋转(3D)", android.R.drawable.ic_menu_rotate) { callbacks?.onToggleCameraRotation() },
             MenuItem("提取 SWF", android.R.drawable.ic_menu_search) { callbacks?.onExtractSwf() },
             MenuItem("刷新", android.R.drawable.ic_menu_revert) { callbacks?.onRefresh() },
             MenuItem("返回", android.R.drawable.ic_menu_revert) { callbacks?.onBack() },
@@ -213,25 +217,13 @@ class FloatingMenuView @JvmOverloads constructor(
             ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             isOutsideTouchable = true
-            isFocusable = true
             elevation = dp(8).toFloat()
             setOnDismissListener { isMenuOpen = false }
-            // 安全弹出：逐级降级，确保不闪退
-            try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    showAsDropDown(triggerBtn, -dp(160), 0, Gravity.END)
-                } else {
-                    showAsDropDown(triggerBtn, -dp(160), 0)
-                }
-            } catch (e: Exception) {
-                try { showAsDropDown(triggerBtn) } catch (e2: Exception) {
-                    // 最终兜底：showAtLocation 不依赖 anchor view 的窗口状态
-                    try {
-                        showAtLocation(triggerBtn, Gravity.TOP or Gravity.END, dp(12), dp(96))
-                    } catch (e3: Exception) {
-                        android.util.Log.w("FloatingMenuView", "Popup show failed", e3)
-                    }
-                }
+            // 兼容 Android < 7.0 (API 24)：4 参数 showAsDropDown 需 API 24+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                showAsDropDown(triggerBtn, -dp(160), 0, Gravity.END)
+            } else {
+                showAsDropDown(triggerBtn, -dp(160), 0)
             }
         }
         isMenuOpen = true

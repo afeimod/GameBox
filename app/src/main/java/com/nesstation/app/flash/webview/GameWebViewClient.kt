@@ -7,6 +7,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.documentfile.provider.DocumentFile
 import com.nesstation.app.flash.data.PrefsManager
 import java.io.ByteArrayInputStream
 
@@ -32,6 +33,8 @@ open class GameWebViewClient(
         fun getCachedSwfPath(): String?
         /** 获取本地 SWF 文件的真实 URI */
         fun getLocalSwfUri(): String?
+        /** 获取本地 SWF 所在的目录路径（用于多 SWF 资源加载） */
+        fun getLocalSwfDir(): String?
     }
 
     /** 常见广告域名 */
@@ -63,6 +66,15 @@ open class GameWebViewClient(
             // 本地 SWF 代理：flash.local/local.swf → 读取真实文件
             if (path == "local.swf") {
                 return interceptLocalSwfProxy(view)
+            }
+            // Multi-SWF: check if this is a resource file from the local SWF's directory
+            val localSwfDir = callback.getLocalSwfDir()
+            if (localSwfDir != null && path != "local.swf" &&
+                !path.startsWith("ruffle/") && !path.startsWith("waflash/") &&
+                path != "player.html" && path != "waflash.html") {
+                // Try to serve from local directory; fall through to assets if not found
+                val resourceResponse = interceptLocalResource(view, localSwfDir, path)
+                if (resourceResponse != null) return resourceResponse
             }
             return interceptAsset(view, path)
         }
@@ -207,7 +219,7 @@ open class GameWebViewClient(
         """.trimIndent()
     }
 
-    /** 读取本地 SWF 文件代理（flash.local/local.swf → 真实 content:// URI） */
+    /** 读取本地 SWF 文件代理（flash.local/local.swf → 真实 content:// / file:// / 路径） */
     private fun interceptLocalSwfProxy(view: WebView): WebResourceResponse? {
         val uri = callback.getLocalSwfUri()
         if (uri == null) {
@@ -217,8 +229,7 @@ open class GameWebViewClient(
         }
         return try {
             android.util.Log.d("GameWebViewClient", "local.swf 代理: 读取 $uri")
-            val parsed = android.net.Uri.parse(uri)
-            val data = view.context.contentResolver.openInputStream(parsed)?.use { it.readBytes() }
+            val data = readLocalSwfBytes(view, uri)
                 ?: throw java.io.IOException("无法打开文件流")
             android.util.Log.d("GameWebViewClient", "local.swf 读取完成: ${data.size} bytes")
             WebResourceResponse(
@@ -237,12 +248,135 @@ open class GameWebViewClient(
         }
     }
 
+    /**
+     * 拦截本地 SWF 资源文件请求（多 SWF 游戏）。
+     * 当主 SWF 尝试加载同目录下的其他 SWF/资源文件时，从本地目录读取。
+     */
+    private fun interceptLocalResource(view: WebView, dirPath: String, resourcePath: String): WebResourceResponse? {
+        return try {
+            // Handle both file:// paths and direct paths
+            val basePath = if (dirPath.startsWith("file://")) {
+                android.net.Uri.parse(dirPath).path ?: dirPath.removePrefix("file://")
+            } else {
+                dirPath
+            }
+
+            val resourceFile = java.io.File(basePath, resourcePath)
+            android.util.Log.d("GameWebViewClient", "Multi-SWF资源: 查找 $resourcePath 于 ${resourceFile.absolutePath}")
+
+            if (resourceFile.exists() && resourceFile.canRead()) {
+                val data = resourceFile.readBytes()
+                android.util.Log.d("GameWebViewClient", "Multi-SWF资源: 找到 $resourcePath (${data.size} bytes)")
+
+                // Determine MIME type based on extension
+                val mimeType = when {
+                    resourcePath.endsWith(".swf", ignoreCase = true) -> "application/x-shockwave-flash"
+                    resourcePath.endsWith(".xml", ignoreCase = true) -> "text/xml"
+                    resourcePath.endsWith(".json", ignoreCase = true) -> "application/json"
+                    resourcePath.endsWith(".txt", ignoreCase = true) -> "text/plain"
+                    resourcePath.endsWith(".png", ignoreCase = true) -> "image/png"
+                    resourcePath.endsWith(".jpg", ignoreCase = true) || resourcePath.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
+                    resourcePath.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                    resourcePath.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                    else -> "application/octet-stream"
+                }
+
+                WebResourceResponse(
+                    mimeType, null, 200, "OK",
+                    mapOf(
+                        "Access-Control-Allow-Origin" to "*",
+                        "Cache-Control" to "no-cache"
+                    ),
+                    java.io.ByteArrayInputStream(data)
+                )
+            } else {
+                // For content:// URIs, try using DocumentFile
+                tryContentUriResource(view, dirPath, resourcePath)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GameWebViewClient", "Multi-SWF资源: 未找到 $resourcePath - ${e.message}")
+            null  // Return null to let WebView handle normally (404)
+        }
+    }
+
+    /**
+     * 通过 ContentResolver/DocumentFile 读取 content:// URI 同目录下的资源文件。
+     */
+    private fun tryContentUriResource(view: WebView, dirUri: String, resourcePath: String): WebResourceResponse? {
+        return try {
+            if (!dirUri.startsWith("content://")) return null
+
+            val parsed = android.net.Uri.parse(dirUri)
+            // Try to get the parent document and find the child
+            val docFile = DocumentFile.fromTreeUri(view.context, parsed)
+                ?: DocumentFile.fromSingleUri(view.context, parsed)
+                ?: return null
+
+            // Navigate to find the resource file
+            var current: DocumentFile? = docFile
+            val parts = resourcePath.split("/")
+            for ((index, part) in parts.withIndex()) {
+                if (current == null) break
+                if (current.isDirectory) {
+                    current = current.findFile(part)
+                } else if (index == parts.size - 1) {
+                    // Last part - check if current file matches
+                    if (current.name == part) {
+                        val data = view.context.contentResolver.openInputStream(current.uri)?.use { it.readBytes() }
+                        if (data != null) {
+                            val mimeType = if (part.endsWith(".swf", true)) "application/x-shockwave-flash" else "application/octet-stream"
+                            return WebResourceResponse(mimeType, null, 200, "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                java.io.ByteArrayInputStream(data))
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            android.util.Log.w("GameWebViewClient", "ContentUri资源查找失败: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * 统一读取本地 SWF 字节：兼容 content:// 、file:// 以及裸文件路径。
+     * 先用 ContentResolver，失败则回退到 File API（适配 MANAGE_EXTERNAL_STORAGE 授权后的直读）。
+     */
+    private fun readLocalSwfBytes(view: WebView, uri: String): ByteArray? {
+        // 1. content:// 必须走 ContentResolver
+        if (uri.startsWith("content://")) {
+            return try {
+                view.context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
+            } catch (e: Exception) {
+                android.util.Log.w("GameWebViewClient", "content 读取失败，尝试 File: ${e.message}")
+                null
+            }
+        }
+        // 2. file:// 或裸路径：优先 ContentResolver，失败回退 File 直读
+        val path = if (uri.startsWith("file://")) {
+            android.net.Uri.parse(uri).path ?: uri.removePrefix("file://")
+        } else {
+            uri
+        }
+        if (path.isNotEmpty()) {
+            try {
+                val f = java.io.File(path)
+                if (f.exists() && f.canRead()) return f.readBytes()
+            } catch (e: Exception) {
+                android.util.Log.w("GameWebViewClient", "File 直读失败: ${e.message}")
+            }
+        }
+        return try {
+            view.context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
+        } catch (e: Exception) { null }
+    }
+
     /** 读取本地 SWF 文件（content:// 或 file://），返回带 CORS 头的响应 */
     private fun interceptLocalFile(view: WebView, url: String): WebResourceResponse? {
         return try {
             android.util.Log.d("GameWebViewClient", "读取本地文件: $url")
-            val uri = android.net.Uri.parse(url)
-            val data = view.context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val data = readLocalSwfBytes(view, url)
                 ?: throw java.io.IOException("无法打开文件流")
             android.util.Log.d("GameWebViewClient", "本地文件读取完成: ${data.size} bytes")
             WebResourceResponse(
@@ -536,6 +670,20 @@ open class GameWebViewClient(
             view?.evaluateJavascript(buildViewportScript(), null)
         }
 
+        // 鼠标光标模拟：导航后会丢失，需重新注入
+        if (PrefsManager.isMouseEnabled) {
+            view?.evaluateJavascript(MOUSE_CURSOR_SCRIPT, null)
+        }
+        // 3D 视角旋转：导航后会丢失，需重新注入
+        if (PrefsManager.isCameraRotationEnabled) {
+            view?.evaluateJavascript(CAMERA_ROTATION_SCRIPT, null)
+        }
+        // 画面比例 letterbox（仅内置播放器页生效）
+        if (url != null && url.startsWith("https://flash.local/") &&
+            PrefsManager.gameAspectRatio != "auto") {
+            view?.evaluateJavascript(buildAspectRatioScript(PrefsManager.gameAspectRatio), null)
+        }
+
         // 强制重绘：部分网页（如使用 View Transitions 的 SPA）加载完成后
         // 渲染管线未正确触发重绘，导致页面"卡住"（切后台再回来才显示）。
         // invalidate + requestLayout 强制 WebView 重新绘制当前帧。
@@ -583,8 +731,7 @@ open class GameWebViewClient(
     }
 
     /** 根据用户缩放设置构建 viewport 脚本 */
-    private fun buildViewportScript(): String {
-        val scale = if (PrefsManager.pageZoomMode == "manual") {
+    private fun buildViewportScript(): String {        val scale = if (PrefsManager.pageZoomMode == "manual") {
             PrefsManager.pageZoomManual / 100.0
         } else {
             -1.0
@@ -1109,5 +1256,236 @@ open class GameWebViewClient(
               }
             })();
         """
+
+        /**
+         * 鼠标光标模拟脚本：在 PC 网页上显示一个跟随触摸的鼠标光标，
+         * 触摸 = 鼠标移动，点击 = 鼠标左键点击。
+         * 用于兼容需要鼠标 hover 的 PC 网页。
+         * 1:1 移植自 3.3-fix2 GameActivity.MOUSE_CURSOR_SCRIPT。
+         */
+        const val MOUSE_CURSOR_SCRIPT = """
+            (function(){
+              if (window.__mouseEnabled) return; window.__mouseEnabled = true;
+              var cursor = document.createElement('div');
+              cursor.id = '__mouseCursor';
+              cursor.style.cssText = 'position:fixed;width:20px;height:20px;pointer-events:none;z-index:999999;left:0;top:0;transform:translate(-4px,-4px);';
+              cursor.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.5,3.5L18,12L11.5,12.5L15,19L12.5,20L9,13.5L5.5,17L5.5,3.5Z" fill="white" stroke="black" stroke-width="1.5"/></svg>';
+              document.body.appendChild(cursor);
+              var lastX = 0, lastY = 0;
+              document.addEventListener('touchstart', function(e){
+                var t = e.touches[0];
+                lastX = t.clientX; lastY = t.clientY;
+                cursor.style.left = lastX + 'px';
+                cursor.style.top = lastY + 'px';
+              }, {passive: true});
+              document.addEventListener('touchmove', function(e){
+                var t = e.touches[0];
+                lastX = t.clientX; lastY = t.clientY;
+                cursor.style.left = lastX + 'px';
+                cursor.style.top = lastY + 'px';
+                var el = document.elementFromPoint(lastX, lastY);
+                if (el) {
+                  var evt = new MouseEvent('mousemove', {bubbles:true, clientX:lastX, clientY:lastY});
+                  el.dispatchEvent(evt);
+                }
+              }, {passive: true});
+            })();
+        """
+
+        /**
+         * 3D 视角旋转脚本：
+         * 1. Hook requestPointerLock → 模拟指针锁定成功（移动端不支持原生 Pointer Lock）
+         * 2. 提供 window.__cameraRotate(dx, dy) → 分发带 movementX/movementY 的 mousemove 事件
+         * 3. 阻止页面滚动/选择，确保拖动只用于旋转视角
+         * 1:1 移植自 3.3-fix2 GameActivity.CAMERA_ROTATION_SCRIPT。
+         */
+        const val CAMERA_ROTATION_SCRIPT = """
+            (function(){
+              if (window.__cameraRotation) return; window.__cameraRotation = true;
+
+              // === 1. 模拟 Pointer Lock API ===
+              if (!window.__pointerLockHooked) {
+                window.__pointerLockHooked = true;
+                var _requestPointerLock = HTMLElement.prototype.requestPointerLock;
+                HTMLElement.prototype.requestPointerLock = function() {
+                  window.__pointerLocked = true;
+                  document.dispatchEvent(new Event('pointerlockchange'));
+                  document.pointerLockElement = this;
+                  return Promise.resolve();
+                };
+                document.exitPointerLock = function() {
+                  window.__pointerLocked = false;
+                  document.pointerLockElement = null;
+                  document.dispatchEvent(new Event('pointerlockchange'));
+                };
+                try {
+                  Object.defineProperty(document, 'pointerLockElement', {
+                    get: function() { return window.__pointerLockElement || null; },
+                    set: function(v) { window.__pointerLockElement = v; },
+                    configurable: true
+                  });
+                } catch(e) {}
+              }
+
+              // === 2. 提供视角旋转函数 ===
+              window.__cameraRotate = function(dx, dy) {
+                var target = document.pointerLockElement;
+                if (!target) {
+                  target = document.querySelector('canvas') ||
+                           document.querySelector('[id*="game"]') ||
+                           document.querySelector('[id*="flash"]') ||
+                           document.body;
+                }
+                if (!target) return;
+                var evt = new MouseEvent('mousemove', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: window.innerWidth / 2,
+                  clientY: window.innerHeight / 2,
+                  movementX: Math.round(dx),
+                  movementY: Math.round(dy)
+                });
+                target.dispatchEvent(evt);
+                document.dispatchEvent(evt);
+              };
+
+              // === 3. 阻止拖动时的页面滚动/选择 ===
+              var style = document.createElement('style');
+              style.id = '__cameraRotateStyle';
+              style.textContent = 'body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overflow:hidden !important;}canvas{touch-action:none !important;}';
+              document.head.appendChild(style);
+
+              console.log('[CameraRotation] 视角旋转模式已启用');
+            })();
+        """
+
+        /**
+         * 构建画面比例 letterbox 脚本。
+         * 在内置播放器页面（https://flash.local/）上对游戏容器添加 CSS letterbox，
+         * 支持 4:3 / 16:9 / 16:10 / 5:4 等比例。
+         *
+         * 同时适配 Ruffle（#stage > ruffle-player）和 WAFlash（#waflashContainer > canvas）。
+         * 每次调用会先移除旧样式再重新应用，确保切换比例时生效。
+         *
+         * @param ratio 比例字符串："4:3" / "16:9" / "16:10" / "5:4" / "auto"
+         */
+        fun buildAspectRatioScript(ratio: String): String {
+            if (ratio == "auto") {
+                // 恢复默认：移除自定义样式，让引擎自身设置生效
+                return """
+                (function(){
+                  var old = document.getElementById('__aspectRatioStyle');
+                  if (old) old.remove();
+                  var els = document.querySelectorAll('#stage, ruffle-player, #waflashContainer, canvas.waflashCanvas');
+                  els.forEach(function(el){
+                    el.style.width = '';
+                    el.style.height = '';
+                    el.style.marginLeft = '';
+                    el.style.marginTop = '';
+                    el.style.maxWidth = '';
+                    el.style.maxHeight = '';
+                    el.style.objectFit = '';
+                  });
+                })();
+                """.trimIndent()
+            }
+            val parts = ratio.split(":")
+            if (parts.size != 2) return "(function(){})();"
+            val w = parts[0].toFloatOrNull() ?: return "(function(){})();"
+            val h = parts[1].toFloatOrNull() ?: return "(function(){})();"
+            val targetRatio = w / h
+            return """
+            (function(){
+              // 移除旧样式，确保切换比例时重新生效
+              var old = document.getElementById('__aspectRatioStyle');
+              if (old) old.remove();
+
+              var targetRatio = $targetRatio;
+              var style = document.createElement('style');
+              style.id = '__aspectRatioStyle';
+              style.textContent = [
+                'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
+                // Ruffle: #stage 作为 flex 容器居中 ruffle-player
+                '#stage{display:flex!important;align-items:center!important;justify-content:center!important;}',
+                'ruffle-player{margin:0 auto!important;display:block!important;}',
+                // WAFlash: #waflashContainer 作为 flex 容器居中 canvas
+                '#waflashContainer{display:flex!important;align-items:center!important;justify-content:center!important;width:100vw!important;height:100vh!important;}',
+                'canvas.waflashCanvas{margin:0 auto!important;display:block!important;}'
+              ].join('\n');
+              document.head.appendChild(style);
+
+              function applyLetterbox() {
+                var sw = window.innerWidth;
+                var sh = window.innerHeight;
+                var screenRatio = sw / sh;
+
+                // Ruffle player
+                var rufflePlayer = document.querySelector('ruffle-player');
+                if (rufflePlayer) {
+                  if (screenRatio > targetRatio) {
+                    var newW = Math.round(sh * targetRatio);
+                    rufflePlayer.style.width = newW + 'px';
+                    rufflePlayer.style.height = sh + 'px';
+                    rufflePlayer.style.maxWidth = newW + 'px';
+                    rufflePlayer.style.maxHeight = sh + 'px';
+                  } else {
+                    var newH = Math.round(sw / targetRatio);
+                    rufflePlayer.style.width = sw + 'px';
+                    rufflePlayer.style.height = newH + 'px';
+                    rufflePlayer.style.maxWidth = sw + 'px';
+                    rufflePlayer.style.maxHeight = newH + 'px';
+                  }
+                }
+
+                // WAFlash canvas
+                var waflashCanvas = document.querySelector('canvas.waflashCanvas') ||
+                                    document.querySelector('#canvas');
+                if (waflashCanvas) {
+                  if (screenRatio > targetRatio) {
+                    var newW = Math.round(sh * targetRatio);
+                    waflashCanvas.style.width = newW + 'px';
+                    waflashCanvas.style.height = sh + 'px';
+                    waflashCanvas.style.marginLeft = 'auto';
+                    waflashCanvas.style.marginRight = 'auto';
+                  } else {
+                    var newH = Math.round(sw / targetRatio);
+                    waflashCanvas.style.width = sw + 'px';
+                    waflashCanvas.style.height = newH + 'px';
+                    waflashCanvas.style.marginTop = 'auto';
+                    waflashCanvas.style.marginBottom = 'auto';
+                  }
+                }
+
+                // Generic fallback: any canvas/object/embed
+                if (!rufflePlayer && !waflashCanvas) {
+                  var generic = document.querySelector('canvas') ||
+                                document.querySelector('object') ||
+                                document.querySelector('embed');
+                  if (generic) {
+                    if (screenRatio > targetRatio) {
+                      var newW = Math.round(sh * targetRatio);
+                      generic.style.width = newW + 'px';
+                      generic.style.height = sh + 'px';
+                      generic.style.marginLeft = Math.round((sw - newW) / 2) + 'px';
+                      generic.style.marginTop = '0';
+                    } else {
+                      var newH = Math.round(sw / targetRatio);
+                      generic.style.width = sw + 'px';
+                      generic.style.height = newH + 'px';
+                      generic.style.marginLeft = '0';
+                      generic.style.marginTop = Math.round((sh - newH) / 2) + 'px';
+                    }
+                  }
+                }
+              }
+              applyLetterbox();
+              window.addEventListener('resize', applyLetterbox);
+              setTimeout(applyLetterbox, 300);
+              setTimeout(applyLetterbox, 1000);
+              setTimeout(applyLetterbox, 3000);
+            })();
+            """.trimIndent()
+        }
     }
 }
