@@ -51,8 +51,13 @@ class DPadView @JvmOverloads constructor(
     private val pressed = HashSet<Int>()              // 当前按下的方向 KeyCode
     private val pointerDir = HashMap<Int, Int>()      // 指针 ID → 方向 KeyCode（0 表示无）
 
-    // 方向阈值：触点偏离中心超过半径的 25% 才算按下方向
-    private val deadZoneRatio = 0.25f
+    // 方向阈值：触点偏离中心超过半径的 35% 才算按下方向（增大死区减少误触）
+    private val deadZoneRatio = 0.35f
+    // 释放阈值：已按下的方向，触点回到半径 20% 以内才释放（迟滞 hysteresis 防抖）
+    private val releaseZoneRatio = 0.20f
+    // 方向切换最小间隔（毫秒），防止快速抖动产生多次方向切换
+    private val dirChangeMinInterval = 80L
+    private var lastDirChangeTime = 0L
 
     private val dirKeys = intArrayOf(
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
@@ -85,6 +90,7 @@ class DPadView @JvmOverloads constructor(
             joystickPointerId = -1
             knobDx = 0f
             knobDy = 0f
+            lastDirChangeTime = 0L
             invalidate()
         }
     }
@@ -372,48 +378,46 @@ class DPadView @JvmOverloads constructor(
         }
         knobDx = dx
         knobDy = dy
-        // 计算方向（8 方向）—— 基于角度判定，避免双轴独立阈值导致多方向同时触发
+
+        // 计算方向（4 方向模式：仅取主轴方向，防止对角线同时触发两个方向导致菜单跳两格）
         val active = HashSet<Int>()
         val norm = dist / outerR
+        val axNorm = abs(dx) / outerR
+        val ayNorm = abs(dy) / outerR
+
         if (norm > deadZoneRatio) {
-            // 计算摇杆角度（弧度）并转为角度
-            // 屏幕坐标系：dx>0 为右，dy>0 为下
-            val angleRad = Math.atan2(dy.toDouble(), dx.toDouble())
-            val degrees = (angleRad * 180.0 / Math.PI).toFloat()
-            // 按 45° 区间判定方向，只有对角线区间才同时触发两个方向
-            when {
-                degrees >= -22.5f && degrees < 22.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_RIGHT)
+            // 只激活主轴方向（X 或 Y 中偏移量更大的那个）
+            if (axNorm > ayNorm) {
+                val xThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_LEFT) || pressed.contains(KeyEvent.KEYCODE_DPAD_RIGHT))
+                    releaseZoneRatio else deadZoneRatio
+                if (axNorm > xThreshold) {
+                    active.add(if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
                 }
-                degrees >= 22.5f && degrees < 67.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_RIGHT)
-                    active.add(KeyEvent.KEYCODE_DPAD_DOWN)
-                }
-                degrees >= 67.5f && degrees < 112.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_DOWN)
-                }
-                degrees >= 112.5f && degrees < 157.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_LEFT)
-                    active.add(KeyEvent.KEYCODE_DPAD_DOWN)
-                }
-                degrees >= 157.5f || degrees < -157.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_LEFT)
-                }
-                degrees >= -157.5f && degrees < -112.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_LEFT)
-                    active.add(KeyEvent.KEYCODE_DPAD_UP)
-                }
-                degrees >= -112.5f && degrees < -67.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_UP)
-                }
-                degrees >= -67.5f && degrees < -22.5f -> {
-                    active.add(KeyEvent.KEYCODE_DPAD_RIGHT)
-                    active.add(KeyEvent.KEYCODE_DPAD_UP)
+            } else {
+                val yThreshold = if (pressed.contains(KeyEvent.KEYCODE_DPAD_UP) || pressed.contains(KeyEvent.KEYCODE_DPAD_DOWN))
+                    releaseZoneRatio else deadZoneRatio
+                if (ayNorm > yThreshold) {
+                    active.add(if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP)
                 }
             }
         }
+
+        // 计算方向变化
         val toDown = active - pressed
         val toUp = pressed - active
+
+        // 防抖：方向切换时检查时间间隔，防止快速抖动产生多次方向切换
+        if (toDown.isNotEmpty() || toUp.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            if (now - lastDirChangeTime < dirChangeMinInterval && active.isNotEmpty()) {
+                // 时间间隔太短且有新方向按下，跳过本次切换（防止抖动）
+                // 但仍然更新摇杆头位置
+                invalidate()
+                return
+            }
+            lastDirChangeTime = now
+        }
+
         toDown.forEach { injectDown(it) }
         toUp.forEach { injectUp(it) }
         pressed.clear()
@@ -426,6 +430,7 @@ class DPadView @JvmOverloads constructor(
         joystickPointerId = -1
         knobDx = 0f
         knobDy = 0f
+        lastDirChangeTime = 0L
         pressed.forEach { injectUp(it) }
         pressed.clear()
         invalidate()
