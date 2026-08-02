@@ -171,7 +171,16 @@ fun SwfPlayerScreen(
         PrefsManager.sp.edit().putString("game_aspect_ratio", ratio).apply()
         val wv = webViewRef.value
         if (wv != null) {
-            wv.evaluateJavascript(GameWebViewClient.buildAspectRatioScript(ratio), null)
+            // 按当前引擎选择正确的 letterbox 脚本。
+            // - Ruffle: 用 buildRuffleAspectRatioScript（让 ruffle-player 内部 letterbox 生效，
+            //           只控制 #stage 外框大小+居中,不破坏引擎内部 stage 尺寸）。
+            // - WAFlash: 用 buildAspectRatioScript（WAFlash 引擎自身不做 letterbox,必须外层 CSS 强制）。
+            val script = if (PrefsManager.flashEngine == "waflash") {
+                GameWebViewClient.buildAspectRatioScript(ratio)
+            } else {
+                GameWebViewClient.buildRuffleAspectRatioScript(ratio)
+            }
+            wv.evaluateJavascript(script, null)
         }
     }
 

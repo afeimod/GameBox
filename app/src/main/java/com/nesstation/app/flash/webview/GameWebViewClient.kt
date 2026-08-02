@@ -111,6 +111,22 @@ open class GameWebViewClient(
     /** 构建 Flash 支持伪造 + Ruffle/WAFlash 注入脚本（公开供 GameActivity 在 onPageFinished 兜底使用） */
     fun buildFlashInjectScript(pageUrl: String): String {
         val isWaflash = PrefsManager.flashEngine == "waflash"
+        // 从用户设置读取 scale/letterbox，未设置时走 Ruffle 官方默认。
+        // 合法值参考 ruffle core/src/config.rs:42-50 (letterbox) +
+        //                 ruffle core/src/display_object/stage.rs:1020-1023 (scale)
+        val rawScale = PrefsManager.sp.getString("flash_scale", null)
+        val scale = when (rawScale) {
+            "showAll", "noBorder", "exactFit", "noScale" -> rawScale
+            else -> "showAll"
+        }
+        val rawLetterbox = PrefsManager.sp.getString("flash_letterbox", null)
+        val letterbox = when (rawLetterbox) {
+            "off", "fullscreen", "on" -> rawLetterbox
+            else -> "on" // 内联注入默认 on，保证缩放语义与 buildRuffleAspectRatioScript 配合
+        }
+        // 防御性 fallback：scale 必须是非 null 字符串
+        val safeScale = scale ?: "showAll"
+        val quality = PrefsManager.flashQuality
         return """
         <script>
         (function(){
@@ -163,10 +179,13 @@ open class GameWebViewClient(
             autoplay: 'on',
             unmuteOverlay: 'visible',
             backgroundColor: '#000000',
-            letterbox: 'on',
+            letterbox: '$letterbox',
             polyfills: true,
             maxExecutionDuration: 30,
-            logLevel: 'warn'
+            logLevel: 'warn',
+            scale: '$safeScale',
+            quality: '$quality',
+            forceScale: true
           };
           var ruffleScript = document.createElement('script');
           ruffleScript.src = 'https://flash.local/ruffle/ruffle.js';
@@ -621,7 +640,23 @@ open class GameWebViewClient(
         // 之后 Ruffle polyfill 会替换 <object> 为 Canvas 播放器
         if (isFlashPage) {
             view?.evaluateJavascript(FLASH_FAKE_SUPPORT_SCRIPT, null)
-            view?.evaluateJavascript(RuffleInjector.configScript(), null)
+            // 从 PrefsManager 读取当前 scale/letterbox/quality，让用户在设置里改的值真正生效。
+            // 之前这里写的是 configScript() 全部走默认,导致用户改的 scale / letterbox / quality 不生效。
+            val flashScale = PrefsManager.sp.getString("flash_scale", null) ?: "showAll"
+            val flashLetterbox = when (PrefsManager.gameAspectRatio) {
+                "4:3", "16:9", "16:10", "5:4" -> "on"
+                else -> "fullscreen"
+            }
+            view?.evaluateJavascript(
+                RuffleInjector.configScript(
+                    quality = PrefsManager.flashQuality,
+                    autoplay = PrefsManager.isFlashAutoplay,
+                    scale = flashScale,
+                    letterbox = flashLetterbox,
+                    forceScale = PrefsManager.gameAspectRatio != "auto"
+                ),
+                null
+            )
             view?.evaluateJavascript(RuffleInjector.loaderScript(), null)
             view?.evaluateJavascript(FLASH_HIDE_SCRIPT, null)
             if (PrefsManager.flashEngine == "waflash") {
@@ -760,15 +795,15 @@ open class GameWebViewClient(
             })();
             """.trimIndent()
         } else {
+            // auto 模式：让 viewport 走 WebView 自身默认（initial-scale=1.0），
+            // 之前的 `Math.min(1, sw / 1200)` 在移动端（sw≈360）会算成 0.3，导致画面过小，违反直觉。
+            // 这里只确保存在 viewport meta 标签，scale 默认就是 1.0（铺满屏幕宽度）。
             """
             (function(){
               var meta = document.querySelector('meta[name="viewport"]');
               if (!meta) { meta = document.createElement('meta'); meta.name='viewport'; document.head.appendChild(meta); }
-              var sw = window.screen.width || 360;
-              var scale = Math.min(1, sw / 1200);
-              scale = Math.max(0.25, scale);
               // minimum-scale=0.01 允许无限缩小，maximum-scale=10.0 是 WebView 允许的最大值
-              meta.content = 'width=device-width, initial-scale=' + scale + ', minimum-scale=0.01, maximum-scale=10.0, user-scalable=yes';
+              meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=0.01, maximum-scale=10.0, user-scalable=yes';
             })();
             """.trimIndent()
         }
@@ -1471,6 +1506,13 @@ open class GameWebViewClient(
          * scale:showAll 不变形显示,这里**只对 #stage 容器(play.html 里 ruffle-player 的父节点)
          * 做 CSS 居中 + max-width/max-height letterbox**,让 ruffle-player 整体按用户指定的
          * 4:3 / 16:9 / 16:10 / 5:4 居中显示,不破坏 Ruffle 引擎内部的 stage 计算。
+         *
+         * 配合 Ruffle 配置:
+         * - letterbox = "on" (NavHelper.playerUrl 在 4:3/16:9/16:10/5:4 时强制 on)
+         * - forceScale = true (防止 SWF 内部 stage.scaleMode 改写我们的设置)
+         * - scale = 用户值,默认 "showAll"
+         * 这样外层 #stage 缩放到目标比例,内层 ruffle-player 撑满 #stage,
+         * Ruffle 引擎基于 ruffle-player 的实际 clientWidth/Height letterbox + showAll 显示 SWF。
          *
          * 实现细节:
          * - 注入样式让 #stage 脱离 fixed inset:0,改为按 targetRatio 居中 + max-width/max-height

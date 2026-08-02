@@ -3,6 +3,7 @@ package com.nesstation.app.flash.webview
 import android.net.Uri
 import com.nesstation.app.flash.data.GameType
 import com.nesstation.app.flash.data.PrefsManager
+import com.nesstation.app.ui.swf.RuffleInjector
 
 /**
  * 导航与 URL 工具：构造 4399 各类页面地址、判断 SWF、生成内置播放器地址。
@@ -36,12 +37,25 @@ object NavHelper {
 
     /** 构造内置 Flash 播放器地址（根据引擎选择不同播放器页面） */
     fun playerUrl(swfUrl: String, base: String? = null, title: String? = null): String {
+        // 从 PrefsManager.sp 直接读取（不依赖 FlashPrefs），
+        // 因为 PrefsManager.sp 才是真正的数据源。
+        val scale = PrefsManager.sp.getString("flash_scale", null) ?: "showAll"
+        val letterbox = when (PrefsManager.gameAspectRatio) {
+            // 4:3 / 16:9 / 16:10 / 5:4 等指定比例时，把 Ruffle letterbox 强制 on，
+            // 让 Ruffle 自身按 SWF 原生 stageSize letterbox，外层 buildRuffleAspectRatioScript
+            // 只控制外框大小 + 居中，**不会**改 ruffle-player 内部 stage 尺寸。
+            // 这样 Ruffle 内核能稳定执行引擎内部 letterbox 逻辑，画面比例完全可控。
+            "4:3", "16:9", "16:10", "5:4" -> "on"
+            else -> "fullscreen"
+        }
+        val quality = PrefsManager.flashQuality
         // WAFlash 引擎使用独立的 waflash.html 页面（canvas 渲染 + ES module）
         // 从 flash.local 虚拟域名加载，确保 Emscripten 的 fetch/XHR 能正常工作
         if (PrefsManager.flashEngine == "waflash") {
             val u = Uri.parse("https://flash.local/waflash.html")
                 .buildUpon()
                 .appendQueryParameter("swf", swfUrl)
+                .appendQueryParameter("aspect", PrefsManager.gameAspectRatio)
             base?.let { u.appendQueryParameter("base", it) }
             title?.let { u.appendQueryParameter("title", it) }
             return u.build().toString()
@@ -52,6 +66,10 @@ object NavHelper {
             .appendQueryParameter("swf", swfUrl)
             .appendQueryParameter("engine", PrefsManager.flashEngine)
             .appendQueryParameter("autoplay", if (PrefsManager.isFlashAutoplay) "on" else "off")
+            .appendQueryParameter("scale", scale)
+            .appendQueryParameter("letterbox", letterbox)
+            .appendQueryParameter("quality", quality)
+            .appendQueryParameter("aspect", PrefsManager.gameAspectRatio)
         // Ruffle 模式传递 CDN/本地路径
         // WAFlash 使用独立播放器页面，不需要传递 cdn/path
         if (PrefsManager.flashEngine != "waflash" && PrefsManager.flashEngine != "swf2js") {

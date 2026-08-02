@@ -47,7 +47,8 @@ object PrefsManager {
     val dpadPosY: Float get() = sp.getFloat("dpad_pos_y", -1f)
 
     val pageZoomMode: String get() = sp.getString("page_zoom_mode", "auto") ?: "auto"
-    val pageZoomManual: Int get() = sp.getInt("page_zoom_manual", 40).coerceIn(25, 200)
+    // 默认 100%：40% 会让画面过小，违反用户直觉；范围 25-200 仍按 Ruffle 官方约定保留。
+    val pageZoomManual: Int get() = sp.getInt("page_zoom_manual", 100).coerceIn(25, 200)
     val actionOffsetX: Int get() = sp.getInt("action_offset_x", 0)
     val actionOffsetY: Int get() = sp.getInt("action_offset_y", 0)
     val actionPosX: Float get() = sp.getFloat("action_pos_x", -1f)

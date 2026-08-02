@@ -104,10 +104,23 @@ open class FlashWebViewClient(
             pageUrl: String,
             engine: String = "ruffle",
             autoplay: Boolean = true,
-            quality: String = "high"
+            quality: String = "high",
+            scale: String? = null,
+            letterbox: String? = null
         ): String {
             val isWaflash = engine == "waflash"
             val autoplayStr = if (autoplay) "on" else "off"
+            // scale/letterbox 归一化：与 Ruffle 官方合法值保持一致
+            // 合法值参考 ruffle core/src/config.rs:42-50 (letterbox) +
+            //                 ruffle core/src/display_object/stage.rs:1020-1023 (scale)
+            val scaleStr = when (scale) {
+                "showAll", "noBorder", "exactFit", "noScale" -> scale
+                else -> "showAll"
+            }
+            val letterboxStr = when (letterbox) {
+                "off", "fullscreen", "on" -> letterbox
+                else -> "on"
+            }
             // 通过 flash.local 虚拟域名加载 Ruffle，FlashWebViewClient.shouldInterceptRequest
             // 会从 assets 提供 ruffle.js / core.ruffle.*.js / .wasm / simhei.ttf
             val ruffleScriptUrl = "https://flash.local/ruffle/ruffle.js"
@@ -117,11 +130,13 @@ open class FlashWebViewClient(
                   polyfills: true,
                   autoplay: '$autoplayStr',
                   unmuteOverlay: 'visible',
-                  letterbox: 'on',
+                  letterbox: '$letterboxStr',
                   backgroundColor: '#000000',
                   upgradeToHttps: true,
                   allowScriptAccess: true,
-                  scale: 'showAll',
+                  scale: '$scaleStr',
+                  // 通用 4399 页面不强制 forceScale，避免破坏 SWF 内部 stage.scaleMode 行为。
+                  // 具体画面比例约束由 buildRuffleAspectRatioScript + Ruffle letterbox 配合完成。
                   quality: '$quality',
                   allowFullscreen: false,
                   splashScreen: true,

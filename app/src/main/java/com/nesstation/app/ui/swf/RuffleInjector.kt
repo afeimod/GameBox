@@ -35,10 +35,22 @@ object RuffleInjector {
         Engine.RUFFLE  -> "${LOCAL_BASE}ruffle/ruffle.js"
     }
 
+    /** 无参重载：从 PrefsManager 推断当前引擎，仅在 Ruffle 模式调用。 */
+    fun scriptUrl(): String = when (com.nesstation.app.flash.data.PrefsManager.flashEngine) {
+        "waflash" -> scriptUrl(Engine.WAFLASH)
+        else      -> scriptUrl(Engine.RUFFLE)
+    }
+
     /** Ruffle publicPath：Ruffle 用此路径加载 core.ruffle.*.js 和 .wasm */
     fun publicPath(engine: Engine): String = when (engine) {
         Engine.WAFLASH -> "${LOCAL_BASE}waflash/"
         Engine.RUFFLE  -> "${LOCAL_BASE}ruffle/"
+    }
+
+    /** 无参重载：从 PrefsManager 推断当前引擎。 */
+    fun publicPath(): String = when (com.nesstation.app.flash.data.PrefsManager.flashEngine) {
+        "waflash" -> publicPath(Engine.WAFLASH)
+        else      -> publicPath(Engine.RUFFLE)
     }
 
     /**
@@ -68,10 +80,48 @@ object RuffleInjector {
     }
 
     /**
+     * 把用户传入的 scale 字符串归一化为 Ruffle 官方合法值。
+     * 非法值/缺失都回退到 Ruffle 官方默认 "showAll"。
+     * 合法值参考 ruffle core/src/display_object/stage.rs:1020-1023：
+     *   showAll / noBorder / exactFit / noScale
+     */
+    private fun normalizeScale(s: String?): String = when (s) {
+        "showAll", "noBorder", "exactFit", "noScale" -> s
+        else -> "showAll"
+    }
+
+    /**
+     * letterbox 字符串归一化为 Ruffle 官方合法值。
+     * 参考 ruffle core/src/config.rs:42-50：
+     *   "off" / "fullscreen" / "on"
+     * - auto / 任意比例：交给外层 CSS / buildRuffleAspectRatioScript 处理，引擎自身保持 on
+     *   让外层可以只控制外框大小。
+     * - 未指定：保持 Ruffle 官方默认 fullscreen。
+     */
+    private fun normalizeLetterbox(s: String?): String = when (s) {
+        "off", "fullscreen", "on" -> s
+        else -> "fullscreen"
+    }
+
+    /**
      * 生成 Ruffle config 脚本（必须在 Ruffle JS 之前执行）。
      * WAFlash 模式不需要 polyfill（使用独立的 waflash.html）。
+     *
+     * @param quality 画质（low/medium/high/best）
+     * @param autoplay 是否自动播放
+     * @param scale    StageScaleMode：showAll / noBorder / exactFit / noScale，默认 showAll
+     * @param letterbox  Ruffle letterbox：off / fullscreen / on，默认 fullscreen
+     * @param forceScale 是否锁定 scale（防止 SWF 内 stage.scaleMode 改写）
+     * @param engine   引擎类型
      */
-    fun configScript(quality: String, autoplay: Boolean, engine: Engine = Engine.RUFFLE): String =
+    fun configScript(
+        quality: String,
+        autoplay: Boolean,
+        scale: String? = null,
+        letterbox: String? = null,
+        forceScale: Boolean = false,
+        engine: Engine = Engine.RUFFLE
+    ): String =
         if (engine == Engine.WAFLASH) ""
         else """
             (function(){
@@ -81,10 +131,11 @@ object RuffleInjector {
                 "polyfills": true,
                 "autoplay": "${if (autoplay) "on" else "off"}",
                 "unmuteOverlay": "visible",
-                "letterbox": "fullscreen",
+                "letterbox": "${normalizeLetterbox(letterbox)}",
                 "upgradeToHttps": true,
                 "allowScriptAccess": true,
-                "scale": "showAll",
+                "scale": "${normalizeScale(scale)}",
+                "forceScale": $forceScale,
                 "quality": "${qualityString(quality)}",
                 "allowFullscreen": false,
                 "splashScreen": true,

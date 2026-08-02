@@ -1,17 +1,23 @@
 package com.nesstation.app.ui.swf
 
 import android.content.Context
-import android.content.SharedPreferences
+import com.nesstation.app.flash.data.PrefsManager
 
 /**
  * Flash 引擎偏好设置。
  *
- * 管理 SWF 播放器的引擎选择、画质、自动播放等设置。
- * 使用 SharedPreferences 存储。
+ * 管理 SWF 播放器的引擎选择、画质、自动播放、缩放模式等设置。
+ * 为了和老 PrefsManager 共享数据源（避免双份存储漂移），这里直接走
+ * [PrefsManager.sp] 的同 key：flash_engine / flash_quality / flash_autoplay / flash_scale。
+ *
+ * scale 合法值（参考 Ruffle 官方 StageScaleMode）：
+ *   - "showAll"  默认：等比缩放，舞台完整可见
+ *   - "noBorder" 等比缩放，舞台铺满视口（可能被裁切）
+ *   - "exactFit" 非等比缩放，舞台铺满视口
+ *   - "noScale"  不缩放，舞台使用 SWF 原生像素大小
  */
 object FlashPrefs {
 
-    private const val PREFS_NAME = "flash_engine_prefs"
     private const val KEY_ENGINE = "flash_engine"       // "ruffle" | "waflash"
     private const val KEY_QUALITY = "flash_quality"     // "low" | "medium" | "high" | "best"
     private const val KEY_AUTOPLAY = "flash_autoplay"   // true | false
@@ -27,30 +33,38 @@ object FlashPrefs {
         }
     }
 
-    private fun prefs(ctx: Context): SharedPreferences =
-        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    fun getEngine(ctx: Context): Engine = Engine.fromValue(prefs(ctx).getString(KEY_ENGINE, null))
+    fun getEngine(ctx: Context): Engine = Engine.fromValue(PrefsManager.sp.getString(KEY_ENGINE, null))
 
     fun setEngine(ctx: Context, engine: Engine) {
-        prefs(ctx).edit().putString(KEY_ENGINE, engine.value).apply()
+        PrefsManager.sp.edit().putString(KEY_ENGINE, engine.value).apply()
     }
 
-    fun getQuality(ctx: Context): String = prefs(ctx).getString(KEY_QUALITY, "high") ?: "high"
+    fun getQuality(ctx: Context): String = PrefsManager.sp.getString(KEY_QUALITY, "high") ?: "high"
 
     fun setQuality(ctx: Context, quality: String) {
-        prefs(ctx).edit().putString(KEY_QUALITY, quality).apply()
+        PrefsManager.sp.edit().putString(KEY_QUALITY, quality).apply()
     }
 
-    fun isAutoplay(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTOPLAY, true)
+    fun isAutoplay(ctx: Context): Boolean = PrefsManager.sp.getBoolean(KEY_AUTOPLAY, true)
 
     fun setAutoplay(ctx: Context, autoplay: Boolean) {
-        prefs(ctx).edit().putBoolean(KEY_AUTOPLAY, autoplay).apply()
+        PrefsManager.sp.edit().putBoolean(KEY_AUTOPLAY, autoplay).apply()
     }
 
-    fun getScale(ctx: Context): String = prefs(ctx).getString(KEY_SCALE, "showAll") ?: "showAll"
+    /** 取得当前 scale，无效值或缺失值都回退到 Ruffle 官方默认 "showAll"。 */
+    fun getScale(ctx: Context): String {
+        val v = PrefsManager.sp.getString(KEY_SCALE, "showAll") ?: "showAll"
+        return when (v) {
+            "showAll", "noBorder", "exactFit", "noScale" -> v
+            else -> "showAll"
+        }
+    }
 
     fun setScale(ctx: Context, scale: String) {
-        prefs(ctx).edit().putString(KEY_SCALE, scale).apply()
+        val normalized = when (scale) {
+            "showAll", "noBorder", "exactFit", "noScale" -> scale
+            else -> "showAll"
+        }
+        PrefsManager.sp.edit().putString(KEY_SCALE, normalized).apply()
     }
 }

@@ -57,6 +57,26 @@
     var CDN_URL    = param('cdn', '');
     var CDN_PATH   = param('path', '');
     var AUTOPLAY   = param('autoplay', 'on');
+    // 新增：scale/letterbox/quality/aspect 由 NavHelper 透传过来。
+    // 合法值参考 ruffle core/src/config.rs:42-50 (letterbox: off/fullscreen/on) +
+    //                 ruffle core/src/display_object/stage.rs:1020-1023 (scale: showAll/noBorder/exactFit/noScale)
+    var SCALE_RAW      = param('scale', 'showAll');
+    var LETTERBOX_RAW  = param('letterbox', 'fullscreen');
+    var QUALITY_RAW    = param('quality', 'high');
+    var ASPECT_RAW     = param('aspect', 'auto');
+
+    function normalizeScale(v) {
+      return ['showAll', 'noBorder', 'exactFit', 'noScale'].indexOf(v) >= 0 ? v : 'showAll';
+    }
+    function normalizeLetterbox(v) {
+      return ['off', 'fullscreen', 'on'].indexOf(v) >= 0 ? v : 'fullscreen';
+    }
+    function normalizeQuality(v) {
+      return ['low', 'medium', 'high', 'best'].indexOf(v) >= 0 ? v : 'high';
+    }
+    var SCALE      = normalizeScale(SCALE_RAW);
+    var LETTERBOX  = normalizeLetterbox(LETTERBOX_RAW);
+    var QUALITY    = normalizeQuality(QUALITY_RAW);
 
     document.title = TITLE;
     var loadText = document.getElementById('loadText');
@@ -75,11 +95,14 @@
       "polyfills": true,
       "autoplay": AUTOPLAY,
       "unmuteOverlay": "visible",
-      "letterbox": "fullscreen",
+      "letterbox": LETTERBOX,
       "upgradeToHttps": true,
       "allowScriptAccess": true,
-      "scale": "showAll",
-      "quality": "high",
+      "scale": SCALE,
+      // 当用户指定具体画面比例时，强制锁定 scale，避免 SWF 内部 Stage.scaleMode
+      // 把外框 letterbox 抵消掉（参考 ruffle core/src/config.rs forceScale）。
+      "forceScale": ASPECT_RAW !== 'auto',
+      "quality": QUALITY,
       "allowFullscreen": false,
       "splashScreen": true,
       "preloader": true,
@@ -118,6 +141,14 @@
         if (BASE_URL) opt.base = BASE_URL;
         player.ruffle().load(opt);
         document.getElementById('loading').style.display = 'none';
+        // Ruffle 内核初始化完后，外层 CSS 接管外框。
+        // ASPECT_RAW 由 GameWebViewClient.buildRuffleAspectRatioScript 处理。
+        // 这里只需要确保 stage 不会一直 100% 100%，给外层脚本操作空间。
+        if (ASPECT_RAW && ASPECT_RAW !== 'auto') {
+          // 触发一个尺寸刷新，让 GameWebViewClient 注入的 setTimeout 一定能拿到
+          // ruffle-player 的实际尺寸。
+          window.dispatchEvent(new Event('resize'));
+        }
       } catch (e) {
         loadText.textContent = '加载失败: ' + e.message;
         console.error(e);
