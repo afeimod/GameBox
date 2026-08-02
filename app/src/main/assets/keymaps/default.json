@@ -1,0 +1,42 @@
+{
+  "$schema": "NesStation default key mappings (phone + TV + keyboard)",
+  "version": 1,
+  "profiles": {
+    "phone_default": {
+      "A":      "tap_pad_A",
+      "B":      "tap_pad_B",
+      "SELECT": "tap_pad_SELECT",
+      "START":  "tap_pad_START",
+      "UP":     "touch_dpad_up",
+      "DOWN":   "touch_dpad_down",
+      "LEFT":   "touch_dpad_left",
+      "RIGHT":  "touch_dpad_right",
+      "TURBO_A": "double_tap_A",
+      "TURBO_B": "double_tap_B"
+    },
+    "tv_default": {
+      "A":      "dpad_center",
+      "B":      "dpad_east",
+      "SELECT": "button_back",
+      "START":  "button_menu",
+      "UP":     "dpad_up",
+      "DOWN":   "dpad_down",
+      "LEFT":   "dpad_left",
+      "RIGHT":  "dpad_right",
+      "TURBO_A": "button_x",
+      "TURBO_B": "button_y"
+    },
+    "keyboard_default": {
+      "A":      "X",
+      "B":      "Z",
+      "SELECT": "ShiftLeft",
+      "START":  "Enter",
+      "UP":     "ArrowUp",
+      "DOWN":   "ArrowDown",
+      "LEFT":   "ArrowLeft",
+      "RIGHT":  "ArrowRight",
+      "TURBO_A": "V",
+      "TURBO_B": "B"
+    }
+  }
+}

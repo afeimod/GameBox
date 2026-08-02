@@ -1,0 +1,20 @@
+{
+  "$schema": "NesStation ROM scanner configuration",
+  "version": 1,
+  "scan_defaults": [
+    "ROMs",
+    "NesStation",
+    "Download/NesStation",
+    "Games/NES",
+    "roms"
+  ],
+  "extensions": ["nes"],
+  "ignore_patterns": [
+    "*.nes.bak",
+    "*.nes.tmp",
+    ".DS_Store"
+  ],
+  "scan_recursive": true,
+  "max_file_size_mb": 8,
+  "notes": "Directories listed under scan_defaults are relative to the primary external storage root. The SAF (Storage Access Framework) tree, when granted by the user, is scanned in addition."
+}

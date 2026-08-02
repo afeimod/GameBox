@@ -1,0 +1,29 @@
+{
+  "$schema": "NesStation mapper database (subset used by FCEUmm)",
+  "version": 1,
+  "source": "Mirrored from FCEUmm src/boards for offline reference",
+  "boards": {
+    "0":  { "name": "NROM",         "battery": false, "prg_kb_max": 32,  "chr_kb_max": 8 },
+    "1":  { "name": "MMC1",         "battery": true,  "prg_kb_max": 256, "chr_kb_max": 128 },
+    "2":  { "name": "UxROM",        "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "3":  { "name": "CNROM",        "battery": false, "prg_kb_max": 32,  "chr_kb_max": 32 },
+    "4":  { "name": "MMC3",         "battery": true,  "prg_kb_max": 512, "chr_kb_max": 256 },
+    "5":  { "name": "MMC5",         "battery": true,  "prg_kb_max": 1024,"chr_kb_max": 1024 },
+    "7":  { "name": "AxROM",        "battery": false, "prg_kb_max": 256, "chr_kb_max": 0 },
+    "9":  { "name": "MMC2",         "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "10": { "name": "MMC4",         "battery": false, "prg_kb_max": 256, "chr_kb_max": 16 },
+    "11": { "name": "Color Dreams", "battery": false, "prg_kb_max": 32,  "chr_kb_max": 8 },
+    "13": { "name": "CPROM",        "battery": false, "prg_kb_max": 16,  "chr_kb_max": 4 },
+    "16": { "name": "Bandai MMC3",  "battery": true,  "prg_kb_max": 512, "chr_kb_max": 256 },
+    "18": { "name": "Magic Floor",  "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "19": { "name": "Namco 163",    "battery": true,  "prg_kb_max": 256, "chr_kb_max": 16 },
+    "21": { "name": "VRC4",         "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "22": { "name": "VRC2 Type A",  "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "23": { "name": "VRC2 Type B",  "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "24": { "name": "VRC6",         "battery": true,  "prg_kb_max": 256, "chr_kb_max": 16 },
+    "25": { "name": "VRC4 Type B",  "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 },
+    "26": { "name": "VRC6 Type B",  "battery": true,  "prg_kb_max": 256, "chr_kb_max": 16 },
+    "34": { "name": "BNROM / NINA-1","battery": false,"prg_kb_max": 256, "chr_kb_max": 0 },
+    "66": { "name": "GxROM",        "battery": false, "prg_kb_max": 256, "chr_kb_max": 8 }
+  }
+}
