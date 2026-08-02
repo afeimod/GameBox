@@ -99,9 +99,12 @@
       "upgradeToHttps": true,
       "allowScriptAccess": true,
       "scale": SCALE,
-      // 当用户指定具体画面比例时，强制锁定 scale，避免 SWF 内部 Stage.scaleMode
-      // 把外框 letterbox 抵消掉（参考 ruffle core/src/config.rs forceScale）。
+      // 当用户指定具体画面比例时，强制锁定 scale + align，避免 SWF 内部
+      // Stage.scaleMode / Stage.align 把外框 letterbox 抵消掉。
+      // Ruffle should_letterbox() 要求 scale_mode=ShowAll + align=空（参考
+      // ruffle core/src/display_object/stage.rs:469-478），SWF 改任一项都会让黑边消失。
       "forceScale": ASPECT_RAW !== 'auto',
+      "forceAlign": ASPECT_RAW !== 'auto',
       "quality": QUALITY,
       "allowFullscreen": false,
       "splashScreen": true,
@@ -178,6 +181,25 @@
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     document.addEventListener('selectstart', function (e) { e.preventDefault(); });
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+
+    // 拦截 Fullscreen API：Ruffle 0.4.1 web 端的 allowFullscreen:false 不能阻止右键菜单的
+    // "Enter Fullscreen" 项（ruffle web 端用 document.fullscreenEnabled 判断，忽略 allowFullscreen 配置），
+    // 在 Android WebView 里进入 ruffle-player 的全屏会卡死 Activity。
+    // 必须在 Ruffle 加载之前 patch 掉 Element.requestFullscreen / webkitRequestFullscreen。
+    (function() {
+      if (Element.prototype.__fullscreenPatched) return;
+      Element.prototype.__fullscreenPatched = true;
+      var noop = function() { return Promise.reject(new Error('fullscreen disabled')); };
+      if (Element.prototype.requestFullscreen) {
+        Element.prototype.requestFullscreen = noop;
+      }
+      if (Element.prototype.webkitRequestFullscreen) {
+        Element.prototype.webkitRequestFullscreen = function() {};
+      }
+      if (Element.prototype.webkitRequestFullScreen) {
+        Element.prototype.webkitRequestFullScreen = function() {};
+      }
+    })();
   </script>
 </body>
 </html>

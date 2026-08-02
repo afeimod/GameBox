@@ -91,6 +91,14 @@ object RuffleInjector {
      */
     private fun currentForceScale(): Boolean = PrefsManager.gameAspectRatio != "auto"
 
+    /**
+     * 同时需要 forceAlign=true 防止 SWF 内部 Stage.align = "..." 改写我们的对齐。
+     * 原因：Ruffle 的 should_letterbox() 要求 align.is_empty()（ruffle core/src/display_object/stage.rs:475），
+     * 如果 SWF 在第一帧 Stage.align = "TL" 等，会让 should_letterbox() 返回 false，外框黑边就消失。
+     * 参考 ruffle core/src/display_object/stage.rs:415-420 set_align 也是 respect forced_align。
+     */
+    private fun currentForceAlign(): Boolean = PrefsManager.gameAspectRatio != "auto"
+
     /** 是否使用本地引擎（本地模式下有 simhei.ttf 字体文件可用） */
     private fun isLocalRuffle(): Boolean =
         PrefsManager.flashEngine != "waflash" &&
@@ -137,6 +145,7 @@ object RuffleInjector {
                 "allowScriptAccess": true,
                 "scale": "${currentScale()}",
                 "forceScale": ${currentForceScale()},
+                "forceAlign": ${currentForceAlign()},
                 "quality": "${quality()}",
                 "allowFullscreen": false,
                 "splashScreen": true,
