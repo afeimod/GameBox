@@ -55,7 +55,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.toDp
+// 注:不同 Compose 版本下 Float.toDp() 可能在不同包。这里用 density.density 手动换算 px → dp,
+// 避免 unresolved reference。
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import com.nesstation.app.flash.data.PrefsManager
@@ -1089,6 +1090,10 @@ private fun CustomLayoutPreview(
                 .background(androidx.compose.ui.graphics.Color(0x88000000))
         )
         // 选中矩形 (用 dp 表达避免 px/dp 转换错误)
+        // 注意:Compose 1.x 的 Float.toDp() 在不同版本中可用性不同,
+        // 这里用 density 手动换算 px → dp,避免 unresolved reference。
+        val rectWDp = (rpx - lpx) / density.density
+        val rectHDp = (bpx - tpx) / density.density
         androidx.compose.foundation.layout.Box(
             modifier = Modifier
                 .offset {
@@ -1098,8 +1103,8 @@ private fun CustomLayoutPreview(
                     )
                 }
                 .size(
-                    width = with(density) { (rpx - lpx).toDp() },
-                    height = with(density) { (bpx - tpx).toDp() }
+                    width = rectWDp.dp,
+                    height = rectHDp.dp
                 )
                 .background(androidx.compose.ui.graphics.Color(0x334CAF50))
         ) {
