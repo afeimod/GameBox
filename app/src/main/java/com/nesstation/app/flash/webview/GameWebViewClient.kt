@@ -642,6 +642,11 @@ open class GameWebViewClient(
             view?.evaluateJavascript(FLASH_FAKE_SUPPORT_SCRIPT, null)
             // 从 PrefsManager 读取当前 scale/letterbox/quality，让用户在设置里改的值真正生效。
             // 之前这里写的是 configScript() 全部走默认,导致用户改的 scale / letterbox / quality 不生效。
+            //
+            // 用位置参数调用（不用命名参数）以保证兼容性：
+            // - 新版 RuffleInjector.configScript(quality, autoplay, scale, letterbox, forceScale, engine)
+            // - 旧版 RuffleInjector.configScript(quality, autoplay, engine)
+            //   → 旧版会因参数过多编译失败；遇到这种情况，请同步使用本包里的 RuffleInjector.kt 覆盖。
             val flashScale = PrefsManager.sp.getString("flash_scale", null) ?: "showAll"
             val flashLetterbox = when (PrefsManager.gameAspectRatio) {
                 "4:3", "16:9", "16:10", "5:4" -> "on"
@@ -649,11 +654,11 @@ open class GameWebViewClient(
             }
             view?.evaluateJavascript(
                 RuffleInjector.configScript(
-                    quality = PrefsManager.flashQuality,
-                    autoplay = PrefsManager.isFlashAutoplay,
-                    scale = flashScale,
-                    letterbox = flashLetterbox,
-                    forceScale = PrefsManager.gameAspectRatio != "auto"
+                    PrefsManager.flashQuality,
+                    PrefsManager.isFlashAutoplay,
+                    flashScale,
+                    flashLetterbox,
+                    PrefsManager.gameAspectRatio != "auto"
                 ),
                 null
             )
