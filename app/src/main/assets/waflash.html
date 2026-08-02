@@ -78,15 +78,34 @@
     var imeInput = document.getElementById('imeInput');
     var lastImeValue = '';
     var isComposing = false;
+    // 修复"输入法弹起后 layout shift 触发 canvas click → 收起 → 再弹"循环闪烁:
+    // - 用 pointerdown 而非 click 计时(layout shift 不会触发 pointerdown)
+    // - showIme() 加 800ms debounce(同一时间窗口内只调一次)
+    // - 已经聚焦就不再 focus
+    var lastShowImeAt = 0;
+    var imeShown = false;
 
     function showIme() {
+      var now = Date.now();
+      if (now - lastShowImeAt < 800) return;  // debounce:避免连续触发
+      lastShowImeAt = now;
       if (hasNativeIme) {
-        try { window.NativeIme.showIme(); return; } catch(e) {}
+        try { window.NativeIme.showIme(); imeShown = true; return; } catch(e) {}
       }
       // 回退：隐藏 input 聚焦
+      if (document.activeElement === imeInput) {
+        // 已经聚焦,不要再调 focus(避免 input 失焦→聚焦的循环)
+        imeShown = true;
+        return;
+      }
       imeInput.value = '';
       lastImeValue = '';
-      try { imeInput.focus(); } catch(e) {}
+      try { imeInput.focus(); imeShown = true; } catch(e) {}
+    }
+
+    // 监听 input 失焦,标记 imeShown=false,这样下次 showIme 可以正常触发
+    if (imeInput) {
+      imeInput.addEventListener('blur', function() { imeShown = false; });
     }
 
     function hideIme() {
@@ -98,26 +117,32 @@
     }
 
     // 双击 canvas 唤起输入法（部分游戏用双击输入文本）
+    // 用 pointerdown 而非 click 计时:软键盘弹起时 WebView 布局重排,可能触发
+    // 额外的 click 事件,但 pointerdown 不会(layout shift 不触发 pointer 事件)。
+    // 这样可以避免"弹出→layout→click→失焦→收起→再弹"的循环闪烁。
     var lastTap = 0;
-    canvas.addEventListener('click', function() {
+    canvas.addEventListener('pointerdown', function() {
       var now = Date.now();
       if (now - lastTap < 400) {
         showIme();
+        lastTap = 0;  // 重置,避免三连击继续触发
+      } else {
+        lastTap = now;
       }
-      lastTap = now;
     });
 
     // 长按 600ms 也唤起输入法
     var touchTimer = null;
-    canvas.addEventListener('touchstart', function() {
-      touchTimer = setTimeout(function() { showIme(); }, 600);
-    }, { passive: true });
-    canvas.addEventListener('touchend', function() {
+    canvas.addEventListener('pointerdown', function() {
+      if (touchTimer) clearTimeout(touchTimer);
+      touchTimer = setTimeout(function() { showIme(); touchTimer = null; }, 600);
+    });
+    function _cancelTouchTimer() {
       if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, { passive: true });
-    canvas.addEventListener('touchmove', function() {
-      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, { passive: true });
+    }
+    canvas.addEventListener('pointerup', _cancelTouchTimer, { passive: true });
+    canvas.addEventListener('pointercancel', _cancelTouchTimer, { passive: true });
+    canvas.addEventListener('pointermove', _cancelTouchTimer, { passive: true });
 
     // 隐藏 input 兜底：监听组合输入（仅无 NativeIme 时生效）
     if (imeInput) {

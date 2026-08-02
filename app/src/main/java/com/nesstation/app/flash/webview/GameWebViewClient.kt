@@ -1486,24 +1486,24 @@ open class GameWebViewClient(
         }
 
         /**
-         * Ruffle 引擎页面的画面比例 letterbox 脚本。
+         * Ruffle 引擎页面的画面比例脚本。
          *
-         * 与 WAFlash 方案不同:Ruffle 引擎内部已经按 SWF 原生 stageSize 比例 letterbox +
-         * scale:showAll 不变形显示,这里**只对 #stage 容器(play.html 里 ruffle-player 的父节点)
-         * 做 CSS 居中 + max-width/max-height letterbox**,让 ruffle-player 整体按用户指定的
-         * 4:3 / 16:9 / 16:10 / 5:4 居中显示,不破坏 Ruffle 引擎内部的 stage 计算。
+         * 实现思路 — 绕开 Ruffle 0.4.1 selfhosted Shadow DOM 的限制:
+         * 1. Ruffle 0.4.1 selfhosted 把 ruffle-player 用 Shadow DOM 包裹,canvas 在 shadow root 内
+         * 2. 外部 CSS 改 ruffle-player 的 clientWidth/Height **不影响** shadow root 内的 canvas
+         * 3. Ruffle 每帧 tick 时读 canvas 的 clientWidth/Height 算 viewport,但 canvas 永远是
+         *    跟随 shadow root 的 container 大小,而 container 又是 100% 跟随 ruffle-player 父级
+         * 4. 但 Ruffle 0.4.1 在 player.html 中是用 appendChild(ruffle-player) 添加到 #stage,
+         *    ruffle-player 直接是 #stage 的子元素,**不在 Shadow DOM 里**(Shadow DOM 是
+         *    ruffle-player 元素内部,不是 #stage 内部)
+         * 5. 所以 #stage 改尺寸 → ruffle-player 改尺寸 → shadow root container 改尺寸 → canvas 改尺寸
+         *    → Ruffle 下一帧 tick 读新 viewport → 重新渲染
          *
-         * 配合 Ruffle 配置:
-         * - letterbox = "on" (NavHelper.playerUrl 在 4:3/16:9/16:10/5:4 时强制 on)
-         * - forceScale = true (防止 SWF 内部 stage.scaleMode 改写我们的设置)
-         * - scale = 用户值,默认 "showAll"
-         * 这样外层 #stage 缩放到目标比例,内层 ruffle-player 撑满 #stage,
-         * Ruffle 引擎基于 ruffle-player 的实际 clientWidth/Height letterbox + showAll 显示 SWF。
+         * 那为什么之前不生效?可能是 forceScale/forceAlign 在 0.4.1 不被支持,或者 SWF 内部
+         * Stage.align / Stage.windowMode 改写让 should_letterbox() 返回 false。
          *
-         * 实现细节:
-         * - 注入样式让 #stage 脱离 fixed inset:0,改为按 targetRatio 居中 + max-width/max-height
-         * - Ruffle-player 内部继续走引擎自身的 letterbox+showAll,只控制外层画框
-         * - auto 时移除注入的样式,让 Ruffle 自身 letterbox 生效(全屏自适应)
+         * 这次用**纯 CSS + JS 控制 #stage 物理尺寸** + **强制触发 Ruffle 重算 viewport**
+         * (调 window.dispatchEvent('resize') 触发 ruffle-player 元素 resize 回调)。
          */
         fun buildRuffleAspectRatioScript(ratio: String): String {
             if (ratio == "auto") {
@@ -1511,9 +1511,9 @@ open class GameWebViewClient(
                 (function(){
                   var old = document.getElementById('__ruffleAspectRatioStyle');
                   if (old) old.remove();
-                  if (window.__ruffleAspectObserver) {
-                    window.__ruffleAspectObserver.disconnect();
-                    window.__ruffleAspectObserver = null;
+                  var stage = document.getElementById('stage');
+                  if (stage && !stage.classList.contains('box-custom')) {
+                    stage.style.cssText = '';
                   }
                 })();
                 """.trimIndent()
@@ -1530,45 +1530,42 @@ open class GameWebViewClient(
                 var sw = window.innerWidth;
                 var sh = window.innerHeight;
                 if (sw <= 0 || sh <= 0) return;
+                var stage = document.getElementById('stage');
+                if (!stage) return;
+                if (stage.classList.contains('box-custom')) return;
 
-                // 注入或更新样式
+                // 注入或更新 CSS
                 var old = document.getElementById('__ruffleAspectRatioStyle');
                 if (old) old.remove();
                 var style = document.createElement('style');
                 style.id = '__ruffleAspectRatioStyle';
                 style.textContent = [
                   'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#000!important;overflow:hidden!important;}',
-                  // #stage 是 player.html 里 ruffle-player 的父节点,
-                  // 把它从 fixed inset:0 改为按 targetRatio 居中+受限的画框。
-                  // right/bottom 也重置为 auto,否则跟 width/height 同时设置会被忽略。
-                  '#stage{position:fixed!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important;transform:translate(-50%,-50%)!important;background:#000!important;box-sizing:border-box!important;}',
-                  // ruffle-player 撑满 #stage 内部
+                  // #stage: fixed 居中,left/top/right/bottom 留 0 让 margin:auto 居中
+                  '#stage{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;margin:auto!important;background:#000!important;box-sizing:border-box!important;}',
                   '#stage > ruffle-player{display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;}'
                 ].join('\n');
-                if (document.head) document.head.appendChild(style);
+                document.head.appendChild(style);
 
                 // 计算外框尺寸:在视口内按 targetRatio 居中,留 4px 安全边距
                 var availW = Math.max(1, sw - 4);
                 var availH = Math.max(1, sh - 4);
                 var boxW, boxH;
                 if (availW / availH > targetRatio) {
-                  // 视口比 target 更宽,高度受限
                   boxH = availH;
                   boxW = Math.round(boxH * targetRatio);
                 } else {
                   boxW = availW;
                   boxH = Math.round(boxW / targetRatio);
                 }
-                var stage = document.getElementById('stage');
-                if (stage) {
-                  stage.style.width = boxW + 'px';
-                  stage.style.height = boxH + 'px';
-                }
+                stage.style.width = boxW + 'px';
+                stage.style.height = boxH + 'px';
+                // 触发 ruffle-player 元素 resize 回调,让 Ruffle 下一帧用新 viewport
+                window.dispatchEvent(new Event('resize'));
               }
               applyLetterbox();
               window.addEventListener('resize', applyLetterbox);
-              // ruffle-player 是异步创建的(#stage 已存在,内容会被 player.html 的脚本填充),
-              // #stage 的尺寸在 player 加载过程中可能会被 player.html 脚本改回 100% 100%,
+              // ruffle-player 是异步创建的,#stage 尺寸会被 player.html 脚本改回 100% 100%,
               // 因此需要定时重试几次以确保最终生效。
               setTimeout(applyLetterbox, 100);
               setTimeout(applyLetterbox, 300);

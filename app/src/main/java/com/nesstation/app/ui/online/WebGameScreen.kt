@@ -304,6 +304,21 @@ fun WebGameScreen(
                 swfExtractJson.value = json
             }
         }
+        // 关键:先清空之前的结果,避免上一次"提取 SWF"后没关弹框,本次扫描时
+        // 弹框还显示着旧的 SWF/资源列表(就是用户说的"提取后面任何的游戏都是相同的资源"现象)。
+        swfExtractJson.value = null
+        // 用 URL 作为嗅探上下文的一部分注入,让 JS 端可以用 pageUrl 过滤掉来自其他页面的资源
+        // (4399 嵌套 iframe + SPA 切页时常驻的 iframe 会让嗅探器扫到旧页面的资源)
+        val wv = webViewRef.value
+        val pageUrl = wv?.url ?: ""
+        wv?.evaluateJavascript(
+            """
+            (function(){
+              try { window.__swfExtractPageUrl = ${if (pageUrl.isEmpty()) "location.href" else "\"" + pageUrl.replace("\"", "\\\"") + "\""}; } catch(e) {}
+            })();
+            """.trimIndent(),
+            null
+        )
         webViewRef.value?.evaluateJavascript(SWF_SNIFFER_SCRIPT, null)
     }
 
@@ -619,6 +634,7 @@ fun WebGameScreen(
             override fun onExtractSwf() = extractSwfFromPage()
             override fun onToggleCameraRotation() = toggleCameraRotation()
             override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
+            override fun onOpenCustomLayout() { /* TODO: 复用 */ }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape

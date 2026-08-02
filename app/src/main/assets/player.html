@@ -15,6 +15,8 @@
     text-rendering: optimizeLegibility;
   }
   #stage { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; }
+  /* 自定义四角布局:由 JS 根据 box query param 动态设置 left/top/right/bottom */
+  #stage.box-custom { background: #000; }
   #stage canvas, #stage ruffle-player {
     font-family: "Microsoft YaHei", "微软雅黑", "Noto Sans CJK SC", "Source Han Sans SC",
                  "PingFang SC", "Heiti SC", "SimHei", "WenQuanYi Micro Hei",
@@ -64,6 +66,8 @@
     var LETTERBOX_RAW  = param('letterbox', 'fullscreen');
     var QUALITY_RAW    = param('quality', 'high');
     var ASPECT_RAW     = param('aspect', 'auto');
+    // 自定义四角布局(0..1 归一化)。空表示不启用,使用默认全屏。
+    var BOX_RAW        = param('box', '');
 
     function normalizeScale(v) {
       return ['showAll', 'noBorder', 'exactFit', 'noScale'].indexOf(v) >= 0 ? v : 'showAll';
@@ -77,6 +81,23 @@
     var SCALE      = normalizeScale(SCALE_RAW);
     var LETTERBOX  = normalizeLetterbox(LETTERBOX_RAW);
     var QUALITY    = normalizeQuality(QUALITY_RAW);
+
+    // 解析 box="l,t,r,b" 归一化值
+    function parseBox(s) {
+      if (!s) return null;
+      var parts = s.split(',');
+      if (parts.length !== 4) return null;
+      var v = [parseFloat(parts[0]), parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])];
+      if (v.some(function(x){ return isNaN(x); })) return null;
+      // 边界保护
+      v[0] = Math.max(0, Math.min(1, v[0]));
+      v[1] = Math.max(0, Math.min(1, v[1]));
+      v[2] = Math.max(0, Math.min(1, v[2]));
+      v[3] = Math.max(0, Math.min(1, v[3]));
+      if (v[2] <= v[0] + 0.01 || v[3] <= v[1] + 0.01) return null;
+      return v;
+    }
+    var BOX = parseBox(BOX_RAW);
 
     document.title = TITLE;
     var loadText = document.getElementById('loadText');
@@ -106,7 +127,9 @@
       "forceScale": ASPECT_RAW !== 'auto',
       "forceAlign": ASPECT_RAW !== 'auto',
       "quality": QUALITY,
-      "allowFullscreen": false,
+      // 允许 Ruffle 内部全屏：实际进入全屏走 WebView 的 onShowCustomView 协议
+      // （Android 端实现：SwfPlayerScreen.chromeCallback.onShowFullscreen）。
+      "allowFullscreen": true,
       "splashScreen": true,
       "preloader": true,
       "logLevel": "warn",
@@ -144,6 +167,23 @@
         if (BASE_URL) opt.base = BASE_URL;
         player.ruffle().load(opt);
         document.getElementById('loading').style.display = 'none';
+
+        // 应用自定义四角布局 (box="l,t,r,b" 0..1 归一化)。
+        // 这让 Ruffle 把 ruffle-player 元素的 clientWidth/Height 视为新 viewport,
+        // 内部按 showAll 自动计算 scale,把 SWF 缩放到自定义矩形内并按 viewport 加黑边。
+        if (BOX) {
+          stage.classList.add('box-custom');
+          // 临时解除 #stage 默认的 fixed inset:0,改用 left/top/right/bottom 归一化
+          var s = stage.style;
+          s.position = 'fixed';
+          s.left = (BOX[0] * 100) + '%';
+          s.top = (BOX[1] * 100) + '%';
+          s.right = ((1 - BOX[2]) * 100) + '%';
+          s.bottom = ((1 - BOX[3]) * 100) + '%';
+          s.width = 'auto';
+          s.height = 'auto';
+        }
+
         // Ruffle 内核初始化完后，外层 CSS 接管外框。
         // ASPECT_RAW 由 GameWebViewClient.buildRuffleAspectRatioScript 处理。
         // 这里只需要确保 stage 不会一直 100% 100%，给外层脚本操作空间。
@@ -181,25 +221,6 @@
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     document.addEventListener('selectstart', function (e) { e.preventDefault(); });
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
-
-    // 拦截 Fullscreen API：Ruffle 0.4.1 web 端的 allowFullscreen:false 不能阻止右键菜单的
-    // "Enter Fullscreen" 项（ruffle web 端用 document.fullscreenEnabled 判断，忽略 allowFullscreen 配置），
-    // 在 Android WebView 里进入 ruffle-player 的全屏会卡死 Activity。
-    // 必须在 Ruffle 加载之前 patch 掉 Element.requestFullscreen / webkitRequestFullscreen。
-    (function() {
-      if (Element.prototype.__fullscreenPatched) return;
-      Element.prototype.__fullscreenPatched = true;
-      var noop = function() { return Promise.reject(new Error('fullscreen disabled')); };
-      if (Element.prototype.requestFullscreen) {
-        Element.prototype.requestFullscreen = noop;
-      }
-      if (Element.prototype.webkitRequestFullscreen) {
-        Element.prototype.webkitRequestFullscreen = function() {};
-      }
-      if (Element.prototype.webkitRequestFullScreen) {
-        Element.prototype.webkitRequestFullScreen = function() {};
-      }
-    })();
   </script>
 </body>
 </html>

@@ -103,6 +103,25 @@ object PrefsManager {
     // auto(全屏自适应) / 4:3 / 16:9 / 16:10 / 5:4
     val gameAspectRatio: String get() = sp.getString("game_aspect_ratio", "auto") ?: "auto"
 
+    // ---- 自定义四角布局（按 parent 0..1 归一化坐标）----
+    // 启用时游戏画面按 left/top/right/bottom 的归一化值放入矩形。
+    // 默认 0/0/1/1 即全屏。
+    val isCustomLayoutEnabled: Boolean get() = sp.getBoolean("custom_layout_enabled", false)
+    val customLayoutLeft: Float get() = sp.getFloat("custom_layout_left", 0f).coerceIn(0f, 1f)
+    val customLayoutTop: Float get() = sp.getFloat("custom_layout_top", 0f).coerceIn(0f, 1f)
+    val customLayoutRight: Float get() = sp.getFloat("custom_layout_right", 1f).coerceIn(0f, 1f)
+    val customLayoutBottom: Float get() = sp.getFloat("custom_layout_bottom", 1f).coerceIn(0f, 1f)
+
+    fun setCustomLayout(enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) {
+        sp.edit()
+            .putBoolean("custom_layout_enabled", enabled)
+            .putFloat("custom_layout_left", left.coerceIn(0f, 1f))
+            .putFloat("custom_layout_top", top.coerceIn(0f, 1f))
+            .putFloat("custom_layout_right", right.coerceIn(0f, 1f))
+            .putFloat("custom_layout_bottom", bottom.coerceIn(0f, 1f))
+            .apply()
+    }
+
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =
         sp.registerOnSharedPreferenceChangeListener(listener)
 

@@ -147,7 +147,9 @@ object RuffleInjector {
                 "forceScale": ${currentForceScale()},
                 "forceAlign": ${currentForceAlign()},
                 "quality": "${quality()}",
-                "allowFullscreen": false,
+                // 允许 Ruffle 内部全屏：实际进入全屏走 WebView 的 onShowCustomView 协议
+                // （Android 端实现：SwfPlayerScreen.chromeCallback.onShowFullscreen）。
+                "allowFullscreen": true,
                 "splashScreen": true,
                 "preloader": true,
                 "logLevel": "warn",

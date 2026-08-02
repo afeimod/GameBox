@@ -111,17 +111,31 @@ class SwfDownloadManager(private val context: Context) {
                 conn.readTimeout = 30000
                 conn.requestMethod = "GET"
                 conn.instanceFollowRedirects = true
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 conn.setRequestProperty("Accept", "*/*")
                 conn.setRequestProperty("Accept-Encoding", "identity")
+                conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 
                 try {
                     val cookies = CookieManager.getInstance().getCookie(urlHttps)
                     if (!cookies.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookies)
                 } catch(e: Exception) {}
 
-                val referer = if (pageUrl.isNotEmpty() && pageUrl != item.url) pageUrl else {
-                    try { Uri.parse(urlHttps).let { "${it.scheme}://${it.host}/" } } catch(e: Exception) { item.url }
+                // Referer 处理:
+                // 1. 优先用调用方传入的 pageUrl(4399 页面 URL)
+                // 2. 否则用资源 URL 自己 origin
+                // 3. 4399 资源 (mm.4399.com) 经常需要主域 (www.4399.com) Referer 才能下载
+                val referer = if (pageUrl.isNotEmpty() && pageUrl != item.url) {
+                    pageUrl
+                } else {
+                    try {
+                        val u = Uri.parse(urlHttps)
+                        // mm.4399.com → 替换为 www.4399.com,降低防盗链失败率
+                        val host = u.host?.replace("m.4399.com", "www.4399.com")
+                            ?.replace("h.4399.com", "www.4399.com")
+                            ?: u.host
+                        "${u.scheme}://$host/"
+                    } catch(e: Exception) { item.url }
                 }
                 conn.setRequestProperty("Referer", referer)
                 conn.connect()

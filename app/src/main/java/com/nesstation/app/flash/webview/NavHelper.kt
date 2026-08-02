@@ -71,6 +71,16 @@ object NavHelper {
             .appendQueryParameter("letterbox", letterbox)
             .appendQueryParameter("quality", quality)
             .appendQueryParameter("aspect", PrefsManager.gameAspectRatio)
+            .apply {
+                // 自定义四角布局:enabled=true 时传 box="l,t,r,b"
+                if (PrefsManager.isCustomLayoutEnabled) {
+                    appendQueryParameter(
+                        "box",
+                        "${PrefsManager.customLayoutLeft},${PrefsManager.customLayoutTop}," +
+                        "${PrefsManager.customLayoutRight},${PrefsManager.customLayoutBottom}"
+                    )
+                }
+            }
         // Ruffle 模式传递 CDN/本地路径
         // WAFlash 使用独立播放器页面，不需要传递 cdn/path
         if (PrefsManager.flashEngine != "waflash" && PrefsManager.flashEngine != "swf2js") {

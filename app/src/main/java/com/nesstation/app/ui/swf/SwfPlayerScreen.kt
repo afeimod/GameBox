@@ -9,26 +9,55 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toDp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import com.nesstation.app.flash.data.PrefsManager
 import com.nesstation.app.flash.input.ActionButtonView
 import com.nesstation.app.flash.input.DPadView
@@ -67,9 +96,15 @@ fun SwfPlayerScreen(
     val localSwfUri = remember { mutableStateOf(swfPath) }
     val showFlashDialog = remember { mutableStateOf(false) }
     val showKeyDialog = remember { mutableStateOf(false) }
+
+    // WebView 自定义全屏视图（Ruffle 等元素 requestFullscreen 触发）：
+    // 真实把 view 加到 Activity DecorView 上,避免 WebView 内部状态不一致导致卡死。
+    val customViewRef = remember { mutableStateOf<View?>(null) }
+    val customViewCallbackRef = remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     val showZoomDialog = remember { mutableStateOf(false) }
     val showUaDialog = remember { mutableStateOf(false) }
     val showAspectRatioDialog = remember { mutableStateOf(false) }
+    val showCustomLayoutDialog = remember { mutableStateOf(false) }
     // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
     val enginePickerShown = remember { mutableStateOf(false) }
     // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
@@ -165,6 +200,46 @@ fun SwfPlayerScreen(
                 Toast.makeText(context, "视角旋转已关闭", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /**
+     * 应用自定义四角布局:把 WebView 父容器按 left/top/right/bottom 归一化值定位。
+     * 0/0/1/1 = 全屏(默认值),用户拖动可缩小到任意矩形。
+     */
+    fun applyCustomLayout(enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) {
+        PrefsManager.setCustomLayout(enabled, left, top, right, bottom)
+        val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+        val wv = webViewRef.value ?: return
+        val parentW = container.width
+        val parentH = container.height
+        if (parentW <= 0 || parentH <= 0) return
+        val l = (left.coerceIn(0f, 1f) * parentW).toInt()
+        val t = (top.coerceIn(0f, 1f) * parentH).toInt()
+        val r = (right.coerceIn(0f, 1f) * parentW).toInt()
+        val b = (bottom.coerceIn(0f, 1f) * parentH).toInt()
+        val lp = android.widget.FrameLayout.LayoutParams(
+            (r - l).coerceAtLeast(1),
+            (b - t).coerceAtLeast(1)
+        )
+        lp.leftMargin = l
+        lp.topMargin = t
+        wv.layoutParams = lp
+        // 同时通过 JS 调整 #stage 尺寸,让 Ruffle 按新 viewport 算
+        val w = (r - l).coerceAtLeast(1).toFloat()
+        val h = (b - t).coerceAtLeast(1).toFloat()
+        val js = """
+            (function(){
+              var stage = document.getElementById('stage');
+              if (stage) {
+                stage.style.position = 'absolute';
+                stage.style.left = '0'; stage.style.top = '0';
+                stage.style.width = '100%'; stage.style.height = '100%';
+              }
+            })();
+        """.trimIndent()
+        wv.evaluateJavascript(js, null)
+        // 通知 WebView 内部刷新
+        wv.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null)
     }
 
     fun applyAspectRatio(ratio: String) {
@@ -268,8 +343,51 @@ fun SwfPlayerScreen(
                 override fun onProgress(progress: Int) {}
                 override fun onTitle(title: String?) {}
                 override fun onConsole(level: String, msg: String, sourceId: String?, line: Int) {}
-                override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {}
-                override fun onHideFullscreen() {}
+
+                // 实现 WebView 自定义全屏协议（按 Android 标准）：
+                // 把 WebView 内部生成的全屏 view 加到 Activity 的 DecorView 上,
+                // 调 Activity 进入全屏;退出时反过来。
+                // 之前这里是空实现,导致 Ruffle 等元素 requestFullscreen 触发
+                // onShowCustomView 后 WebView 内部状态不一致而卡死。
+                override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
+                    val act = activity ?: return
+                    customViewRef.value = view
+                    customViewCallbackRef.value = callback
+                    // 加到 DecorView
+                    val decor = act.window.decorView as FrameLayout
+                    decor.addView(view, FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    ))
+                    // Activity 进入全屏
+                    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(act.window, false)
+                    androidx.core.view.WindowInsetsControllerCompat(act.window, decor).hide(
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    )
+                    isFullscreen = true
+                    floatingMenuRef.value?.isFullscreen = true
+                }
+
+                override fun onHideFullscreen() {
+                    val act = activity ?: return
+                    val view = customViewRef.value
+                    val cb = customViewCallbackRef.value
+                    if (view != null) {
+                        val decor = act.window.decorView as FrameLayout
+                        decor.removeView(view)
+                    }
+                    cb?.onCustomViewHidden()
+                    customViewRef.value = null
+                    customViewCallbackRef.value = null
+                    // 退出 Activity 全屏
+                    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(act.window, true)
+                    androidx.core.view.WindowInsetsControllerCompat(act.window, act.window.decorView).show(
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    )
+                    isFullscreen = false
+                    floatingMenuRef.value?.isFullscreen = false
+                }
+
                 override fun onFileChooser(callback: ValueCallback<Array<android.net.Uri>>, accept: String?): Boolean { return true }
             }
 
@@ -410,6 +528,7 @@ fun SwfPlayerScreen(
             override fun onExtractSwf() = extractSwfFromPage()
             override fun onToggleCameraRotation() = toggleCameraRotation()
             override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
+            override fun onOpenCustomLayout() { showCustomLayoutDialog.value = true }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
@@ -809,6 +928,270 @@ fun SwfPlayerScreen(
             .setOnDismissListener { showAspectRatioDialog.value = false }
             .show()
     }
+
+    // ========== 自定义四角布局弹窗 ==========
+    if (showCustomLayoutDialog.value) {
+        // 复用 SwfPlayerScreen 外层 composable 传入的 swfPath / onExit
+        CustomLayoutDialog(
+            initialEnabled = PrefsManager.isCustomLayoutEnabled,
+            initialLeft = PrefsManager.customLayoutLeft,
+            initialTop = PrefsManager.customLayoutTop,
+            initialRight = PrefsManager.customLayoutRight,
+            initialBottom = PrefsManager.customLayoutBottom,
+            onDismiss = { showCustomLayoutDialog.value = false },
+            onApply = { enabled, l, t, r, b ->
+                applyCustomLayout(enabled, l, t, r, b)
+                showCustomLayoutDialog.value = false
+            },
+            onReset = {
+                PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
+                applyCustomLayout(false, 0f, 0f, 1f, 1f)
+            }
+        )
+    }
+}
+
+/**
+ * 自定义四角布局对话框:
+ * - 上半部分:一个预览矩形(模拟屏幕),四个角可拖动改变归一化 left/top/right/bottom
+ * - 下方:开关 + 应用/重置/取消按钮
+ */
+@Composable
+private fun CustomLayoutDialog(
+    initialEnabled: Boolean,
+    initialLeft: Float,
+    initialTop: Float,
+    initialRight: Float,
+    initialBottom: Float,
+    onDismiss: () -> Unit,
+    onApply: (enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+    onReset: () -> Unit
+) {
+    val enabledState = remember { mutableStateOf(initialEnabled) }
+    val leftState = remember { mutableFloatStateOf(initialLeft) }
+    val topState = remember { mutableFloatStateOf(initialTop) }
+    val rightState = remember { mutableFloatStateOf(initialRight) }
+    val bottomState = remember { mutableFloatStateOf(initialBottom) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.material3.Surface(
+            shape = androidx.compose.material3.MaterialTheme.shapes.large,
+            color = androidx.compose.ui.graphics.Color(0xFF1A1A1A),
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
+        ) {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+            ) {
+                androidx.compose.material3.Text(
+                    "自定义四角布局",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+                androidx.compose.material3.Text(
+                    "拖动预览框的四个角调整游戏画面位置和大小,关闭后恢复全屏。",
+                    color = androidx.compose.ui.graphics.Color(0xFFAAAAAA),
+                    fontSize = 12.sp
+                )
+
+                // 启用开关
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.Switch(
+                        checked = enabledState.value,
+                        onCheckedChange = { enabledState.value = it }
+                    )
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Text(
+                        if (enabledState.value) "已启用" else "未启用",
+                        color = androidx.compose.ui.graphics.Color.White
+                    )
+                }
+
+                // 预览 + 拖动区域
+                CustomLayoutPreview(
+                    left = leftState.value,
+                    top = topState.value,
+                    right = rightState.value,
+                    bottom = bottomState.value,
+                    onChange = { l, t, r, b ->
+                        leftState.value = l; topState.value = t
+                        rightState.value = r; bottomState.value = b
+                    }
+                )
+
+                // 数值显示
+                androidx.compose.material3.Text(
+                    "L=${"%.2f".format(leftState.value)}  T=${"%.2f".format(topState.value)}  R=${"%.2f".format(rightState.value)}  B=${"%.2f".format(bottomState.value)}",
+                    color = androidx.compose.ui.graphics.Color(0xFFCCCCCC),
+                    fontSize = 11.sp
+                )
+
+                // 按钮
+                androidx.compose.foundation.layout.Row(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    androidx.compose.material3.TextButton(
+                        onClick = onReset,
+                        modifier = Modifier.weight(1f)
+                    ) { androidx.compose.material3.Text("重置全屏", color = androidx.compose.ui.graphics.Color(0xFFFFC107)) }
+                    androidx.compose.material3.TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) { androidx.compose.material3.Text("取消", color = androidx.compose.ui.graphics.Color.White) }
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            onApply(
+                                enabledState.value,
+                                leftState.value, topState.value,
+                                rightState.value, bottomState.value
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { androidx.compose.material3.Text("应用", color = androidx.compose.ui.graphics.Color(0xFF4CAF50)) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 预览矩形 + 四个角拖动柄
+ */
+@Composable
+private fun CustomLayoutPreview(
+    left: Float, top: Float, right: Float, bottom: Float,
+    onChange: (Float, Float, Float, Float) -> Unit
+) {
+    val boxSize = 280.dp
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(boxSize)
+            .background(androidx.compose.ui.graphics.Color(0xFF000000))
+    ) {
+        // 实际像素宽高
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        // 把归一化值转成像素
+        val lpx = left * w
+        val tpx = top * h
+        val rpx = right * w
+        val bpx = bottom * h
+        // 半透明遮罩
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color(0x88000000))
+        )
+        // 选中矩形 (用 dp 表达避免 px/dp 转换错误)
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .offset {
+                    androidx.compose.ui.unit.IntOffset(
+                        lpx.toInt(),
+                        tpx.toInt()
+                    )
+                }
+                .size(
+                    width = with(density) { (rpx - lpx).toDp() },
+                    height = with(density) { (bpx - tpx).toDp() }
+                )
+                .background(androidx.compose.ui.graphics.Color(0x334CAF50))
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(2.dp, androidx.compose.ui.graphics.Color(0xFF4CAF50))
+            )
+        }
+        // 四个角手柄
+        Handle(left = lpx, top = tpx, which = "tl", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
+        Handle(left = rpx, top = tpx, which = "tr", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
+        Handle(left = lpx, top = bpx, which = "bl", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
+        Handle(left = rpx, top = bpx, which = "br", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
+    }
+}
+
+@Composable
+private fun Handle(
+    left: Float, top: Float, which: String,
+    w: Float, h: Float,
+    onChange: (Float, Float, Float, Float) -> Unit
+) {
+    var dragStartX by remember { mutableFloatStateOf(0f) }
+    var dragStartY by remember { mutableFloatStateOf(0f) }
+    var startL by remember { mutableFloatStateOf(0f) }
+    var startT by remember { mutableFloatStateOf(0f) }
+    var startR by remember { mutableFloatStateOf(0f) }
+    var startB by remember { mutableFloatStateOf(0f) }
+
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .offset { androidx.compose.ui.unit.IntOffset((left - 14f).toInt(), (top - 14f).toInt()) }
+            .size(28.dp)
+            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50), androidx.compose.foundation.shape.CircleShape)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        dragStartX = offset.x
+                        dragStartY = offset.y
+                        // 记录开始时 4 个角的值（用当前的 0..1 归一化）
+                        // 这里 left/top/right/bottom 是该 handle 的实际像素位置,
+                        // 我们只能拿到当前 4 角的像素位置:tl=(0,h*0), tr=(w*1,h*0), bl=(0,h*1), br=(w*1,h*1)
+                        // 由于我们每次 onChange 都会重绘,这里 start 值要实时读 — 简化:用上一次 onChange 的值
+                        // 重新调用 onChange 时回调中包含 nl/nt/nr/nb,我们需要用 startL/T/R/B
+                        // 但 startL/T/R/B 是 0..1 范围;而 dragStartX/Y 是 handle 内部坐标 0..28dp
+                        // 直接存当前 4 个角的 0..1 值：
+                        startL = left / w  // 这是被拖动角的旧位置(因为此 handle 的 left 参数就是角位置)
+                        // 上面这行不对:Handle 拿到的 left/top 是被拖动角的像素位置,
+                        // 比如 tr 角 left=rpx=top of right edge,所以 left/w = 当前 right 归一化
+                        // 不同角:tl → left/right 控制 top/left 0..1, tr → 控制 right/top 0..1
+                        // 用 if 处理
+                        if (which == "tl") { startL = left/w; startT = top/h; startR = 1f; startB = 1f }
+                        if (which == "tr") { startL = 0f;     startT = top/h; startR = left/w; startB = 1f }
+                        if (which == "bl") { startL = left/w; startT = 0f;     startR = 1f;     startB = top/h }
+                        if (which == "br") { startL = 0f;     startT = 0f;     startR = left/w; startB = top/h }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        val dx = dragAmount.x / w
+                        val dy = dragAmount.y / h
+                        val newL = (startL + dx).coerceIn(0f, 1f)
+                        val newT = (startT + dy).coerceIn(0f, 1f)
+                        val newR = (startR + dx).coerceIn(0f, 1f)
+                        val newB = (startB + dy).coerceIn(0f, 1f)
+                        // 保证 left < right, top < bottom
+                        if (which == "tl") onChange(
+                            newL.coerceAtMost(startR - 0.05f),
+                            newT.coerceAtMost(startB - 0.05f),
+                            startR, startB
+                        )
+                        if (which == "tr") onChange(
+                            startL,
+                            newT.coerceAtMost(startB - 0.05f),
+                            newR.coerceAtLeast(startL + 0.05f),
+                            startB
+                        )
+                        if (which == "bl") onChange(
+                            newL.coerceAtMost(startR - 0.05f),
+                            startT,
+                            startR,
+                            newB.coerceAtLeast(startT + 0.05f)
+                        )
+                        if (which == "br") onChange(
+                            startL, startT,
+                            newR.coerceAtLeast(startL + 0.05f),
+                            newB.coerceAtLeast(startT + 0.05f)
+                        )
+                    }
+                )
+            }
+    )
 }
 
 @SuppressLint("ViewConstructor")
