@@ -75,7 +75,6 @@ open class GameWebViewClient(
             return WebResourceResponse("application/x-shockwave-flash", "UTF-8",
                 ByteArrayInputStream(ByteArray(0)))
         }
-        }
 
         // 2. 拦截 flash.local 虚拟域名
         if (url.contains("flash.local")) {
