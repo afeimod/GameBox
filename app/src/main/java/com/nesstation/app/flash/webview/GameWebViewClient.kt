@@ -63,6 +63,17 @@ open class GameWebViewClient(
         // 2. 拦截 flash.local 虚拟域名
         if (url.contains("flash.local")) {
             val path = url.substringAfter("flash.local/").substringBefore("?")
+            // CORS 代理：flash.local/proxy?url=<外部URL>
+            // waflash.html 中的 JS hook 将 WASM 内部 XHR/fetch 的外部 URL 重写为此格式，
+            // 原生层代理下载并添加 CORS 头，解决 WASM XHR 绕过 JS hook 的 CORS 问题。
+            if (path == "proxy") {
+                val proxyUrl = android.net.Uri.parse(url).getQueryParameter("url")
+                if (proxyUrl != null) {
+                    return interceptExternalResource(proxyUrl, request)
+                }
+                return WebResourceResponse("text/plain", "UTF-8", 400, "Bad Request",
+                    externalCorsHeaders, java.io.ByteArrayInputStream(ByteArray(0)))
+            }
             // 本地 SWF 代理：flash.local/local.swf → 读取真实文件
             if (path == "local.swf") {
                 return interceptLocalSwfProxy(view)
@@ -98,17 +109,6 @@ open class GameWebViewClient(
             (url.contains("4399.com") && (url.contains("/dw-") || url.contains("flash_tm3") || url.contains("flash20")))
         if (isSwfRequest) {
             return interceptSwf(url, request)
-        }
-
-        // 6. 拦截 WAFlash/Ruffle 引擎内部发起的外部资源请求（XML/图片/配置等）
-        //    WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest，绕过 JS 层面的
-        //    prototype.open hook 和 url_transformRequestUrl 钩子，导致请求直接发往外部 URL
-        //    （如 http://cdn.comment.4399pk.com/baseconfig/base_100005525.xml），被 CORS
-        //    策略阻止，游戏一直加载。在原生 shouldInterceptRequest 层拦截所有来自 flash.local
-        //    页面的外部请求，代理下载并添加 CORS 头，彻底解决跨域问题。
-        if (url.startsWith("http") && !url.contains("flash.local") &&
-            isFromFlashLocal(request, view)) {
-            return interceptExternalResource(url, request)
         }
 
         // 不拦截 HTML 页面！
@@ -432,9 +432,6 @@ open class GameWebViewClient(
     /** SWF 下载缓存：避免同一 SWF 被多个并发请求重复下载（Ruffle 会同时发起多个请求） */
     private val swfCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
-    /** 外部资源代理缓存：WAFlash 引擎内部 XHR 请求的外部资源（XML/图片/配置等） */
-    private val externalResCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
-
     /** 统一 CORS 响应头：所有 SWF 拦截响应（成功/失败/预检）都带这些头 */
     private val swfCorsHeaders = mapOf(
         "Access-Control-Allow-Origin" to "*",
@@ -582,8 +579,11 @@ open class GameWebViewClient(
     }
 
     // =========================================================================
-    // 外部资源代理：拦截 WAFlash WASM 内部 XHR 请求，原生代理下载 + CORS 头
+    // 外部资源代理：原生下载 flash.local/proxy?url= 重写的请求，添加 CORS 头
     // =========================================================================
+
+    /** 外部资源代理缓存 */
+    private val externalResCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
     /** 外部资源代理用的通用 CORS 响应头 */
     private val externalCorsHeaders = mapOf(
@@ -594,45 +594,25 @@ open class GameWebViewClient(
     )
 
     /**
-     * 检测请求是否来自 flash.local 页面（WAFlash/Ruffle 播放器上下文）。
-     *
-     * WAFlash 播放器运行在 https://flash.local/waflash.html，SWF 内部发起的 XHR
-     * 会携带 Origin: https://flash.local 和 Referer: https://flash.local/... 头。
-     * 通过检查这些头判断请求来源，只代理播放器页面的外部请求，不影响普通网页浏览。
-     */
-    private fun isFromFlashLocal(request: WebResourceRequest, view: WebView): Boolean {
-        val headers = request.requestHeaders
-        headers.forEach { (key, value) ->
-            if (key.equals("Origin", true) && value.contains("flash.local")) return true
-            if (key.equals("Referer", true) && value.contains("flash.local")) return true
-        }
-        // 兜底：检查 WebView 当前页面 URL（部分请求可能不带 Origin/Referer 头）
-        view.url?.let { if (it.contains("flash.local")) return true }
-        return false
-    }
-
-    /**
      * 代理 WAFlash 引擎发起的外部资源请求（原生下载 + CORS 头）。
      *
-     * 解决问题：WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest，
-     * 绕过 JS 层面的 prototype.open hook，请求直接发往外部 URL 被 CORS 阻止。
-     * 在 shouldInterceptRequest 原生层拦截，代理下载并添加 CORS 头，
-     * 彻底绕过浏览器 CORS / Mixed Content 限制。
+     * waflash.html 中的 JS hook 将 WASM 内部 XHR/fetch 的外部 URL 重写为
+     * flash.local/proxy?url=<encoded>，此方法解码原始 URL，原生下载并添加 CORS 头。
      *
      * - 成功：返回原始数据 + CORS 头
      * - 失败：返回空 200 + CORS 头（避免 XHR 卡死导致游戏一直加载）
      * - OPTIONS 预检：直接返回 200 + CORS 头
      */
     private fun interceptExternalResource(url: String, request: WebResourceRequest): WebResourceResponse? {
-        // 0. CORS 预检请求（OPTIONS）：直接返回 200 + CORS 头，不下载文件
+        // 0. CORS 预检请求（OPTIONS）
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
             request.method == "OPTIONS") {
-            android.util.Log.d("GameWebViewClient", "外部资源 OPTIONS 预检通过: $url")
+            android.util.Log.d("GameWebViewClient", "外部资源 OPTIONS 预检: $url")
             return WebResourceResponse("text/plain", "UTF-8", 200, "OK",
                 externalCorsHeaders, java.io.ByteArrayInputStream(ByteArray(0)))
         }
 
-        // 1. 缓存检查（WAFlash 可能重复请求同一资源）
+        // 1. 缓存检查
         externalResCache[url]?.let { cached ->
             android.util.Log.d("GameWebViewClient", "外部资源缓存命中: ${cached.size} bytes, URL=$url")
             val mime = guessMimeFromUrl(url)
@@ -643,9 +623,8 @@ open class GameWebViewClient(
 
         // 2. 原生代理下载
         try {
-            android.util.Log.d("GameWebViewClient", "代理外部资源请求: $url")
+            android.util.Log.d("GameWebViewClient", "代理外部资源: $url")
             val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-            // HTTPS: 信任所有证书（部分 CDN 证书可能不被 Android 信任）
             if (conn is javax.net.ssl.HttpsURLConnection) {
                 conn.sslSocketFactory = trustAllSslSocketFactory()
                 conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
@@ -655,23 +634,20 @@ open class GameWebViewClient(
             conn.requestMethod = "GET"
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("Accept", "*/*")
-            // 不请求 gzip，避免手动解压
             conn.setRequestProperty("Accept-Encoding", "identity")
 
-            // 转发原始请求头（排除 CORS/条件/host 相关的 header）
+            // 转发原始请求头（排除 CORS/条件/host 相关）
             request.requestHeaders.forEach { (key, value) ->
                 val lk = key.lowercase()
-                if (lk !in setOf(
-                        "cookie", "referer", "origin", "host", "content-length",
+                if (lk !in setOf("cookie", "referer", "origin", "host", "content-length",
                         "accept-encoding", "access-control-request-method",
                         "access-control-request-headers", "range",
-                        "if-modified-since", "if-none-match"
-                    )) {
+                        "if-modified-since", "if-none-match")) {
                     conn.setRequestProperty(key, value)
                 }
             }
 
-            // 转发 Cookie（防止防盗链/登录态丢失）
+            // 转发 Cookie
             try {
                 val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
                 if (cookies != null && cookies.isNotEmpty()) {
@@ -685,7 +661,7 @@ open class GameWebViewClient(
                 val data = conn.inputStream.readBytes()
                 android.util.Log.d("GameWebViewClient",
                     "外部资源下载完成: ${data.size} bytes, URL=$url")
-                // 缓存（限制单文件 5MB、总条目 20 个，避免内存溢出）
+                // 缓存（限制单文件 5MB、总条目 20 个）
                 if (data.size <= 5 * 1024 * 1024) {
                     if (externalResCache.size >= 20) externalResCache.clear()
                     externalResCache[url] = data
@@ -705,8 +681,6 @@ open class GameWebViewClient(
         }
 
         // 3. 失败时返回空 200 + CORS 头，避免 XHR 卡死导致游戏一直加载
-        //    返回 200（而非 4xx/5xx）让 WAFlash 引擎认为请求成功但数据为空，
-        //    引擎会跳过该资源继续运行，而不是无限等待或报错卡死。
         val mime = guessMimeFromUrl(url)
         return WebResourceResponse(mime, null, 200, "OK",
             externalCorsHeaders + ("Content-Type" to mime),

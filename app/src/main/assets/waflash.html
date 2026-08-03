@@ -61,6 +61,80 @@
     style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:none;outline:none;font-size:16px;" />
 
   <script>
+    // === CORS 代理 Hook（必须在 WAFlash 引擎加载之前注入） ===
+    // WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest/fetch，
+    // 请求外部 URL（如 cdn.comment.4399pk.com）被 CORS 策略阻止，游戏一直加载。
+    // 此 hook 在 JS 层重写 XMLHttpRequest.prototype.open 和 window.fetch，
+    // 将外部 URL 重写为 https://flash.local/proxy?url=<encoded>，
+    // 由原生 shouldInterceptRequest 代理下载并添加 CORS 头，彻底绕过 CORS 限制。
+    (function() {
+      var PROXY_PREFIX = 'https://flash.local/proxy?url=';
+
+      function shouldProxy(url) {
+        if (!url || typeof url !== 'string') return false;
+        if (url.indexOf('http') !== 0) return false;           // 只代理 http/https
+        if (url.indexOf('flash.local') >= 0) return false;      // 排除内部资源
+        if (url.indexOf('/proxy?url=') >= 0) return false;      // 避免重复代理
+        return true;
+      }
+
+      function rewriteUrl(url) {
+        if (shouldProxy(url)) {
+          var proxied = PROXY_PREFIX + encodeURIComponent(url);
+          console.log('[WAF-Proxy] ' + url + ' => proxy');
+          return proxied;
+        }
+        return url;
+      }
+
+      // 1. Hook XMLHttpRequest.prototype.open
+      //    WASM 内部 new XMLHttpRequest().open() 仍走 JS prototype，hook 一定生效
+      var _origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+        if (arguments.length >= 2) {
+          arguments[1] = rewriteUrl(url);
+        }
+        return _origOpen.apply(this, arguments);
+      };
+
+      // 2. Hook fetch（WASM 可能用 fetch 加载部分资源）
+      if (window.fetch) {
+        var _origFetch = window.fetch;
+        window.fetch = function(input, init) {
+          if (typeof input === 'string') {
+            input = rewriteUrl(input);
+          } else if (input && input.url) {
+            try { input = new Request(rewriteUrl(input.url), input); } catch(e) {}
+          }
+          return _origFetch.call(this, input, init);
+        };
+      }
+
+      // 3. Hook XMLHttpRequest 构造函数的 responseURL 属性（部分 WASM 代码检查 responseURL）
+      //    当 URL 被重写后，responseURL 会返回 proxy URL，可能导致逻辑错误
+      //    用 defineProperty 拦截 responseURL getter，还原原始 URL
+      var _origResponseURL = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'responseURL');
+      if (_origResponseURL && _origResponseURL.get) {
+        var _origGet = _origResponseURL.get;
+        Object.defineProperty(XMLHttpRequest.prototype, 'responseURL', {
+          get: function() {
+            var proxiedUrl = _origGet.call(this);
+            // 如果是 proxy URL，提取原始 URL
+            if (proxiedUrl && proxiedUrl.indexOf('/proxy?url=') >= 0) {
+              try {
+                var encoded = proxiedUrl.split('proxy?url=')[1];
+                return decodeURIComponent(encoded);
+              } catch(e) {}
+            }
+            return proxiedUrl;
+          },
+          configurable: true
+        });
+      }
+
+      console.log('[WAF-Proxy] XHR/fetch 代理 hook 已注入');
+    })();
+
     var params = new URLSearchParams(location.search);
     var SWF_URL = params.get('swf') || '';
     var BASE_URL = params.get('base') || '';
