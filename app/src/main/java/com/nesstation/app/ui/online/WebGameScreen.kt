@@ -232,6 +232,8 @@ fun WebGameScreen(
             .putString("page_zoom_mode", mode)
             .putInt("page_zoom_manual", manual)
             .apply()
+        // 直接用 WebSettings.textZoom + setInitialScale(与 viewport meta 无关)
+        webViewRef.value?.applyPageZoom(if (mode == "manual") manual else 100)
         reload()
     }
 
@@ -395,6 +397,10 @@ fun WebGameScreen(
         if (webViewRef.value == null) {
             // 创建 WebView
             val wv = GameWebView(container.context)
+            // WebView 创建时应用用户保存的缩放
+            if (PrefsManager.pageZoomMode == "manual") {
+                wv.applyPageZoom(PrefsManager.pageZoomManual)
+            }
             val webAppInterface = WebAppInterface(container.context)
             webAppInterfaceRef.value = webAppInterface
 

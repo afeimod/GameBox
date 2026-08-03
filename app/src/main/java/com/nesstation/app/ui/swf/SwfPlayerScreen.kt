@@ -259,7 +259,13 @@ fun SwfPlayerScreen(
             .putString("page_zoom_mode", mode)
             .putInt("page_zoom_manual", manual)
             .apply()
-        webViewRef.value?.reload()
+        val wv = webViewRef.value
+        if (wv != null) {
+            // 直接调用 GameWebView.applyPageZoom:用 WebSettings.textZoom + setInitialScale
+            // (与 viewport meta 无关,对已加载页面也生效,reload 后应用)。
+            wv.applyPageZoom(if (mode == "manual") manual else 100)
+            wv.reload()
+        }
     }
 
     fun applyUa(mode: String) {
@@ -369,6 +375,10 @@ fun SwfPlayerScreen(
         val container = mainBoxRef.value ?: return@LaunchedEffect
         if (webViewRef.value == null) {
             val wv = GameWebView(container.context)
+            // WebView 创建时应用用户保存的缩放(避免首次加载显示 100%,reload 后才生效的延迟)
+            if (PrefsManager.pageZoomMode == "manual") {
+                wv.applyPageZoom(PrefsManager.pageZoomManual)
+            }
             val webAppInterface = WebAppInterface(container.context)
             webAppInterfaceRef.value = webAppInterface
 
@@ -412,6 +422,11 @@ fun SwfPlayerScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         ))
+                        // 关键:全屏 customView 是 MATCH_PARENT 会盖在 dpad/menu/mouse 上面,
+                        // 必须把它们重新 bringToFront 拉到最上层,虚拟按键和悬浮按钮才能用。
+                        listOfNotNull(
+                            dpadRef.value, actionRef.value, mouseRef.value, floatingMenuRef.value
+                        ).forEach { v -> v.bringToFront() }
                     }
                     isFullscreen = true
                     floatingMenuRef.value?.isFullscreen = true

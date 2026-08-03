@@ -37,10 +37,17 @@ open class GameWebViewClient(
         fun getLocalSwfDir(): String?
     }
 
-    /** 常见广告域名 */
+    /** 常见广告/统计域名 */
     private val adHosts = setOf(
         "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
-        "ad.4399.com", "stat.4399.com", "analytics.4399.com"
+        "ad.4399.com", "stat.4399.com", "analytics.4399.com",
+        "hijack.4399.com", "ad-static.4399pk.com"
+    )
+    /** 4399 评论/广告 SWF CDN:只拦截 SWF 路径(评论系统走 API 不受影响) */
+    private val adSwfPaths = setOf(
+        "cdn.comment.4399pk.com/control/",
+        "comment.4399pk.com/control/",
+        "pic.4399pk.com"
     )
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -55,9 +62,19 @@ open class GameWebViewClient(
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url?.toString() ?: return null
 
-        // 1. 广告拦截
-        if (PrefsManager.isBlockAds && adHosts.any { url.contains(it) }) {
-            return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+        // 1. 广告拦截（无条件拦截 adHosts 中所有域名）
+        // 关键:必须无条件拦截广告 SWF 域名(如 cdn.comment.4399pk.com/control/),
+        // 否则 Ruffle fetch 广告 SWF 返回 502 后会"等待子资源"卡住主 SWF,游戏永远进不去。
+        if (adHosts.any { url.contains(it) }) {
+            val isSwf = url.contains(".swf", ignoreCase = true)
+            val mime = if (isSwf) "application/x-shockwave-flash" else "text/plain"
+            return WebResourceResponse(mime, "UTF-8", ByteArrayInputStream(ByteArray(0)))
+        }
+        // 1b. 4399 评论域名的 SWF 路径(评论 API 不受影响)
+        if (url.contains(".swf", ignoreCase = true) && adSwfPaths.any { url.contains(it) }) {
+            return WebResourceResponse("application/x-shockwave-flash", "UTF-8",
+                ByteArrayInputStream(ByteArray(0)))
+        }
         }
 
         // 2. 拦截 flash.local 虚拟域名

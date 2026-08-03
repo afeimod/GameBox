@@ -21,7 +21,7 @@ object PrefsManager {
 
     // ---- 通用 ----
     val orientation: String get() = sp.getString("orientation", "landscape") ?: "landscape"
-    val isBlockAds: Boolean get() = sp.getBoolean("block_ads", false)
+    val isBlockAds: Boolean get() = sp.getBoolean("block_ads", true)
     val isMouseEnabled: Boolean get() = sp.getBoolean("mouse_enabled", false)
     val isLandscapeGame: Boolean get() = sp.getBoolean("landscape_game", true)
 

@@ -173,6 +173,22 @@ open class GameWebView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 应用页面缩放。
+     * @param percent 25..200 的百分比值。100=不变,>100 放大,<100 缩小。
+     * 实现：
+     * 1. setInitialScale:整页 CSS 缩放(包括布局、图形),最直接、最可靠。
+     *    对应 WebSettings 的 initial-scale,与 viewport meta 无关。
+     * 2. textZoom:WebKit 文字大小缩放(百分比)。与 setInitialScale 叠加,
+     *    解决某些 PC 页面有 viewport meta 时 initial-scale 不生效的问题。
+     * 必须 reload() 才生效(Chromium 限制:运行时改这两个值需要重载文档)。
+     */
+    fun applyPageZoom(percent: Int) {
+        val p = percent.coerceIn(25, 200)
+        settings.textZoom = p
+        setInitialScale(p)
+    }
+
     // ---------------- 触屏 ----------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         gestureDetector.onTouchEvent(event)
