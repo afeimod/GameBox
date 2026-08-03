@@ -298,48 +298,11 @@ fun SwfPlayerScreen(
                     Toast.makeText(context, "未发现 SWF", Toast.LENGTH_SHORT).show()
                 } else {
                     // 解析 JSON 列出 SWF + 资源
-                    showExtractResultDialog(json)
+                    showExtractResultDialog(context, json)
                 }
             }
         }
         webViewRef.value?.evaluateJavascript(SWF_SNIFFER_SCRIPT, null)
-    }
-
-    fun showExtractResultDialog(json: String) {
-        try {
-            val arr = org.json.JSONArray(json)
-            val lines = mutableListOf<String>()
-            var swfCount = 0
-            var resCount = 0
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val u = o.optString("url", "")
-                val t = o.optString("title", u.substringAfterLast('/'))
-                val type = o.optString("type", "swf")
-                if (type == "resource") {
-                    resCount++
-                    lines.add("[资源] $t\n  $u")
-                } else {
-                    swfCount++
-                    lines.add("[SWF] $t\n  $u")
-                }
-            }
-            val msg = buildString {
-                append("发现 $swfCount 个 SWF" + if (resCount > 0) " + $resCount 个资源" else "")
-                if (lines.isNotEmpty()) {
-                    append("\n\n")
-                    append(lines.joinToString("\n\n").take(1500))
-                    if (lines.size > 8) append("\n\n... (共 ${lines.size} 条)")
-                }
-            }
-            android.app.AlertDialog.Builder(context)
-                .setTitle("提取 SWF")
-                .setMessage(msg)
-                .setPositiveButton("好") { d, _ -> d.dismiss() }
-                .show()
-        } catch (e: Exception) {
-            Toast.makeText(context, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
     }
 
     BoxWithConstraints(
@@ -1257,6 +1220,47 @@ private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLa
     /** 编辑模式开关:开启后所有触摸事件都拦截,不让 WebView 收到 */
     var interceptAllTouch: Boolean = false
     override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = interceptAllTouch
+}
+
+/**
+ * 把 SWF_SNIFFER_SCRIPT 返回的 JSON 解析并以 AlertDialog 列出 SWF + 资源。
+ * 顶级函数(不嵌在 @Composable 内),避免 Kotlin 嵌套函数前向引用 + 访问控制问题。
+ */
+private fun showExtractResultDialog(context: Context, json: String) {
+    try {
+        val arr = org.json.JSONArray(json)
+        val lines = mutableListOf<String>()
+        var swfCount = 0
+        var resCount = 0
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val u = o.optString("url", "")
+            val t = o.optString("title", u.substringAfterLast('/'))
+            val type = o.optString("type", "swf")
+            if (type == "resource") {
+                resCount++
+                lines.add("[资源] $t\n  $u")
+            } else {
+                swfCount++
+                lines.add("[SWF] $t\n  $u")
+            }
+        }
+        val msg = buildString {
+            append("发现 $swfCount 个 SWF" + if (resCount > 0) " + $resCount 个资源" else "")
+            if (lines.isNotEmpty()) {
+                append("\n\n")
+                append(lines.joinToString("\n\n").take(1500))
+                if (lines.size > 8) append("\n\n... (共 ${lines.size} 条)")
+            }
+        }
+        android.app.AlertDialog.Builder(context)
+            .setTitle("提取 SWF")
+            .setMessage(msg)
+            .setPositiveButton("好") { d, _ -> d.dismiss() }
+            .show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
 }
 
 // ============== SWF 嗅探器脚本（与 3.3 一致） ==============
