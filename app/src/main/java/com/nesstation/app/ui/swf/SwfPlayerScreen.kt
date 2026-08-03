@@ -305,7 +305,7 @@ fun SwfPlayerScreen(
         webViewRef.value?.evaluateJavascript(SWF_SNIFFER_SCRIPT, null)
     }
 
-    private fun showExtractResultDialog(json: String) {
+    fun showExtractResultDialog(json: String) {
         try {
             val arr = org.json.JSONArray(json)
             val lines = mutableListOf<String>()
@@ -565,22 +565,6 @@ fun SwfPlayerScreen(
             override fun onExtractSwf() = extractSwfFromPage()
             override fun onToggleCameraRotation() = toggleCameraRotation()
             override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
-            override fun onOpenCustomLayout() {
-                // 进入自定义布局编辑模式:同步当前 PrefsManager 值到 overlay state
-                currentBoxLeft.floatValue = PrefsManager.customLayoutLeft
-                currentBoxTop.floatValue = PrefsManager.customLayoutTop
-                currentBoxRight.floatValue = PrefsManager.customLayoutRight
-                currentBoxBottom.floatValue = PrefsManager.customLayoutBottom
-                // 记录容器尺寸(Compose 端 offset/size 计算要用)
-                val parent = mainBoxRef.value
-                if (parent != null) {
-                    containerWidthPx.value = parent.width
-                    containerHeightPx.value = parent.height
-                }
-                // 关键:编辑模式下 WebView 父容器拦截所有触摸,让 Compose overlay 接管 4 角拖动
-                (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = true
-                isCustomLayoutEditMode.value = true
-            }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
