@@ -111,18 +111,22 @@ fun SwfPlayerScreen(
     // 4 角 + body 5 个 hot zone,自己处理 onDraw + onTouchEvent。
     // 不用 Compose overlay 因为 Compose pointerInput 在 AndroidView 之上拿不到触摸。
     val screenPositionEditorRef = remember { mutableStateOf<ScreenPositionEditor?>(null) }
+    // 镜像到顶级可变状态,让顶级 enter/exit 函数也能读到(Composable 内的 remember 在 lambda 外访问不到)
+    LaunchedEffect(screenPositionEditorRef.value) { _screenPositionEditor.value = screenPositionEditorRef.value }
     // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
     val enginePickerShown = remember { mutableStateOf(false) }
     // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
     var isPositionEditMode by remember { mutableStateOf(false) }
 
     val webViewRef = remember { mutableStateOf<GameWebView?>(null) }
+    LaunchedEffect(webViewRef.value) { _webView.value = webViewRef.value }
     val dpadRef = remember { mutableStateOf<DPadView?>(null) }
     val actionRef = remember { mutableStateOf<ActionButtonView?>(null) }
     val mouseRef = remember { mutableStateOf<MouseControlView?>(null) }
     val floatingMenuRef = remember { mutableStateOf<FloatingMenuView?>(null) }
     val webAppInterfaceRef = remember { mutableStateOf<WebAppInterface?>(null) }
     val mainBoxRef = remember { mutableStateOf<ViewGroup?>(null) }
+    LaunchedEffect(mainBoxRef.value) { _mainContainer.value = mainBoxRef.value as? android.widget.FrameLayout }
 
     // 虚拟手柄重建触发器：添加/删除/修改按键后递增，触发 LaunchedEffect 重建手柄
     val gamepadRebuildTrigger = remember { mutableStateOf(0) }
@@ -1064,6 +1068,14 @@ fun SwfPlayerScreen(
  * 实际是 Composable 内 MutableState 的副本引用。
  */
 private val customLayoutEditState = androidx.compose.runtime.mutableStateOf(false)
+
+/**
+ * 顶级引用:ScreenPositionEditor 视图(由 Composable 内的 AndroidView factory 创建,顶级函数也能改)。
+ * 跟原来的 screenPositionEditorRef (Composable 局部 remember) 一样,只是搬到顶级让顶级函数能改。
+ */
+private val _screenPositionEditor = androidx.compose.runtime.mutableStateOf<ScreenPositionEditor?>(null)
+private val _mainContainer = androidx.compose.runtime.mutableStateOf<android.widget.FrameLayout?>(null)
+private val _webView = androidx.compose.runtime.mutableStateOf<View?>(null)
 /**
  * 进入自定义布局编辑模式(画面比例弹窗里选"自定义"):
  * - 取消 WebView 触摸焦点
@@ -1073,11 +1085,11 @@ private val customLayoutEditState = androidx.compose.runtime.mutableStateOf(fals
  * - 标记 PrefsManager.isCustomLayoutEnabled = true(用户意图)
  */
 private fun enterCustomLayoutEditMode() {
-    val editor = screenPositionEditorRef.value ?: return
-    val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+    val editor = _screenPositionEditor.value ?: return
+    val container = _mainContainer.value ?: return
 
     // 取消 WebView 焦点,避免 WebView 抢触摸
-    val wv = webViewRef.value
+    val wv = _webView.value
     if (wv != null) {
         wv.isFocusable = false
         wv.isFocusableInTouchMode = false
@@ -1110,12 +1122,12 @@ private fun enterCustomLayoutEditMode() {
  * @param resetRect true 表示重置回全屏(MATCH_PARENT),false 表示保留当前 rect
  */
 private fun exitCustomLayoutEditMode(resetRect: Boolean = false) {
-    val editor = screenPositionEditorRef.value
+    val editor = _screenPositionEditor.value
     if (editor != null) {
         editor.visibility = View.GONE
     }
-    val wv = webViewRef.value
-    val container = mainBoxRef.value as? android.widget.FrameLayout
+    val wv = _webView.value
+    val container = _mainContainer.value
     if (resetRect && wv != null && container != null) {
         PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
         val lp = FrameLayout.LayoutParams(
@@ -1139,8 +1151,8 @@ private fun exitCustomLayoutEditMode(resetRect: Boolean = false) {
  */
 private fun applyCustomLayoutToWebView() {
     if (!PrefsManager.isCustomLayoutEnabled) return
-    val wv = webViewRef.value ?: return
-    val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+    val wv = _webView.value ?: return
+    val container = _mainContainer.value ?: return
     val pw = container.width
     val ph = container.height
     if (pw <= 0 || ph <= 0) return
