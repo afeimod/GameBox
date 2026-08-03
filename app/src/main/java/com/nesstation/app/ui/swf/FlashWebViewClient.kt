@@ -490,6 +490,16 @@ open class FlashWebViewClient(
             val path = url.substringAfter("flash.local/").substringBefore("?")
             if (path.isEmpty()) return null
 
+            // JS hook 代理：flash.local/proxy?url=<encoded> → 代理下载外部资源
+            if (path == "proxy" || url.contains("proxy?url=") || url.contains("proxy%3Furl%3D")) {
+                val encodedUrl = url.substringAfter("proxy?url=").substringBefore("&")
+                val originalUrl = try { Uri.decode(encodedUrl) } catch(e: Exception) { encodedUrl }
+                if (originalUrl.startsWith("http")) {
+                    Log.d(TAG, "Proxy request (JS hook): $originalUrl")
+                    return interceptExternalResource(originalUrl, request)
+                }
+            }
+
             return when {
                 path == "local.swf" -> {
                     // 仅在设置了 swfFilePath 时才拦截（SwfPlayerScreen 用，WebGameScreen 不用）
@@ -514,6 +524,16 @@ open class FlashWebViewClient(
         // 5. Intercept remote SWF requests (native download with CORS + cookies)
         if (isSwfRequest(url)) {
             return interceptRemoteSwf(view, url, request)
+        }
+
+        // 6. Intercept external resource requests from WAFlash/Ruffle engine
+        //    WASM code creates XMLHttpRequest directly, bypassing JS hooks,
+        //    causing CORS errors for external URLs (e.g. cdn.comment.4399pk.com).
+        //    Native proxy download with CORS headers fixes this.
+        if (url.startsWith("http") && !url.contains("flash.local") &&
+            isFromFlashLocal(request, view)) {
+            Log.d(TAG, "Intercepting external resource (Referer): $url")
+            return interceptExternalResource(url, request)
         }
 
         return super.shouldInterceptRequest(view, request)
@@ -589,6 +609,179 @@ open class FlashWebViewClient(
     // -------------------------------------------------------------------------
 
     private val swfCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    /** External resource proxy cache */
+    private val externalResourceCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    /**
+     * Check if request originates from flash.local player page (WAFlash/Ruffle).
+     * Checks Referer header first, falls back to current page URL.
+     */
+    private fun isFromFlashLocal(request: WebResourceRequest, view: WebView): Boolean {
+        try {
+            val headers = request.requestHeaders
+            if (headers != null) {
+                val referer = headers["Referer"] ?: headers["referer"]
+                if (referer != null && referer.contains("flash.local")) {
+                    return true
+                }
+            }
+        } catch(e: Exception) {}
+        val pageUrl = view.url ?: ""
+        return pageUrl.contains("flash.local")
+    }
+
+    /**
+     * Proxy download external resources (XML/images/config) with CORS headers.
+     * Solves CORS errors when WAFlash WASM creates XMLHttpRequest directly.
+     */
+    private fun interceptExternalResource(
+        url: String,
+        request: WebResourceRequest
+    ): WebResourceResponse? {
+        // Handle CORS preflight (OPTIONS)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
+            request.method == "OPTIONS") {
+            Log.d(TAG, "External resource OPTIONS preflight: $url")
+            return WebResourceResponse("text/plain", "UTF-8", 200, "OK",
+                corsHeaders(), ByteArrayInputStream(ByteArray(0)))
+        }
+
+        // Check cache
+        externalResourceCache[url]?.let { cached ->
+            Log.d(TAG, "External resource cache hit: ${cached.size} bytes, URL=$url")
+            val mime = guessExternalMimeType(url)
+            return WebResourceResponse(mime, null, 200, "OK",
+                corsHeaders() + ("Content-Type" to mime),
+                ByteArrayInputStream(cached))
+        }
+
+        // Build URL list (try HTTP first, then HTTPS)
+        val tryUrls = when {
+            url.startsWith("https://") -> listOf(url)
+            url.startsWith("http://") -> listOf(url, "https://" + url.substring(7))
+            else -> listOf(url)
+        }
+
+        var lastError: Exception? = null
+        for (resUrl in tryUrls) {
+            try {
+                Log.d(TAG, "Proxy downloading external resource: $resUrl")
+                val conn = URL(resUrl).openConnection() as HttpURLConnection
+                if (conn is javax.net.ssl.HttpsURLConnection) {
+                    conn.sslSocketFactory = trustAllSslSocketFactory()
+                    conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+                }
+                conn.connectTimeout = 10000
+                conn.readTimeout = 20000
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = true
+
+                // Forward request headers
+                request.requestHeaders?.forEach { (key, value) ->
+                    val lk = key.lowercase()
+                    if (lk !in setOf("cookie", "referer", "range", "if-modified-since",
+                            "if-none-match", "accept-encoding", "origin",
+                            "access-control-request-method", "access-control-request-headers",
+                            "host", "content-length")) {
+                        conn.setRequestProperty(key, value)
+                    }
+                }
+                if (request.requestHeaders?.none { it.key.equals("User-Agent", true) } != false) {
+                    conn.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                }
+                conn.setRequestProperty("Accept", "*/*")
+                conn.setRequestProperty("Accept-Encoding", "identity")
+
+                // Forward cookies
+                try {
+                    val cookies = android.webkit.CookieManager.getInstance().getCookie(resUrl)
+                    if (cookies != null && cookies.isNotEmpty()) {
+                        conn.setRequestProperty("Cookie", cookies)
+                    }
+                } catch(e: Exception) {}
+
+                // Referer for anti-hotlink
+                try {
+                    val uri = Uri.parse(resUrl)
+                    conn.setRequestProperty("Referer", "${uri.scheme}://${uri.host}/")
+                } catch(e: Exception) {}
+
+                conn.connect()
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    val data = conn.inputStream.readBytes()
+                    val contentType = conn.contentType?.substringBefore(";")?.trim() ?: ""
+                    val mime = if (contentType.isNotEmpty()) contentType else guessExternalMimeType(url)
+                    Log.d(TAG, "External resource downloaded: ${data.size} bytes, mime=$mime, URL=$resUrl")
+
+                    if (data.size <= 512 * 1024) {
+                        if (externalResourceCache.size >= 30) externalResourceCache.clear()
+                        externalResourceCache[url] = data
+                    }
+
+                    return WebResourceResponse(mime.ifEmpty { "application/octet-stream" }, null,
+                        200, "OK",
+                        corsHeaders() + ("Content-Type" to mime),
+                        ByteArrayInputStream(data))
+                } else {
+                    Log.w(TAG, "External resource download failed: HTTP $responseCode, URL=$resUrl")
+                    lastError = RuntimeException("HTTP $responseCode")
+                }
+            } catch(e: Exception) {
+                lastError = e
+                Log.w(TAG, "External resource download error: ${e.message}, URL=$resUrl")
+            }
+        }
+
+        Log.e(TAG, "External resource proxy failed: ${lastError?.message}, URL=$url")
+        return WebResourceResponse("application/octet-stream", null, 502, "Bad Gateway",
+            corsHeaders(), ByteArrayInputStream(ByteArray(0)))
+    }
+
+    /** Guess MIME type from URL extension */
+    private fun guessExternalMimeType(url: String): String {
+        val ext = url.substringAfterLast(".", "").substringBefore("?").lowercase()
+        return when (ext) {
+            "xml" -> "text/xml"
+            "json" -> "application/json"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "svg" -> "image/svg+xml"
+            "css" -> "text/css"
+            "js" -> "application/javascript"
+            "txt" -> "text/plain"
+            "html", "htm" -> "text/html"
+            "swf" -> "application/x-shockwave-flash"
+            "mp3" -> "audio/mpeg"
+            "wav" -> "audio/wav"
+            "mp4" -> "video/mp4"
+            "flv" -> "video/x-flv"
+            else -> "application/octet-stream"
+        }
+    }
+
+    /** Trust-all SSL socket factory for HTTPS downloads */
+    @Volatile private var _sslFactory: javax.net.ssl.SSLSocketFactory? = null
+    private fun trustAllSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
+        return _sslFactory ?: synchronized(this) {
+            _sslFactory ?: try {
+                val tm = object : javax.net.ssl.X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+                }
+                val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+                ctx.init(null, arrayOf(tm), java.security.SecureRandom())
+                ctx.socketFactory
+            } catch (e: Exception) {
+                javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
+            }.also { _sslFactory = it }
+        }
+    }
 
     private fun interceptRemoteSwf(
         view: WebView,
