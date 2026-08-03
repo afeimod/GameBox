@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -105,7 +106,15 @@ fun SwfPlayerScreen(
     val showZoomDialog = remember { mutableStateOf(false) }
     val showUaDialog = remember { mutableStateOf(false) }
     val showAspectRatioDialog = remember { mutableStateOf(false) }
-    val showCustomLayoutDialog = remember { mutableStateOf(false) }
+
+    // 自定义四角布局状态:实时拖动 overlay 用
+    val isCustomLayoutEditMode = remember { mutableStateOf(false) }
+    val currentBoxLeft = remember { mutableFloatStateOf(PrefsManager.customLayoutLeft) }
+    val currentBoxTop = remember { mutableFloatStateOf(PrefsManager.customLayoutTop) }
+    val currentBoxRight = remember { mutableFloatStateOf(PrefsManager.customLayoutRight) }
+    val currentBoxBottom = remember { mutableFloatStateOf(PrefsManager.customLayoutBottom) }
+    val containerWidthPx = remember { mutableStateOf(0) }
+    val containerHeightPx = remember { mutableStateOf(0) }
     // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
     val enginePickerShown = remember { mutableStateOf(false) }
     // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
@@ -241,6 +250,27 @@ fun SwfPlayerScreen(
         wv.evaluateJavascript(js, null)
         // 通知 WebView 内部刷新
         wv.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null)
+    }
+
+    fun applyCustomLayout(enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) {
+        PrefsManager.setCustomLayout(enabled, left, top, right, bottom)
+        val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+        val wv = webViewRef.value ?: return
+        val parentW = container.width
+        val parentH = container.height
+        if (parentW <= 0 || parentH <= 0) return
+        val l = (left.coerceIn(0f, 1f) * parentW).toInt()
+        val t = (top.coerceIn(0f, 1f) * parentH).toInt()
+        val r = (right.coerceIn(0f, 1f) * parentW).toInt()
+        val b = (bottom.coerceIn(0f, 1f) * parentH).toInt()
+        val lp = android.widget.FrameLayout.LayoutParams(
+            (r - l).coerceAtLeast(1),
+            (b - t).coerceAtLeast(1)
+        )
+        lp.leftMargin = l
+        lp.topMargin = t
+        wv.layoutParams = lp
+        wv.requestLayout()
     }
 
     fun applyAspectRatio(ratio: String) {
@@ -529,7 +559,20 @@ fun SwfPlayerScreen(
             override fun onExtractSwf() = extractSwfFromPage()
             override fun onToggleCameraRotation() = toggleCameraRotation()
             override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
-            override fun onOpenCustomLayout() { showCustomLayoutDialog.value = true }
+            override fun onOpenCustomLayout() {
+                // 进入自定义布局编辑模式:同步当前 PrefsManager 值到 overlay state
+                currentBoxLeft.floatValue = PrefsManager.customLayoutLeft
+                currentBoxTop.floatValue = PrefsManager.customLayoutTop
+                currentBoxRight.floatValue = PrefsManager.customLayoutRight
+                currentBoxBottom.floatValue = PrefsManager.customLayoutBottom
+                // 记录容器尺寸(Compose 端 offset/size 计算要用)
+                val parent = mainBoxRef.value
+                if (parent != null) {
+                    containerWidthPx.value = parent.width
+                    containerHeightPx.value = parent.height
+                }
+                isCustomLayoutEditMode.value = true
+            }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
@@ -930,274 +973,257 @@ fun SwfPlayerScreen(
             .show()
     }
 
-    // ========== 自定义四角布局弹窗 ==========
-    if (showCustomLayoutDialog.value) {
-        // 复用 SwfPlayerScreen 外层 composable 传入的 swfPath / onExit
-        CustomLayoutDialog(
-            initialEnabled = PrefsManager.isCustomLayoutEnabled,
-            initialLeft = PrefsManager.customLayoutLeft,
-            initialTop = PrefsManager.customLayoutTop,
-            initialRight = PrefsManager.customLayoutRight,
-            initialBottom = PrefsManager.customLayoutBottom,
-            onDismiss = { showCustomLayoutDialog.value = false },
-            onApply = { enabled, l, t, r, b ->
-                applyCustomLayout(enabled, l, t, r, b)
-                showCustomLayoutDialog.value = false
+    // ========== 自定义四角布局 Overlay ==========
+    // 直接在游戏画面 4 个角显示拖动手柄(进入编辑模式时),实时改 WebView LayoutParams。
+    // 不需要 dialog / 预览框,边拖边看效果。
+    if (isCustomLayoutEditMode.value) {
+        CustomLayoutOverlay(
+            initialLeft = currentBoxLeft.value,
+            initialTop = currentBoxTop.value,
+            initialRight = currentBoxRight.value,
+            initialBottom = currentBoxBottom.value,
+            parentWidth = containerWidthPx.value,
+            parentHeight = containerHeightPx.value,
+            onChange = { l, t, r, b ->
+                currentBoxLeft.value = l
+                currentBoxTop.value = t
+                currentBoxRight.value = r
+                currentBoxBottom.value = b
+                // 实时同步到 WebView LayoutParams
+                val w = webViewRef.value ?: return@CustomLayoutOverlay
+                val parent = mainBoxRef.value as? ViewGroup ?: return@CustomLayoutOverlay
+                val pw = parent.width
+                val ph = parent.height
+                if (pw <= 0 || ph <= 0) return@CustomLayoutOverlay
+                val lp = FrameLayout.LayoutParams(
+                    ((r - l) * pw).toInt().coerceAtLeast(1),
+                    ((b - t) * ph).toInt().coerceAtLeast(1)
+                )
+                lp.leftMargin = (l * pw).toInt()
+                lp.topMargin = (t * ph).toInt()
+                w.layoutParams = lp
+                w.requestLayout()
+                // 同时存到 PrefsManager(实时保存)
+                PrefsManager.setCustomLayout(true, l, t, r, b)
+            },
+            onClose = {
+                // 退出编辑模式:把最终值保存
+                PrefsManager.setCustomLayout(
+                    true,
+                    currentBoxLeft.value,
+                    currentBoxTop.value,
+                    currentBoxRight.value,
+                    currentBoxBottom.value
+                )
+                isCustomLayoutEditMode.value = false
             },
             onReset = {
+                // 重置全屏
+                currentBoxLeft.value = 0f
+                currentBoxTop.value = 0f
+                currentBoxRight.value = 1f
+                currentBoxBottom.value = 1f
                 PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
-                applyCustomLayout(false, 0f, 0f, 1f, 1f)
+                val w = webViewRef.value ?: return@CustomLayoutOverlay
+                val parent = mainBoxRef.value as? ViewGroup ?: return@CustomLayoutOverlay
+                val lp = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                w.layoutParams = lp
+                w.requestLayout()
             }
         )
     }
 }
 
 /**
- * 自定义四角布局对话框:
- * - 上半部分:一个预览矩形(模拟屏幕),四个角可拖动改变归一化 left/top/right/bottom
- * - 下方:开关 + 应用/重置/取消按钮
+ * 自定义四角布局 Overlay:
+ * - 直接在游戏画面上显示 4 个角的拖动手柄(28dp 圆形,绿色)
+ * - 矩形 4 边用 2dp 绿线标记选中区域
+ * - 拖动手柄实时改 WebView LayoutParams,边拖边看到游戏画面变化
+ * - 右上角关闭按钮 + 重置全屏按钮
+ *
+ * 关键:Handle 用 pointerInput + detectDragGestures(只处理拖动手柄本身,不影响 WebView 触摸)
+ * BoxWithConstraints 拿到实际像素宽高,转成归一化 0..1 值
  */
 @Composable
-private fun CustomLayoutDialog(
-    initialEnabled: Boolean,
-    initialLeft: Float,
-    initialTop: Float,
-    initialRight: Float,
-    initialBottom: Float,
-    onDismiss: () -> Unit,
-    onApply: (enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+private fun CustomLayoutOverlay(
+    initialLeft: Float, initialTop: Float, initialRight: Float, initialBottom: Float,
+    parentWidth: Int, parentHeight: Int,
+    onChange: (Float, Float, Float, Float) -> Unit,
+    onClose: () -> Unit,
     onReset: () -> Unit
 ) {
-    val enabledState = remember { mutableStateOf(initialEnabled) }
-    val leftState = remember { mutableFloatStateOf(initialLeft) }
-    val topState = remember { mutableFloatStateOf(initialTop) }
-    val rightState = remember { mutableFloatStateOf(initialRight) }
-    val bottomState = remember { mutableFloatStateOf(initialBottom) }
+    val left = remember { mutableFloatStateOf(initialLeft) }
+    val top = remember { mutableFloatStateOf(initialTop) }
+    val right = remember { mutableFloatStateOf(initialRight) }
+    val bottom = remember { mutableFloatStateOf(initialBottom) }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        androidx.compose.material3.Surface(
-            shape = androidx.compose.material3.MaterialTheme.shapes.large,
-            color = androidx.compose.ui.graphics.Color(0xFF1A1A1A),
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-        ) {
-            androidx.compose.foundation.layout.Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
-            ) {
-                androidx.compose.material3.Text(
-                    "自定义四角布局",
-                    color = androidx.compose.ui.graphics.Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                )
-                androidx.compose.material3.Text(
-                    "拖动预览框的四个角调整游戏画面位置和大小,关闭后恢复全屏。",
-                    color = androidx.compose.ui.graphics.Color(0xFFAAAAAA),
-                    fontSize = 12.sp
-                )
-
-                // 启用开关
-                androidx.compose.foundation.layout.Row(
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    androidx.compose.material3.Switch(
-                        checked = enabledState.value,
-                        onCheckedChange = { enabledState.value = it }
-                    )
-                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
-                    androidx.compose.material3.Text(
-                        if (enabledState.value) "已启用" else "未启用",
-                        color = androidx.compose.ui.graphics.Color.White
-                    )
-                }
-
-                // 预览 + 拖动区域
-                CustomLayoutPreview(
-                    left = leftState.value,
-                    top = topState.value,
-                    right = rightState.value,
-                    bottom = bottomState.value,
-                    onChange = { l, t, r, b ->
-                        leftState.value = l; topState.value = t
-                        rightState.value = r; bottomState.value = b
-                    }
-                )
-
-                // 数值显示
-                androidx.compose.material3.Text(
-                    "L=${"%.2f".format(leftState.value)}  T=${"%.2f".format(topState.value)}  R=${"%.2f".format(rightState.value)}  B=${"%.2f".format(bottomState.value)}",
-                    color = androidx.compose.ui.graphics.Color(0xFFCCCCCC),
-                    fontSize = 11.sp
-                )
-
-                // 按钮
-                androidx.compose.foundation.layout.Row(
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    androidx.compose.material3.TextButton(
-                        onClick = onReset,
-                        modifier = Modifier.weight(1f)
-                    ) { androidx.compose.material3.Text("重置全屏", color = androidx.compose.ui.graphics.Color(0xFFFFC107)) }
-                    androidx.compose.material3.TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
-                    ) { androidx.compose.material3.Text("取消", color = androidx.compose.ui.graphics.Color.White) }
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            onApply(
-                                enabledState.value,
-                                leftState.value, topState.value,
-                                rightState.value, bottomState.value
-                            )
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { androidx.compose.material3.Text("应用", color = androidx.compose.ui.graphics.Color(0xFF4CAF50)) }
-                }
-            }
-        }
+    // 同步外部 initial 到内部(每次重组时)
+    androidx.compose.runtime.LaunchedEffect(initialLeft, initialTop, initialRight, initialBottom) {
+        left.floatValue = initialLeft
+        top.floatValue = initialTop
+        right.floatValue = initialRight
+        bottom.floatValue = initialBottom
     }
-}
 
-/**
- * 预览矩形 + 四个角拖动柄
- */
-@Composable
-private fun CustomLayoutPreview(
-    left: Float, top: Float, right: Float, bottom: Float,
-    onChange: (Float, Float, Float, Float) -> Unit
-) {
-    val boxSize = 280.dp
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(boxSize)
-            .background(androidx.compose.ui.graphics.Color(0xFF000000))
-    ) {
-        // 实际像素宽高
-        val w = constraints.maxWidth.toFloat()
-        val h = constraints.maxHeight.toFloat()
-        // 把归一化值转成像素
-        val lpx = left * w
-        val tpx = top * h
-        val rpx = right * w
-        val bpx = bottom * h
-        // 半透明遮罩
-        androidx.compose.foundation.layout.Box(
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val w = if (parentWidth > 0) parentWidth.toFloat() else constraints.maxWidth.toFloat()
+        val h = if (parentHeight > 0) parentHeight.toFloat() else constraints.maxHeight.toFloat()
+
+        // 选中矩形 (4 边绿线)
+        val lpx = left.floatValue * w
+        val tpx = top.floatValue * h
+        val rpx = right.floatValue * w
+        val bpx = bottom.floatValue * h
+        val rectWDp = (rpx - lpx) / LocalDensity.current.density
+        val rectHDp = (bpx - tpx) / LocalDensity.current.density
+
+        // 矩形边框
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .background(androidx.compose.ui.graphics.Color(0x88000000))
-        )
-        // 选中矩形 (用 dp 表达避免 px/dp 转换错误)
-        // 注意:Compose 1.x 的 Float.toDp() 在不同版本中可用性不同,
-        // 这里用 density 手动换算 px → dp,避免 unresolved reference。
-        val rectWDp = (rpx - lpx) / density.density
-        val rectHDp = (bpx - tpx) / density.density
-        androidx.compose.foundation.layout.Box(
-            modifier = Modifier
-                .offset {
-                    androidx.compose.ui.unit.IntOffset(
-                        lpx.toInt(),
-                        tpx.toInt()
-                    )
-                }
+                .offset { IntOffset(lpx.toInt(), tpx.toInt()) }
                 .size(
                     width = rectWDp.dp,
                     height = rectHDp.dp
                 )
-                .background(androidx.compose.ui.graphics.Color(0x334CAF50))
+                .border(2.dp, Color(0xFF4CAF50))
+        )
+
+        // 顶部状态条
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xCC000000))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            androidx.compose.foundation.layout.Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(2.dp, androidx.compose.ui.graphics.Color(0xFF4CAF50))
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "拖动四角调节画面 (L=${"%.2f".format(left.floatValue)} T=${"%.2f".format(top.floatValue)} R=${"%.2f".format(right.floatValue)} B=${"%.2f".format(bottom.floatValue)})",
+                    color = Color.White,
+                    fontSize = 11.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onReset) {
+                        Text("重置", color = Color(0xFFFFC107), fontSize = 12.sp)
+                    }
+                    TextButton(onClick = onClose) {
+                        Text("完成", color = Color(0xFF4CAF50), fontSize = 12.sp)
+                    }
+                }
+            }
         }
-        // 四个角手柄
-        Handle(left = lpx, top = tpx, which = "tl", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
-        Handle(left = rpx, top = tpx, which = "tr", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
-        Handle(left = lpx, top = bpx, which = "bl", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
-        Handle(left = rpx, top = bpx, which = "br", w = w, h = h) { nl, nt, nr, nb -> onChange(nl, nt, nr, nb) }
+
+        // 4 个角拖动手柄
+        Box(modifier = Modifier.fillMaxSize()) {
+            CornerHandle(
+                x = lpx, y = tpx, which = "tl", w = w, h = h,
+                startL = left.floatValue, startT = top.floatValue,
+                startR = right.floatValue, startB = bottom.floatValue
+            ) { nl, nt, nr, nb ->
+                left.floatValue = nl; top.floatValue = nt
+                right.floatValue = nr; bottom.floatValue = nb
+                onChange(nl, nt, nr, nb)
+            }
+            CornerHandle(
+                x = rpx, y = tpx, which = "tr", w = w, h = h,
+                startL = left.floatValue, startT = top.floatValue,
+                startR = right.floatValue, startB = bottom.floatValue
+            ) { nl, nt, nr, nb ->
+                left.floatValue = nl; top.floatValue = nt
+                right.floatValue = nr; bottom.floatValue = nb
+                onChange(nl, nt, nr, nb)
+            }
+            CornerHandle(
+                x = lpx, y = bpx, which = "bl", w = w, h = h,
+                startL = left.floatValue, startT = top.floatValue,
+                startR = right.floatValue, startB = bottom.floatValue
+            ) { nl, nt, nr, nb ->
+                left.floatValue = nl; top.floatValue = nt
+                right.floatValue = nr; bottom.floatValue = nb
+                onChange(nl, nt, nr, nb)
+            }
+            CornerHandle(
+                x = rpx, y = bpx, which = "br", w = w, h = h,
+                startL = left.floatValue, startT = top.floatValue,
+                startR = right.floatValue, startB = bottom.floatValue
+            ) { nl, nt, nr, nb ->
+                left.floatValue = nl; top.floatValue = nt
+                right.floatValue = nr; bottom.floatValue = nb
+                onChange(nl, nt, nr, nb)
+            }
+        }
     }
 }
 
+/**
+ * 单个角的拖动手柄:
+ * - 28dp 圆形绿色手柄
+ * - 拖动时实时计算新归一化值(0..1)
+ * - 不同角:tl 只控制 left/top, tr 只控制 right/top, bl 只控制 left/bottom, br 只控制 right/bottom
+ */
 @Composable
-private fun Handle(
-    left: Float, top: Float, which: String,
+private fun CornerHandle(
+    x: Float, y: Float, which: String,
     w: Float, h: Float,
+    startL: Float, startT: Float, startR: Float, startB: Float,
     onChange: (Float, Float, Float, Float) -> Unit
 ) {
-    var dragStartX by remember { mutableFloatStateOf(0f) }
-    var dragStartY by remember { mutableFloatStateOf(0f) }
-    var startL by remember { mutableFloatStateOf(0f) }
-    var startT by remember { mutableFloatStateOf(0f) }
-    var startR by remember { mutableFloatStateOf(0f) }
-    var startB by remember { mutableFloatStateOf(0f) }
+    // 用 remember 缓存拖动起始值,避免每次重组重置
+    val dragStart = remember { mutableStateOf(0f to 0f) }
+    val initialBox = remember { mutableStateOf(QuadF(startL, startT, startR, startB)) }
 
-    androidx.compose.foundation.layout.Box(
+    Box(
         modifier = Modifier
-            .offset { androidx.compose.ui.unit.IntOffset((left - 14f).toInt(), (top - 14f).toInt()) }
-            .size(28.dp)
-            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50), androidx.compose.foundation.shape.CircleShape)
-            .pointerInput(Unit) {
+            .offset { IntOffset((x - 18f).toInt(), (y - 18f).toInt()) }
+            .size(36.dp)
+            .background(Color(0xFF4CAF50), CircleShape)
+            .border(2.dp, Color.White, CircleShape)
+            .pointerInput(which) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        dragStartX = offset.x
-                        dragStartY = offset.y
-                        // 记录开始时 4 个角的值（用当前的 0..1 归一化）
-                        // 这里 left/top/right/bottom 是该 handle 的实际像素位置,
-                        // 我们只能拿到当前 4 角的像素位置:tl=(0,h*0), tr=(w*1,h*0), bl=(0,h*1), br=(w*1,h*1)
-                        // 由于我们每次 onChange 都会重绘,这里 start 值要实时读 — 简化:用上一次 onChange 的值
-                        // 重新调用 onChange 时回调中包含 nl/nt/nr/nb,我们需要用 startL/T/R/B
-                        // 但 startL/T/R/B 是 0..1 范围;而 dragStartX/Y 是 handle 内部坐标 0..28dp
-                        // 直接存当前 4 个角的 0..1 值：
-                        startL = left / w  // 这是被拖动角的旧位置(因为此 handle 的 left 参数就是角位置)
-                        // 上面这行不对:Handle 拿到的 left/top 是被拖动角的像素位置,
-                        // 比如 tr 角 left=rpx=top of right edge,所以 left/w = 当前 right 归一化
-                        // 不同角:tl → left/right 控制 top/left 0..1, tr → 控制 right/top 0..1
-                        // 用 if 处理
-                        if (which == "tl") { startL = left/w; startT = top/h; startR = 1f; startB = 1f }
-                        if (which == "tr") { startL = 0f;     startT = top/h; startR = left/w; startB = 1f }
-                        if (which == "bl") { startL = left/w; startT = 0f;     startR = 1f;     startB = top/h }
-                        if (which == "br") { startL = 0f;     startT = 0f;     startR = left/w; startB = top/h }
+                        dragStart.value = offset.x to offset.y
+                        initialBox.value = QuadF(startL, startT, startR, startB)
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         val dx = dragAmount.x / w
                         val dy = dragAmount.y / h
-                        val newL = (startL + dx).coerceIn(0f, 1f)
-                        val newT = (startT + dy).coerceIn(0f, 1f)
-                        val newR = (startR + dx).coerceIn(0f, 1f)
-                        val newB = (startB + dy).coerceIn(0f, 1f)
-                        // 保证 left < right, top < bottom
-                        if (which == "tl") onChange(
-                            newL.coerceAtMost(startR - 0.05f),
-                            newT.coerceAtMost(startB - 0.05f),
-                            startR, startB
-                        )
-                        if (which == "tr") onChange(
-                            startL,
-                            newT.coerceAtMost(startB - 0.05f),
-                            newR.coerceAtLeast(startL + 0.05f),
-                            startB
-                        )
-                        if (which == "bl") onChange(
-                            newL.coerceAtMost(startR - 0.05f),
-                            startT,
-                            startR,
-                            newB.coerceAtLeast(startT + 0.05f)
-                        )
-                        if (which == "br") onChange(
-                            startL, startT,
-                            newR.coerceAtLeast(startL + 0.05f),
-                            newB.coerceAtLeast(startT + 0.05f)
-                        )
+                        val init = initialBox.value
+                        when (which) {
+                            "tl" -> {
+                                val nl = (init.l + dx).coerceIn(0f, init.r - 0.02f)
+                                val nt = (init.t + dy).coerceIn(0f, init.b - 0.02f)
+                                onChange(nl, nt, init.r, init.b)
+                            }
+                            "tr" -> {
+                                val nr = (init.r + dx).coerceIn(init.l + 0.02f, 1f)
+                                val nt = (init.t + dy).coerceIn(0f, init.b - 0.02f)
+                                onChange(init.l, nt, nr, init.b)
+                            }
+                            "bl" -> {
+                                val nl = (init.l + dx).coerceIn(0f, init.r - 0.02f)
+                                val nb = (init.b + dy).coerceIn(init.t + 0.02f, 1f)
+                                onChange(nl, init.t, init.r, nb)
+                            }
+                            "br" -> {
+                                val nr = (init.r + dx).coerceIn(init.l + 0.02f, 1f)
+                                val nb = (init.b + dy).coerceIn(init.t + 0.02f, 1f)
+                                onChange(init.l, init.t, nr, nb)
+                            }
+                        }
                     }
                 )
             }
     )
 }
+
+private data class QuadF(val l: Float, val t: Float, val r: Float, val b: Float)
 
 @SuppressLint("ViewConstructor")
 private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context)
