@@ -7,7 +7,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -108,16 +107,10 @@ fun SwfPlayerScreen(
     val showUaDialog = remember { mutableStateOf(false) }
     val showAspectRatioDialog = remember { mutableStateOf(false) }
 
-    // 自定义四角布局状态:实时拖动 overlay 用
-    val isCustomLayoutEditMode = remember { mutableStateOf(false) }
-    val currentBoxLeft = remember { mutableFloatStateOf(PrefsManager.customLayoutLeft) }
-    val currentBoxTop = remember { mutableFloatStateOf(PrefsManager.customLayoutTop) }
-    val currentBoxRight = remember { mutableFloatStateOf(PrefsManager.customLayoutRight) }
-    val currentBoxBottom = remember { mutableFloatStateOf(PrefsManager.customLayoutBottom) }
-    val containerWidthPx = remember { mutableStateOf(0) }
-    val containerHeightPx = remember { mutableStateOf(0) }
-    // 4 个角手柄 View 引用:进入编辑模式时 attach,退出时 detach。
-    val cornerHandlesRef = remember { mutableStateOf<List<View>?>(null) }
+    // ScreenPositionEditor(自由布局编辑器):一个原生 View,挂在 FrameLayoutSwfContainer 里
+    // 4 角 + body 5 个 hot zone,自己处理 onDraw + onTouchEvent。
+    // 不用 Compose overlay 因为 Compose pointerInput 在 AndroidView 之上拿不到触摸。
+    val screenPositionEditorRef = remember { mutableStateOf<ScreenPositionEditor?>(null) }
     // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
     val enginePickerShown = remember { mutableStateOf(false) }
     // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
@@ -315,9 +308,55 @@ fun SwfPlayerScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                FrameLayoutSwfContainer(ctx).apply {
-                    mainBoxRef.value = this
+                // FrameLayout 作为游戏画面容器,ScreenPositionEditor 覆盖在最上层(GONE)
+                // 整个 View tree 用标准 FrameLayout,不依赖 onInterceptTouchEvent
+                val container = android.widget.FrameLayout(ctx)
+                mainBoxRef.value = container
+                // 创建并添加 ScreenPositionEditor 覆盖层(初始 GONE)
+                val editor = ScreenPositionEditor(ctx).apply {
+                    visibility = View.GONE
+                    // 监听器:实时改 WebView layoutParams
+                    listener = object : ScreenPositionEditor.Listener {
+                        override fun onRectChanged(x1: Float, y1: Float, x2: Float, y2: Float, confirm: Boolean) {
+                            val wv = webViewRef.value ?: return
+                            val pw = container.width
+                            val ph = container.height
+                            if (pw <= 0 || ph <= 0) return
+                            // 实时改 WebView 在 container 里的位置和大小
+                            val lp = FrameLayout.LayoutParams(
+                                ((x2 - x1) * pw).toInt().coerceAtLeast(1),
+                                ((y2 - y1) * ph).toInt().coerceAtLeast(1)
+                            )
+                            lp.leftMargin = (x1 * pw).toInt()
+                            lp.topMargin = (y1 * ph).toInt()
+                            wv.layoutParams = lp
+                            wv.requestLayout()
+                            if (confirm) {
+                                // 触摸结束:持久化到 PrefsManager
+                                PrefsManager.setCustomLayout(true, x1, y1, x2, y2)
+                            }
+                        }
+                    }
                 }
+                container.addView(editor, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                ))
+                screenPositionEditorRef.value = editor
+                // 读 PrefsManager 中的已有自定义布局,恢复
+                if (PrefsManager.isCustomLayoutEnabled) {
+                    editor.setRect(
+                        PrefsManager.customLayoutLeft,
+                        PrefsManager.customLayoutTop,
+                        PrefsManager.customLayoutRight,
+                        PrefsManager.customLayoutBottom
+                    )
+                    // 立即应用 WebView layoutParams
+                    container.post {
+                        applyCustomLayoutToWebView()
+                    }
+                }
+                container
             }
         )
     }
@@ -460,6 +499,27 @@ fun SwfPlayerScreen(
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
             webViewRef.value = wv
+            // 关键:WebView addView 之后会盖在 ScreenPositionEditor 上面,
+            // 必须把 editor 重新 bringToFront 才能让 4 角手柄接收触摸
+            val editor = screenPositionEditorRef.value
+            if (editor != null) {
+                editor.bringToFront()
+                // 如果 editor 当前是 VISIBLE(GONE 时也 bringToFront 无害),恢复 rect
+                if (editor.visibility == View.VISIBLE && PrefsManager.isCustomLayoutEnabled) {
+                    editor.setRect(
+                        PrefsManager.customLayoutLeft,
+                        PrefsManager.customLayoutTop,
+                        PrefsManager.customLayoutRight,
+                        PrefsManager.customLayoutBottom
+                    )
+                }
+            }
+            // 如果有保存的自定义布局,立即应用到 WebView(避免闪烁成全屏再缩)
+            if (PrefsManager.isCustomLayoutEnabled) {
+                container.post {
+                    applyCustomLayoutToWebView()
+                }
+            }
         }
     }
 
@@ -924,76 +984,11 @@ fun SwfPlayerScreen(
             .setTitle("画面比例")
             .setSingleChoiceItems(ratios, checked) { dlg, which ->
                 if (values[which] == "__custom__") {
-                    // 进入自定义布局编辑模式(在游戏画面上拖 4 角)
-                    currentBoxLeft.floatValue = PrefsManager.customLayoutLeft
-                    currentBoxTop.floatValue = PrefsManager.customLayoutTop
-                    currentBoxRight.floatValue = PrefsManager.customLayoutRight
-                    currentBoxBottom.floatValue = PrefsManager.customLayoutBottom
-                    val parent = mainBoxRef.value as? FrameLayoutSwfContainer
-                    if (parent != null) {
-                        containerWidthPx.value = parent.width
-                        containerHeightPx.value = parent.height
-                        // 同步 box 状态到 container(手柄拖动需要)
-                        parent.boxLeft = currentBoxLeft.floatValue
-                        parent.boxTop = currentBoxTop.floatValue
-                        parent.boxRight = currentBoxRight.floatValue
-                        parent.boxBottom = currentBoxBottom.floatValue
-                        parent.editMode = true
-                        // 在 container 上加 4 个原生 ImageView 手柄
-                        val handles = attachCornerHandles(parent) { nl, nt, nr, nb ->
-                            // 实时更新 PrefsManager + 同步到 currentBox* (让 overlay 状态一致)
-                            currentBoxLeft.floatValue = nl
-                            currentBoxTop.floatValue = nt
-                            currentBoxRight.floatValue = nr
-                            currentBoxBottom.floatValue = nb
-                            PrefsManager.setCustomLayout(true, nl, nt, nr, nb)
-                            // 实时改 WebView 父 FrameLayout
-                            val wv = webViewRef.value
-                            if (wv != null) {
-                                val pw = parent.width
-                                val ph = parent.height
-                                if (pw > 0 && ph > 0) {
-                                    val lp = FrameLayout.LayoutParams(
-                                        ((nr - nl) * pw).toInt().coerceAtLeast(1),
-                                        ((nb - nt) * ph).toInt().coerceAtLeast(1)
-                                    )
-                                    lp.leftMargin = (nl * pw).toInt()
-                                    lp.topMargin = (nt * ph).toInt()
-                                    wv.layoutParams = lp
-                                    wv.requestLayout()
-                                }
-                            }
-                            // 实时更新手柄自身位置
-                            val cur = cornerHandlesRef.value
-                            if (cur != null) updateHandlePositions(parent, cur)
-                        }
-                        cornerHandlesRef.value = handles
-                        updateHandlePositions(parent, handles)
-                    }
-                    isCustomLayoutEditMode.value = true
+                    // 进入自定义布局编辑模式:显示 ScreenPositionEditor overlay(参考 eden-an)
+                    enterCustomLayoutEditMode()
                 } else {
-                    // 标准比例:关掉自定义
-                    val parent = mainBoxRef.value as? FrameLayoutSwfContainer
-                    if (parent != null) {
-                        parent.editMode = false
-                        // 移除 4 个手柄
-                        cornerHandlesRef.value?.let { detachCornerHandles(parent, it) }
-                        cornerHandlesRef.value = null
-                    }
-                    isCustomLayoutEditMode.value = false
-                    PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
-                    val w = webViewRef.value
-                    if (w != null) {
-                        val parent = mainBoxRef.value as? ViewGroup
-                        if (parent != null) {
-                            val lp = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            w.layoutParams = lp
-                            w.requestLayout()
-                        }
-                    }
+                    // 标准比例:关掉自定义,WebView 恢复 MATCH_PARENT
+                    exitCustomLayoutEditMode(resetRect = true)
                     applyAspectRatio(values[which])
                 }
                 dlg.dismiss()
@@ -1005,85 +1000,48 @@ fun SwfPlayerScreen(
     }
 
     // ========== 自定义四角布局 Overlay ==========
-    // 直接在游戏画面 4 个角显示拖动手柄(进入编辑模式时),实时改 WebView LayoutParams。
-    // 不需要 dialog / 预览框,边拖边看效果。
-    if (isCustomLayoutEditMode.value) {
-        // 用 Box(fillMaxSize) 包裹 overlay,确保 overlay 拿到父容器完整尺寸约束。
-        // 否则 Compose 的 if 块是无约束 Box,overlay 内部 BoxWithConstraints 拿不到 maxWidth。
+    // 直接由 ScreenPositionEditor(原生 View)负责 4 角 + body 拖动。
+    // 这里只画顶部状态条 + 完成/重置按钮(Compose UI,不动触摸分发)。
+    if (customLayoutEditState.value) {
         Box(modifier = Modifier.fillMaxSize()) {
-            CustomLayoutOverlay(
-                modifier = Modifier.fillMaxSize(),
-                initialLeft = currentBoxLeft.value,
-            initialTop = currentBoxTop.value,
-            initialRight = currentBoxRight.value,
-            initialBottom = currentBoxBottom.value,
-            parentWidth = containerWidthPx.value,
-            parentHeight = containerHeightPx.value,
-            onChange = { l, t, r, b ->
-                currentBoxLeft.value = l
-                currentBoxTop.value = t
-                currentBoxRight.value = r
-                currentBoxBottom.value = b
-                // 实时同步到 WebView LayoutParams
-                val w = webViewRef.value ?: return@CustomLayoutOverlay
-                val parent = mainBoxRef.value as? ViewGroup ?: return@CustomLayoutOverlay
-                val pw = parent.width
-                val ph = parent.height
-                if (pw <= 0 || ph <= 0) return@CustomLayoutOverlay
-                val lp = FrameLayout.LayoutParams(
-                    ((r - l) * pw).toInt().coerceAtLeast(1),
-                    ((b - t) * ph).toInt().coerceAtLeast(1)
+            // 顶部提示条
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .background(Color(0xCC000000))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    "自由布局:拖动 4 角或矩形内部,边拖边看效果",
+                    color = Color.White,
+                    fontSize = 13.sp
                 )
-                lp.leftMargin = (l * pw).toInt()
-                lp.topMargin = (t * ph).toInt()
-                w.layoutParams = lp
-                w.requestLayout()
-                // 同时存到 PrefsManager(实时保存)
-                PrefsManager.setCustomLayout(true, l, t, r, b)
-            },
-            onClose = {
-                // 退出编辑模式:把最终值保存,移除 4 个手柄
-                PrefsManager.setCustomLayout(
-                    true,
-                    currentBoxLeft.value,
-                    currentBoxTop.value,
-                    currentBoxRight.value,
-                    currentBoxBottom.value
-                )
-                val parent = mainBoxRef.value as? FrameLayoutSwfContainer
-                if (parent != null) {
-                    parent.editMode = false
-                    cornerHandlesRef.value?.let { detachCornerHandles(parent, it) }
-                    cornerHandlesRef.value = null
-                }
-                isCustomLayoutEditMode.value = false
-            },
-            onReset = {
-                // 重置全屏
-                currentBoxLeft.value = 0f
-                currentBoxTop.value = 0f
-                currentBoxRight.value = 1f
-                currentBoxBottom.value = 1f
-                PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
-                val w = webViewRef.value ?: return@CustomLayoutOverlay
-                val parent = mainBoxRef.value as? ViewGroup ?: return@CustomLayoutOverlay
-                val lp = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                w.layoutParams = lp
-                w.requestLayout()
-                // 重置后手柄位置跟着重置
-                val fc = parent as? FrameLayoutSwfContainer
-                if (fc != null) {
-                    fc.boxLeft = 0f; fc.boxTop = 0f
-                    fc.boxRight = 1f; fc.boxBottom = 1f
-                    cornerHandlesRef.value?.let { updateHandlePositions(fc, it) }
-                }
             }
-        )
-        }  // Box(fillMaxSize) 关闭
-    }  // if (isCustomLayoutEditMode.value) 关闭
+            // 右下角完成按钮
+            androidx.compose.material3.Button(
+                onClick = { exitCustomLayoutEditMode(resetRect = false) },
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Text("完成")
+            }
+            // 左下角重置按钮
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    val editor = screenPositionEditorRef.value ?: return@OutlinedButton
+                    editor.setRect(0f, 0f, 1f, 1f)
+                    PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
+                },
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.BottomStart)
+                    .padding(16.dp)
+            ) {
+                Text("重置")
+            }
+        }
+    }  // if (customLayoutEditState.value) 关闭
 }
 
 /**
@@ -1095,262 +1053,111 @@ fun SwfPlayerScreen(
  *
  * 关键:Handle 用 pointerInput + detectDragGestures(只处理拖动手柄本身,不影响 WebView 触摸)
  * BoxWithConstraints 拿到实际像素宽高,转成归一化 0..1 值
+ *
+ * 完整实现已迁移到 ScreenPositionEditor.kt(原生 View,参考 eden-an 实现):
+ * - 5 个 hot zone:4 角 + body 整体拖动
+ * - View 自身 onDraw + onTouchEvent,Compose 端只画顶部状态条 + 完成/重置按钮
  */
-@Composable
-private fun CustomLayoutOverlay(
-    modifier: Modifier = Modifier,
-    initialLeft: Float, initialTop: Float, initialRight: Float, initialBottom: Float,
-    parentWidth: Int, parentHeight: Int,
-    onChange: (Float, Float, Float, Float) -> Unit,
-    onClose: () -> Unit,
-    onReset: () -> Unit
-) {
-    val left = remember { mutableFloatStateOf(initialLeft) }
-    val top = remember { mutableFloatStateOf(initialTop) }
-    val right = remember { mutableFloatStateOf(initialRight) }
-    val bottom = remember { mutableFloatStateOf(initialBottom) }
 
-    // 同步外部 initial 到内部(每次重组时)
-    androidx.compose.runtime.LaunchedEffect(initialLeft, initialTop, initialRight, initialBottom) {
-        left.floatValue = initialLeft
-        top.floatValue = initialTop
-        right.floatValue = initialRight
-        bottom.floatValue = initialBottom
+/**
+ * 自定义布局编辑模式状态(顶级可变状态,顶级 enter/exit 函数也能改)。
+ * 实际是 Composable 内 MutableState 的副本引用。
+ */
+private val customLayoutEditState = androidx.compose.runtime.mutableStateOf(false)
+/**
+ * 进入自定义布局编辑模式(画面比例弹窗里选"自定义"):
+ * - 取消 WebView 触摸焦点
+ * - 显示 ScreenPositionEditor(显示 4 角手柄 + 半透明矩形,接管触摸)
+ * - 已有保存的布局:直接 setRect
+ * - 没有:默认全屏(0,0,1,1)
+ * - 标记 PrefsManager.isCustomLayoutEnabled = true(用户意图)
+ */
+private fun enterCustomLayoutEditMode() {
+    val editor = screenPositionEditorRef.value ?: return
+    val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+
+    // 取消 WebView 焦点,避免 WebView 抢触摸
+    val wv = webViewRef.value
+    if (wv != null) {
+        wv.isFocusable = false
+        wv.isFocusableInTouchMode = false
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val w = if (parentWidth > 0) parentWidth.toFloat() else constraints.maxWidth.toFloat()
-        val h = if (parentHeight > 0) parentHeight.toFloat() else constraints.maxHeight.toFloat()
-
-        // 选中矩形 (4 边绿线)
-        val lpx = left.floatValue * w
-        val tpx = top.floatValue * h
-        val rpx = right.floatValue * w
-        val bpx = bottom.floatValue * h
-        val rectWDp = (rpx - lpx) / LocalDensity.current.density
-        val rectHDp = (bpx - tpx) / LocalDensity.current.density
-
-        // 矩形边框
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(lpx.toInt(), tpx.toInt()) }
-                .size(
-                    width = rectWDp.dp,
-                    height = rectHDp.dp
-                )
-                .border(2.dp, Color(0xFF4CAF50))
+    if (PrefsManager.isCustomLayoutEnabled) {
+        editor.setRect(
+            PrefsManager.customLayoutLeft,
+            PrefsManager.customLayoutTop,
+            PrefsManager.customLayoutRight,
+            PrefsManager.customLayoutBottom
         )
-
-        // 顶部状态条
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xCC000000))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    "拖动四角调节画面 (L=${"%.2f".format(left.floatValue)} T=${"%.2f".format(top.floatValue)} R=${"%.2f".format(right.floatValue)} B=${"%.2f".format(bottom.floatValue)})",
-                    color = Color.White,
-                    fontSize = 11.sp
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onReset) {
-                        Text("重置", color = Color(0xFFFFC107), fontSize = 12.sp)
-                    }
-                    TextButton(onClick = onClose) {
-                        Text("完成", color = Color(0xFF4CAF50), fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        // 4 个角拖动手柄已废弃:改用原生 ImageView(attachCornerHandles)。
-        // 在画面比例弹窗的"自定义"选项里 attach,完成/重置/选其他比例时 detach。
-        // Compose 端只画矩形边框 + 顶部状态条,Compose 4 角手柄不再需要(原生手柄覆盖 WebView 同级)。
+    } else {
+        // 第一次进入,默认全屏
+        editor.setRect(0f, 0f, 1f, 1f)
     }
-}
-
-private data class QuadF(val l: Float, val t: Float, val r: Float, val b: Float)
-
-@SuppressLint("ViewConstructor")
-private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context) {
-    /** 4 个角的归一化 left/top/right/bottom 位置(0..1),用于 onInterceptTouchEvent 判断 */
-    var boxLeft: Float = 0f
-    var boxTop: Float = 0f
-    var boxRight: Float = 1f
-    var boxBottom: Float = 1f
-    /** 手柄大小(像素),touch hit test 时扩展命中区域让手指容易点中 */
-    var handleTouchRadius: Float = 80f
-    /** 编辑模式开关:开启后只拦截 4 角手柄区域的触摸,其他区域仍给 WebView */
-    var editMode: Boolean = false
-
-    /**
-     * 关键修复:之前用 `interceptAllTouch=true` 会**拦截后没人接**(Compose 手柄在 View tree 之外)。
-     * 现在改成只拦截 4 角手柄 hit zone(扩展的 80px 矩形),其他区域仍让 WebView 接收。
-     * 当 4 角手柄接收到事件后,自己的 onTouchListener 会接管拖动逻辑。
-     */
-    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
-        if (!editMode) return false
-        val evX = ev?.x ?: return false
-        val evY = ev?.y ?: return false
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0 || h <= 0) return false
-        val lpx = boxLeft * w
-        val tpx = boxTop * h
-        val rpx = boxRight * w
-        val bpx = boxBottom * h
-        val r = handleTouchRadius
-        // 4 个角的 hit zone:以角位置为中心,r 为半径的正方形
-        val inTL = evX in (lpx - r)..(lpx + r) && evY in (tpx - r)..(tpx + r)
-        val inTR = evX in (rpx - r)..(rpx + r) && evY in (tpx - r)..(tpx + r)
-        val inBL = evX in (lpx - r)..(lpx + r) && evY in (bpx - r)..(bpx + r)
-        val inBR = evX in (rpx - r)..(rpx + r) && evY in (bpx - r)..(bpx + r)
-        return inTL || inTR || inBL || inBR
-    }
+    // 标记用户意图启用(进入编辑模式即算启用)
+    PrefsManager.setCustomLayout(true,
+        editor.getRect()[0], editor.getRect()[1],
+        editor.getRect()[2], editor.getRect()[3])
+    editor.bringToFront()
+    editor.visibility = View.VISIBLE
+    editor.invalidate()
+    container.requestLayout()
+    customLayoutEditState.value = true
 }
 
 /**
- * 4 个角手柄的 onTouchListener:实现单指拖动改 boxLeft/Top/Right/Bottom,
- * 实时同步 PrefsManager + WebView LayoutParams + ImageView 自身位置。
+ * 退出自定义布局编辑模式。
+ * @param resetRect true 表示重置回全屏(MATCH_PARENT),false 表示保留当前 rect
  */
-private fun makeHandleTouchListener(
-    container: FrameLayoutSwfContainer,
-    which: String,
-    onChange: (Float, Float, Float, Float) -> Unit
-): View.OnTouchListener {
-    var startX = 0f
-    var startY = 0f
-    var startL = container.boxLeft
-    var startT = container.boxTop
-    var startR = container.boxRight
-    var startB = container.boxBottom
-    return View.OnTouchListener { _, ev ->
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                startX = ev.rawX
-                startY = ev.rawY
-                startL = container.boxLeft
-                startT = container.boxTop
-                startR = container.boxRight
-                startB = container.boxBottom
-                true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val w = container.width.toFloat()
-                val h = container.height.toFloat()
-                if (w <= 0 || h <= 0) return@OnTouchListener true
-                val dx = (ev.rawX - startX) / w
-                val dy = (ev.rawY - startY) / h
-                when (which) {
-                    "tl" -> {
-                        val nl = (startL + dx).coerceIn(0f, startR - 0.02f)
-                        val nt = (startT + dy).coerceIn(0f, startB - 0.02f)
-                        container.boxLeft = nl; container.boxTop = nt
-                        onChange(nl, nt, startR, startB)
-                    }
-                    "tr" -> {
-                        val nr = (startR + dx).coerceIn(startL + 0.02f, 1f)
-                        val nt = (startT + dy).coerceIn(0f, startB - 0.02f)
-                        container.boxTop = nt; container.boxRight = nr
-                        onChange(startL, nt, nr, startB)
-                    }
-                    "bl" -> {
-                        val nl = (startL + dx).coerceIn(0f, startR - 0.02f)
-                        val nb = (startB + dy).coerceIn(startT + 0.02f, 1f)
-                        container.boxLeft = nl; container.boxBottom = nb
-                        onChange(nl, startT, startR, nb)
-                    }
-                    "br" -> {
-                        val nr = (startR + dx).coerceIn(startL + 0.02f, 1f)
-                        val nb = (startB + dy).coerceIn(startT + 0.02f, 1f)
-                        container.boxRight = nr; container.boxBottom = nb
-                        onChange(startL, startT, nr, nb)
-                    }
-                }
-                true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
-            else -> false
-        }
+private fun exitCustomLayoutEditMode(resetRect: Boolean = false) {
+    val editor = screenPositionEditorRef.value
+    if (editor != null) {
+        editor.visibility = View.GONE
     }
-}
-
-/**
- * 在 container 上添加 4 个角手柄(原生 ImageView,绿色圆形,直径 36dp)。
- * 拖动手柄实时改 container 的 boxLeft/Top/Right/Bottom,触发 onChange 回调(写 PrefsManager + 改 WebView)。
- * 返回 4 个 ImageView 列表,用于 detach 时移除。
- */
-private fun attachCornerHandles(
-    container: FrameLayoutSwfContainer,
-    onChange: (Float, Float, Float, Float) -> Unit
-): List<View> {
-    val density = container.resources.displayMetrics.density
-    val handleSize = (44 * density).toInt()  // 44dp,比 36dp 大点容易点
-    val handleRadius = handleSize / 2
-    val handles = mutableListOf<View>()
-    val whichs = listOf("tl", "tr", "bl", "br")
-    for (which in whichs) {
-        val v = View(container.context).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFF4CAF50.toInt())
-                setStroke((2 * density).toInt(), 0xFFFFFFFF.toInt())
-            }
-            // 先放默认位置,onLayout 后会更新
-            layoutParams = android.widget.FrameLayout.LayoutParams(handleSize, handleSize).apply {
-                gravity = android.view.Gravity.TOP or android.view.Gravity.START
-            }
-            setOnTouchListener(makeHandleTouchListener(container, which, onChange))
-        }
-        container.addView(v)
-        handles.add(v)
+    val wv = webViewRef.value
+    val container = mainBoxRef.value as? android.widget.FrameLayout
+    if (resetRect && wv != null && container != null) {
+        PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
+        val lp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        wv.layoutParams = lp
+        wv.requestLayout()
     }
-    return handles
-}
-
-/**
- * 更新 4 个手柄位置(根据 container 的 boxLeft/Top/Right/Bottom 和当前 width/height)。
- */
-private fun updateHandlePositions(container: FrameLayoutSwfContainer, handles: List<View>) {
-    val w = container.width
-    val h = container.height
-    if (w <= 0 || h <= 0) return
-    val density = container.resources.displayMetrics.density
-    val handleSize = (44 * density).toInt()
-    val r = handleSize / 2
-    val lpx = (container.boxLeft * w).toInt()
-    val tpx = (container.boxTop * h).toInt()
-    val rpx = (container.boxRight * w).toInt()
-    val bpx = (container.boxBottom * h).toInt()
-    handles.forEachIndexed { i, v ->
-        val (x, y) = when (i) {
-            0 -> lpx to tpx   // tl
-            1 -> rpx to tpx   // tr
-            2 -> lpx to bpx   // bl
-            else -> rpx to bpx  // br
-        }
-        v.x = (x - r).toFloat()
-        v.y = (y - r).toFloat()
+    // 恢复 WebView 焦点(用户回到正常模式)
+    if (wv != null) {
+        wv.isFocusable = true
+        wv.isFocusableInTouchMode = true
     }
+    customLayoutEditState.value = false
 }
 
 /**
- * 从 container 移除 4 个手柄。
+ * 把当前 ScreenPositionEditor 的 rect 应用到 WebView layoutParams。
+ * 用于首次创建/旋转屏幕后恢复自定义布局。
  */
-private fun detachCornerHandles(container: FrameLayoutSwfContainer, handles: List<View>) {
-    handles.forEach { container.removeView(it) }
+private fun applyCustomLayoutToWebView() {
+    if (!PrefsManager.isCustomLayoutEnabled) return
+    val wv = webViewRef.value ?: return
+    val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
+    val pw = container.width
+    val ph = container.height
+    if (pw <= 0 || ph <= 0) return
+    val x1 = PrefsManager.customLayoutLeft
+    val y1 = PrefsManager.customLayoutTop
+    val x2 = PrefsManager.customLayoutRight
+    val y2 = PrefsManager.customLayoutBottom
+    val lp = FrameLayout.LayoutParams(
+        ((x2 - x1) * pw).toInt().coerceAtLeast(1),
+        ((y2 - y1) * ph).toInt().coerceAtLeast(1)
+    )
+    lp.leftMargin = (x1 * pw).toInt()
+    lp.topMargin = (y1 * ph).toInt()
+    wv.layoutParams = lp
+    wv.requestLayout()
 }
 
-/**
- * 把 SWF_SNIFFER_SCRIPT 返回的 JSON 解析并以 AlertDialog 列出 SWF + 资源。
- * 顶级函数(不嵌在 @Composable 内),避免 Kotlin 嵌套函数前向引用 + 访问控制问题。
- */
 private fun showExtractResultDialog(context: Context, json: String) {
     try {
         val arr = org.json.JSONArray(json)
