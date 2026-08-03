@@ -116,6 +116,8 @@ fun SwfPlayerScreen(
     val currentBoxBottom = remember { mutableFloatStateOf(PrefsManager.customLayoutBottom) }
     val containerWidthPx = remember { mutableStateOf(0) }
     val containerHeightPx = remember { mutableStateOf(0) }
+    // 4 个角手柄 View 引用:进入编辑模式时 attach,退出时 detach。
+    val cornerHandlesRef = remember { mutableStateOf<List<View>?>(null) }
     // 本地 SWF 打开时先弹出引擎选择（仅弹一次）
     val enginePickerShown = remember { mutableStateOf(false) }
     // 位置编辑模式（拖动调整方向键/动作键/鼠标按钮位置）
@@ -927,16 +929,57 @@ fun SwfPlayerScreen(
                     currentBoxTop.floatValue = PrefsManager.customLayoutTop
                     currentBoxRight.floatValue = PrefsManager.customLayoutRight
                     currentBoxBottom.floatValue = PrefsManager.customLayoutBottom
-                    val parent = mainBoxRef.value
+                    val parent = mainBoxRef.value as? FrameLayoutSwfContainer
                     if (parent != null) {
                         containerWidthPx.value = parent.width
                         containerHeightPx.value = parent.height
+                        // 同步 box 状态到 container(手柄拖动需要)
+                        parent.boxLeft = currentBoxLeft.floatValue
+                        parent.boxTop = currentBoxTop.floatValue
+                        parent.boxRight = currentBoxRight.floatValue
+                        parent.boxBottom = currentBoxBottom.floatValue
+                        parent.editMode = true
+                        // 在 container 上加 4 个原生 ImageView 手柄
+                        val handles = attachCornerHandles(parent) { nl, nt, nr, nb ->
+                            // 实时更新 PrefsManager + 同步到 currentBox* (让 overlay 状态一致)
+                            currentBoxLeft.floatValue = nl
+                            currentBoxTop.floatValue = nt
+                            currentBoxRight.floatValue = nr
+                            currentBoxBottom.floatValue = nb
+                            PrefsManager.setCustomLayout(true, nl, nt, nr, nb)
+                            // 实时改 WebView 父 FrameLayout
+                            val wv = webViewRef.value
+                            if (wv != null) {
+                                val pw = parent.width
+                                val ph = parent.height
+                                if (pw > 0 && ph > 0) {
+                                    val lp = FrameLayout.LayoutParams(
+                                        ((nr - nl) * pw).toInt().coerceAtLeast(1),
+                                        ((nb - nt) * ph).toInt().coerceAtLeast(1)
+                                    )
+                                    lp.leftMargin = (nl * pw).toInt()
+                                    lp.topMargin = (nt * ph).toInt()
+                                    wv.layoutParams = lp
+                                    wv.requestLayout()
+                                }
+                            }
+                            // 实时更新手柄自身位置
+                            val cur = cornerHandlesRef.value
+                            if (cur != null) updateHandlePositions(parent, cur)
+                        }
+                        cornerHandlesRef.value = handles
+                        updateHandlePositions(parent, handles)
                     }
-                    (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = true
                     isCustomLayoutEditMode.value = true
                 } else {
                     // 标准比例:关掉自定义
-                    (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = false
+                    val parent = mainBoxRef.value as? FrameLayoutSwfContainer
+                    if (parent != null) {
+                        parent.editMode = false
+                        // 移除 4 个手柄
+                        cornerHandlesRef.value?.let { detachCornerHandles(parent, it) }
+                        cornerHandlesRef.value = null
+                    }
                     isCustomLayoutEditMode.value = false
                     PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
                     val w = webViewRef.value
@@ -965,8 +1008,12 @@ fun SwfPlayerScreen(
     // 直接在游戏画面 4 个角显示拖动手柄(进入编辑模式时),实时改 WebView LayoutParams。
     // 不需要 dialog / 预览框,边拖边看效果。
     if (isCustomLayoutEditMode.value) {
-        CustomLayoutOverlay(
-            initialLeft = currentBoxLeft.value,
+        // 用 Box(fillMaxSize) 包裹 overlay,确保 overlay 拿到父容器完整尺寸约束。
+        // 否则 Compose 的 if 块是无约束 Box,overlay 内部 BoxWithConstraints 拿不到 maxWidth。
+        Box(modifier = Modifier.fillMaxSize()) {
+            CustomLayoutOverlay(
+                modifier = Modifier.fillMaxSize(),
+                initialLeft = currentBoxLeft.value,
             initialTop = currentBoxTop.value,
             initialRight = currentBoxRight.value,
             initialBottom = currentBoxBottom.value,
@@ -995,7 +1042,7 @@ fun SwfPlayerScreen(
                 PrefsManager.setCustomLayout(true, l, t, r, b)
             },
             onClose = {
-                // 退出编辑模式:把最终值保存
+                // 退出编辑模式:把最终值保存,移除 4 个手柄
                 PrefsManager.setCustomLayout(
                     true,
                     currentBoxLeft.value,
@@ -1003,8 +1050,12 @@ fun SwfPlayerScreen(
                     currentBoxRight.value,
                     currentBoxBottom.value
                 )
-                // 恢复 WebView 接收触摸
-                (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = false
+                val parent = mainBoxRef.value as? FrameLayoutSwfContainer
+                if (parent != null) {
+                    parent.editMode = false
+                    cornerHandlesRef.value?.let { detachCornerHandles(parent, it) }
+                    cornerHandlesRef.value = null
+                }
                 isCustomLayoutEditMode.value = false
             },
             onReset = {
@@ -1022,9 +1073,17 @@ fun SwfPlayerScreen(
                 )
                 w.layoutParams = lp
                 w.requestLayout()
+                // 重置后手柄位置跟着重置
+                val fc = parent as? FrameLayoutSwfContainer
+                if (fc != null) {
+                    fc.boxLeft = 0f; fc.boxTop = 0f
+                    fc.boxRight = 1f; fc.boxBottom = 1f
+                    cornerHandlesRef.value?.let { updateHandlePositions(fc, it) }
+                }
             }
         )
-    }
+        }  // Box(fillMaxSize) 关闭
+    }  // if (isCustomLayoutEditMode.value) 关闭
 }
 
 /**
@@ -1039,6 +1098,7 @@ fun SwfPlayerScreen(
  */
 @Composable
 private fun CustomLayoutOverlay(
+    modifier: Modifier = Modifier,
     initialLeft: Float, initialTop: Float, initialRight: Float, initialBottom: Float,
     parentWidth: Int, parentHeight: Int,
     onChange: (Float, Float, Float, Float) -> Unit,
@@ -1058,7 +1118,7 @@ private fun CustomLayoutOverlay(
         bottom.floatValue = initialBottom
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val w = if (parentWidth > 0) parentWidth.toFloat() else constraints.maxWidth.toFloat()
         val h = if (parentHeight > 0) parentHeight.toFloat() else constraints.maxHeight.toFloat()
 
@@ -1109,117 +1169,182 @@ private fun CustomLayoutOverlay(
             }
         }
 
-        // 4 个角拖动手柄
-        Box(modifier = Modifier.fillMaxSize()) {
-            CornerHandle(
-                x = lpx, y = tpx, which = "tl", w = w, h = h,
-                startL = left.floatValue, startT = top.floatValue,
-                startR = right.floatValue, startB = bottom.floatValue
-            ) { nl, nt, nr, nb ->
-                left.floatValue = nl; top.floatValue = nt
-                right.floatValue = nr; bottom.floatValue = nb
-                onChange(nl, nt, nr, nb)
-            }
-            CornerHandle(
-                x = rpx, y = tpx, which = "tr", w = w, h = h,
-                startL = left.floatValue, startT = top.floatValue,
-                startR = right.floatValue, startB = bottom.floatValue
-            ) { nl, nt, nr, nb ->
-                left.floatValue = nl; top.floatValue = nt
-                right.floatValue = nr; bottom.floatValue = nb
-                onChange(nl, nt, nr, nb)
-            }
-            CornerHandle(
-                x = lpx, y = bpx, which = "bl", w = w, h = h,
-                startL = left.floatValue, startT = top.floatValue,
-                startR = right.floatValue, startB = bottom.floatValue
-            ) { nl, nt, nr, nb ->
-                left.floatValue = nl; top.floatValue = nt
-                right.floatValue = nr; bottom.floatValue = nb
-                onChange(nl, nt, nr, nb)
-            }
-            CornerHandle(
-                x = rpx, y = bpx, which = "br", w = w, h = h,
-                startL = left.floatValue, startT = top.floatValue,
-                startR = right.floatValue, startB = bottom.floatValue
-            ) { nl, nt, nr, nb ->
-                left.floatValue = nl; top.floatValue = nt
-                right.floatValue = nr; bottom.floatValue = nb
-                onChange(nl, nt, nr, nb)
-            }
-        }
+        // 4 个角拖动手柄已废弃:改用原生 ImageView(attachCornerHandles)。
+        // 在画面比例弹窗的"自定义"选项里 attach,完成/重置/选其他比例时 detach。
+        // Compose 端只画矩形边框 + 顶部状态条,Compose 4 角手柄不再需要(原生手柄覆盖 WebView 同级)。
     }
-}
-
-/**
- * 单个角的拖动手柄:
- * - 28dp 圆形绿色手柄
- * - 拖动时实时计算新归一化值(0..1)
- * - 不同角:tl 只控制 left/top, tr 只控制 right/top, bl 只控制 left/bottom, br 只控制 right/bottom
- */
-@Composable
-private fun CornerHandle(
-    x: Float, y: Float, which: String,
-    w: Float, h: Float,
-    startL: Float, startT: Float, startR: Float, startB: Float,
-    onChange: (Float, Float, Float, Float) -> Unit
-) {
-    // 用 remember 缓存拖动起始值,避免每次重组重置
-    val dragStart = remember { mutableStateOf(0f to 0f) }
-    val initialBox = remember { mutableStateOf(QuadF(startL, startT, startR, startB)) }
-
-    Box(
-        modifier = Modifier
-            .offset { IntOffset((x - 18f).toInt(), (y - 18f).toInt()) }
-            .size(36.dp)
-            .background(Color(0xFF4CAF50), CircleShape)
-            .border(2.dp, Color.White, CircleShape)
-            .pointerInput(which) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        dragStart.value = offset.x to offset.y
-                        initialBox.value = QuadF(startL, startT, startR, startB)
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val dx = dragAmount.x / w
-                        val dy = dragAmount.y / h
-                        val init = initialBox.value
-                        when (which) {
-                            "tl" -> {
-                                val nl = (init.l + dx).coerceIn(0f, init.r - 0.02f)
-                                val nt = (init.t + dy).coerceIn(0f, init.b - 0.02f)
-                                onChange(nl, nt, init.r, init.b)
-                            }
-                            "tr" -> {
-                                val nr = (init.r + dx).coerceIn(init.l + 0.02f, 1f)
-                                val nt = (init.t + dy).coerceIn(0f, init.b - 0.02f)
-                                onChange(init.l, nt, nr, init.b)
-                            }
-                            "bl" -> {
-                                val nl = (init.l + dx).coerceIn(0f, init.r - 0.02f)
-                                val nb = (init.b + dy).coerceIn(init.t + 0.02f, 1f)
-                                onChange(nl, init.t, init.r, nb)
-                            }
-                            "br" -> {
-                                val nr = (init.r + dx).coerceIn(init.l + 0.02f, 1f)
-                                val nb = (init.b + dy).coerceIn(init.t + 0.02f, 1f)
-                                onChange(init.l, init.t, nr, nb)
-                            }
-                        }
-                    }
-                )
-            }
-    )
 }
 
 private data class QuadF(val l: Float, val t: Float, val r: Float, val b: Float)
 
 @SuppressLint("ViewConstructor")
 private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context) {
-    /** 编辑模式开关:开启后所有触摸事件都拦截,不让 WebView 收到 */
-    var interceptAllTouch: Boolean = false
-    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = interceptAllTouch
+    /** 4 个角的归一化 left/top/right/bottom 位置(0..1),用于 onInterceptTouchEvent 判断 */
+    var boxLeft: Float = 0f
+    var boxTop: Float = 0f
+    var boxRight: Float = 1f
+    var boxBottom: Float = 1f
+    /** 手柄大小(像素),touch hit test 时扩展命中区域让手指容易点中 */
+    var handleTouchRadius: Float = 80f
+    /** 编辑模式开关:开启后只拦截 4 角手柄区域的触摸,其他区域仍给 WebView */
+    var editMode: Boolean = false
+
+    /**
+     * 关键修复:之前用 `interceptAllTouch=true` 会**拦截后没人接**(Compose 手柄在 View tree 之外)。
+     * 现在改成只拦截 4 角手柄 hit zone(扩展的 80px 矩形),其他区域仍让 WebView 接收。
+     * 当 4 角手柄接收到事件后,自己的 onTouchListener 会接管拖动逻辑。
+     */
+    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
+        if (!editMode) return false
+        val evX = ev?.x ?: return false
+        val evY = ev?.y ?: return false
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0 || h <= 0) return false
+        val lpx = boxLeft * w
+        val tpx = boxTop * h
+        val rpx = boxRight * w
+        val bpx = boxBottom * h
+        val r = handleTouchRadius
+        // 4 个角的 hit zone:以角位置为中心,r 为半径的正方形
+        val inTL = evX in (lpx - r)..(lpx + r) && evY in (tpx - r)..(tpx + r)
+        val inTR = evX in (rpx - r)..(rpx + r) && evY in (tpx - r)..(tpx + r)
+        val inBL = evX in (lpx - r)..(lpx + r) && evY in (bpx - r)..(bpx + r)
+        val inBR = evX in (rpx - r)..(rpx + r) && evY in (bpx - r)..(bpx + r)
+        return inTL || inTR || inBL || inBR
+    }
+}
+
+/**
+ * 4 个角手柄的 onTouchListener:实现单指拖动改 boxLeft/Top/Right/Bottom,
+ * 实时同步 PrefsManager + WebView LayoutParams + ImageView 自身位置。
+ */
+private fun makeHandleTouchListener(
+    container: FrameLayoutSwfContainer,
+    which: String,
+    onChange: (Float, Float, Float, Float) -> Unit
+): View.OnTouchListener {
+    var startX = 0f
+    var startY = 0f
+    var startL = container.boxLeft
+    var startT = container.boxTop
+    var startR = container.boxRight
+    var startB = container.boxBottom
+    return View.OnTouchListener { _, ev ->
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                startX = ev.rawX
+                startY = ev.rawY
+                startL = container.boxLeft
+                startT = container.boxTop
+                startR = container.boxRight
+                startB = container.boxBottom
+                true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val w = container.width.toFloat()
+                val h = container.height.toFloat()
+                if (w <= 0 || h <= 0) return@OnTouchListener true
+                val dx = (ev.rawX - startX) / w
+                val dy = (ev.rawY - startY) / h
+                when (which) {
+                    "tl" -> {
+                        val nl = (startL + dx).coerceIn(0f, startR - 0.02f)
+                        val nt = (startT + dy).coerceIn(0f, startB - 0.02f)
+                        container.boxLeft = nl; container.boxTop = nt
+                        onChange(nl, nt, startR, startB)
+                    }
+                    "tr" -> {
+                        val nr = (startR + dx).coerceIn(startL + 0.02f, 1f)
+                        val nt = (startT + dy).coerceIn(0f, startB - 0.02f)
+                        container.boxTop = nt; container.boxRight = nr
+                        onChange(startL, nt, nr, startB)
+                    }
+                    "bl" -> {
+                        val nl = (startL + dx).coerceIn(0f, startR - 0.02f)
+                        val nb = (startB + dy).coerceIn(startT + 0.02f, 1f)
+                        container.boxLeft = nl; container.boxBottom = nb
+                        onChange(nl, startT, startR, nb)
+                    }
+                    "br" -> {
+                        val nr = (startR + dx).coerceIn(startL + 0.02f, 1f)
+                        val nb = (startB + dy).coerceIn(startT + 0.02f, 1f)
+                        container.boxRight = nr; container.boxBottom = nb
+                        onChange(startL, startT, nr, nb)
+                    }
+                }
+                true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+            else -> false
+        }
+    }
+}
+
+/**
+ * 在 container 上添加 4 个角手柄(原生 ImageView,绿色圆形,直径 36dp)。
+ * 拖动手柄实时改 container 的 boxLeft/Top/Right/Bottom,触发 onChange 回调(写 PrefsManager + 改 WebView)。
+ * 返回 4 个 ImageView 列表,用于 detach 时移除。
+ */
+private fun attachCornerHandles(
+    container: FrameLayoutSwfContainer,
+    onChange: (Float, Float, Float, Float) -> Unit
+): List<View> {
+    val density = container.resources.displayMetrics.density
+    val handleSize = (44 * density).toInt()  // 44dp,比 36dp 大点容易点
+    val handleRadius = handleSize / 2
+    val handles = mutableListOf<View>()
+    val whichs = listOf("tl", "tr", "bl", "br")
+    for (which in whichs) {
+        val v = View(container.context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xFF4CAF50.toInt())
+                setStroke((2 * density).toInt(), 0xFFFFFFFF.toInt())
+            }
+            // 先放默认位置,onLayout 后会更新
+            layoutParams = android.widget.FrameLayout.LayoutParams(handleSize, handleSize).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            }
+            setOnTouchListener(makeHandleTouchListener(container, which, onChange))
+        }
+        container.addView(v)
+        handles.add(v)
+    }
+    return handles
+}
+
+/**
+ * 更新 4 个手柄位置(根据 container 的 boxLeft/Top/Right/Bottom 和当前 width/height)。
+ */
+private fun updateHandlePositions(container: FrameLayoutSwfContainer, handles: List<View>) {
+    val w = container.width
+    val h = container.height
+    if (w <= 0 || h <= 0) return
+    val density = container.resources.displayMetrics.density
+    val handleSize = (44 * density).toInt()
+    val r = handleSize / 2
+    val lpx = (container.boxLeft * w).toInt()
+    val tpx = (container.boxTop * h).toInt()
+    val rpx = (container.boxRight * w).toInt()
+    val bpx = (container.boxBottom * h).toInt()
+    handles.forEachIndexed { i, v ->
+        val (x, y) = when (i) {
+            0 -> lpx to tpx   // tl
+            1 -> rpx to tpx   // tr
+            2 -> lpx to bpx   // bl
+            else -> rpx to bpx  // br
+        }
+        v.x = (x - r).toFloat()
+        v.y = (y - r).toFloat()
+    }
+}
+
+/**
+ * 从 container 移除 4 个手柄。
+ */
+private fun detachCornerHandles(container: FrameLayoutSwfContainer, handles: List<View>) {
+    handles.forEach { container.removeView(it) }
 }
 
 /**
