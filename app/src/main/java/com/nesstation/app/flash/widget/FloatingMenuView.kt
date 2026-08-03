@@ -43,7 +43,6 @@ class FloatingMenuView @JvmOverloads constructor(
         fun onExtractSwf()
         fun onToggleCameraRotation()
         fun onOpenAspectRatio()
-        fun onOpenCustomLayout()
     }
 
     private val triggerBtn: ImageButton
@@ -53,7 +52,18 @@ class FloatingMenuView @JvmOverloads constructor(
     private var isMenuOpen = false
 
     var isFullscreen = false
-        set(value) { field = value; updateTriggerIcon() }
+        set(value) {
+            field = value
+            // WebView 进入全屏(Ruffle requestFullscreen 触发)时,触发器会被 WebView 的
+            // customView 盖在 DecorView 上,显示出来也按不到,直接隐藏。
+            triggerBtn.visibility = if (value) GONE else VISIBLE
+            // 如果当前菜单已打开,关闭它
+            if (value && isMenuOpen) {
+                popup?.dismiss()
+                isMenuOpen = false
+            }
+            updateTriggerIcon()
+        }
 
     var isLandscape = true
         set(value) { field = value; updateTriggerIcon() }
@@ -156,7 +166,6 @@ class FloatingMenuView @JvmOverloads constructor(
             MenuItem("Flash 引擎", android.R.drawable.ic_menu_preferences) { callbacks?.onOpenFlashSettings() },
             MenuItem("页面缩放", android.R.drawable.ic_menu_zoom) { callbacks?.onOpenPageZoom() },
             MenuItem("画面比例", android.R.drawable.ic_menu_crop) { callbacks?.onOpenAspectRatio() },
-            MenuItem("自定义布局", android.R.drawable.ic_menu_sort_by_size) { callbacks?.onOpenCustomLayout() },
             MenuItem("兼容模式", android.R.drawable.ic_menu_help) { callbacks?.onOpenUaMode() },
             MenuItem("视角旋转(3D)", android.R.drawable.ic_menu_rotate) { callbacks?.onToggleCameraRotation() },
             MenuItem("提取 SWF", android.R.drawable.ic_menu_search) { callbacks?.onExtractSwf() },

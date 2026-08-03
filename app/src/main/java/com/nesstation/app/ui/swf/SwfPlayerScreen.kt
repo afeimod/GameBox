@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -296,11 +297,49 @@ fun SwfPlayerScreen(
                 if (json.isNullOrEmpty()) {
                     Toast.makeText(context, "未发现 SWF", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "发现 SWF: $json", Toast.LENGTH_LONG).show()
+                    // 解析 JSON 列出 SWF + 资源
+                    showExtractResultDialog(json)
                 }
             }
         }
         webViewRef.value?.evaluateJavascript(SWF_SNIFFER_SCRIPT, null)
+    }
+
+    private fun showExtractResultDialog(json: String) {
+        try {
+            val arr = org.json.JSONArray(json)
+            val lines = mutableListOf<String>()
+            var swfCount = 0
+            var resCount = 0
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val u = o.optString("url", "")
+                val t = o.optString("title", u.substringAfterLast('/'))
+                val type = o.optString("type", "swf")
+                if (type == "resource") {
+                    resCount++
+                    lines.add("[资源] $t\n  $u")
+                } else {
+                    swfCount++
+                    lines.add("[SWF] $t\n  $u")
+                }
+            }
+            val msg = buildString {
+                append("发现 $swfCount 个 SWF" + if (resCount > 0) " + $resCount 个资源" else "")
+                if (lines.isNotEmpty()) {
+                    append("\n\n")
+                    append(lines.joinToString("\n\n").take(1500))
+                    if (lines.size > 8) append("\n\n... (共 ${lines.size} 条)")
+                }
+            }
+            android.app.AlertDialog.Builder(context)
+                .setTitle("提取 SWF")
+                .setMessage(msg)
+                .setPositiveButton("好") { d, _ -> d.dismiss() }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     BoxWithConstraints(
@@ -341,44 +380,47 @@ fun SwfPlayerScreen(
 
                 // 实现 WebView 自定义全屏协议（按 Android 标准）：
                 // 把 WebView 内部生成的全屏 view 加到 Activity 的 DecorView 上,
-                // 调 Activity 进入全屏;退出时反过来。
-                // 之前这里是空实现,导致 Ruffle 等元素 requestFullscreen 触发
-                // onShowCustomView 后 WebView 内部状态不一致而卡死。
+                // 实现 WebView 自定义全屏协议(Android 标准):
+                // 把 WebView 内部生成的全屏 view 加到 DecorView 上层,让 WebView 内部
+                // 状态正常推进,避免 Ruffle 等元素 requestFullscreen 触发 onShowCustomView 后
+                // WebView 内部状态不一致而卡死。
+                //
+                // 关键:不要在这里 hide/show Android systemBars(状态栏/虚拟按键)。
+                // 那些是 Activity 级,跟 WebView 全屏是独立的两套——
+                //   - WebView 全屏:view 加到 DecorView,占满 viewport
+                //   - 手机全屏(浮动菜单的全屏按钮):用 WindowInsetsControllerCompat
+                // 之前实现错把 WebView 全屏跟手机全屏耦合,导致:
+                //   1. WebView 全屏时 systemBars 被 hide,虚拟按键被覆盖
+                //   2. 退出 WebView 全屏时调 show(systemBars),等于退出手机全屏
                 override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
-                    val act = activity ?: return
                     customViewRef.value = view
                     customViewCallbackRef.value = callback
-                    // 加到 DecorView
-                    val decor = act.window.decorView as FrameLayout
-                    decor.addView(view, FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    ))
-                    // Activity 进入全屏
-                    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(act.window, false)
-                    androidx.core.view.WindowInsetsControllerCompat(act.window, decor).hide(
-                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
-                    )
+                    // 把 view 加到 WebView 父容器(mainBoxRef),覆盖在 WebView 上层。
+                    // 之前加到 DecorView 会盖住 floatingMenu + navigation bar(虚拟按键),
+                    // 加到 WebView 父容器只覆盖 WebView 区域,虚拟按键仍可见可按。
+                    val parent = mainBoxRef.value as? ViewGroup
+                    if (parent != null) {
+                        parent.addView(view, FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        ))
+                    }
                     isFullscreen = true
                     floatingMenuRef.value?.isFullscreen = true
                 }
 
                 override fun onHideFullscreen() {
-                    val act = activity ?: return
                     val view = customViewRef.value
                     val cb = customViewCallbackRef.value
                     if (view != null) {
-                        val decor = act.window.decorView as FrameLayout
-                        decor.removeView(view)
+                        val parent = view.parent as? ViewGroup
+                        parent?.removeView(view)
                     }
                     cb?.onCustomViewHidden()
                     customViewRef.value = null
                     customViewCallbackRef.value = null
-                    // 退出 Activity 全屏
-                    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(act.window, true)
-                    androidx.core.view.WindowInsetsControllerCompat(act.window, act.window.decorView).show(
-                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
-                    )
+                    // 不调用 setDecorFitsSystemWindows/show(systemBars)。
+                    // 那些只用于 Android 端浮动菜单的全屏按钮(Web 端全屏不影响 systemBars)。
                     isFullscreen = false
                     floatingMenuRef.value?.isFullscreen = false
                 }
@@ -535,6 +577,8 @@ fun SwfPlayerScreen(
                     containerWidthPx.value = parent.width
                     containerHeightPx.value = parent.height
                 }
+                // 关键:编辑模式下 WebView 父容器拦截所有触摸,让 Compose overlay 接管 4 角拖动
+                (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = true
                 isCustomLayoutEditMode.value = true
             }
         })
@@ -919,16 +963,49 @@ fun SwfPlayerScreen(
             .show()
     }
 
-    // ========== 画面比例弹窗 ==========
+    // ========== 画面比例弹窗(包含自定义布局入口) ==========
     if (showAspectRatioDialog.value) {
-        val ratios = arrayOf("全屏自适应 (auto)", "4:3", "16:9", "16:10", "5:4")
-        val values = arrayOf("auto", "4:3", "16:9", "16:10", "5:4")
+        val ratios = arrayOf("全屏自适应 (auto)", "4:3", "16:9", "16:10", "5:4", "自定义(拖动四角)")
+        val values = arrayOf("auto", "4:3", "16:9", "16:10", "5:4", "__custom__")
         val current = PrefsManager.gameAspectRatio
-        val checked = values.indexOf(current).coerceAtLeast(0)
+        // 如果当前是自定义布局,把"自定义"标为选中
+        val checked = if (PrefsManager.isCustomLayoutEnabled) 5
+                       else values.indexOf(current).coerceAtLeast(0)
         android.app.AlertDialog.Builder(context)
             .setTitle("画面比例")
             .setSingleChoiceItems(ratios, checked) { dlg, which ->
-                applyAspectRatio(values[which])
+                if (values[which] == "__custom__") {
+                    // 进入自定义布局编辑模式(在游戏画面上拖 4 角)
+                    currentBoxLeft.floatValue = PrefsManager.customLayoutLeft
+                    currentBoxTop.floatValue = PrefsManager.customLayoutTop
+                    currentBoxRight.floatValue = PrefsManager.customLayoutRight
+                    currentBoxBottom.floatValue = PrefsManager.customLayoutBottom
+                    val parent = mainBoxRef.value
+                    if (parent != null) {
+                        containerWidthPx.value = parent.width
+                        containerHeightPx.value = parent.height
+                    }
+                    (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = true
+                    isCustomLayoutEditMode.value = true
+                } else {
+                    // 标准比例:关掉自定义
+                    (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = false
+                    isCustomLayoutEditMode.value = false
+                    PrefsManager.setCustomLayout(false, 0f, 0f, 1f, 1f)
+                    val w = webViewRef.value
+                    if (w != null) {
+                        val parent = mainBoxRef.value as? ViewGroup
+                        if (parent != null) {
+                            val lp = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            w.layoutParams = lp
+                            w.requestLayout()
+                        }
+                    }
+                    applyAspectRatio(values[which])
+                }
                 dlg.dismiss()
                 showAspectRatioDialog.value = false
             }
@@ -979,6 +1056,8 @@ fun SwfPlayerScreen(
                     currentBoxRight.value,
                     currentBoxBottom.value
                 )
+                // 恢复 WebView 接收触摸
+                (mainBoxRef.value as? FrameLayoutSwfContainer)?.interceptAllTouch = false
                 isCustomLayoutEditMode.value = false
             },
             onReset = {
@@ -1190,13 +1269,20 @@ private fun CornerHandle(
 private data class QuadF(val l: Float, val t: Float, val r: Float, val b: Float)
 
 @SuppressLint("ViewConstructor")
-private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context)
+private class FrameLayoutSwfContainer(context: Context) : android.widget.FrameLayout(context) {
+    /** 编辑模式开关:开启后所有触摸事件都拦截,不让 WebView 收到 */
+    var interceptAllTouch: Boolean = false
+    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = interceptAllTouch
+}
 
 // ============== SWF 嗅探器脚本（与 3.3 一致） ==============
 private const val SWF_SNIFFER_SCRIPT = """
 (function(){
   var found = {};
-  function addUrl(url, title){
+  var resources = {};
+  // 资源文件扩展名(Flash 游戏常见外部资源)
+  var resExts = /\.(jpe?g|png|gif|bmp|svg|mp3|wav|ogg|flv|mp4|f4v|xml|json|txt|csv|css|js|php|asp)([?#]|$)/i;
+  function addSwf(url, title){
     if(!url) return;
     try { url = new URL(url, location.href).href; } catch(e) { return; }
     if(!/\.swf([?#]|$)/i.test(url) && !/application\/x-shockwave-flash/i.test(url)){
@@ -1207,43 +1293,118 @@ private const val SWF_SNIFFER_SCRIPT = """
     if(!t){
       try { t = decodeURIComponent(url.split('/').pop().split('?')[0].replace(/\.swf$/i,'')); } catch(e){}
     }
-    found[url] = {url:url, title:t, size:''};
+    found[url] = {url:url, title:t, size:'', type:'swf'};
+  }
+  function addResource(url){
+    if(!url) return;
+    try { url = new URL(url, location.href).href; } catch(e) { return; }
+    if(!/^https?:/i.test(url)) return;
+    if(/\.swf([?#]|$)/i.test(url)) return;
+    if(!resExts.test(url)) return;
+    if(resources[url]) return;
+    var subDir = '';
+    try {
+      var p = new URL(url).pathname;
+      var dir = p.substring(0, p.lastIndexOf('/') + 1);
+      if(dir.startsWith('/')) dir = dir.substring(1);
+      subDir = dir;
+    } catch(e) {}
+    var name = url.split('/').pop().split('?')[0] || 'resource';
+    resources[url] = {url:url, title:name, size:'', type:'resource', subDir:subDir};
+  }
+  function report(){
+    var arr = [];
+    for(var u in found) arr.push(found[u]);
+    for(var u in resources) arr.push(resources[u]);
+    if(arr.length > 0 && window.Android && window.Android.onSwfFound){
+      window.Android.onSwfFound(JSON.stringify(arr));
+    } else if (window.Android && window.Android.toast) {
+      window.Android.toast('未发现 SWF 或资源');
+    }
   }
   function scanDOM(){
     var objs = document.querySelectorAll('object[data], embed[src]');
     objs.forEach(function(el){
       var u = el.getAttribute('data') || el.getAttribute('src') || '';
       var t = el.getAttribute('title') || el.getAttribute('name') || '';
-      if(u) addUrl(u, t);
+      if(u) addSwf(u, t);
     });
     var params = document.querySelectorAll('param[name="movie"], param[name="src"]');
     params.forEach(function(p){
       var v = p.getAttribute('value') || '';
-      if(v) addUrl(v, '');
+      if(v) addSwf(v, '');
     });
     var all = document.querySelectorAll('[data*=".swf"], [src*=".swf"], [href*=".swf"]');
     all.forEach(function(el){
       ['data','src','href'].forEach(function(attr){
         var v = el.getAttribute(attr);
-        if(v && /\.swf/i.test(v)) addUrl(v, el.getAttribute('title') || '');
+        if(v && /\.swf/i.test(v)) addSwf(v, el.getAttribute('title') || '');
       });
     });
+    var imgs = document.querySelectorAll('img[src]');
+    imgs.forEach(function(el){
+      var s = el.getAttribute('src') || '';
+      if(s) addResource(s);
+    });
+    var sources = document.querySelectorAll('source[src], video[src], audio[src]');
+    sources.forEach(function(el){
+      var s = el.getAttribute('src') || '';
+      if(s) addResource(s);
+    });
+    var links = document.querySelectorAll('link[href]');
+    links.forEach(function(el){
+      var s = el.getAttribute('href') || '';
+      if(s && resExts.test(s)) addResource(s);
+    });
+  }
+  function scanPerformance(){
+    try {
+      var entries = performance.getEntriesByType('resource');
+      entries.forEach(function(e){
+        if(/\.swf([?#]|$)/i.test(e.name)) addSwf(e.name, '');
+        else if(resExts.test(e.name)) addResource(e.name);
+      });
+    } catch(e) {}
+  }
+  // 关键:hook XHR/fetch,捕获 mhhf 等动态加载的 SWF/资源
+  if(!window.__swfSniffHooked){
+    window.__swfSniffHooked = true;
+    try {
+      var origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url){
+        if(url && /\.swf([?#]|$)/i.test(url)) addSwf(url, '');
+        else if(url && resExts.test(url)) addResource(url);
+        return origOpen.apply(this, arguments);
+      };
+    } catch(e) {}
+    try {
+      var origFetch = window.fetch;
+      if(origFetch){
+        window.fetch = function(input){
+          var u = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+          if(u && /\.swf([?#]|$)/i.test(u)) addSwf(u, '');
+          else if(u && resExts.test(u)) addResource(u);
+          return origFetch.apply(this, arguments);
+        };
+      }
+    } catch(e) {}
   }
   scanDOM();
-  var arr = [];
-  for(var u in found) arr.push(found[u]);
-  if(arr.length > 0 && window.Android && window.Android.onSwfFound){
-    window.Android.onSwfFound(JSON.stringify(arr));
-  } else if (window.Android && window.Android.toast) {
-    window.Android.toast('未发现 SWF');
+  scanPerformance();
+  report();
+  // 多次扫描捕获延迟加载(mhhf 等 SPA 路由后加载)
+  setTimeout(function(){ scanDOM(); scanPerformance(); report(); }, 1000);
+  setTimeout(function(){ scanDOM(); scanPerformance(); report(); }, 3000);
+  setTimeout(function(){ scanDOM(); scanPerformance(); report(); }, 6000);
+  // MutationObserver:监听 DOM 变化(mhhf 切页/弹窗)
+  if(window.MutationObserver){
+    var mo = new MutationObserver(function(){
+      scanDOM();
+    });
+    try {
+      mo.observe(document.documentElement || document.body || document, {childList:true, subtree:true});
+      setTimeout(function(){ mo.disconnect(); }, 8000);
+    } catch(e) {}
   }
-  setTimeout(function(){
-    scanDOM();
-    arr = [];
-    for(var u in found) arr.push(found[u]);
-    if(arr.length > 0 && window.Android && window.Android.onSwfFound){
-      window.Android.onSwfFound(JSON.stringify(arr));
-    }
-  }, 1500);
 })();
 """

@@ -634,7 +634,6 @@ fun WebGameScreen(
             override fun onExtractSwf() = extractSwfFromPage()
             override fun onToggleCameraRotation() = toggleCameraRotation()
             override fun onOpenAspectRatio() { showAspectRatioDialog.value = true }
-            override fun onOpenCustomLayout() { /* TODO: 复用 */ }
         })
         menu.isFullscreen = isFullscreen
         menu.isLandscape = isLandscape
