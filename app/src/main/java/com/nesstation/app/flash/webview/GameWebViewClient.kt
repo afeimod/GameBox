@@ -37,18 +37,12 @@ open class GameWebViewClient(
         fun getLocalSwfDir(): String?
     }
 
-    /** 常见广告/统计域名 */
-    private val adHosts = setOf(
-        "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
-        "ad.4399.com", "stat.4399.com", "analytics.4399.com",
-        "hijack.4399.com", "ad-static.4399pk.com"
-    )
-    /** 4399 评论/广告 SWF CDN:只拦截 SWF 路径(评论系统走 API 不受影响) */
-    private val adSwfPaths = setOf(
-        "cdn.comment.4399pk.com/control/",
-        "comment.4399pk.com/control/",
-        "pic.4399pk.com"
-    )
+    /**
+     * 常见广告/统计域名(参考 gamehtml-3.0,不再使用——adHosts/adSwfPaths 已废弃)
+     * 保留声明供 shouldOverrideUrlLoading 等地方用。
+     */
+    @Suppress("unused")
+    private val adHosts = emptySet<String>()
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url?.toString() ?: return false
@@ -62,19 +56,9 @@ open class GameWebViewClient(
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url?.toString() ?: return null
 
-        // 1. 广告拦截（无条件拦截 adHosts 中所有域名）
-        // 关键:必须无条件拦截广告 SWF 域名(如 cdn.comment.4399pk.com/control/),
-        // 否则 Ruffle fetch 广告 SWF 返回 502 后会"等待子资源"卡住主 SWF,游戏永远进不去。
-        if (adHosts.any { url.contains(it) }) {
-            val isSwf = url.contains(".swf", ignoreCase = true)
-            val mime = if (isSwf) "application/x-shockwave-flash" else "text/plain"
-            return WebResourceResponse(mime, "UTF-8", ByteArrayInputStream(ByteArray(0)))
-        }
-        // 1b. 4399 评论域名的 SWF 路径(评论 API 不受影响)
-        if (url.contains(".swf", ignoreCase = true) && adSwfPaths.any { url.contains(it) }) {
-            return WebResourceResponse("application/x-shockwave-flash", "UTF-8",
-                ByteArrayInputStream(ByteArray(0)))
-        }
+        // 1. 广告拦截已废弃:之前返回空 SWF 导致 WAFlash 解析空 SWF 死锁。
+        //    现在让广告 SWF 走下面的 interceptSwf 路径(走 HTTPS 自己下载,失败 404 兜底),
+        //    参考 gamehtml-3.0 实现。引擎收到 404+CORS 头立即报错,不无限等待。
 
         // 2. 拦截 flash.local 虚拟域名
         if (url.contains("flash.local")) {

@@ -103,84 +103,6 @@
     var loadText = document.getElementById('loadText');
     var stage = document.getElementById('stage');
 
-    // ===== Hook fetch + XMLHttpRequest 拦截广告 SWF =====
-    // 4399 游戏的 Ruffle 实例经常 loadMovie('http://cdn.comment.4399pk.com/control/ad_as2.swf')
-    // 这种广告资源一旦 502,Ruffle 内部 "等待子资源" 状态会把主 SWF 永久卡住。
-    // shouldInterceptRequest 也会拦截,但 Ruffle 用 fetch 时拿到空 SWF 可能仍报错。
-    // 这里在 JS 层直接返回 200 + 空 SWF,Ruffle Loader 看到 Content-Length:0 立即完成,
-    // 主 SWF 不被卡死。广告域名清单与 GameWebViewClient.adHosts 保持一致。
-    (function(){
-      var AD_HOSTS = ['cdn.comment.4399pk.com', 'comment.4399pk.com',
-        'googleads.g.doubleclick.net', 'pagead2.googlesyndication.com',
-        'ad.4399.com', 'stat.4399.com', 'analytics.4399.com',
-        'hijack.4399.com', 'ad-static.4399pk.com', 'pic.4399pk.com'];
-      function isAd(u){ for(var i=0;i<AD_HOSTS.length;i++){ if(u.indexOf(AD_HOSTS[i])>=0) return true;} return false; }
-      function isAdSwf(u){ return isAd(u) && /\.swf([?#]|$)/i.test(u); }
-      // 最小合法 SWF(FWS + 8 字节 header + 空 body)。
-      // 0x46 0x57 0x53 = "FWS" (uncompressed),version=8,file_length=8,frame_count=0
-      // 关键字段: Ruffle 看到 version=8 + file_length=8 (无 frame 数据) 立即完成,不会等待。
-      var EMPTY_SWF = new Uint8Array([0x46,0x57,0x53,0x08,0x00,0x00,0x00,0x08]);
-      function emptySwfResponse(){
-        return new Response(EMPTY_SWF, {status:200, statusText:'OK',
-          headers:{'Content-Type':'application/x-shockwave-flash',
-                   'Content-Length':'8'}});
-      }
-      function emptyResponse(){
-        return new Response('', {status:200, statusText:'OK'});
-      }
-      // hook fetch
-      if(!window.__adFetchHooked && window.fetch){
-        window.__adFetchHooked = true;
-        var origFetch = window.fetch.bind(window);
-        window.fetch = function(input, init){
-          var u = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-          if(u && isAdSwf(u)) return Promise.resolve(emptySwfResponse());
-          if(u && isAd(u)) return Promise.resolve(emptyResponse());
-          return origFetch(input, init);
-        };
-      }
-      // hook XMLHttpRequest
-      if(!window.__adXhrHooked && window.XMLHttpRequest){
-        window.__adXhrHooked = true;
-        var origOpen = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function(method, url){
-          this.__isAd = url && isAd(url);
-          this.__isAdSwf = url && isAdSwf(url);
-          return origOpen.apply(this, arguments);
-        };
-        var origSend = XMLHttpRequest.prototype.send;
-        XMLHttpRequest.prototype.send = function(){
-          if(this.__isAdSwf){
-            // 模拟空 SWF 响应
-            Object.defineProperty(this,'readyState',{get:function(){return 4;}});
-            Object.defineProperty(this,'status',{get:function(){return 200;}});
-            Object.defineProperty(this,'response',{get:function(){return EMPTY_SWF.buffer;}});
-            Object.defineProperty(this,'responseText',{get:function(){return '';}});
-            Object.defineProperty(this,'responseType',{get:function(){return 'arraybuffer';}});
-            var self = this;
-            setTimeout(function(){
-              try{ self.dispatchEvent(new Event('load')); }catch(e){}
-              try{ self.onload && self.onload(); }catch(e){}
-            }, 0);
-            return;
-          }
-          if(this.__isAd){
-            Object.defineProperty(this,'readyState',{get:function(){return 4;}});
-            Object.defineProperty(this,'status',{get:function(){return 200;}});
-            Object.defineProperty(this,'response',{get:function(){return '';}});
-            Object.defineProperty(this,'responseText',{get:function(){return '';}});
-            var self = this;
-            setTimeout(function(){
-              try{ self.dispatchEvent(new Event('load')); }catch(e){}
-              try{ self.onload && self.onload(); }catch(e){}
-            }, 0);
-            return;
-          }
-          return origSend.apply(this, arguments);
-        };
-      }
-    })();
-
     // ===== Ruffle 引擎 =====
     loadText.textContent = '正在加载 Ruffle 引擎…';
 
@@ -205,9 +127,11 @@
       "forceScale": ASPECT_RAW !== 'auto',
       "forceAlign": ASPECT_RAW !== 'auto',
       "quality": QUALITY,
-      // 允许 Ruffle 内部全屏：实际进入全屏走 WebView 的 onShowCustomView 协议
-      // （Android 端实现：SwfPlayerScreen.chromeCallback.onShowFullscreen）。
-      "allowFullscreen": true,
+      // Ruffle 0.4.x:allowFullscreen=true 会让右键菜单出现 "Enter Fullscreen" 选项。
+      // 设置 false 隐藏该菜单项,避免遮挡虚拟按键和悬浮按钮。
+      // 全屏需求:通过 Android 端 onShowCustomView + 自定义 customView addView 到 mainBoxRef 实现,
+      // 不依赖 Ruffle 内置全屏按钮。Ruffle 内部 fullscreenEnabled 仍为 true 时菜单项会显示。
+      "allowFullscreen": false,
       "splashScreen": true,
       "preloader": true,
       "logLevel": "warn",

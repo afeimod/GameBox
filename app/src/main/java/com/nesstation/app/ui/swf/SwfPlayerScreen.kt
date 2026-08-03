@@ -507,23 +507,27 @@ fun SwfPlayerScreen(
                 override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
                     customViewRef.value = view
                     customViewCallbackRef.value = callback
-                    // 把 view 加到 WebView 父容器(mainBoxRef),覆盖在 WebView 上层。
-                    // 之前加到 DecorView 会盖住 floatingMenu + navigation bar(虚拟按键),
-                    // 加到 WebView 父容器只覆盖 WebView 区域,虚拟按键仍可见可按。
+                    // 把 customView 加到 mainBoxRef 覆盖在 WebView 上层。
+                    // 之前加到 DecorView 会盖住 floatingMenu + 虚拟按键,
+                    // 加到 mainBoxRef 只覆盖 WebView 区域,虚拟按键和悬浮按钮仍可见可按。
                     val parent = mainBoxRef.value as? ViewGroup
                     if (parent != null) {
                         parent.addView(view, FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         ))
-                        // 关键:全屏 customView 是 MATCH_PARENT 会盖在 dpad/menu/mouse 上面,
-                        // 必须把它们重新 bringToFront 拉到最上层,虚拟按键和悬浮按钮才能用。
+                        // 关键:customView MATCH_PARENT 会盖在 dpad/menu/mouse 上面。
+                        // 强制把它们 bringToFront 拉到最上层,确保全屏期间仍可操作。
                         listOfNotNull(
                             dpadRef.value, actionRef.value, mouseRef.value, floatingMenuRef.value
                         ).forEach { v -> v.bringToFront() }
                     }
                     isFullscreen = true
-                    floatingMenuRef.value?.isFullscreen = true
+                    // 关键:不调 floatingMenuRef.value?.isFullscreen = true。
+                    // 之前的设计是"全屏时隐藏 triggerBtn",但用户的实际期望是"全屏时悬浮按钮仍可用"
+                    // (按 triggerBtn 弹出菜单,菜单项里可以退出全屏)。
+                    // FloatingMenuView 的 triggerBtn 默认在 mainBoxRef 顶部右侧,
+                    // customView MATCH_PARENT 会盖住它,但 bringToFront 后 triggerBtn 仍可见可点。
                 }
 
                 override fun onHideFullscreen() {
@@ -536,10 +540,8 @@ fun SwfPlayerScreen(
                     cb?.onCustomViewHidden()
                     customViewRef.value = null
                     customViewCallbackRef.value = null
-                    // 不调用 setDecorFitsSystemWindows/show(systemBars)。
-                    // 那些只用于 Android 端浮动菜单的全屏按钮(Web 端全屏不影响 systemBars)。
                     isFullscreen = false
-                    floatingMenuRef.value?.isFullscreen = false
+                    // 同样不调 isFullscreen = false,保持菜单一致状态
                 }
 
                 override fun onFileChooser(callback: ValueCallback<Array<android.net.Uri>>, accept: String?): Boolean { return true }
