@@ -100,6 +100,17 @@ open class GameWebViewClient(
             return interceptSwf(url, request)
         }
 
+        // 6. 拦截 WAFlash/Ruffle 引擎内部发起的外部资源请求（XML/图片/配置等）
+        //    WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest，绕过 JS 层面的
+        //    prototype.open hook 和 url_transformRequestUrl 钩子，导致请求直接发往外部 URL
+        //    （如 http://cdn.comment.4399pk.com/baseconfig/base_100005525.xml），被 CORS
+        //    策略阻止，游戏一直加载。在原生 shouldInterceptRequest 层拦截所有来自 flash.local
+        //    页面的外部请求，代理下载并添加 CORS 头，彻底解决跨域问题。
+        if (url.startsWith("http") && !url.contains("flash.local") &&
+            isFromFlashLocal(request, view)) {
+            return interceptExternalResource(url, request)
+        }
+
         // 不拦截 HTML 页面！
         // View Transitions polyfill 通过 addDocumentStartJavaScript（Document Start 注入）
         // 和 onPageStarted 兜底注入实现，无需 HTML 拦截。
@@ -421,6 +432,9 @@ open class GameWebViewClient(
     /** SWF 下载缓存：避免同一 SWF 被多个并发请求重复下载（Ruffle 会同时发起多个请求） */
     private val swfCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
+    /** 外部资源代理缓存：WAFlash 引擎内部 XHR 请求的外部资源（XML/图片/配置等） */
+    private val externalResCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
     /** 统一 CORS 响应头：所有 SWF 拦截响应（成功/失败/预检）都带这些头 */
     private val swfCorsHeaders = mapOf(
         "Access-Control-Allow-Origin" to "*",
@@ -565,6 +579,174 @@ open class GameWebViewClient(
         // 返回 502 + CORS 头让引擎知道请求失败，优雅处理（如跳过广告 SWF）。
         return WebResourceResponse("application/x-shockwave-flash", null, 502, "Bad Gateway",
             swfCorsHeaders, java.io.ByteArrayInputStream(ByteArray(0)))
+    }
+
+    // =========================================================================
+    // 外部资源代理：拦截 WAFlash WASM 内部 XHR 请求，原生代理下载 + CORS 头
+    // =========================================================================
+
+    /** 外部资源代理用的通用 CORS 响应头 */
+    private val externalCorsHeaders = mapOf(
+        "Access-Control-Allow-Origin" to "*",
+        "Access-Control-Allow-Methods" to "GET, POST, OPTIONS, HEAD",
+        "Access-Control-Allow-Headers" to "*",
+        "Cache-Control" to "no-cache"
+    )
+
+    /**
+     * 检测请求是否来自 flash.local 页面（WAFlash/Ruffle 播放器上下文）。
+     *
+     * WAFlash 播放器运行在 https://flash.local/waflash.html，SWF 内部发起的 XHR
+     * 会携带 Origin: https://flash.local 和 Referer: https://flash.local/... 头。
+     * 通过检查这些头判断请求来源，只代理播放器页面的外部请求，不影响普通网页浏览。
+     */
+    private fun isFromFlashLocal(request: WebResourceRequest, view: WebView): Boolean {
+        val headers = request.requestHeaders
+        headers.forEach { (key, value) ->
+            if (key.equals("Origin", true) && value.contains("flash.local")) return true
+            if (key.equals("Referer", true) && value.contains("flash.local")) return true
+        }
+        // 兜底：检查 WebView 当前页面 URL（部分请求可能不带 Origin/Referer 头）
+        view.url?.let { if (it.contains("flash.local")) return true }
+        return false
+    }
+
+    /**
+     * 代理 WAFlash 引擎发起的外部资源请求（原生下载 + CORS 头）。
+     *
+     * 解决问题：WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest，
+     * 绕过 JS 层面的 prototype.open hook，请求直接发往外部 URL 被 CORS 阻止。
+     * 在 shouldInterceptRequest 原生层拦截，代理下载并添加 CORS 头，
+     * 彻底绕过浏览器 CORS / Mixed Content 限制。
+     *
+     * - 成功：返回原始数据 + CORS 头
+     * - 失败：返回空 200 + CORS 头（避免 XHR 卡死导致游戏一直加载）
+     * - OPTIONS 预检：直接返回 200 + CORS 头
+     */
+    private fun interceptExternalResource(url: String, request: WebResourceRequest): WebResourceResponse? {
+        // 0. CORS 预检请求（OPTIONS）：直接返回 200 + CORS 头，不下载文件
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
+            request.method == "OPTIONS") {
+            android.util.Log.d("GameWebViewClient", "外部资源 OPTIONS 预检通过: $url")
+            return WebResourceResponse("text/plain", "UTF-8", 200, "OK",
+                externalCorsHeaders, java.io.ByteArrayInputStream(ByteArray(0)))
+        }
+
+        // 1. 缓存检查（WAFlash 可能重复请求同一资源）
+        externalResCache[url]?.let { cached ->
+            android.util.Log.d("GameWebViewClient", "外部资源缓存命中: ${cached.size} bytes, URL=$url")
+            val mime = guessMimeFromUrl(url)
+            return WebResourceResponse(mime, null, 200, "OK",
+                externalCorsHeaders + ("Content-Type" to mime),
+                java.io.ByteArrayInputStream(cached))
+        }
+
+        // 2. 原生代理下载
+        try {
+            android.util.Log.d("GameWebViewClient", "代理外部资源请求: $url")
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            // HTTPS: 信任所有证书（部分 CDN 证书可能不被 Android 信任）
+            if (conn is javax.net.ssl.HttpsURLConnection) {
+                conn.sslSocketFactory = trustAllSslSocketFactory()
+                conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            }
+            conn.connectTimeout = 10000
+            conn.readTimeout = 15000
+            conn.requestMethod = "GET"
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("Accept", "*/*")
+            // 不请求 gzip，避免手动解压
+            conn.setRequestProperty("Accept-Encoding", "identity")
+
+            // 转发原始请求头（排除 CORS/条件/host 相关的 header）
+            request.requestHeaders.forEach { (key, value) ->
+                val lk = key.lowercase()
+                if (lk !in setOf(
+                        "cookie", "referer", "origin", "host", "content-length",
+                        "accept-encoding", "access-control-request-method",
+                        "access-control-request-headers", "range",
+                        "if-modified-since", "if-none-match"
+                    )) {
+                    conn.setRequestProperty(key, value)
+                }
+            }
+
+            // 转发 Cookie（防止防盗链/登录态丢失）
+            try {
+                val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
+                if (cookies != null && cookies.isNotEmpty()) {
+                    conn.setRequestProperty("Cookie", cookies)
+                }
+            } catch (e: Exception) {}
+
+            conn.connect()
+            val responseCode = conn.responseCode
+            if (responseCode in 200..299) {
+                val data = conn.inputStream.readBytes()
+                android.util.Log.d("GameWebViewClient",
+                    "外部资源下载完成: ${data.size} bytes, URL=$url")
+                // 缓存（限制单文件 5MB、总条目 20 个，避免内存溢出）
+                if (data.size <= 5 * 1024 * 1024) {
+                    if (externalResCache.size >= 20) externalResCache.clear()
+                    externalResCache[url] = data
+                }
+                val (mime, charset) = parseContentType(conn.contentType, url)
+                val contentTypeHeader = conn.contentType ?: mime
+                return WebResourceResponse(mime, charset, 200, "OK",
+                    externalCorsHeaders + ("Content-Type" to contentTypeHeader),
+                    java.io.ByteArrayInputStream(data))
+            } else {
+                android.util.Log.w("GameWebViewClient",
+                    "外部资源下载失败: HTTP $responseCode, URL=$url")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GameWebViewClient",
+                "外部资源代理异常: ${e.message}, URL=$url")
+        }
+
+        // 3. 失败时返回空 200 + CORS 头，避免 XHR 卡死导致游戏一直加载
+        //    返回 200（而非 4xx/5xx）让 WAFlash 引擎认为请求成功但数据为空，
+        //    引擎会跳过该资源继续运行，而不是无限等待或报错卡死。
+        val mime = guessMimeFromUrl(url)
+        return WebResourceResponse(mime, null, 200, "OK",
+            externalCorsHeaders + ("Content-Type" to mime),
+            java.io.ByteArrayInputStream(ByteArray(0)))
+    }
+
+    /** 从 URL 后缀猜测 MIME 类型 */
+    private fun guessMimeFromUrl(url: String): String {
+        val cleanUrl = url.substringBefore("?").lowercase()
+        return when {
+            cleanUrl.endsWith(".xml") -> "text/xml"
+            cleanUrl.endsWith(".json") -> "application/json"
+            cleanUrl.endsWith(".png") -> "image/png"
+            cleanUrl.endsWith(".jpg") || cleanUrl.endsWith(".jpeg") -> "image/jpeg"
+            cleanUrl.endsWith(".gif") -> "image/gif"
+            cleanUrl.endsWith(".bmp") -> "image/bmp"
+            cleanUrl.endsWith(".css") -> "text/css"
+            cleanUrl.endsWith(".js") -> "application/javascript"
+            cleanUrl.endsWith(".swf") -> "application/x-shockwave-flash"
+            cleanUrl.endsWith(".mp3") -> "audio/mpeg"
+            cleanUrl.endsWith(".wav") -> "audio/wav"
+            cleanUrl.endsWith(".txt") -> "text/plain"
+            cleanUrl.endsWith(".html") || cleanUrl.endsWith(".htm") -> "text/html"
+            else -> "application/octet-stream"
+        }
+    }
+
+    /** 解析 Content-Type 头，返回 (MIME, charset) */
+    private fun parseContentType(contentType: String?, fallbackUrl: String): Pair<String, String?> {
+        if (contentType.isNullOrBlank()) return guessMimeFromUrl(fallbackUrl) to null
+        val parts = contentType.split(";")
+        val mime = parts[0].trim().ifEmpty { guessMimeFromUrl(fallbackUrl) }
+        var charset: String? = null
+        for (part in parts.drop(1)) {
+            val trimmed = part.trim()
+            if (trimmed.startsWith("charset=", ignoreCase = true)) {
+                charset = trimmed.substringAfter("=").trim().trim('"')
+            }
+        }
+        return mime to charset
     }
 
     /** 信任所有 SSL 证书的 SSLSocketFactory（用于 SWF 下载兼容） */
