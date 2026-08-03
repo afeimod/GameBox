@@ -234,42 +234,6 @@ fun SwfPlayerScreen(
         lp.leftMargin = l
         lp.topMargin = t
         wv.layoutParams = lp
-        // 同时通过 JS 调整 #stage 尺寸,让 Ruffle 按新 viewport 算
-        val w = (r - l).coerceAtLeast(1).toFloat()
-        val h = (b - t).coerceAtLeast(1).toFloat()
-        val js = """
-            (function(){
-              var stage = document.getElementById('stage');
-              if (stage) {
-                stage.style.position = 'absolute';
-                stage.style.left = '0'; stage.style.top = '0';
-                stage.style.width = '100%'; stage.style.height = '100%';
-              }
-            })();
-        """.trimIndent()
-        wv.evaluateJavascript(js, null)
-        // 通知 WebView 内部刷新
-        wv.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null)
-    }
-
-    fun applyCustomLayout(enabled: Boolean, left: Float, top: Float, right: Float, bottom: Float) {
-        PrefsManager.setCustomLayout(enabled, left, top, right, bottom)
-        val container = mainBoxRef.value as? android.widget.FrameLayout ?: return
-        val wv = webViewRef.value ?: return
-        val parentW = container.width
-        val parentH = container.height
-        if (parentW <= 0 || parentH <= 0) return
-        val l = (left.coerceIn(0f, 1f) * parentW).toInt()
-        val t = (top.coerceIn(0f, 1f) * parentH).toInt()
-        val r = (right.coerceIn(0f, 1f) * parentW).toInt()
-        val b = (bottom.coerceIn(0f, 1f) * parentH).toInt()
-        val lp = android.widget.FrameLayout.LayoutParams(
-            (r - l).coerceAtLeast(1),
-            (b - t).coerceAtLeast(1)
-        )
-        lp.leftMargin = l
-        lp.topMargin = t
-        wv.layoutParams = lp
         wv.requestLayout()
     }
 
