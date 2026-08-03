@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.sp
 import com.nesstation.app.flash.download.DownloadStatus
 import com.nesstation.app.flash.download.SwfDownloadItem
 import com.nesstation.app.flash.download.SwfDownloadManager
+import com.nesstation.app.ui.swf.SwfExtractDialog
+import com.nesstation.app.ui.swf.SwfItem
 import kotlinx.coroutines.flow.MutableStateFlow
 
 private val PrimaryBackground = Color(0xFF0F1115)
@@ -711,6 +713,9 @@ fun WebGameScreen(
                     val swfUrls = swfItems.map { it.url to it.title }
                     val resUrls = resItems.map { it.url to it.subDir }
                     manager.startDownload(swfUrls, pageUrl, gameFolder, resUrls)
+                    // 关键:立即 dismiss dialog,让用户回到游戏画面看到顶部 progress overlay。
+                    // 之前 dialog 一直显示,挡住 progress overlay,用户看不到下载进度变化。
+                    swfExtractJson.value = null
                 } else {
                     Toast.makeText(context, "正在下载中，请等待", Toast.LENGTH_SHORT).show()
                 }
@@ -790,125 +795,6 @@ fun WebGameScreen(
 /** FrameLayout 子类，作为手柄 + WebView + 菜单的承载容器 */
 @SuppressLint("ViewConstructor")
 private class FrameLayoutGameContainer(context: Context) : android.widget.FrameLayout(context)
-
-@Composable
-private fun SwfExtractDialog(
-    json: String,
-    onDismiss: () -> Unit,
-    onPlay: (String) -> Unit,
-    onDownload: (List<SwfItem>) -> Unit
-) {
-    val allItems = remember(json) {
-        try {
-            val arr = org.json.JSONArray(json)
-            (0 until arr.length()).mapNotNull { i ->
-                val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val u = o.optString("url", "")
-                if (u.isEmpty()) null else SwfItem(
-                    url = u,
-                    title = o.optString("title", u.substringAfterLast('/')),
-                    type = o.optString("type", "swf"),
-                    subDir = o.optString("subDir", "")
-                )
-            }
-        } catch (e: Exception) { emptyList() }
-    }
-    val swfList = allItems.filter { it.type == "swf" }
-    val resList = allItems.filter { it.type == "resource" }
-    val selected = remember(json) { mutableStateMapOf<String, Boolean>() }
-
-    if (allItems.isEmpty()) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("提取 SWF") },
-            text = { Text("未在页面中发现 SWF 文件") },
-            confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("确定") } }
-        )
-    } else {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("发现 ${swfList.size} 个 SWF" + if (resList.isNotEmpty()) " + ${resList.size} 个资源" else "") },
-            text = {
-                androidx.compose.foundation.lazy.LazyColumn {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.TextButton(
-                                onClick = {
-                                    val allUrls = allItems.map { it.url }
-                                    val allSelected = allUrls.all { selected[it] == true }
-                                    if (allSelected) {
-                                        selected.clear()
-                                    } else {
-                                        allUrls.forEach { selected[it] = true }
-                                    }
-                                }
-                            ) { Text(if (allItems.all { selected[it.url] == true }) "取消全选" else "全选") }
-                        }
-                    }
-                    // SWF 文件列表
-                    if (swfList.isNotEmpty()) {
-                        item { Text("SWF 文件", color = Color(0xFFFFC107), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
-                    }
-                    items(count = swfList.size) { idx ->
-                        val it = swfList[idx]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selected[it.url] == true,
-                                onCheckedChange = { checked -> selected[it.url] = checked }
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(it.title, color = Color.White, fontSize = 13.sp)
-                                Text(it.url, color = Color.Gray, fontSize = 10.sp)
-                            }
-                            androidx.compose.material3.TextButton(onClick = { onPlay(it.url) }) {
-                                Text("播放")
-                            }
-                        }
-                    }
-                    // 资源文件列表
-                    if (resList.isNotEmpty()) {
-                        item { Text("资源文件 (${resList.size})", color = Color(0xFF4FC3F7), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
-                    }
-                    items(count = resList.size) { idx ->
-                        val it = resList[idx]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selected[it.url] == true,
-                                onCheckedChange = { checked -> selected[it.url] = checked }
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(it.title, color = Color.White, fontSize = 12.sp)
-                                Text(if (it.subDir.isNotEmpty()) "${it.subDir}${it.title}" else it.url,
-                                    color = Color.Gray, fontSize = 9.sp, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        val toDownload = allItems.filter { selected[it.url] == true }
-                        if (toDownload.isNotEmpty()) {
-                            onDownload(toDownload)
-                        }
-                    }
-                ) { Text("下载选中") }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
-            }
-        )
-    }
-}
-
-private data class SwfItem(val url: String, val title: String, val type: String = "swf", val subDir: String = "")
 
 @Composable
 private fun FlashEngineDialog(

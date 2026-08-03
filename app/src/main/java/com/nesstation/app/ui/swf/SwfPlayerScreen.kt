@@ -59,12 +59,16 @@ import androidx.compose.ui.unit.sp
 // 注:不同 Compose 版本下 Float.toDp() 可能在不同包。这里用 density.density 手动换算 px → dp,
 // 避免 unresolved reference。
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.window.Dialog
 import com.nesstation.app.flash.data.PrefsManager
 import com.nesstation.app.flash.input.ActionButtonView
 import com.nesstation.app.flash.input.DPadView
 import com.nesstation.app.flash.input.KeyMapper
 import com.nesstation.app.flash.input.MouseControlView
+import com.nesstation.app.flash.download.SwfDownloadItem
+import com.nesstation.app.flash.download.SwfDownloadManager
+import com.nesstation.app.flash.download.DownloadStatus
 import com.nesstation.app.flash.webview.GameWebChromeClient
 import com.nesstation.app.flash.webview.GameWebView
 import com.nesstation.app.flash.webview.GameWebViewClient
@@ -106,6 +110,11 @@ fun SwfPlayerScreen(
     val showZoomDialog = remember { mutableStateOf(false) }
     val showUaDialog = remember { mutableStateOf(false) }
     val showAspectRatioDialog = remember { mutableStateOf(false) }
+
+    // 下载进度 state:监听 SwfDownloadManager 实时刷新
+    val downloadProgress = remember { mutableStateOf<List<SwfDownloadItem>>(emptyList()) }
+    val isDownloadingActive = remember { mutableStateOf(false) }
+    val swfExtractDialog = remember { mutableStateOf<String?>(null) }
 
     // ScreenPositionEditor(自由布局编辑器):一个原生 View,挂在 FrameLayoutSwfContainer 里
     // 4 角 + body 5 个 hot zone,自己处理 onDraw + onTouchEvent。
@@ -302,8 +311,8 @@ fun SwfPlayerScreen(
                 if (json.isNullOrEmpty()) {
                     Toast.makeText(context, "未发现 SWF", Toast.LENGTH_SHORT).show()
                 } else {
-                    // 解析 JSON 列出 SWF + 资源
-                    showExtractResultDialog(context, json)
+                    // 弹出 SwfExtractDialog(支持多选+下载+全选,同 WebGameScreen)
+                    swfExtractDialog.value = json
                 }
             }
         }
@@ -369,6 +378,91 @@ fun SwfPlayerScreen(
                 container
             }
         )
+
+        // ========== 下载进度 Overlay(顶部) ==========
+        if (isDownloadingActive.value) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xE61A1A2E))
+                    .padding(8.dp)
+                    .align(Alignment.TopCenter)
+            ) {
+                val items = downloadProgress.value
+                val completed = items.count { it.status == DownloadStatus.COMPLETED }
+                val total = items.size
+                val currentPercent = items.filter { it.status == DownloadStatus.DOWNLOADING }
+                    .maxByOrNull { it.progress }?.progress ?: 0
+                Column {
+                    Text(
+                        "下载进度: $completed/$total" + if (currentPercent > 0) " (当前: $currentPercent%)" else "",
+                        color = Color.White, fontSize = 12.sp
+                    )
+                    LinearProgressIndicator(
+                        progress = if (total > 0) completed.toFloat() / total else 0f,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        color = Color(0xFFFFC107)
+                    )
+                    items.filter { it.status != DownloadStatus.COMPLETED }.forEach { item ->
+                        Text(
+                            "${item.title}: ${when (item.status) {
+                                DownloadStatus.DOWNLOADING -> "下载中 ${item.progress}%"
+                                DownloadStatus.FAILED -> "失败(重试${item.retryCount})"
+                                DownloadStatus.PENDING -> "等待中"
+                                DownloadStatus.CANCELLED -> "已取消"
+                                else -> ""
+                            }}",
+                            color = Color.White, fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // ========== SWF 提取对话框(多选+下载) ==========
+        swfExtractDialog.value?.let { json ->
+            SwfExtractDialog(
+                json = json,
+                onDismiss = { swfExtractDialog.value = null },
+                onPlay = { /* SwfPlayerScreen 已在播放,不用 onPlay */ swfExtractDialog.value = null },
+                onDownload = { items ->
+                    if (!isDownloadingActive.value) {
+                        val manager = SwfDownloadManager(context)
+                        manager.setProgressListener { list -> downloadProgress.value = list }
+                        manager.setCompleteListener { list ->
+                            isDownloadingActive.value = false
+                            val success = list.count { it.status == DownloadStatus.COMPLETED }
+                            val failed = list.count { it.status == DownloadStatus.FAILED }
+                            android.widget.Toast.makeText(
+                                context, "下载完成: $success 个成功" +
+                                        if (failed > 0) ", $failed 个失败" else "",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        isDownloadingActive.value = true
+                        val pageUrl = webViewRef.value?.url ?: ""
+                        val swfItems = items.filter { it.type == "swf" }
+                        val resItems = items.filter { it.type == "resource" }
+                        val gameFolder = if (swfItems.isNotEmpty()) {
+                            swfItems.first().title.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                                .take(50).ifBlank { "GameBox" }
+                        } else if (resItems.isNotEmpty()) {
+                            "resources"
+                        } else {
+                            ""
+                        }
+                        val swfUrls = swfItems.map { it.url to it.title }
+                        val resUrls = resItems.map { it.url to it.subDir }
+                        manager.startDownload(swfUrls, pageUrl, gameFolder, resUrls)
+                        // 关键:dismiss dialog,用户回到游戏画面看到顶部 progress overlay
+                        swfExtractDialog.value = null
+                    } else {
+                        android.widget.Toast.makeText(context, "正在下载中，请等待",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
     }
 
     LaunchedEffect(mainBoxRef.value) {
