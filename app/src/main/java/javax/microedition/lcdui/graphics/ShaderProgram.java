@@ -41,6 +41,8 @@ public class ShaderProgram {
 	public int uTexelDelta;
 	public int uSetting;
 	public int uPixelDelta;
+	/** The OpenGL program ID, stored so we can call glUseProgram() when needed. */
+	public int programId = -1;
 
 	public ShaderProgram(ShaderInfo shader) {
 		if (shader != null) {
@@ -64,6 +66,28 @@ public class ShaderProgram {
 		glReleaseShaderCompiler();
 		if (program == -1) {
 			throw new RuntimeException("Init shader program error: see log for detail");
+		}
+	}
+
+	/**
+	 * Creates a ShaderProgram directly from vertex and fragment shader source code strings.
+	 * Used by J2ME filter system to apply GLSL shaders (XBR/HQ4x etc.) without
+	 * loading from files.
+	 *
+	 * @param vertexCode   GLSL vertex shader source
+	 * @param fragmentCode GLSL fragment shader source
+	 */
+	public ShaderProgram(String vertexCode, String fragmentCode) {
+		int program = createProgram(vertexCode, fragmentCode);
+		glReleaseShaderCompiler();
+		if (program == -1) {
+			// Fall back to default shader
+			String defaultVertex = ContextHolder.getAssetAsString(VERTEX);
+			String defaultFragment = ContextHolder.getAssetAsString(FRAGMENT);
+			program = createProgram(defaultVertex, defaultFragment);
+			if (program == -1) {
+				throw new RuntimeException("Init shader program error: see log for detail");
+			}
 		}
 	}
 
@@ -103,6 +127,7 @@ public class ShaderProgram {
 			glDeleteProgram(program);
 			return -1;
 		}
+		this.programId = program;
 		return program;
 	}
 
@@ -131,10 +156,12 @@ public class ShaderProgram {
 		glVertexAttribPointer(aPosition, 2, GL_FLOAT, false, 4 * 4, vbo);
 		glEnableVertexAttribArray(aPosition);
 
-		// координаты текстур
+		// texture coordinates
 		vbo.position(2);
 		glVertexAttribPointer(aTexCoord, 2, GL_FLOAT, false, 4 * 4, vbo);
 		glEnableVertexAttribArray(aTexCoord);
-		glUniform2f(uTexelDelta, 1.0f / width, 1.0f / height);
+		if (uTexelDelta != -1) {
+			glUniform2f(uTexelDelta, 1.0f / width, 1.0f / height);
+		}
 	}
 }

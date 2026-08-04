@@ -49,9 +49,10 @@ public class FcFilterView extends View {
     public static final int MODE_4XBR = 5;
     public static final int MODE_XBR_DOT = 6;
     public static final int MODE_4XBR_DOT = 7;
+    public static final int MODE_HQ4X = 8;
 
     /** Highest valid mode — used for bounds checking. */
-    public static final int MODE_MAX = MODE_4XBR_DOT;
+    public static final int MODE_MAX = MODE_HQ4X;
 
     private int filterMode;
     private String filterType;

@@ -742,7 +742,7 @@ public class MicroActivity extends AppCompatActivity {
 	private int currentFilterIndex = 0;
 	private final String[] filterNames = {
 			"无滤镜", "扫描线", "CRT", "点阵",
-			"XBR", "4XBR", "XBR+点阵", "4XBR+点阵"
+			"XBR", "4XBR", "XBR+点阵", "4XBR+点阵", "HQ4x"
 	};
 	private boolean isPaused = false;
 
@@ -751,11 +751,17 @@ public class MicroActivity extends AppCompatActivity {
 		FrameLayout root = binding.midletFrame;
 		float density = getResources().getDisplayMetrics().density;
 
-		// Sync currentFilterIndex with the persisted J2ME filter mode
-		// (FcFilterView reads from "j2me_prefs" on construction).
+		// Read persisted J2ME filter mode and apply it to Canvas
+		android.content.SharedPreferences j2mePrefs =
+				getSharedPreferences("j2me_prefs", MODE_PRIVATE);
+		currentFilterIndex = j2mePrefs.getInt("j2me_video_filter", 0);
+		Canvas.setJ2meFilterMode(currentFilterIndex);
+
+		// Always hide FcFilterView — ALL filters now go through the rendering pipeline
+		// (GLSL shaders in GL mode, CPU bitmap filter in non-GL mode)
 		javax.microedition.lcdui.graphics.FcFilterView fv0 = binding.fcFilterView;
 		if (fv0 != null) {
-			currentFilterIndex = fv0.getFilterMode();
+			fv0.setVisibility(View.GONE);
 		}
 
 		// Floating menu button (FAB-like)
@@ -915,15 +921,24 @@ public class MicroActivity extends AppCompatActivity {
 	/**
 	 * Shows a filter selection dialog with all available J2ME video filter options.
 	 * The current filter is pre-selected; tapping an option applies it immediately.
+	 *
+	 * ALL filters are applied directly to the game's rendering pipeline via
+	 * Canvas.setJ2meFilterMode() — NO FcFilterView overlay is used.
+	 *
+	 * Pixel-processing filters (XBR/4XBR/HQ4x etc.):
+	 *   J2meBitmapFilter processes the game bitmap on CPU, producing an UPSCALED
+	 *   bitmap (2x for XBR, 4x for 4XBR/HQ4x) with edge-adaptive interpolation.
+	 *   In GL mode: the upscaled bitmap is uploaded as GL texture with NEAREST
+	 *   filtering and a passthrough shader.
+	 *   In non-GL modes: the upscaled bitmap is drawn to the canvas with NEAREST.
+	 *
+	 * Mask filters (scanline/CRT/dot):
+	 *   In GL mode: GLSL fragment shaders apply the mask pattern.
+	 *   In non-GL modes: the mask is drawn directly on the canvas.
 	 */
 	private void showFilterSelectionDialog() {
-		// Sync index from FcFilterView in case it was changed elsewhere
-		javax.microedition.lcdui.graphics.FcFilterView fv = binding.fcFilterView;
-		if (fv != null) {
-			currentFilterIndex = fv.getFilterMode();
-		}
+		currentFilterIndex = Canvas.getJ2meFilterMode();
 		String[] items = filterNames;
-		// Build descriptive labels
 		String[] labels = new String[items.length];
 		for (int i = 0; i < items.length; i++) {
 			if (i == currentFilterIndex) {
@@ -936,9 +951,24 @@ public class MicroActivity extends AppCompatActivity {
 				.setTitle("选择视频滤镜")
 				.setItems(labels, (dialog, which) -> {
 					currentFilterIndex = which;
+					// Set filter mode on Canvas — this activates real pixel processing.
+					// XBR/HQ4x: CPU processes game bitmap → upscaled result → drawn with NEAREST.
+					// Scanline/CRT/dot: GLSL shader (GL mode) or canvas mask (non-GL mode).
+					// The filter is applied directly to the game texture, NOT as an overlay.
+					Canvas.setJ2meFilterMode(which);
+
+					// Persist the filter choice to J2ME-dedicated preferences
+					android.content.SharedPreferences j2mePrefs =
+							getSharedPreferences("j2me_prefs", MODE_PRIVATE);
+					j2mePrefs.edit().putInt("j2me_video_filter", which).apply();
+
+					// Hide FcFilterView overlay completely — all filters now go through
+					// the rendering pipeline (GLSL shader or CPU bitmap filter)
+					javax.microedition.lcdui.graphics.FcFilterView fv = binding.fcFilterView;
 					if (fv != null) {
-						fv.setFilterMode(which);
+						fv.setVisibility(View.GONE);
 					}
+
 					Toast.makeText(this, "滤镜: " + filterNames[which], Toast.LENGTH_SHORT).show();
 				})
 				.setNegativeButton(android.R.string.cancel, null)
