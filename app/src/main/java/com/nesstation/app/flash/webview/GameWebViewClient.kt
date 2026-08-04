@@ -44,6 +44,14 @@ open class GameWebViewClient(
     @Suppress("unused")
     private val adHosts = emptySet<String>()
 
+    /**
+     * 当前页面 URL（由 onPageStarted 在 UI 线程更新，shouldInterceptRequest 在后台线程读取）。
+     * 用于判断 shouldInterceptRequest 中的请求是否来自 flash.local 播放器页面。
+     * 不能用 view.url — 它在 shouldInterceptRequest 的后台线程中可能返回 null 或抛异常。
+     */
+    @Volatile
+    private var currentPageUrl: String? = null
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url?.toString() ?: return false
         if (url.endsWith(".swf", ignoreCase = true)) {
@@ -465,10 +473,16 @@ open class GameWebViewClient(
 
     /**
      * 判断请求是否来自 flash.local 播放器页面（WAFlash/Ruffle）。
-     * 优先检查 Referer 请求头，备用检查当前 WebView 页面 URL。
+     * 优先检查 @Volatile currentPageUrl（由 onPageStarted 更新，后台线程安全），
+     * 备用检查 Referer 请求头，最后检查 view.url。
      */
     private fun isFromFlashLocal(request: WebResourceRequest, view: WebView): Boolean {
-        // 方法 1：检查 Referer 请求头
+        // 方法 1：检查 @Volatile currentPageUrl（最可靠，由 onPageStarted 在 UI 线程更新）
+        val trackedUrl = currentPageUrl
+        if (trackedUrl != null && trackedUrl.contains("flash.local")) {
+            return true
+        }
+        // 方法 2：检查 Referer 请求头
         try {
             val headers = request.requestHeaders
             if (headers != null) {
@@ -478,9 +492,16 @@ open class GameWebViewClient(
                 }
             }
         } catch(e: Exception) {}
-        // 方法 2：检查当前页面 URL（view.url）
-        val pageUrl = view.url ?: ""
-        return pageUrl.contains("flash.local")
+        // 方法 3：检查 view.url（可能不可靠，但作为最后兜底）
+        try {
+            val pageUrl = view.url ?: ""
+            if (pageUrl.contains("flash.local")) {
+                return true
+            }
+        } catch(e: Exception) {}
+        android.util.Log.w("GameWebViewClient",
+            "isFromFlashLocal=false, trackedUrl=$trackedUrl, url=${request.url}")
+        return false
     }
 
     /**
@@ -816,6 +837,7 @@ open class GameWebViewClient(
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        currentPageUrl = url  // 后台线程安全：@Volatile 保证可见性
         callback.onPageStarted(url)
 
         // 注入按键安全钩子：页面失焦时自动释放所有按键（所有页面通用）

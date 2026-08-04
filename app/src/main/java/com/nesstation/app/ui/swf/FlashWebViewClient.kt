@@ -470,6 +470,15 @@ open class FlashWebViewClient(
     }
 
     // -------------------------------------------------------------------------
+    // Page lifecycle — track current URL for shouldInterceptRequest
+    // -------------------------------------------------------------------------
+
+    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+        currentPageUrl = url  // @Volatile, thread-safe for shouldInterceptRequest
+    }
+
+    // -------------------------------------------------------------------------
     // shouldInterceptRequest — virtual domain, SWF, ad blocking
     // -------------------------------------------------------------------------
 
@@ -613,11 +622,21 @@ open class FlashWebViewClient(
     /** External resource proxy cache */
     private val externalResourceCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
+    /** Current page URL tracked from onPageStarted (thread-safe for shouldInterceptRequest) */
+    @Volatile
+    private var currentPageUrl: String? = null
+
     /**
      * Check if request originates from flash.local player page (WAFlash/Ruffle).
-     * Checks Referer header first, falls back to current page URL.
+     * Uses @Volatile currentPageUrl (updated by onPageStarted on UI thread) for reliability.
      */
     private fun isFromFlashLocal(request: WebResourceRequest, view: WebView): Boolean {
+        // Method 1: @Volatile currentPageUrl (most reliable)
+        val trackedUrl = currentPageUrl
+        if (trackedUrl != null && trackedUrl.contains("flash.local")) {
+            return true
+        }
+        // Method 2: Referer header
         try {
             val headers = request.requestHeaders
             if (headers != null) {
@@ -627,8 +646,14 @@ open class FlashWebViewClient(
                 }
             }
         } catch(e: Exception) {}
-        val pageUrl = view.url ?: ""
-        return pageUrl.contains("flash.local")
+        // Method 3: view.url (fallback, may not work on background thread)
+        try {
+            val pageUrl = view.url ?: ""
+            if (pageUrl.contains("flash.local")) {
+                return true
+            }
+        } catch(e: Exception) {}
+        return false
     }
 
     /**
