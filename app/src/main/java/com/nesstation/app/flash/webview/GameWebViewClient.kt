@@ -37,12 +37,12 @@ open class GameWebViewClient(
         fun getLocalSwfDir(): String?
     }
 
-    /**
-     * 常见广告/统计域名(参考 gamehtml-3.0,不再使用——adHosts/adSwfPaths 已废弃)
-     * 保留声明供 shouldOverrideUrlLoading 等地方用。
-     */
-    @Suppress("unused")
-    private val adHosts = emptySet<String>()
+    /** 常见广告/统计域名（参考 gamehtml-3.0） */
+    private val adHosts = setOf(
+        "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
+        "ad.4399.com", "stat.4399.com", "analytics.4399.com",
+        "cdn.comment.4399pk.com", "comment.4399pk.com"
+    )
 
     /**
      * 当前页面 URL（由 onPageStarted 在 UI 线程更新，shouldInterceptRequest 在后台线程读取）。
@@ -64,9 +64,12 @@ open class GameWebViewClient(
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url?.toString() ?: return null
 
-        // 1. 广告拦截已废弃:之前返回空 SWF 导致 WAFlash 解析空 SWF 死锁。
-        //    现在让广告 SWF 走下面的 interceptSwf 路径(走 HTTPS 自己下载,失败 404 兜底),
-        //    参考 gamehtml-3.0 实现。引擎收到 404+CORS 头立即报错,不无限等待。
+        // 1. 广告拦截：直接返回空 text/plain 响应（不返回空 SWF，避免 WAFlash 解析死锁）
+        //    参考 gamehtml-3.0 实现。WAFlash 收到空响应后跳过，游戏继续运行。
+        if (adHosts.any { url.contains(it) }) {
+            return WebResourceResponse("text/plain", "UTF-8", 200, "OK",
+                externalCorsHeaders, ByteArrayInputStream(ByteArray(0)))
+        }
 
         // 2. 拦截 flash.local 虚拟域名
         if (url.contains("flash.local")) {
@@ -108,16 +111,22 @@ open class GameWebViewClient(
             return interceptSwf(url, request)
         }
 
-        // 注意：不拦截 WAFlash 引擎内部发起的外部资源请求（XML/图片/配置等）！
-        // 原因：WASM 代码请求外部 URL（如 cdn.comment.4399pk.com/baseconfig/base_100005525.xml）
-        // 被 CORS 策略阻止后，XHR onerror 回调会被触发，游戏继续运行。
-        // 如果原生代理下载，会变成同步阻塞等待，WASM 代码一直等响应导致卡死。
-        // 正确做法：让 CORS 错误自然发生，XHR 快速失败，游戏继续。
-
-        // 不拦截 HTML 页面！
-        // View Transitions polyfill 通过 addDocumentStartJavaScript（Document Start 注入）
-        // 和 onPageStarted 兜底注入实现，无需 HTML 拦截。
-        // HTML 拦截会导致：编码问题、cookie/session 丢失、缓存/重定向破坏。
+        // 6. 拦截 WAFlash 播放器页面发出的外部资源请求（XML/图片/配置/广告等）
+        //    直接返回空响应（不代理下载、不阻塞），让 WAFlash 快速跳过，游戏继续运行。
+        //    原因：WAFlash WASM 代码请求外部 URL 被 CORS 阻止后可能不触发 onerror 导致卡死。
+        //    返回空响应让引擎收到"成功但空"的数据，解析失败后跳过继续。
+        //    参考 gamehtml-3.0 广告拦截策略：返回空 text/plain，不返回空 SWF。
+        if (isFromFlashLocal(request, view) &&
+            (url.startsWith("http://") || url.startsWith("https://"))) {
+            val mime = guessExternalMimeType(url)
+            val headers = externalCorsHeaders.toMutableMap().apply {
+                if (mime.isNotEmpty()) put("Content-Type", mime)
+            }
+            android.util.Log.d("GameWebViewClient",
+                "WAFlash 外部请求屏蔽(空响应): $url")
+            return WebResourceResponse(mime.ifEmpty { "application/octet-stream" }, null,
+                200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
+        }
 
         return super.shouldInterceptRequest(view, request)
     }
@@ -764,12 +773,8 @@ open class GameWebViewClient(
 
         // 4. 所有 URL 都失败了
         android.util.Log.e("GameWebViewClient", "SWF 下载最终失败: ${lastError?.message}, URL=$url")
-        // 返回带 CORS 头的空响应（而非 null）
-        // 原因：返回 null 会让 WebView 自行请求原始 URL，
-        // 但 WAFlash/Ruffle 页面运行在 https://flash.local（HTTPS），
-        // 浏览器会因 Mixed Content / CORS 阻止 HTTP 资源加载，导致引擎报错。
-        // 返回 502 + CORS 头让引擎知道请求失败，优雅处理（如跳过广告 SWF）。
-        return WebResourceResponse("application/x-shockwave-flash", null, 502, "Bad Gateway",
+        // 返回 404 + CORS 头（对齐 gamehtml-3.0），让引擎知道请求失败，优雅跳过。
+        return WebResourceResponse("application/x-shockwave-flash", null, 404, "Not Found",
             swfCorsHeaders, java.io.ByteArrayInputStream(ByteArray(0)))
     }
 

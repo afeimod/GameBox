@@ -71,7 +71,8 @@ open class FlashWebViewClient(
         /** Common ad domains to block */
         private val AD_HOSTS = setOf(
             "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
-            "ad.4399.com", "stat.4399.com", "analytics.4399.com"
+            "ad.4399.com", "stat.4399.com", "analytics.4399.com",
+            "cdn.comment.4399pk.com", "comment.4399pk.com"
         )
 
         /** CORS headers for all intercepted responses */
@@ -525,9 +526,18 @@ open class FlashWebViewClient(
             return interceptRemoteSwf(view, url, request)
         }
 
-        // 注意：不拦截 WAFlash 引擎内部发起的外部资源请求！
-        // CORS 错误会让 XHR 快速失败，游戏继续运行。
-        // 原生代理下载会阻塞等待，导致 WASM 卡死。
+        // 6. 拦截 WAFlash 播放器页面发出的外部资源请求（XML/图片/配置/广告等）
+        //    直接返回空响应（不代理下载、不阻塞），让 WAFlash 快速跳过，游戏继续运行。
+        //    参考 gamehtml-3.0 广告拦截策略：返回空响应，不返回空 SWF。
+        if (isFromFlashLocal(request, view) &&
+            (url.startsWith("http://") || url.startsWith("https://"))) {
+            val mime = guessExternalMimeType(url)
+            val headers = CORS_HEADERS.toMutableMap().apply {
+                if (mime.isNotEmpty()) put("Content-Type", mime)
+            }
+            return WebResourceResponse(mime.ifEmpty { "application/octet-stream" }, null,
+                200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
+        }
 
         return super.shouldInterceptRequest(view, request)
     }
@@ -745,7 +755,7 @@ open class FlashWebViewClient(
         }
 
         Log.e(TAG, "External resource proxy failed: ${lastError?.message}, URL=$url")
-        return WebResourceResponse("application/octet-stream", null, 502, "Bad Gateway",
+        return WebResourceResponse("application/octet-stream", null, 404, "Not Found",
             corsHeaders(), ByteArrayInputStream(ByteArray(0)))
     }
 
@@ -850,7 +860,7 @@ open class FlashWebViewClient(
         } catch (e: Exception) {
             Log.e(TAG, "SWF download error: ${e.message}")
             WebResourceResponse(
-                "application/x-shockwave-flash", null, 502, "Bad Gateway",
+                "application/x-shockwave-flash", null, 404, "Not Found",
                 corsHeaders(), ByteArrayInputStream(ByteArray(0))
             )
         }
