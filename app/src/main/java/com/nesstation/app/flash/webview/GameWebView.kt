@@ -178,17 +178,20 @@ open class GameWebView @JvmOverloads constructor(
      * @param percent 25..200 的百分比值。100=不变,>100 放大,<100 缩小。
      *
      * 实现:
-     * 1. WebSettings.textZoom:缩放文字(改 rem 基准,与 setInitialScale 配合不会重复缩放)
-     * 2. WebView.setInitialScale:整页 CSS 缩放(对应 viewport meta initial-scale)。
+     * 1. WebView.setInitialScale:整页 CSS 缩放(对应 viewport meta initial-scale)。
      *    对 4399 这种有 viewport meta 的页面也生效:因为 initial-scale 由 WebView 控制,
      *    会覆盖页面自己的 viewport 值(Android 端 WebView 行为)。
-     * 3. JS 注入 document.body.style.zoom:WebKit 私有 API,整页 layout 缩放(终极方案),
+     * 2. JS 注入 document.body.style.zoom:WebKit 私有 API,整页 layout 缩放(终极方案),
      *    解决 setInitialScale 对某些 PC 页面不响应的问题。
+     *
+     * 不使用 WebSettings.textZoom:它只缩放文字而不缩放布局/图片,
+     * 导致放大时文字溢出容器、缩小时文字与布局比例失调。
+     * setInitialScale + body.zoom 是整页等比缩放,字体跟随布局自然变化。
      * 必须 reload() 才完整生效(Chromium 限制:运行时改 setInitialScale 需重载文档)。
      */
     fun applyPageZoom(percent: Int) {
         val p = percent.coerceIn(25, 200)
-        settings.textZoom = p
+        settings.textZoom = 100  // 重置 textZoom,避免之前的设置残留影响字体
         setInitialScale(p)
         // 额外注入 body.zoom(WebKit 私有 API,Chromium WebView 支持),
         // 整页 layout 缩放,即使页面有 viewport meta 也能生效。

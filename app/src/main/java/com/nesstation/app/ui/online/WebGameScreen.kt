@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -117,6 +118,9 @@ fun WebGameScreen(
     val selectBtnRef = remember { mutableStateOf<View?>(null) }
     val localSwfUri = remember { mutableStateOf<String?>(null) }
     val mainBoxRef = remember { mutableStateOf<ViewGroup?>(null) }
+    // WebView 自定义全屏视图（网页 requestFullscreen 触发）
+    val customViewRef = remember { mutableStateOf<View?>(null) }
+    val customViewCallbackRef = remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // 引擎选择对话框 / 提取 SWF 对话框
     var pendingSwfAction by remember { mutableStateOf<String?>(null) }
@@ -426,8 +430,33 @@ fun WebGameScreen(
                 override fun onProgress(progress: Int) {}
                 override fun onTitle(title: String?) {}
                 override fun onConsole(level: String, msg: String, sourceId: String?, line: Int) {}
-                override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {}
-                override fun onHideFullscreen() {}
+                // WebView 全屏：网页调用 requestFullscreen() 时触发。
+                // 把 WebView 内部生成的全屏 view 加到 mainBoxRef 覆盖在 WebView 上层，
+                // 让 WebView 内部状态正常推进，避免卡死。
+                override fun onShowFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
+                    customViewRef.value = view
+                    customViewCallbackRef.value = callback
+                    val parent = mainBoxRef.value
+                    if (parent != null) {
+                        parent.addView(view, FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        ))
+                        // 把悬浮菜单拉到最上层，确保全屏期间仍可操作
+                        floatingMenuRef.value?.bringToFront()
+                    }
+                }
+                override fun onHideFullscreen() {
+                    val view = customViewRef.value
+                    val cb = customViewCallbackRef.value
+                    if (view != null) {
+                        val parent = view.parent as? ViewGroup
+                        parent?.removeView(view)
+                    }
+                    cb?.onCustomViewHidden()
+                    customViewRef.value = null
+                    customViewCallbackRef.value = null
+                }
                 override fun onFileChooser(callback: ValueCallback<Array<android.net.Uri>>, accept: String?): Boolean {
                     filePathCallback.value?.onReceiveValue(null)
                     filePathCallback.value = callback
