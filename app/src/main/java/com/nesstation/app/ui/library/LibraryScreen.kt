@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -56,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
@@ -72,6 +76,7 @@ fun LibraryScreen(
     onHome: () -> Unit = onBack,
     onImport: () -> Unit,
     onSearch: () -> Unit,
+    onLongClickGame: (GameEntry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -83,9 +88,21 @@ fun LibraryScreen(
     var showPermissionDialog by remember { mutableStateOf(false) }
     var dialogMsg by remember { mutableStateOf<String?>(null) }
 
+    // 选中的平台分类标签（NES / Java）
+    var selectedPlatform by remember { mutableStateOf(GamePlatform.NES) }
+
+    // 长按菜单相关状态
+    var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
+
     fun refreshList() {
+        // 同时加载 NES 与 Java 游戏，按 id 去重
+        val nes = RomStore.loadAll(context)
+        val java = JavaGameStore.loadAll(context)
+        val merged = (nes + java).distinctBy { it.id }
         importedGames.clear()
-        importedGames.addAll(RomStore.loadAll(context))
+        importedGames.addAll(merged)
     }
 
     // 当外部传入的 games 列表变化时（父级 NavHost 在 ON_RESUME 时重新加载），
@@ -166,6 +183,51 @@ fun LibraryScreen(
         }
     }
 
+    // SAF picker for installing J2ME .jar games (Java platform tab)
+    val jarPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        var installed = 0
+        uris.forEach { uri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            if (JavaGameStore.installJar(context, uri) != null) installed++
+        }
+        refreshList()
+        dialogMsg = if (installed > 0) "已安装 $installed 个 Java 游戏"
+        else "安装失败，请检查 JAR 文件是否有效"
+    }
+
+    // SAF picker for choosing a custom cover icon for a game
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val game = pendingIconGame
+        if (uris.isEmpty() || game == null) {
+            pendingIconGame = null
+            return@rememberLauncherForActivityResult
+        }
+        val uri = uris.first()
+        try {
+            // 拷贝到应用内部目录，使 BitmapFactory.decodeFile 可用
+            val iconsDir = File(context.filesDir, "icons").apply { mkdirs() }
+            val iconFile = File(iconsDir, "icon_${game.id}_${System.currentTimeMillis()}.png")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                iconFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            RomStore.setCustomIcon(context, game.id, iconFile.absolutePath)
+            refreshList()
+            dialogMsg = "已设置自定义图标"
+        } catch (e: Exception) {
+            dialogMsg = "图标设置失败：${e.message}"
+        }
+        pendingIconGame = null
+    }
+
     fun importFiles() {
         // SAF file picker works without storage permission on all Android versions.
         // Just open the picker — no directory scanning.
@@ -204,6 +266,7 @@ fun LibraryScreen(
     }
 
     val allGames = importedGames.distinctBy { it.id }
+    val platformGames = allGames.filter { it.platform == selectedPlatform }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
@@ -224,7 +287,7 @@ fun LibraryScreen(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "${allGames.size} 款游戏 · 复古之旅",
+                        text = "${platformGames.size} 款 ${selectedPlatform.displayName} 游戏 · 复古之旅",
                         color = Color(0xFF4A5568),
                         fontSize = 11.sp
                     )
@@ -236,25 +299,40 @@ fun LibraryScreen(
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ExtendedFloatingActionButton(
-                            onClick = { importFolder() },
-                            icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
-                            text = { Text("导入文件夹") },
-                            containerColor = Color(0xFF4F8AC4),
-                            contentColor = Color.White
-                        )
-                        ExtendedFloatingActionButton(
-                            onClick = { importFiles() },
-                            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                            text = { Text("导入ROM") },
-                            containerColor = Color(0xFFE74C3C),
-                            contentColor = Color.White
-                        )
+                        if (selectedPlatform == GamePlatform.NES) {
+                            ExtendedFloatingActionButton(
+                                onClick = { importFolder() },
+                                icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+                                text = { Text("导入文件夹") },
+                                containerColor = Color(0xFF4F8AC4),
+                                contentColor = Color.White
+                            )
+                            ExtendedFloatingActionButton(
+                                onClick = { importFiles() },
+                                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                                text = { Text("导入ROM") },
+                                containerColor = Color(0xFFE74C3C),
+                                contentColor = Color.White
+                            )
+                        } else {
+                            // Java 平台：加号按钮用于安装 .jar 文件
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    jarPickerLauncher.launch(
+                                        arrayOf("application/java-archive", "application/java", "*/*")
+                                    )
+                                },
+                                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                                text = { Text("安装 JAR") },
+                                containerColor = Color(0xFF6A1B9A),
+                                contentColor = Color.White
+                            )
+                        }
                     }
                 }
             }
 
-            // Action row
+            // Action row — 横向滚动的平台分类标签（NES / Java）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,10 +340,18 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip("全部", true)
-                FilterChip("最近", false)
-                FilterChip("收藏", false)
-                Spacer(Modifier.weight(1f))
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    lazyItems(listOf(GamePlatform.NES, GamePlatform.JAVA)) { platform ->
+                        FilterChip(
+                            text = platform.displayName,
+                            selected = selectedPlatform == platform,
+                            onClick = { selectedPlatform = platform }
+                        )
+                    }
+                }
                 IconButton(onClick = { refreshList() }) {
                     Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = Color(0xFF1E2A3A), modifier = Modifier.size(18.dp))
                 }
@@ -298,11 +384,14 @@ fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(allGames) { g ->
+                items(platformGames) { g ->
                     GameCard(
                         title = g.title,
                         accent = g.accent,
                         onClick = { onOpenGame(g) },
+                        onLongClick = { longPressGame = g },
+                        coverPath = g.customIconPath ?: g.coverPath,
+                        platform = g.platform,
                         modifier = Modifier.height(130.dp)
                     )
                 }
@@ -335,6 +424,72 @@ fun LibraryScreen(
             text = { Text(msg) },
             confirmButton = {
                 TextButton(onClick = { dialogMsg = null }) { Text("确定") }
+            }
+        )
+    }
+
+    // 长按游戏卡片弹出的操作菜单
+    longPressGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { longPressGame = null },
+            title = { Text(game.title, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    MenuOption("开始游戏") {
+                        longPressGame = null
+                        onOpenGame(game)
+                    }
+                    MenuOption("游戏设置") {
+                        longPressGame = null
+                        if (game.platform == GamePlatform.JAVA) {
+                            JavaGameStore.openSettings(context, game)
+                        } else {
+                            // NES 游戏的设置在模拟器内
+                            onOpenGame(game)
+                        }
+                    }
+                    MenuOption("自定义图标") {
+                        longPressGame = null
+                        pendingIconGame = game
+                        iconPickerLauncher.launch(arrayOf("image/*"))
+                    }
+                    MenuOption(if (game.isFavorite) "取消收藏" else "收藏") {
+                        longPressGame = null
+                        RomStore.toggleFavorite(context, game.id)
+                        refreshList()
+                    }
+                    MenuOption("删除游戏", danger = true) {
+                        longPressGame = null
+                        pendingDeleteGame = game
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { longPressGame = null }) { Text("关闭") }
+            }
+        )
+    }
+
+    // 删除游戏确认弹窗
+    pendingDeleteGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteGame = null },
+            title = { Text("删除游戏") },
+            text = { Text("确定要删除「${game.title}」吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (game.platform == GamePlatform.JAVA) {
+                        JavaGameStore.deleteGame(context, game)
+                    } else {
+                        RomStore.remove(context, game.id)
+                    }
+                    pendingDeleteGame = null
+                    refreshList()
+                    dialogMsg = "已删除「${game.title}」"
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteGame = null }) { Text("取消") }
             }
         )
     }
@@ -422,7 +577,7 @@ private fun scanForRoms(context: android.content.Context): List<Pair<String, Str
 }
 
 @Composable
-private fun FilterChip(text: String, selected: Boolean) {
+private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
@@ -430,13 +585,32 @@ private fun FilterChip(text: String, selected: Boolean) {
                 if (selected) Color(0xFF1E2A3A)
                 else Color.White.copy(alpha = 0.5f)
             )
-            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(
             text,
             color = if (selected) Color.White else Color(0xFF1E2A3A),
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+/** 长按菜单中的单个可点击选项 */
+@Composable
+private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp)
+    ) {
+        Text(
+            text = text,
+            color = if (danger) Color(0xFFE74C3C) else Color(0xFF1E2A3A),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }

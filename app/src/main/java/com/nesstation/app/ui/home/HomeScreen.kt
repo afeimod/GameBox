@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.BottomDock
 import com.nesstation.app.ui.components.GameCard
@@ -63,6 +65,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
     onExit: () -> Unit,
+    onLongClickGame: (GameEntry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var time by remember { mutableLongStateOf(0L) }
@@ -70,17 +73,27 @@ fun HomeScreen(
         while (true) { time = System.currentTimeMillis(); delay(33) }
     }
 
-    // Load recent games from RomStore — refresh on every ON_RESUME so the list
+    // Load recent games (NES + Java) — refresh on every ON_RESUME so the list
     // updates when the user returns from Library (after importing ROMs) or
     // from the emulator (after playing a game).
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var recents by remember { mutableStateOf(RomStore.loadAll(context)) }
+
+    fun loadRecents(): List<GameEntry> {
+        val nes = RomStore.loadAll(context)
+        val java = JavaGameStore.loadAll(context)
+        val all = (nes + java).distinctBy { it.id }
+        // 有最近游玩时间的按时间倒序排前，其余保持原顺序在后
+        val (played, unplayed) = all.partition { it.lastPlayedAt > 0 }
+        return played.sortedByDescending { it.lastPlayedAt } + unplayed
+    }
+
+    var recents by remember { mutableStateOf(loadRecents()) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                recents = RomStore.loadAll(context)
+                recents = loadRecents()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -122,14 +135,38 @@ fun HomeScreen(
                 }
             }
 
-            // Section: 最近游玩 (only section on home)
-            Text(
-                text = "最近游玩",
-                color = Color(0xFF1E2A3A),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp)
-            )
+            // Section: 最近游玩 (only section on home) — 标题旁附加平台标识
+            Row(
+                modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "最近游玩",
+                    color = Color(0xFF1E2A3A),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                recents.map { it.platform }.distinct().forEach { p ->
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (p == GamePlatform.JAVA)
+                                    Color(0xFF6A1B9A).copy(alpha = 0.85f)
+                                else Color(0xFF1E2A3A).copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = p.displayName,
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
             if (recents.isEmpty()) {
                 // Empty state — prompt user to import games
                 Box(
@@ -164,6 +201,9 @@ fun HomeScreen(
                             title = g.title,
                             accent = g.accent,
                             onClick = { onOpenGame(g) },
+                            onLongClick = { onLongClickGame(g) },
+                            coverPath = g.customIconPath ?: g.coverPath,
+                            platform = g.platform,
                             modifier = Modifier.size(width = 120.dp, height = 145.dp)
                         )
                     }

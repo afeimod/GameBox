@@ -1,10 +1,5 @@
 [versions]
-# AGP 锁定 8.1.0：ubuntu-latest 镜像通过系统级 init 脚本把 AGP 8.1.0 注入 buildscript
-# classpath，改 GRADLE_USER_HOME 也无法绕过。声明相同版本即不冲突。
-# AGP 8.1.0 最高支持 compileSdk 34。
 agp = "8.1.0"
-# Kotlin 锁定 1.9.0：同样被镜像注入到 classpath（1.9.0），声明相同版本即不冲突。
-# Kotlin 1.9.0 与 AGP 8.1.0 兼容。
 kotlin = "1.9.0"
 coreKtx = "1.13.1"
 lifecycle = "2.8.2"
@@ -23,6 +18,24 @@ junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
 webkit = "1.12.1"
+appcompat = "1.6.1"
+material = "1.9.0"
+preference = "1.2.0"
+multidex = "2.0.1"
+gson = "2.9.0"
+guava = "31.0.1-android"
+rxandroid = "2.1.1"
+zip4j = "2.10.0"
+constraintlayout = "2.1.4"
+acra = "5.9.3"
+volley = "1.2.1"
+mididriver = "v1.21"
+pngj = "2.2.3"
+mobileFfmpeg = "v4.3.2-compact"
+camerax = "1.3.0-beta01"
+filepicker = "4.3.0"
+ambilwarna = "2.0.1"
+autoService = "1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -47,6 +60,7 @@ androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.re
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-rxjava2 = { group = "androidx.room", name = "room-rxjava2", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 androidx-leanback = { group = "androidx.leanback", name = "leanback", version.ref = "leanback" }
@@ -57,7 +71,32 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+# J2ME dependencies
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-preference = { group = "androidx.preference", name = "preference", version.ref = "preference" }
+androidx-multidex = { group = "androidx.multidex", name = "multidex", version.ref = "multidex" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }
+rxandroid = { group = "io.reactivex.rxjava2", name = "rxandroid", version.ref = "rxandroid" }
+zip4j = { group = "net.lingala.zip4j", name = "zip4j", version.ref = "zip4j" }
+# J2ME additional dependencies
+acra = { group = "ch.acra", name = "acra-dialog", version.ref = "acra" }
+volley = { group = "com.android.volley", name = "volley", version.ref = "volley" }
+mididriver = { group = "com.github.billthefarmer", name = "mididriver", version.ref = "mididriver" }
+pngj = { group = "com.github.nikita36078", name = "pngj", version.ref = "pngj" }
+mobile-ffmpeg = { group = "com.github.nikita36078", name = "mobile-ffmpeg", version.ref = "mobileFfmpeg" }
+camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+filepicker = { group = "com.github.nikita36078", name = "filepicker", version.ref = "filepicker" }
+ambilwarna = { group = "com.github.yukuku", name = "ambilwarna", version.ref = "ambilwarna" }
+auto-service-annotations = { group = "com.google.auto.service", name = "auto-service-annotations", version.ref = "autoService" }
+auto-service = { group = "com.google.auto.service", name = "auto-service", version.ref = "autoService" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

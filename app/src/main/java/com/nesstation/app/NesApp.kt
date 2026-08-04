@@ -44,6 +44,8 @@ class NesApp : Application() {
         tryInit("AppContainer")       { _container = AppContainer(this) }
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
         tryInit("FdsBios")            { ensureFdsBios() }
+        // J2ME: Initialize ContextHolder so Config static initializer can get app context
+        tryInit("J2ME-ContextHolder") { javax.microedition.util.ContextHolder.setApplication(this) }
     }
 
     /**

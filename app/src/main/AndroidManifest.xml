@@ -2,53 +2,56 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network permission (load Ruffle engine + SWF network resources) -->
+    <!-- Network permission -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- 存储权限（Android 12 及以下） -->
+    <!-- Storage permissions (Android 12 and below) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <!-- Android 13+ 媒体权限 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <!-- Android 14+ 部分读写 -->
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
-    <!-- Android 11+ 所有文件访问权限（用于扫描本地ROM） -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 蓝牙手柄（Android 12+） -->
+    <!-- Bluetooth gamepad (Android 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
-    <!-- USB 手柄 -->
+    <!-- USB gamepad -->
     <uses-permission android:name="android.permission.USB_PERMISSION"
         tools:ignore="MissingClass" />
 
-    <!-- 前台服务（持续运行） -->
+    <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- TV 模式 -->
-    <uses-feature
-        android:name="android.software.leanback"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.touchscreen"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.gamepad"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.bluetooth"
-        android:required="false" />
+    <!-- J2ME permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+
+    <!-- TV mode -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
+    <!-- J2ME features -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".NesApp"
@@ -67,6 +70,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
 
+        <!-- GameBox MainActivity -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
@@ -89,13 +93,79 @@
                 <data android:mimeType="application/x-nes-rom" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
+            <!-- J2ME: JAR/JAD file intent filters -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/java" />
+                <data android:mimeType="application/java-archive" />
+                <data android:mimeType="application/x-java-archive" />
+                <data android:mimeType="text/vnd.sun.j2me.app-descriptor" />
+                <data android:host="*" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="*/*" />
+                <data android:host="*" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:pathPattern=".*.jar" />
+                <data android:pathPattern=".*..*.jar" />
+                <data android:pathPattern=".*.JAR" />
+                <data android:pathPattern=".*..*.JAR" />
+                <data android:pathPattern=".*.jad" />
+                <data android:pathPattern=".*..*.jad" />
+                <data android:pathPattern=".*.JAD" />
+                <data android:pathPattern=".*..*.JAD" />
+            </intent-filter>
         </activity>
 
+        <!-- J2ME Activities -->
+        <activity
+            android:name="ru.playsoftware.j2meloader.config.ConfigActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="stateHidden" />
+
+        <activity
+            android:name="javax.microedition.shell.MicroActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
+            android:process=":midlet" />
+
+        <activity
+            android:name="ru.playsoftware.j2meloader.settings.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="ru.playsoftware.j2meloader.settings.KeyMapperActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name="ru.playsoftware.j2meloader.config.ProfilesActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <!-- NES Emulator Service -->
         <service
             android:name=".core.engine.EmulatorService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+        <!-- FileProvider for GameBox -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -105,6 +175,34 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- FileProvider for J2ME -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/nnf_provider_paths" />
+        </provider>
+
+        <!-- J2ME DocumentProvider -->
+        <provider
+            android:name="ru.playsoftware.j2meloader.storage.DocumentProvider"
+            android:authorities="${applicationId}.documentProvider"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
+        <!-- J2ME Notification Receiver (runs in :midlet process) -->
+        <receiver
+            android:name="com.nokia.mid.ui.NotificationBroadcastReceiver"
+            android:process=":midlet" />
 
     </application>
 </manifest>

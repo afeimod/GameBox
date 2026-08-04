@@ -1,6 +1,13 @@
 package com.nesstation.app.ui
 
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +25,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.emulator.EmulatorScreen
 import com.nesstation.app.ui.home.HomeScreen
@@ -31,6 +40,7 @@ import com.nesstation.app.ui.swf.SwfPlayerScreen
 import com.nesstation.app.ui.about.AboutScreen
 import com.nesstation.app.ui.online.OnlineGamesScreen
 import com.nesstation.app.ui.online.WebGameScreen
+import java.io.File
 
 object Routes {
     const val HOME = "home"
@@ -61,30 +71,78 @@ fun NesApp() {
         ctx.packageManager.hasSystemFeature("android.hardware.touchscreen").not()
     }
 
-    // Load games from RomStore — refresh on ON_RESUME so the list updates
-    // when the user returns from Library (after importing ROMs) or from
-    // the emulator screen.
-    var games by remember { mutableStateOf(RomStore.loadAll(ctx)) }
+    // 同时加载 NES 与 Java 游戏库（按 id 去重）
+    fun loadAllGames(ctx: Context): List<GameEntry> {
+        val nesGames = RomStore.loadAll(ctx)
+        val javaGames = JavaGameStore.loadAll(ctx)
+        return (nesGames + javaGames).distinctBy { it.id }
+    }
+
+    var games by remember { mutableStateOf(loadAllGames(ctx)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                games = RomStore.loadAll(ctx)
+                games = loadAllGames(ctx)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val reloadGames: () -> Unit = { games = loadAllGames(ctx) }
+
     if (isTv) {
         TvNavHost(nav = nav, games = games)
     } else {
-        PhoneNavHost(nav = nav, games = games)
+        PhoneNavHost(nav = nav, games = games, reloadGames = reloadGames)
     }
 }
 
 @Composable
-private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List<GameEntry>) {
+private fun PhoneNavHost(
+    nav: androidx.navigation.NavHostController,
+    games: List<GameEntry>,
+    reloadGames: () -> Unit
+) {
+    val ctx = LocalContext.current
+
+    // 平台感知的打开游戏：Java 直接启动 J2ME 引擎，NES 进入模拟器
+    val openGame: (GameEntry) -> Unit = { game ->
+        if (game.platform == GamePlatform.JAVA) {
+            JavaGameStore.launchGame(ctx, game)
+        } else {
+            nav.navigate(Routes.emulator(game.id))
+        }
+    }
+
+    // 长按菜单状态（由 HomeScreen 的 onLongClickGame 触发；LibraryScreen 自身处理长按菜单）
+    var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
+
+    // 自定义图标选择器（HomeScreen 长按菜单使用）
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val game = pendingIconGame
+        if (uris.isEmpty() || game == null) {
+            pendingIconGame = null
+            return@rememberLauncherForActivityResult
+        }
+        val uri = uris.first()
+        try {
+            val iconsDir = File(ctx.filesDir, "icons").apply { mkdirs() }
+            val iconFile = File(iconsDir, "icon_${game.id}_${System.currentTimeMillis()}.png")
+            ctx.contentResolver.openInputStream(uri)?.use { input ->
+                iconFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            RomStore.setCustomIcon(ctx, game.id, iconFile.absolutePath)
+            reloadGames()
+        } catch (_: Exception) { }
+        pendingIconGame = null
+    }
+
     NavHost(
         navController = nav,
         startDestination = Routes.HOME,
@@ -92,27 +150,29 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
     ) {
         composable(Routes.HOME) {
             HomeScreen(
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
                 onOpenFileList = { nav.navigate(Routes.FILE_LIST) },
                 onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
                 onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
-                onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } }
+                onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } },
+                onLongClickGame = { longPressGame = it }
             )
         }
         composable(Routes.LIBRARY) {
             LibraryScreen(
                 games = games,
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = {
                     // 返回主页：弹出到 HOME 路由
                     nav.popBackStack(Routes.HOME, inclusive = false)
                 },
                 onImport = { /* TODO: ACTION_OPEN_DOCUMENT */ },
-                onSearch = { /* TODO */ }
+                onSearch = { /* TODO */ },
+                onLongClickGame = { }   // LibraryScreen 自身处理长按菜单
             )
         }
         composable(Routes.FILE_LIST) {
@@ -165,21 +225,23 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
         composable(Routes.FAVORITES) {
             LibraryScreen(
                 games = games.filter { it.isFavorite },
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
-                onSearch = { }
+                onSearch = { },
+                onLongClickGame = { }
             )
         }
         composable(Routes.HISTORY) {
             LibraryScreen(
                 games = games,
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
-                onSearch = { }
+                onSearch = { },
+                onLongClickGame = { }
             )
         }
         composable(Routes.SETTINGS) {
@@ -196,7 +258,6 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             arguments = listOf(navArgument("gameId") { type = NavType.StringType })
         ) { entry ->
             val id = entry.arguments?.getString("gameId") ?: ""
-            val ctx = LocalContext.current
             val game = games.firstOrNull { it.id == id }
                 ?: RomStore.loadAll(ctx).firstOrNull { it.id == id }
                 ?: GameEntry(id, "未知游戏")
@@ -210,6 +271,68 @@ private fun PhoneNavHost(nav: androidx.navigation.NavHostController, games: List
             val swfPath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
             SwfPlayerScreen(swfPath = swfPath, onExit = { nav.popBackStack() })
         }
+    }
+
+    // 长按游戏菜单（由 HomeScreen 的 onLongClickGame 触发）
+    longPressGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { longPressGame = null },
+            title = { Text(game.title) },
+            text = {
+                Column {
+                    TextButton(onClick = { longPressGame = null; openGame(game) }) { Text("开始游戏") }
+                    TextButton(onClick = {
+                        longPressGame = null
+                        if (game.platform == GamePlatform.JAVA) {
+                            JavaGameStore.openSettings(ctx, game)
+                        } else {
+                            // NES 游戏的设置在模拟器内
+                            openGame(game)
+                        }
+                    }) { Text("游戏设置") }
+                    TextButton(onClick = {
+                        longPressGame = null
+                        pendingIconGame = game
+                        iconPickerLauncher.launch(arrayOf("image/*"))
+                    }) { Text("自定义图标") }
+                    TextButton(onClick = {
+                        longPressGame = null
+                        RomStore.toggleFavorite(ctx, game.id)
+                        reloadGames()
+                    }) { Text(if (game.isFavorite) "取消收藏" else "收藏") }
+                    TextButton(onClick = {
+                        longPressGame = null
+                        pendingDeleteGame = game
+                    }) { Text("删除游戏") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { longPressGame = null }) { Text("关闭") }
+            }
+        )
+    }
+
+    // 删除游戏确认弹窗
+    pendingDeleteGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteGame = null },
+            title = { Text("删除游戏") },
+            text = { Text("确定要删除「${game.title}」吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (game.platform == GamePlatform.JAVA) {
+                        JavaGameStore.deleteGame(ctx, game)
+                    } else {
+                        RomStore.remove(ctx, game.id)
+                    }
+                    pendingDeleteGame = null
+                    reloadGames()
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteGame = null }) { Text("取消") }
+            }
+        )
     }
 }
 

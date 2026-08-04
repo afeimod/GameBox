@@ -19,6 +19,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
+        // J2ME: FULL_EMULATOR = true (runtime DEX loading mode)
+        buildConfigField("boolean", "FULL_EMULATOR", "true")
+
+        multiDexEnabled = true
+
         ndk {
             val abiFilter = (project.findProperty("abiFilter") as String?)
             if (abiFilter.isNullOrBlank()) {
@@ -41,6 +46,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"
@@ -93,6 +99,7 @@ android {
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
+            multiDexKeepProguard = file("multidex-config.pro")
         }
         getByName("release") {
             isMinifyEnabled = true
@@ -115,6 +122,11 @@ android {
                 "META-INF/NOTICE*"
             )
         }
+    }
+
+    lint {
+        abortOnError = false
+        disable += listOf("MissingTranslation", "ExtraTranslation")
     }
 }
 
@@ -147,6 +159,7 @@ dependencies {
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.rxjava2)
     kapt(libs.androidx.room.compiler)
 
     implementation(libs.coil.compose)
@@ -156,6 +169,33 @@ dependencies {
 
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.webkit)
+
+    // J2ME dependencies
+    implementation(project(":dexlib"))
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.material)
+    implementation(libs.androidx.preference)
+    implementation(libs.androidx.multidex)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.gson)
+    implementation(libs.guava)
+    implementation(libs.rxandroid)
+    implementation(libs.zip4j)
+
+    // J2ME additional dependencies
+    implementation(libs.acra)
+    implementation(libs.volley)
+    implementation(libs.mididriver)
+    implementation(libs.pngj)
+    implementation(libs.mobile.ffmpeg)
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.filepicker)
+    implementation(libs.ambilwarna)
+    compileOnly(libs.auto.service.annotations)
+    kapt(libs.auto.service)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

@@ -1,14 +1,19 @@
 package com.nesstation.app.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,11 +33,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.foundation.lazy.list.TvLazyColumn
+import com.nesstation.app.core.model.GamePlatform
+import java.io.File
 
 /**
  * Frosted-glass tile that highlights on focus (D-pad / touch).
@@ -106,16 +115,37 @@ fun GlassCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GameCard(
     title: String,
     accent: Color,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+    coverPath: String? = null,
+    platform: GamePlatform = GamePlatform.NES,
     modifier: Modifier = Modifier
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.08f else 1f, label = "card-scale")
+
+    // Load a custom cover bitmap when coverPath points to an existing file.
+    // Returns null when there is no path or the file cannot be decoded, in which
+    // case the default gamepad icon is shown.
+    val coverBitmap = remember(coverPath) {
+        if (coverPath != null) {
+            val file = File(coverPath)
+            if (file.exists()) {
+                try {
+                    BitmapFactory.decodeFile(coverPath)
+                } catch (_: Exception) {
+                    null
+                }
+            } else null
+        } else null
+    }
+
     Box(
         modifier = modifier
             .scale(scale)
@@ -126,7 +156,12 @@ fun GameCard(
                 color = if (focused) accent else accent.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(20.dp)
             )
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
@@ -147,12 +182,39 @@ fun GameCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.SportsEsports,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
+                if (coverBitmap != null) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.SportsEsports,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                // Small "Java" badge for J2ME games
+                if (platform == GamePlatform.JAVA) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF6A1B9A).copy(alpha = 0.85f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Java",
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
             Text(
                 text = title,
