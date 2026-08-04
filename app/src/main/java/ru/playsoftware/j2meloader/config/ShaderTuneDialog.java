@@ -30,8 +30,8 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
 import com.nesstation.app.R;
 import ru.playsoftware.j2meloader.config.ShaderInfo.Setting;
-import ru.playsoftware.j2meloader.databinding.DialogShaderTuneBinding;
-import ru.playsoftware.j2meloader.databinding.DialogShaderTuneItemBinding;
+import com.nesstation.app.databinding.DialogShaderTuneBinding;
+import com.nesstation.app.databinding.DialogShaderTuneItemBinding;
 
 public class ShaderTuneDialog extends DialogFragment {
 

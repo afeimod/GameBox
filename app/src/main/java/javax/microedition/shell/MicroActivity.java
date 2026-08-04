@@ -83,7 +83,7 @@ import io.reactivex.disposables.Disposable;
 import com.nesstation.app.BuildConfig;
 import com.nesstation.app.R;
 import ru.playsoftware.j2meloader.config.Config;
-import ru.playsoftware.j2meloader.databinding.ActivityMicroBinding;
+import com.nesstation.app.databinding.ActivityMicroBinding;
 import ru.playsoftware.j2meloader.util.Constants;
 import ru.playsoftware.j2meloader.util.LogUtils;
 

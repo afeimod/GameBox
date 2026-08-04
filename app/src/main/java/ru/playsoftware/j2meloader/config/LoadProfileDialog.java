@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 import com.nesstation.app.R;
-import ru.playsoftware.j2meloader.databinding.DialogLoadProfileBinding;
+import com.nesstation.app.databinding.DialogLoadProfileBinding;
 
 public class LoadProfileDialog extends DialogFragment {
 	private ArrayList<Profile> profiles;

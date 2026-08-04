@@ -46,7 +46,7 @@ import ru.playsoftware.j2meloader.applist.AppItem;
 import ru.playsoftware.j2meloader.applist.AppListModel;
 import ru.playsoftware.j2meloader.appsdb.AppRepository;
 import ru.playsoftware.j2meloader.config.Config;
-import ru.playsoftware.j2meloader.databinding.DialogInstallerBinding;
+import com.nesstation.app.databinding.DialogInstallerBinding;
 import ru.playsoftware.j2meloader.util.FileUtils;
 import ru.woesss.j2me.jar.Descriptor;
 

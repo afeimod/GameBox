@@ -30,7 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.nesstation.app.R;
-import ru.playsoftware.j2meloader.databinding.ListRowJarBinding;
+import com.nesstation.app.databinding.ListRowJarBinding;
 
 public class AppsListAdapter extends BaseAdapter implements Filterable {
 

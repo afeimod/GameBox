@@ -47,7 +47,7 @@ import com.nesstation.app.R;
 import ru.playsoftware.j2meloader.base.BaseActivity;
 import ru.playsoftware.j2meloader.config.ProfileModel;
 import ru.playsoftware.j2meloader.config.ProfilesManager;
-import ru.playsoftware.j2meloader.databinding.ActivityKeymapperBinding;
+import com.nesstation.app.databinding.ActivityKeymapperBinding;
 import ru.playsoftware.j2meloader.util.SparseIntArrayAdapter;
 
 public class KeyMapperActivity extends BaseActivity implements View.OnClickListener {

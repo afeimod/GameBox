@@ -31,7 +31,7 @@ import java.io.File;
 import java.io.IOException;
 
 import com.nesstation.app.R;
-import ru.playsoftware.j2meloader.databinding.DialogSaveProfileBinding;
+import com.nesstation.app.databinding.DialogSaveProfileBinding;
 
 import static ru.playsoftware.j2meloader.util.Constants.KEY_CONFIG_PATH;
 import static ru.playsoftware.j2meloader.util.Constants.PREF_DEFAULT_PROFILE;

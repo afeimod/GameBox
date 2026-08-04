@@ -66,7 +66,7 @@ import androidx.core.widget.TextViewCompat;
 
 import com.nesstation.app.R;
 import ru.playsoftware.j2meloader.base.BaseActivity;
-import ru.playsoftware.j2meloader.databinding.ActivityConfigBinding;
+import com.nesstation.app.databinding.ActivityConfigBinding;
 import ru.playsoftware.j2meloader.settings.KeyMapperActivity;
 import ru.playsoftware.j2meloader.util.FileUtils;
 import yuku.ambilwarna.AmbilWarnaDialog;

@@ -26,7 +26,7 @@ import javax.microedition.lcdui.Command;
 import javax.microedition.lcdui.Screen;
 
 import com.nesstation.app.R;
-import ru.playsoftware.j2meloader.databinding.SoftButtonBarBinding;
+import com.nesstation.app.databinding.SoftButtonBarBinding;
 
 public class ScreenSoftBar extends AbstractSoftKeysBar {
 	private final SoftButtonBarBinding binding;

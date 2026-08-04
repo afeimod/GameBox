@@ -31,7 +31,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
 import com.nesstation.app.R;
-import ru.playsoftware.j2meloader.databinding.DialogChangeNameBinding;
+import com.nesstation.app.databinding.DialogChangeNameBinding;
 
 public class EditNameDialog extends DialogFragment {
 

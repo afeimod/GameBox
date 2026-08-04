@@ -104,4 +104,9 @@
     <style name="TextViewVendor" parent="Widget.AppCompat.TextView" >
     </style>
 
+    <style name="ThemeOverlay.App.Dark" parent="">
+        <item name="colorSurface">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
+
 </resources>
