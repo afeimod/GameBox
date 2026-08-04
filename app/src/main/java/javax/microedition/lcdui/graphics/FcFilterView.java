@@ -17,15 +17,34 @@ import android.view.View;
  * FcFilterView is a custom Android View that draws FC (NES/Famicom) video filter
  * patterns (scanline/CRT/dot) over the J2ME game surface as a global filter overlay.
  *
- * The filter type is read from SharedPreferences key "video_filter"
- * (default "scanline").
+ * Filter modes:
+ *   0 = none (no filter)
+ *   1 = scanline
+ *   2 = CRT
+ *   3 = dot
  *
+ * The filter mode is stored in a J2ME-dedicated SharedPreferences file
+ * ("j2me_prefs") under key "j2me_video_filter", completely separate from the
+ * NES/FC emulator's filter preferences to prevent cross-contamination ("串滤镜").
+ *
+ * The view supports runtime filter switching via {@link #setFilterMode(int)}.
  * The view is transparent to touch events so it does not interfere with game input.
  */
 public class FcFilterView extends View {
 
-    private final String filterType;
-    private final Bitmap patternBitmap;
+    /** J2ME-dedicated preferences file — never shared with NES/FC emulator. */
+    private static final String J2ME_PREFS = "j2me_prefs";
+    private static final String KEY_FILTER_MODE = "j2me_video_filter";
+
+    /** Filter mode constants — must match MicroActivity.filterNames order. */
+    public static final int MODE_NONE = 0;
+    public static final int MODE_SCANLINE = 1;
+    public static final int MODE_CRT = 2;
+    public static final int MODE_DOT = 3;
+
+    private int filterMode;
+    private String filterType;
+    private Bitmap patternBitmap;
 
     public FcFilterView(Context context) {
         this(context, null);
@@ -38,46 +57,65 @@ public class FcFilterView extends View {
         setClickable(false);
         setFocusable(false);
 
-        // Read the video filter type from the same SharedPreferences as the NES/FC emulator
-        // (PadLayoutStore uses "pad_layout_v2"). J2ME uses FC video filter as global filter:
-        // if NES filter is "none", default to "scanline" so J2ME always has the FC look.
-        SharedPreferences prefs = context.getSharedPreferences("pad_layout_v2", Context.MODE_PRIVATE);
-        String rawFilter = prefs.getString("video_filter", "scanline");
-        if (rawFilter == null || "none".equals(rawFilter) || rawFilter.startsWith("xbr") || rawFilter.startsWith("hq")) {
-            // For composite filter types like "xbr_dot", extract the dot part
-            if (rawFilter != null && rawFilter.endsWith("_dot")) {
-                filterType = "dot";
-            } else {
-                filterType = "scanline"; // FC global filter default
-            }
-        } else {
-            filterType = rawFilter;
-        }
+        // Read the J2ME-dedicated filter mode (not shared with NES/FC emulator).
+        // Default to scanline (MODE_SCANLINE) for the FC look.
+        SharedPreferences prefs = context.getSharedPreferences(J2ME_PREFS, Context.MODE_PRIVATE);
+        filterMode = prefs.getInt(KEY_FILTER_MODE, MODE_SCANLINE);
 
-        // Create the pattern bitmap based on the filter type.
-        patternBitmap = createPattern(filterType);
+        applyFilterMode(filterMode);
     }
 
     /**
-     * Creates the filter pattern bitmap based on the given filter type.
+     * Sets the filter mode at runtime, updates the pattern, persists the choice,
+     * and triggers a redraw.
      *
-     * @param type the filter type ("scanline", "crt", "dot", or "none")
-     * @return the pattern bitmap, or null if no filter ("none")
+     * @param mode one of MODE_NONE, MODE_SCANLINE, MODE_CRT, MODE_DOT
      */
-    private static Bitmap createPattern(String type) {
-        if (type == null) {
-            return null;
+    public void setFilterMode(int mode) {
+        if (mode < MODE_NONE || mode > MODE_DOT) {
+            mode = MODE_SCANLINE;
         }
-        switch (type) {
-            case "scanline":
-                return createScanlinePattern();
-            case "crt":
-                return createCrtPattern();
-            case "dot":
-                return createDotPattern();
-            case "none":
+        if (mode == filterMode && patternBitmap != null) return;
+
+        filterMode = mode;
+        applyFilterMode(mode);
+
+        // Persist to J2ME-dedicated preferences (not shared with NES).
+        SharedPreferences prefs = getContext().getSharedPreferences(J2ME_PREFS, Context.MODE_PRIVATE);
+        prefs.edit().putInt(KEY_FILTER_MODE, mode).apply();
+
+        invalidate();
+    }
+
+    /**
+     * Returns the current filter mode.
+     */
+    public int getFilterMode() {
+        return filterMode;
+    }
+
+    /**
+     * Maps a filter mode constant to a type string and (re)creates the pattern bitmap.
+     */
+    private void applyFilterMode(int mode) {
+        switch (mode) {
+            case MODE_SCANLINE:
+                filterType = "scanline";
+                patternBitmap = createScanlinePattern();
+                break;
+            case MODE_CRT:
+                filterType = "crt";
+                patternBitmap = createCrtPattern();
+                break;
+            case MODE_DOT:
+                filterType = "dot";
+                patternBitmap = createDotPattern();
+                break;
+            case MODE_NONE:
             default:
-                return null;
+                filterType = "none";
+                patternBitmap = null;
+                break;
         }
     }
 

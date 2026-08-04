@@ -28,6 +28,8 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -37,16 +39,19 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.text.method.DigitsKeyListener;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -111,18 +116,38 @@ public class MicroActivity extends AppCompatActivity {
 		super.onCreate(savedInstanceState);
 		ContextHolder.setCurrentActivity(this);
 
+		// Force edge-to-edge fullscreen with cutout mode for J2ME games
+		getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+			getWindow().getAttributes().layoutInDisplayCutoutMode =
+					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+		}
+		// Edge-to-edge layout
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+			getWindow().getDecorView().setSystemUiVisibility(
+					View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+							| View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+							| View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+		}
+
 		binding = ActivityMicroBinding.inflate(getLayoutInflater());
 		View view = binding.getRoot();
 		setContentView(view);
 		setSupportActionBar(binding.toolbar);
 
+		// Setup floating menu for J2ME games
+		setupFloatingMenu();
+
 		SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
 		actionBarEnabled = sp.getBoolean(PREF_TOOLBAR, false);
 		statusBarEnabled = sp.getBoolean(PREF_STATUSBAR, false);
-		if (sp.getBoolean(PREF_ADD_CUTOUT_AREA, false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+		// Force cutout mode regardless of preference
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
 			getWindow().getAttributes().layoutInDisplayCutoutMode =
 					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
 		}
+		// Force fullscreen immersive mode immediately to use the notch/cutout area
+		hideSystemUI();
 		if (sp.getBoolean(PREF_KEEP_SCREEN, false)) {
 			getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 		}
@@ -205,6 +230,8 @@ public class MicroActivity extends AppCompatActivity {
 	public void onResume() {
 		super.onResume();
 		visible = true;
+		// Re-apply fullscreen immersive mode to use notch/cutout area
+		hideSystemUI();
 		MidletThread.resumeApp();
 	}
 
@@ -226,8 +253,7 @@ public class MicroActivity extends AppCompatActivity {
 	@Override
 	public void onWindowFocusChanged(boolean hasFocus) {
 		super.onWindowFocusChanged(hasFocus);
-		if (hasFocus && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT &&
-				current instanceof Canvas) {
+		if (hasFocus && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
 			hideSystemUI();
 		}
 	}
@@ -308,10 +334,13 @@ public class MicroActivity extends AppCompatActivity {
 
 	private void hideSystemUI() {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-			int flags = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+			int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+					| View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+					| View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
 			if (!statusBarEnabled) {
 				flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-						| View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_FULLSCREEN;
+						| View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+						| View.SYSTEM_UI_FLAG_FULLSCREEN;
 			}
 			getWindow().getDecorView().setSystemUiVisibility(flags);
 		} else if (!statusBarEnabled) {
@@ -704,6 +733,224 @@ public class MicroActivity extends AppCompatActivity {
 	protected void onDestroy() {
 		binding = null;
 		super.onDestroy();
+	}
+
+	// ─── Floating Menu: filter / pause / layout / exit ─────────────────────
+	private View floatingMenuButton;
+	private View floatingMenuPanel;
+	private boolean floatingMenuVisible = false;
+	private int currentFilterIndex = 0;
+	private final String[] filterNames = {"无滤镜", "扫描线", "CRT", "点阵"};
+	private boolean isPaused = false;
+
+	@SuppressLint("ClickableViewAccessibility")
+	private void setupFloatingMenu() {
+		FrameLayout root = binding.midletFrame;
+		float density = getResources().getDisplayMetrics().density;
+
+		// Sync currentFilterIndex with the persisted J2ME filter mode
+		// (FcFilterView reads from "j2me_prefs" on construction).
+		javax.microedition.lcdui.graphics.FcFilterView fv0 = binding.fcFilterView;
+		if (fv0 != null) {
+			currentFilterIndex = fv0.getFilterMode();
+		}
+
+		// Floating menu button (FAB-like)
+		android.widget.TextView fab = new android.widget.TextView(this);
+		fab.setText("≡");
+		fab.setTextColor(Color.WHITE);
+		fab.setTextSize(20);
+		fab.setGravity(Gravity.CENTER);
+		fab.setBackground(makeCircleDrawable(0x88000000));
+		int fabSize = (int) (44 * density);
+		FrameLayout.LayoutParams fabParams = new FrameLayout.LayoutParams(fabSize, fabSize);
+		fabParams.gravity = Gravity.TOP | Gravity.END;
+		// Use a safe top margin that avoids the notch/cutout on most devices.
+		// On cutout devices the window extends into the cutout area, so we add
+		// extra margin to keep the FAB visible and tappable.
+		int cutoutSafeTop = getCutoutSafeTopMargin();
+		fabParams.topMargin = cutoutSafeTop + (int) (8 * density);
+		fabParams.rightMargin = (int) (12 * density);
+		fab.setLayoutParams(fabParams);
+		floatingMenuButton = fab;
+		root.addView(fab);
+
+		// Floating menu panel
+		LinearLayout panel = new LinearLayout(this);
+		panel.setOrientation(LinearLayout.VERTICAL);
+		panel.setBackground(makeRoundRectDrawable(0xEE1A1A2E));
+		int panelPad = (int) (12 * density);
+		panel.setPadding(panelPad, panelPad, panelPad, panelPad);
+		FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+				(int) (180 * density), ViewGroup.LayoutParams.WRAP_CONTENT);
+		panelParams.gravity = Gravity.TOP | Gravity.END;
+		panelParams.topMargin = cutoutSafeTop + (int) (56 * density);
+		panelParams.rightMargin = (int) (8 * density);
+		panel.setLayoutParams(panelParams);
+		panel.setVisibility(View.GONE);
+		floatingMenuPanel = panel;
+		root.addView(panel);
+
+		// Menu items
+		String[] items = {"🎮 滤镜", "⏸ 暂停/继续", "📐 屏幕布局", "⌨ 按键布局", "📷 截图", "⚙ 设置", "✕ 退出"};
+		for (int i = 0; i < items.length; i++) {
+			android.widget.TextView item = new android.widget.TextView(this);
+			item.setText(items[i]);
+			item.setTextColor(Color.WHITE);
+			item.setTextSize(14);
+			int padV = (int) (10 * density);
+			int padH = (int) (8 * density);
+			item.setPadding(padH, padV, padH, padV);
+			final int index = i;
+			item.setOnClickListener(v -> onFloatingMenuItemClick(index));
+			panel.addView(item);
+		}
+
+		// Toggle panel visibility on click, support drag to move
+		final float[] dragStartX = {0};
+		final float[] dragStartY = {0};
+		final float[] fabStartX = {0};
+		final float[] fabStartY = {0};
+		final boolean[] isDragging = {false};
+		fab.setOnTouchListener((v, event) -> {
+			switch (event.getAction()) {
+				case MotionEvent.ACTION_DOWN:
+					dragStartX[0] = event.getRawX();
+					dragStartY[0] = event.getRawY();
+					fabStartX[0] = v.getX();
+					fabStartY[0] = v.getY();
+					isDragging[0] = false;
+					break;
+				case MotionEvent.ACTION_MOVE:
+					float dx = event.getRawX() - dragStartX[0];
+					float dy = event.getRawY() - dragStartY[0];
+					if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+						isDragging[0] = true;
+						float newX = fabStartX[0] + dx;
+						float newY = fabStartY[0] + dy;
+						// Constrain within parent bounds
+						FrameLayout parent = (FrameLayout) v.getParent();
+						newX = Math.max(0, Math.min(newX, parent.getWidth() - v.getWidth()));
+						newY = Math.max(0, Math.min(newY, parent.getHeight() - v.getHeight()));
+						v.setX(newX);
+						v.setY(newY);
+						// Move panel with FAB
+						if (floatingMenuPanel != null) {
+							floatingMenuPanel.setX(newX - (int) (136 * density));
+							floatingMenuPanel.setY(newY + v.getHeight() + (int) (4 * density));
+						}
+					}
+					break;
+				case MotionEvent.ACTION_UP:
+					if (!isDragging[0]) {
+						floatingMenuVisible = !floatingMenuVisible;
+						panel.setVisibility(floatingMenuVisible ? View.VISIBLE : View.GONE);
+					}
+					break;
+			}
+			return true;
+		});
+	}
+
+	private void onFloatingMenuItemClick(int index) {
+		switch (index) {
+			case 0: // Filter toggle
+				currentFilterIndex = (currentFilterIndex + 1) % filterNames.length;
+				javax.microedition.lcdui.graphics.FcFilterView fv = binding.fcFilterView;
+				if (fv != null) {
+					fv.setFilterMode(currentFilterIndex);
+				}
+				Toast.makeText(this, "滤镜: " + filterNames[currentFilterIndex], Toast.LENGTH_SHORT).show();
+				break;
+			case 1: // Pause/Resume
+				if (isPaused) {
+					MidletThread.resumeApp();
+					isPaused = false;
+					Toast.makeText(this, "继续", Toast.LENGTH_SHORT).show();
+				} else {
+					MidletThread.pauseApp();
+					isPaused = true;
+					Toast.makeText(this, "已暂停", Toast.LENGTH_SHORT).show();
+				}
+				break;
+			case 2: // Screen layout / scale
+				VirtualKeyboard vk2 = ContextHolder.getVk();
+				if (vk2 != null) {
+					vk2.setLayoutEditMode(VirtualKeyboard.LAYOUT_SCALES);
+					Toast.makeText(this, R.string.layout_scale_mode, Toast.LENGTH_SHORT).show();
+				} else {
+					Toast.makeText(this, "无虚拟键盘", Toast.LENGTH_SHORT).show();
+				}
+				break;
+			case 3: // Key layout edit
+				VirtualKeyboard vk3 = ContextHolder.getVk();
+				if (vk3 != null) {
+					vk3.setLayoutEditMode(VirtualKeyboard.LAYOUT_KEYS);
+					Toast.makeText(this, R.string.layout_edit_mode, Toast.LENGTH_SHORT).show();
+				} else {
+					Toast.makeText(this, "无虚拟键盘", Toast.LENGTH_SHORT).show();
+				}
+				break;
+			case 4: // Screenshot
+				if (current instanceof Canvas) {
+					takeScreenshot();
+				} else {
+					Toast.makeText(this, "仅Canvas可截图", Toast.LENGTH_SHORT).show();
+				}
+				break;
+			case 5: // Settings
+				hideSoftInput();
+				Config.startApp(this, appName, appPath, true);
+				MidletThread.destroyApp();
+				break;
+			case 6: // Exit
+				showExitConfirmation();
+				break;
+		}
+		// Hide panel after action
+		floatingMenuVisible = false;
+		if (floatingMenuPanel != null) {
+			floatingMenuPanel.setVisibility(View.GONE);
+		}
+	}
+
+	private int getCutoutSafeTopMargin() {
+		float density = getResources().getDisplayMetrics().density;
+		int safeTop = (int) (24 * density); // base safe margin
+		// Use the status bar height as a minimum safe top
+		int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+		if (resourceId > 0) {
+			safeTop = Math.max(safeTop, getResources().getDimensionPixelSize(resourceId));
+		}
+		// On cutout devices, use the safe inset top if available
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+			try {
+				android.view.WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+				if (insets != null) {
+					android.view.DisplayCutout cutout = insets.getDisplayCutout();
+					if (cutout != null) {
+						safeTop = Math.max(safeTop, cutout.getSafeInsetTop());
+					}
+				}
+			} catch (Exception e) {
+				// RootWindowInsets may be null before the window is attached
+			}
+		}
+		return safeTop;
+	}
+
+	private Drawable makeCircleDrawable(int color) {
+		android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+		d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+		d.setColor(color);
+		return d;
+	}
+
+	private Drawable makeRoundRectDrawable(int color) {
+		android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+		d.setCornerRadius(16);
+		d.setColor(color);
+		return d;
 	}
 
 	@Override
