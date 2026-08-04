@@ -66,13 +66,14 @@ public class Config {
 			};
 
 	static {
+		String screenshotsDir;
 		try {
 			Context context = ContextHolder.getAppContext();
 			String appName = "J2ME-Loader";
-			if (!BuildConfig.FULL_EMULATOR) {
+			if (context != null && !BuildConfig.FULL_EMULATOR) {
 				appName = context.getString(R.string.app_name);
 			}
-			SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+			screenshotsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
 					+ "/" + appName;
 			if (context == null) {
 				// ContextHolder not initialized yet — use fallback paths
@@ -91,10 +92,10 @@ public class Config {
 			}
 		} catch (Throwable e) {
 			// Last-resort fallback: use external storage path
-			String fallback = Environment.getExternalStorageDirectory() + "/J2ME-Loader";
-			SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) + "/J2ME-Loader";
-			initDirs(fallback);
+			screenshotsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) + "/J2ME-Loader";
+			initDirs(Environment.getExternalStorageDirectory() + "/J2ME-Loader");
 		}
+		SCREENSHOTS_DIR = screenshotsDir;
 	}
 
 	public static String getEmulatorDir() {
