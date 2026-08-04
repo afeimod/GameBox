@@ -124,7 +124,7 @@ fun EmulatorScreen(
     // Apply core options on load and when they change
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
                    padLayout.region, padLayout.cropOverscan,
-                   padLayout.videoFilter) {
+                   padLayout.videoFilter, padLayout.overclocking) {
         applyCoreOptions(engine, padLayout)
         // Apply video filter (frontend post-processing, not a core option)
         val filterInt = when (padLayout.videoFilter) {
@@ -298,6 +298,10 @@ private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
     engine.setCoreOption("fceumm_overscan_h_right", cropVal)
     engine.setCoreOption("fceumm_overscan_v_top", cropVal)
     engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+    // Overclocking — adds dummy scanlines to reduce slowdowns (e.g. Contra Force).
+    // The core picks this up via GET_VARIABLE_UPDATE on the next frame and
+    // reinitializes its video buffer; switching takes effect immediately.
+    engine.setCoreOption("fceumm_overclocking", layout.overclocking)
 }
 
 // ---------------------------------------------------------------------------
@@ -1268,6 +1272,11 @@ private fun SettingsPanel(
                    "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
             padLayout.videoFilter
         ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
+
+        DropdownSetting("超频(减少慢动作)",
+            listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
+            padLayout.overclocking
+        ) { onLayoutChange(padLayout.copy(overclocking = it)) }
 
         Spacer(Modifier.size(12.dp))
 

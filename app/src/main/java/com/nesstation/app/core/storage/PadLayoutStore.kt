@@ -47,7 +47,11 @@ data class PadLayout(
     // Video scaling — controls SurfaceView layout aspect ratio (frontend-level, not FCEUmm option)
     val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9
     // Video filter — applied in the native blit function (frontend-level post-processing)
-    val videoFilter: String = "none"      // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
+    val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
+    // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
+    // in games like Contra Force. VBlank is most effective for such games;
+    // Postrender is more broadly compatible. (FCEUmm core option values.)
+    val overclocking: String = "disabled" // disabled | 2x-Postrender | 2x-VBlank
 )
 
 /**
@@ -93,6 +97,7 @@ object PadLayoutStore {
     private const val KEY_CROP_OVERSCAN = "crop_overscan"
     private const val KEY_VIDEO_SCALE = "video_scale"
     private const val KEY_VIDEO_FILTER = "video_filter"
+    private const val KEY_OVERCLOCKING = "overclocking"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -144,7 +149,8 @@ object PadLayoutStore {
             soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low",
             cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled",
             videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch",
-            videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none"
+            videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none",
+            overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled"
         )
     }
 
@@ -189,6 +195,7 @@ object PadLayoutStore {
             putString(KEY_CROP_OVERSCAN, layout.cropOverscan)
             putString(KEY_VIDEO_SCALE, layout.videoScale)
             putString(KEY_VIDEO_FILTER, layout.videoFilter)
+            putString(KEY_OVERCLOCKING, layout.overclocking)
         }.apply()
     }
 }

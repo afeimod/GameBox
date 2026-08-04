@@ -68,6 +68,7 @@ fun SettingsScreen(
         engine.setCoreOption("fceumm_ntsc_filter", new.ntscFilter)
         engine.setCoreOption("fceumm_palette", new.palette)
         engine.setCoreOption("fceumm_region", new.region)
+        engine.setCoreOption("fceumm_overclocking", new.overclocking)
         // Audio options (sndquality, sndlowpass, sndvolume) are NOT set —
         // FCEUmm uses its own built-in defaults for correct audio.
         // Aspect ratio (fceumm_aspect) is NOT set — the frontend controls
@@ -197,6 +198,16 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
+                    }
+                }
+
+                // === 性能(超频) ===
+                item {
+                    SettingsSection("性能") {
+                        DropdownRow("超频(减少慢动作)",
+                            listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
+                            padLayout.overclocking
+                        ) { updateLayout(padLayout.copy(overclocking = it)) }
                     }
                 }
 
