@@ -499,16 +499,6 @@ open class FlashWebViewClient(
             val path = url.substringAfter("flash.local/").substringBefore("?")
             if (path.isEmpty()) return null
 
-            // JS hook 代理：flash.local/proxy?url=<encoded> → 代理下载外部资源
-            if (path == "proxy" || url.contains("proxy?url=") || url.contains("proxy%3Furl%3D")) {
-                val encodedUrl = url.substringAfter("proxy?url=").substringBefore("&")
-                val originalUrl = try { Uri.decode(encodedUrl) } catch(e: Exception) { encodedUrl }
-                if (originalUrl.startsWith("http")) {
-                    Log.d(TAG, "Proxy request (JS hook): $originalUrl")
-                    return interceptExternalResource(originalUrl, request)
-                }
-            }
-
             return when {
                 path == "local.swf" -> {
                     // 仅在设置了 swfFilePath 时才拦截（SwfPlayerScreen 用，WebGameScreen 不用）
@@ -535,15 +525,9 @@ open class FlashWebViewClient(
             return interceptRemoteSwf(view, url, request)
         }
 
-        // 6. Intercept external resource requests from WAFlash/Ruffle engine
-        //    WASM code creates XMLHttpRequest directly, bypassing JS hooks,
-        //    causing CORS errors for external URLs (e.g. cdn.comment.4399pk.com).
-        //    Native proxy download with CORS headers fixes this.
-        if (url.startsWith("http") && !url.contains("flash.local") &&
-            isFromFlashLocal(request, view)) {
-            Log.d(TAG, "Intercepting external resource (Referer): $url")
-            return interceptExternalResource(url, request)
-        }
+        // 注意：不拦截 WAFlash 引擎内部发起的外部资源请求！
+        // CORS 错误会让 XHR 快速失败，游戏继续运行。
+        // 原生代理下载会阻塞等待，导致 WASM 卡死。
 
         return super.shouldInterceptRequest(view, request)
     }

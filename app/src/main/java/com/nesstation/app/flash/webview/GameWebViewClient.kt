@@ -71,16 +71,6 @@ open class GameWebViewClient(
         // 2. 拦截 flash.local 虚拟域名
         if (url.contains("flash.local")) {
             val path = url.substringAfter("flash.local/").substringBefore("?")
-            // JS hook 代理：flash.local/proxy?url=<encoded> → 代理下载外部资源
-            //    （如果 waflash.html 注入了 XHR/fetch hook，外部 URL 会被重写为此格式）
-            if (path == "proxy" || url.contains("proxy?url=") || url.contains("proxy%3Furl%3D")) {
-                val encodedUrl = url.substringAfter("proxy?url=").substringBefore("&")
-                val originalUrl = try { android.net.Uri.decode(encodedUrl) } catch(e: Exception) { encodedUrl }
-                if (originalUrl.startsWith("http")) {
-                    android.util.Log.d("GameWebViewClient", "Proxy 请求(JS hook): $originalUrl")
-                    return interceptExternalResource(originalUrl, request)
-                }
-            }
             // 本地 SWF 代理：flash.local/local.swf → 读取真实文件
             if (path == "local.swf") {
                 return interceptLocalSwfProxy(view)
@@ -118,17 +108,11 @@ open class GameWebViewClient(
             return interceptSwf(url, request)
         }
 
-        // 6. 拦截 WAFlash/Ruffle 引擎内部发起的外部资源请求（XML/图片/配置等）
-        //    WAFlash 的 Emscripten WASM 代码内部直接创建 XMLHttpRequest，绕过 JS 层面的
-        //    prototype.open hook，导致请求直接发往外部 URL（如 http://cdn.comment.4399pk.com/
-        //    baseconfig/base_100005525.xml），被 CORS 策略阻止，游戏一直加载。
-        //    在原生 shouldInterceptRequest 层拦截所有来自 flash.local 页面的外部请求，
-        //    代理下载并添加 CORS 头，彻底解决跨域问题。
-        if (url.startsWith("http") && !url.contains("flash.local") &&
-            isFromFlashLocal(request, view)) {
-            android.util.Log.d("GameWebViewClient", "拦截外部资源请求(Referer): $url")
-            return interceptExternalResource(url, request)
-        }
+        // 注意：不拦截 WAFlash 引擎内部发起的外部资源请求（XML/图片/配置等）！
+        // 原因：WASM 代码请求外部 URL（如 cdn.comment.4399pk.com/baseconfig/base_100005525.xml）
+        // 被 CORS 策略阻止后，XHR onerror 回调会被触发，游戏继续运行。
+        // 如果原生代理下载，会变成同步阻塞等待，WASM 代码一直等响应导致卡死。
+        // 正确做法：让 CORS 错误自然发生，XHR 快速失败，游戏继续。
 
         // 不拦截 HTML 页面！
         // View Transitions polyfill 通过 addDocumentStartJavaScript（Document Start 注入）
