@@ -46,11 +46,18 @@ public final class J2meBitmapFilter {
     private static final int EDGE_THRESHOLD_WIDE = 40;
 
     /** Paint for drawing bitmaps without filtering (nearest-neighbor). */
-    private static final Paint sNearestPaint = new Paint(Paint.FILTER_BITMAP_FALSE);
+    private static final Paint sNearestPaint;
     /** Paint for drawing bitmaps with bilinear filtering. */
-    private static final Paint sSmoothPaint = new Paint(Paint.FILTER_BITMAP_TRUE);
+    private static final Paint sSmoothPaint;
     /** Paint for drawing mask overlays. */
     private static final Paint sMaskPaint = new Paint();
+
+    static {
+        sNearestPaint = new Paint();
+        sNearestPaint.setFilterBitmap(false);
+        sSmoothPaint = new Paint();
+        sSmoothPaint.setFilterBitmap(true);
+    }
 
     // ─── Cached filtered (upscaled) bitmap ──────────────────────────────
 
