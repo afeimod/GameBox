@@ -15,6 +15,42 @@
 # ─── Storage layer ─────────────────────────────────────────────────────────
 -keep class com.nesstation.app.core.storage.** { *; }
 
+# ─── J2ME-Loader: keep all emulator classes (prevent R8 stripping) ────────
+-keep class javax.** { *; }
+-keep class com.kddi.** { *; }
+-keep class com.siemens.mp.** { *; }
+-keep class com.samsung.util.** { *; }
+-keep class com.sonyericsson.accelerometer.** { *; }
+-keep class com.sprintpcs.media.** { *; }
+-keep class com.mascotcapsule.micro3d.v3.** { *; }
+-keep class com.jblend.graphics.j3d.* { *; }
+-keep class com.motorola.** { *; }
+-keep class com.nokia.mid.** { *; }
+-keep class com.sun.midp.midlet.** { *; }
+-keep class com.vodafone.** { *; }
+-keep class mmpp.media.** { *; }
+-keep class org.microemu.** { *; }
+-keep class ru.playsoftware.j2meloader.** { *; }
+-keep class ru.woesss.** { *; }
+-keep class com.nesstation.app.BuildConfig { *; }
+-keep class com.arthenica.mobileffmpeg.** { *; }
+-keep class org.acra.attachment.DefaultAttachmentProvider { *; }
+-keep class ru.playsoftware.j2meloader.crashes.models.* { *; }
+# Keep J2ME data binding classes
+-keep class com.nesstation.app.databinding.** { *; }
+# Keep J2ME activities (also declared in manifest, but be explicit)
+-keep class ru.playsoftware.j2meloader.config.ConfigActivity { *; }
+-keep class ru.playsoftware.j2meloader.config.ProfilesActivity { *; }
+-keep class ru.playsoftware.j2meloader.settings.SettingsActivity { *; }
+-keep class ru.playsoftware.j2meloader.settings.KeyMapperActivity { *; }
+-keep class javax.microedition.shell.MicroActivity { *; }
+-keep class ru.playsoftware.j2meloader.filepicker.** { *; }
+# Keep enum methods
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
 # ─── Room ──────────────────────────────────────────────────────────────────
 -keep class * extends androidx.room.RoomDatabase { *; }
 -keep @androidx.room.Entity class * { *; }

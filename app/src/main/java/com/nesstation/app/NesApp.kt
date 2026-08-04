@@ -38,14 +38,16 @@ class NesApp : Application() {
         // 2. Set the singleton reference — this is safe, just an assignment.
         instance = this
 
-        // 3. Initialise subsystems ONE BY ONE. Each is wrapped in its own
+        // 3. Initialize J2ME ContextHolder FIRST so Config's static block
+        //    can get a valid app context when any J2ME class is loaded.
+        tryInit("J2ME-ContextHolder") { javax.microedition.util.ContextHolder.setApplication(this) }
+
+        // 4. Initialise subsystems ONE BY ONE. Each is wrapped in its own
         //    try-catch so a failure in one doesn't prevent the others.
         tryInit("SettingsRepository") { SettingsRepository.init(this) }
         tryInit("AppContainer")       { _container = AppContainer(this) }
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
         tryInit("FdsBios")            { ensureFdsBios() }
-        // J2ME: Initialize ContextHolder so Config static initializer can get app context
-        tryInit("J2ME-ContextHolder") { javax.microedition.util.ContextHolder.setApplication(this) }
     }
 
     /**

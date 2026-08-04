@@ -66,22 +66,35 @@ public class Config {
 			};
 
 	static {
-		Context context = ContextHolder.getAppContext();
-		String appName = "J2ME-Loader";
-		if (!BuildConfig.FULL_EMULATOR) {
-			appName = context.getString(R.string.app_name);
+		try {
+			Context context = ContextHolder.getAppContext();
+			String appName = "J2ME-Loader";
+			if (!BuildConfig.FULL_EMULATOR) {
+				appName = context.getString(R.string.app_name);
+			}
+			SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+					+ "/" + appName;
+			if (context == null) {
+				// ContextHolder not initialized yet — use fallback paths
+				String path = Environment.getExternalStorageDirectory() + "/" + appName;
+				initDirs(path);
+			} else {
+				SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+				String path = FileUtils.isExternalStorageLegacy() ?
+						preferences.getString(PREF_EMULATOR_DIR, null) :
+						context.getExternalFilesDir(null).getPath();
+				if (path == null) {
+					path = Environment.getExternalStorageDirectory() + "/" + appName;
+				}
+				initDirs(path);
+				preferences.registerOnSharedPreferenceChangeListener(sPrefListener);
+			}
+		} catch (Throwable e) {
+			// Last-resort fallback: use external storage path
+			String fallback = Environment.getExternalStorageDirectory() + "/J2ME-Loader";
+			SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) + "/J2ME-Loader";
+			initDirs(fallback);
 		}
-		SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-				+ "/" + appName;
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-		String path = FileUtils.isExternalStorageLegacy() ?
-				preferences.getString(PREF_EMULATOR_DIR, null) :
-				context.getExternalFilesDir(null).getPath();
-		if (path == null) {
-			path = Environment.getExternalStorageDirectory() + "/" + appName;
-		}
-		initDirs(path);
-		preferences.registerOnSharedPreferenceChangeListener(sPrefListener);
 	}
 
 	public static String getEmulatorDir() {

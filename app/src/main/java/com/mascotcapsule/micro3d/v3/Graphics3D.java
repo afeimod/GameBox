@@ -22,6 +22,7 @@ import androidx.preference.PreferenceManager;
 
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.ViewHandler;
+import android.content.Context;
 import javax.microedition.util.ContextHolder;
 
 @SuppressWarnings("unused, WeakerAccess")
@@ -198,11 +199,14 @@ public class Graphics3D {
 	}
 
 	static {
-		if (PreferenceManager.getDefaultSharedPreferences(ContextHolder.getAppContext()).getBoolean("micro3d_using_message", false)) {
-			ViewHandler.postEvent(
-					() -> Toast.makeText(ContextHolder.getAppContext(),
-							"Mascot Capsule 3D!",
-							Toast.LENGTH_LONG).show());
-		}
+		try {
+			Context ctx = ContextHolder.getAppContext();
+			if (ctx != null && PreferenceManager.getDefaultSharedPreferences(ctx).getBoolean("micro3d_using_message", false)) {
+				ViewHandler.postEvent(
+						() -> Toast.makeText(ctx,
+								"Mascot Capsule 3D!",
+								Toast.LENGTH_LONG).show());
+			}
+		} catch (Throwable ignored) {}
 	}
 }
