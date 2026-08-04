@@ -740,7 +740,10 @@ public class MicroActivity extends AppCompatActivity {
 	private View floatingMenuPanel;
 	private boolean floatingMenuVisible = false;
 	private int currentFilterIndex = 0;
-	private final String[] filterNames = {"无滤镜", "扫描线", "CRT", "点阵"};
+	private final String[] filterNames = {
+			"无滤镜", "扫描线", "CRT", "点阵",
+			"XBR", "4XBR", "XBR+点阵", "4XBR+点阵"
+	};
 	private boolean isPaused = false;
 
 	@SuppressLint("ClickableViewAccessibility")
@@ -854,13 +857,8 @@ public class MicroActivity extends AppCompatActivity {
 
 	private void onFloatingMenuItemClick(int index) {
 		switch (index) {
-			case 0: // Filter toggle
-				currentFilterIndex = (currentFilterIndex + 1) % filterNames.length;
-				javax.microedition.lcdui.graphics.FcFilterView fv = binding.fcFilterView;
-				if (fv != null) {
-					fv.setFilterMode(currentFilterIndex);
-				}
-				Toast.makeText(this, "滤镜: " + filterNames[currentFilterIndex], Toast.LENGTH_SHORT).show();
+			case 0: // Filter — show selection dialog
+				showFilterSelectionDialog();
 				break;
 			case 1: // Pause/Resume
 				if (isPaused) {
@@ -912,6 +910,39 @@ public class MicroActivity extends AppCompatActivity {
 		if (floatingMenuPanel != null) {
 			floatingMenuPanel.setVisibility(View.GONE);
 		}
+	}
+
+	/**
+	 * Shows a filter selection dialog with all available J2ME video filter options.
+	 * The current filter is pre-selected; tapping an option applies it immediately.
+	 */
+	private void showFilterSelectionDialog() {
+		// Sync index from FcFilterView in case it was changed elsewhere
+		javax.microedition.lcdui.graphics.FcFilterView fv = binding.fcFilterView;
+		if (fv != null) {
+			currentFilterIndex = fv.getFilterMode();
+		}
+		String[] items = filterNames;
+		// Build descriptive labels
+		String[] labels = new String[items.length];
+		for (int i = 0; i < items.length; i++) {
+			if (i == currentFilterIndex) {
+				labels[i] = items[i] + "  ✓";
+			} else {
+				labels[i] = items[i];
+			}
+		}
+		new AlertDialog.Builder(this)
+				.setTitle("选择视频滤镜")
+				.setItems(labels, (dialog, which) -> {
+					currentFilterIndex = which;
+					if (fv != null) {
+						fv.setFilterMode(which);
+					}
+					Toast.makeText(this, "滤镜: " + filterNames[which], Toast.LENGTH_SHORT).show();
+				})
+				.setNegativeButton(android.R.string.cancel, null)
+				.show();
 	}
 
 	private int getCutoutSafeTopMargin() {
