@@ -162,14 +162,17 @@ public final class J2meBitmapFilter {
     /**
      * {@code reduce()} from the reference shader — packs RGB into a single
      * scalar for exact equality comparison.
-     * <p>{@code dtt = vec3(65536.0, 255.0, 1.0)}, so
-     * {@code reduce(color) = R*65536 + G*255 + B}.
+     * <p>Uses {@code R*65536 + G*256 + B} (standard 24-bit packing) which is
+     * collision-free for 8-bit channels. The GLSL reference uses
+     * {@code vec3(65536.0, 255.0, 1.0)} with normalized [0,1] colors where
+     * 255 > 1 holds; for integer 0-255 values we use 256 to ensure uniqueness
+     * (255 is not > 255, but 256 is).
      */
     private static long reduceColor(int color) {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
         int b = color & 0xFF;
-        return (long) r * 65536 + (long) g * 255 + b;
+        return (long) r * 65536 + (long) g * 256 + b;
     }
 
     /**

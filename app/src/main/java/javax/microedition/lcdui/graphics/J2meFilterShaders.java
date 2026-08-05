@@ -329,13 +329,23 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR fragment shader — Hyllian's 2xBR (reference 2xbr.fsh, verbatim).
+     * 2xBR fragment shader — Hyllian's 2xBR (based on reference 2xbr.fsh).
      *
-     * <p>Uses {@code reduce()} with {@code dtt = vec3(65536.0, 255.0, 1.0)} and
-     * {@code varying vec2 v_texcoord0[3]} exactly as the reference file.
+     * <p>Uses {@code varying vec2 v_texcoord0[3]} exactly as the reference file.
      * Only requires {@code u_texelDelta} (no {@code u_pixelDelta}).
-     * Highp is requested when available to avoid mediump overflow in the
-     * {@code reduce()} color-packing dot product.
+     *
+     * <p><b>Color comparison:</b> The reference shader uses {@code reduce()} with
+     * {@code dtt = vec3(65536.0, 255.0, 1.0)} to pack RGB into a scalar for exact
+     * equality comparison. However, on many mobile GPUs {@code mediump} float
+     * (max 65504) overflows when computing {@code R * 65536}, causing all
+     * {@code reduce()} values to become infinity. This makes {@code h==f} true
+     * but {@code h!=e} false for all pixels, so the edge detection never triggers
+     * and the filter has no visible effect.
+     *
+     * <p>The fix replaces {@code reduce()} with direct vec3 comparison using
+     * {@code all(equal())} and {@code any(notEqual())}, which works correctly
+     * in both {@code highp} and {@code mediump}. The edge-detection logic is
+     * otherwise identical to the reference shader.
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -347,10 +357,12 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(equal(a, b));\n" +
+            "}\n" +
             "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool neq(vec3 a, vec3 b) {\n" +
+            "    return any(notEqual(a, b));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -370,18 +382,9 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
             "    gl_FragColor.rgb = E;\n" +
             "\n" +
-            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
+            "    if (eq(H, F) && neq(H, E) && ( eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)) ))\n" +
             "    {\n" +
             "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -389,11 +392,15 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 4xBR fragment shader — Hyllian's 4xBR (reference 4xbr.fsh, verbatim).
+     * 4xBR fragment shader — Hyllian's 4xBR (based on reference 4xbr.fsh).
      *
-     * <p>Uses the same {@code reduce()} + {@code dtt} and {@code v_texcoord0[3]}
-     * as 2xBR, but outputs a 4×4 sub-pixel pattern based on the fractional
-     * position within the texel. Only requires {@code u_texelDelta}.
+     * <p>Uses the same {@code varying vec2 v_texcoord0[3]} and edge-detection
+     * logic as {@link #FRAGMENT_2XBR}, but outputs a 4×4 sub-pixel pattern
+     * based on the fractional position within the texel. Only requires
+     * {@code u_texelDelta}.
+     *
+     * <p>Color comparison uses {@code all(equal())} instead of {@code reduce()}
+     * to avoid mediump overflow (see {@link #FRAGMENT_2XBR} for details).
      */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -405,10 +412,12 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(equal(a, b));\n" +
+            "}\n" +
             "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool neq(vec3 a, vec3 b) {\n" +
+            "    return any(notEqual(a, b));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -431,16 +440,7 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
-            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
+            "    if (eq(H, F) && neq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
@@ -518,8 +518,9 @@ public final class J2meFilterShaders {
      * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_2XBR}).
-     * The 2xBR edge detection is verbatim from the reference 2xbr.fsh
-     * ({@code reduce()} + {@code dtt}). The dot mask uses the same formula
+     * The 2xBR edge detection is based on the reference 2xbr.fsh, using
+     * {@code all(equal())} for color comparison instead of {@code reduce()}
+     * to avoid mediump overflow. The dot mask uses the same formula
      * as HQ4x+Dot: {@code pixel_no / u_texelDelta} → distance from texel
      * center → {@code exp(-2.4 * delta * bloom)} → {@code mix(1.2*res, res*dotMask, 0.65)}.
      */
@@ -533,10 +534,12 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(equal(a, b));\n" +
+            "}\n" +
             "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool neq(vec3 a, vec3 b) {\n" +
+            "    return any(notEqual(a, b));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -556,18 +559,9 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
             "    vec3 res = E;\n" +
             "\n" +
-            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
+            "    if (eq(H, F) && neq(H, E) && ( eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)) ))\n" +
             "    {\n" +
             "        res = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -591,9 +585,9 @@ public final class J2meFilterShaders {
      * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_4XBR}).
-     * The 4xBR edge detection is verbatim from the reference 4xbr.fsh
-     * ({@code reduce()} + {@code dtt}). The dot mask uses the same formula
-     * as HQ4x+Dot.
+     * The 4xBR edge detection is based on the reference 4xbr.fsh, using
+     * {@code all(equal())} for color comparison instead of {@code reduce()}
+     * to avoid mediump overflow. The dot mask uses the same formula as HQ4x+Dot.
      */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -605,10 +599,12 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(equal(a, b));\n" +
+            "}\n" +
             "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool neq(vec3 a, vec3 b) {\n" +
+            "    return any(notEqual(a, b));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -631,16 +627,7 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
-            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
+            "    if (eq(H, F) && neq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +

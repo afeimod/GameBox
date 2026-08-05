@@ -95,6 +95,13 @@ public class ShaderProgram {
 		int vertexId = loadShader(GL_VERTEX_SHADER, vertex);
 		int fragmentId = loadShader(GL_FRAGMENT_SHADER, fragment);
 
+		if (vertexId == -1 || fragmentId == -1) {
+			Log.e(TAG, "createProgram: shader compilation failed (vertex=" + vertexId + ", fragment=" + fragmentId + ")");
+			if (vertexId != -1) glDeleteShader(vertexId);
+			if (fragmentId != -1) glDeleteShader(fragmentId);
+			return -1;
+		}
+
 		int program = glCreateProgram();     // create empty OpenGL ShaderProgram
 		glAttachShader(program, vertexId);   // add the vertex shader to program
 		glAttachShader(program, fragmentId); // add the fragment shader to program
@@ -104,7 +111,11 @@ public class ShaderProgram {
 		glGetProgramiv(program, GL_LINK_STATUS, status, 0);
 		if (status[0] == 0) {
 			String s = glGetProgramInfoLog(program);
-			Log.e(TAG, "createProgram: " + s);
+			Log.e(TAG, "createProgram link failed: " + s);
+			glDeleteShader(vertexId);
+			glDeleteShader(fragmentId);
+			glDeleteProgram(program);
+			return -1;
 		}
 		int error = glGetError();
 		if (error != GL_NO_ERROR) {
