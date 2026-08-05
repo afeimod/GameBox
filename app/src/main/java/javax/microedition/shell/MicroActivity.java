@@ -742,7 +742,7 @@ public class MicroActivity extends AppCompatActivity {
 	private int currentFilterIndex = 0;
 	private final String[] filterNames = {
 			"无滤镜", "扫描线", "CRT", "点阵",
-			"XBR", "4XBR", "XBR+点阵", "4XBR+点阵", "HQ4x"
+			"XBR", "4XBR", "XBR+点阵", "4XBR+点阵", "HQ4x", "HQ4x+点阵"
 	};
 	private boolean isPaused = false;
 

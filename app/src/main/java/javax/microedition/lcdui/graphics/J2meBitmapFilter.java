@@ -7,49 +7,51 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 
 /**
- * CPU-based bitmap filter for J2ME games.
- * ALL filters are applied directly to the game's rendered bitmap or canvas,
- * NOT as a separate full-screen overlay.
+ * CPU-based bitmap filter for J2ME games (non-GL rendering modes).
  *
- * Two categories of filters:
- * 1. Pixel-processing filters (XBR/4XBR/XBR+dot/4XBR+dot/HQ4x):
- *    Process each pixel of the game bitmap using edge-adaptive interpolation
- *    and produce an UPSCALED bitmap (2x for XBR, 4x for 4XBR/HQ4x).
- *    The upscaled bitmap is then drawn with NEAREST filtering so the
- *    algorithm's output is preserved on screen.
- * 2. Mask filters (scanline/CRT/dot):
- *    Draw the game bitmap first, then overlay a mask pattern directly
- *    on the canvas at screen resolution.
+ * <p>Uses the <b>exact same algorithms</b> as the reference GLSL shaders:
+ * <ul>
+ *   <li>2xBR / 4xBR: Hyllian's XBR with {@code reduce()} = {@code R*65536 + G*255 + B}
+ *       and exact-integer edge detection.</li>
+ *   <li>HQ4x: guest(r)'s 4xGLSLHqFilter weighted interpolation.</li>
+ *   <li>Dot: Themaister's LCD dot effect with {@code exp(-gamma * delta * bloom)}.</li>
+ *   <li>Scanline: sine-modulated brightness.</li>
+ *   <li>CRT: RGB phosphor mask + scanlines + vignette.</li>
+ * </ul>
  *
- * This class is used in BOTH GL and non-GL rendering modes:
- * - In GL mode: Canvas.GLRenderer calls applyFilter() to get an upscaled
- *   filtered bitmap, uploads it as the GL texture, and draws with a
- *   passthrough shader + NEAREST filtering.
- * - In non-GL modes: Canvas.onDraw/repaintScreen calls drawFiltered()
- *   which applies the filter and draws the result to the canvas.
+ * <p>Filter modes (must match {@code J2meFilterShaders}):
+ * <pre>
+ *   0 = None
+ *   1 = Scanline
+ *   2 = CRT
+ *   3 = Dot
+ *   4 = 2xBR
+ *   5 = 4xBR
+ *   6 = 2xBR + Dot
+ *   7 = 4xBR + Dot
+ *   8 = HQ4x
+ *   9 = HQ4x + Dot
+ * </pre>
  */
 public final class J2meBitmapFilter {
 
-    /** Filter mode constants — must match MicroActivity.filterNames. */
-    public static final int MODE_NONE = 0;
-    public static final int MODE_SCANLINE = 1;
-    public static final int MODE_CRT = 2;
-    public static final int MODE_DOT = 3;
-    public static final int MODE_XBR = 4;
-    public static final int MODE_4XBR = 5;
-    public static final int MODE_XBR_DOT = 6;
-    public static final int MODE_4XBR_DOT = 7;
-    public static final int MODE_HQ4X = 8;
+    public static final int MODE_NONE      = 0;
+    public static final int MODE_SCANLINE  = 1;
+    public static final int MODE_CRT       = 2;
+    public static final int MODE_DOT       = 3;
+    public static final int MODE_2XBR      = 4;
+    public static final int MODE_4XBR      = 5;
+    public static final int MODE_2XBR_DOT  = 6;
+    public static final int MODE_4XBR_DOT  = 7;
+    public static final int MODE_HQ4X      = 8;
+    public static final int MODE_HQ4X_DOT  = 9;
 
-    /** Luminance threshold for edge detection (0-255 scale). */
-    private static final int EDGE_THRESHOLD = 24;
-    private static final int EDGE_THRESHOLD_WIDE = 40;
+    // Legacy aliases for backward compatibility
+    public static final int MODE_XBR     = MODE_2XBR;
+    public static final int MODE_XBR_DOT = MODE_2XBR_DOT;
 
-    /** Paint for drawing bitmaps without filtering (nearest-neighbor). */
     private static final Paint sNearestPaint;
-    /** Paint for drawing bitmaps with bilinear filtering. */
     private static final Paint sSmoothPaint;
-    /** Paint for drawing mask overlays. */
     private static final Paint sMaskPaint = new Paint();
 
     static {
@@ -59,8 +61,7 @@ public final class J2meBitmapFilter {
         sSmoothPaint.setFilterBitmap(true);
     }
 
-    // ─── Cached filtered (upscaled) bitmap ──────────────────────────────
-
+    // ─── Cached filtered bitmap ──────────────────────────────────────────
     private static Bitmap sFilteredBitmap;
     private static int sCachedSrcW = -1;
     private static int sCachedSrcH = -1;
@@ -68,29 +69,22 @@ public final class J2meBitmapFilter {
 
     private J2meBitmapFilter() {}
 
-    // ─── Mode classification ────────────────────────────────────────────
+    // ─── Mode classification ─────────────────────────────────────────────
 
     public static boolean isFilteredMode(int mode) {
         return mode != MODE_NONE;
     }
 
-    /**
-     * Returns true if the mode requires CPU pixel processing and upscaling.
-     * These filters produce an upscaled bitmap that is drawn with NEAREST.
-     */
     public static boolean isPixelProcessingMode(int mode) {
-        return mode == MODE_XBR || mode == MODE_4XBR ||
-               mode == MODE_XBR_DOT || mode == MODE_4XBR_DOT ||
-               mode == MODE_HQ4X;
+        return mode == MODE_2XBR || mode == MODE_4XBR ||
+               mode == MODE_2XBR_DOT || mode == MODE_4XBR_DOT ||
+               mode == MODE_HQ4X || mode == MODE_HQ4X_DOT;
     }
 
-    /**
-     * Returns the upscale factor for pixel-processing modes.
-     * XBR = 2x, 4XBR/HQ4x = 4x.
-     */
     public static int getScaleFactor(int mode) {
-        if (mode == MODE_XBR || mode == MODE_XBR_DOT) return 2;
-        if (mode == MODE_4XBR || mode == MODE_4XBR_DOT || mode == MODE_HQ4X) return 4;
+        if (mode == MODE_2XBR || mode == MODE_2XBR_DOT) return 2;
+        if (mode == MODE_4XBR || mode == MODE_4XBR_DOT ||
+            mode == MODE_HQ4X || mode == MODE_HQ4X_DOT) return 4;
         return 1;
     }
 
@@ -98,58 +92,40 @@ public final class J2meBitmapFilter {
         return mode == MODE_SCANLINE || mode == MODE_CRT || mode == MODE_DOT;
     }
 
-    // ─── Public API: applyFilter (used by GLRenderer) ───────────────────
+    // ─── Public API: applyFilter (returns upscaled filtered bitmap) ──────
 
-    /**
-     * Applies a pixel-processing filter to the source bitmap and returns
-     * an UPSCALED result. Used by Canvas.GLRenderer to pre-process the
-     * game texture before uploading to GL.
-     *
-     * @param src  the game's offscreenCopy bitmap
-     * @param mode one of MODE_XBR, MODE_4XBR, MODE_XBR_DOT, MODE_4XBR_DOT, MODE_HQ4X
-     * @return upscaled filtered bitmap (2x or 4x the source dimensions)
-     */
     public static Bitmap applyFilter(Bitmap src, int mode) {
         int sw = src.getWidth();
         int sh = src.getHeight();
 
-        // Check cache
-        if (sFilteredBitmap == null || sCachedSrcW != sw || sCachedSrcH != sh || sCachedMode != mode) {
-            if (sFilteredBitmap != null) {
-                sFilteredBitmap.recycle();
-            }
-            sCachedSrcW = sw;
-            sCachedSrcH = sh;
-            sCachedMode = mode;
-        } else {
-            // Reuse cached bitmap — just re-process pixels
+        if (sFilteredBitmap != null && (sCachedSrcW != sw || sCachedSrcH != sh || sCachedMode != mode)) {
+            sFilteredBitmap.recycle();
+            sFilteredBitmap = null;
         }
+        sCachedSrcW = sw;
+        sCachedSrcH = sh;
+        sCachedMode = mode;
 
         switch (mode) {
-            case MODE_XBR:
-                return xbrUpscale(src, 2, false);
+            case MODE_2XBR:
+                return xbrUpscale(src, 2);
             case MODE_4XBR:
-                return xbrUpscale(src, 4, true);
-            case MODE_XBR_DOT:
-                return applyDotMaskToBitmap(xbrUpscale(src, 2, false));
+                return xbrUpscale(src, 4);
+            case MODE_2XBR_DOT:
+                return applyDotMask(xbrUpscale(src, 2));
             case MODE_4XBR_DOT:
-                return applyDotMaskToBitmap(xbrUpscale(src, 4, true));
+                return applyDotMask(xbrUpscale(src, 4));
             case MODE_HQ4X:
                 return hq4xUpscale(src);
+            case MODE_HQ4X_DOT:
+                return applyDotMask(hq4xUpscale(src));
             default:
                 return src;
         }
     }
 
-    // ─── Public API: drawFiltered (used by non-GL Canvas) ───────────────
+    // ─── Public API: drawFiltered (non-GL canvas rendering) ──────────────
 
-    /**
-     * Applies the selected filter and draws the result to the destination canvas.
-     *
-     * For pixel-processing filters: produces an upscaled bitmap (2x/4x) and
-     * draws it with NEAREST filtering to preserve the algorithm's output.
-     * For mask filters: draws the bitmap then overlays a mask pattern.
-     */
     public static void drawFiltered(Bitmap srcBitmap, Canvas dstCanvas,
                                     RectF dstRect, int mode) {
         if (mode == MODE_NONE) {
@@ -160,12 +136,11 @@ public final class J2meBitmapFilter {
         }
 
         if (isPixelProcessingMode(mode)) {
-            // Process and upscale the bitmap, then draw with NEAREST
             Bitmap filtered = applyFilter(srcBitmap, mode);
             if (filtered != null && filtered != srcBitmap) {
                 dstCanvas.drawBitmap(filtered,
                         new Rect(0, 0, filtered.getWidth(), filtered.getHeight()),
-                        dstRect, sNearestPaint); // NEAREST to preserve algorithm output
+                        dstRect, sNearestPaint);
             } else {
                 dstCanvas.drawBitmap(srcBitmap,
                         new Rect(0, 0, srcBitmap.getWidth(), srcBitmap.getHeight()),
@@ -179,18 +154,26 @@ public final class J2meBitmapFilter {
         }
     }
 
-    // ─── XBR Upscaling Algorithm ────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    //  XBR Algorithm (Hyllian's 2xBR / 4xBR)
+    //  Uses reduce() = R*65536 + G*255 + B for exact equality comparison
+    // ════════════════════════════════════════════════════════════════════
 
     /**
-     * XBR upscaling algorithm.
-     * For each source pixel, examines the 3x3 neighborhood, detects diagonal
-     * edges, and produces scale×scale output pixels with edge-adaptive blending.
+     * XBR upscaling. Produces a {@code scale}×{@code scale} output.
      *
-     * @param src       source bitmap
-     * @param scale     upscale factor (2 or 4)
-     * @param stronger  if true, applies additional smoothing (4XBR mode)
+     * <p>Edge detection (from reference 2xbr.fsh):
+     * <pre>
+     *   if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b)))
+     *       result = mix(E, F, 0.5)
+     *   else
+     *       result = E
+     * </pre>
+     *
+     * <p>For 4xBR, the 4×4 output block follows the pattern from 4xbr.fsh:
+     * E15 = F, E11 = E*0.5 + F*0.5, with a specific spatial arrangement.
      */
-    private static Bitmap xbrUpscale(Bitmap src, int scale, boolean stronger) {
+    private static Bitmap xbrUpscale(Bitmap src, int scale) {
         int sw = src.getWidth();
         int sh = src.getHeight();
         int dw = sw * scale;
@@ -200,119 +183,72 @@ public final class J2meBitmapFilter {
         src.getPixels(sp, 0, sw, 0, 0, sw, sh);
         int[] dp = new int[dw * dh];
 
-        int threshold = stronger ? EDGE_THRESHOLD_WIDE : EDGE_THRESHOLD;
-
         for (int y = 0; y < sh; y++) {
             for (int x = 0; x < sw; x++) {
-                int c = sp[y * sw + x];
+                // 3x3 neighborhood (matching reference shader layout)
+                //   I(e00)  B(e01)  C(e02)
+                //   D(e10)  E(e11)  F(e12)
+                //   G(e20)  H(e21)  I(e22)
+                int e00 = getPixelSafe(sp, sw, sh, x - 1, y - 1);
+                int e01 = getPixelSafe(sp, sw, sh, x,     y - 1); // B (top)
+                int e02 = getPixelSafe(sp, sw, sh, x + 1, y - 1); // C
+                int e10 = getPixelSafe(sp, sw, sh, x - 1, y);     // D (left)
+                int e11 = getPixelSafe(sp, sw, sh, x,     y);     // E (center)
+                int e12 = getPixelSafe(sp, sw, sh, x + 1, y);     // F (right)
+                int e20 = getPixelSafe(sp, sw, sh, x - 1, y + 1); // G
+                int e21 = getPixelSafe(sp, sw, sh, x,     y + 1); // H (bottom)
+                int e22 = getPixelSafe(sp, sw, sh, x + 1, y + 1); // I
 
-                // 3x3 neighborhood
-                int p00 = getPixelSafe(sp, sw, sh, x - 1, y - 1);
-                int p01 = getPixelSafe(sp, sw, sh, x,     y - 1);
-                int p02 = getPixelSafe(sp, sw, sh, x + 1, y - 1);
-                int p10 = getPixelSafe(sp, sw, sh, x - 1, y);
-                int p12 = getPixelSafe(sp, sw, sh, x + 1, y);
-                int p20 = getPixelSafe(sp, sw, sh, x - 1, y + 1);
-                int p21 = getPixelSafe(sp, sw, sh, x,     y + 1);
-                int p22 = getPixelSafe(sp, sw, sh, x + 1, y + 1);
+                // reduce() for exact comparison: R*65536 + G*255 + B
+                long b = reduce(e01);
+                long c = reduce(e02);
+                long d = reduce(e10);
+                long e = reduce(e11);
+                long f = reduce(e12);
+                long g = reduce(e20);
+                long h = reduce(e21);
+                long i = reduce(e22);
 
-                int yc = rgbToY(c);
-                int y01 = rgbToY(p01);
-                int y10 = rgbToY(p10);
-                int y12 = rgbToY(p12);
-                int y21 = rgbToY(p21);
+                // Edge detection from reference
+                boolean edge = (h == f && h != e &&
+                        ((e == g && (h == i || e == d)) ||
+                         (e == c && (h == i || e == b))));
 
-                // Edge detection: compare opposite neighbors
-                int edgeV = Math.abs(y01 - y21);
-                int edgeH = Math.abs(y10 - y12);
-                int dEdge = edgeV + edgeH;
+                int e11Color, e15Color;
+                if (edge) {
+                    e11Color = blendColor(e11, e12, 0.5f); // E * 0.5 + F * 0.5
+                    e15Color = e12;                         // F
+                } else {
+                    e11Color = e11;
+                    e15Color = e11;
+                }
 
-                // Diagonal edge detection
-                int y00 = rgbToY(p00);
-                int y02 = rgbToY(p02);
-                int y20 = rgbToY(p20);
-                int y22 = rgbToY(p22);
-
-                int dTL_BR = Math.abs(y00 - y22) + Math.abs(y00 - yc) + Math.abs(y22 - yc);
-                int dTR_BL = Math.abs(y02 - y20) + Math.abs(y02 - yc) + Math.abs(y20 - yc);
-
-                for (int sy = 0; sy < scale; sy++) {
-                    for (int sx = 0; sx < scale; sx++) {
-                        int dx = x * scale + sx;
-                        int dy = y * scale + sy;
-                        int di = dy * dw + dx;
-
-                        // Normalized position within the block (0.0 to 1.0)
-                        float nx = (sx + 0.5f) / scale;
-                        float ny = (sy + 0.5f) / scale;
-
-                        int result = c;
-
-                        if (dEdge >= threshold) {
-                            // There's an edge — apply XBR diagonal interpolation
-                            if (dTL_BR > dTR_BL) {
-                                // Edge runs TL→BR
-                                // Top-left quadrant: blend toward TL
-                                if (nx + ny < 1.0f) {
-                                    float w = (1.0f - nx - ny) * 0.5f;
-                                    // Only blend if TL is similar to center (edge, not noise)
-                                    if (colorDist(p00, c) < threshold * threshold * 3) {
-                                        result = blendColor(c, p00, w);
-                                    }
-                                }
-                                // Bottom-right quadrant: blend toward BR
-                                else {
-                                    float w = (nx + ny - 1.0f) * 0.5f;
-                                    if (colorDist(p22, c) < threshold * threshold * 3) {
-                                        result = blendColor(c, p22, w);
-                                    }
-                                }
-                            } else if (dTR_BL > dTL_BR) {
-                                // Edge runs TR→BL
-                                // Top-right quadrant: blend toward TR
-                                if (nx > ny) {
-                                    float w = (nx - ny) * 0.5f;
-                                    if (colorDist(p02, c) < threshold * threshold * 3) {
-                                        result = blendColor(c, p02, w);
-                                    }
-                                }
-                                // Bottom-left quadrant: blend toward BL
-                                else {
-                                    float w = (ny - nx) * 0.5f;
-                                    if (colorDist(p20, c) < threshold * threshold * 3) {
-                                        result = blendColor(c, p20, w);
-                                    }
-                                }
-                            }
-
-                            // Orthogonal edge blending
-                            if (edgeV >= threshold) {
-                                // Vertical edge: blend top/bottom
-                                if (ny < 0.5f && colorDist(p01, c) < threshold * threshold * 3) {
-                                    result = blendColor(result, p01, (0.5f - ny) * 0.3f);
-                                } else if (ny >= 0.5f && colorDist(p21, c) < threshold * threshold * 3) {
-                                    result = blendColor(result, p21, (ny - 0.5f) * 0.3f);
-                                }
-                            }
-                            if (edgeH >= threshold) {
-                                // Horizontal edge: blend left/right
-                                if (nx < 0.5f && colorDist(p10, c) < threshold * threshold * 3) {
-                                    result = blendColor(result, p10, (0.5f - nx) * 0.3f);
-                                } else if (nx >= 0.5f && colorDist(p12, c) < threshold * threshold * 3) {
-                                    result = blendColor(result, p12, (nx - 0.5f) * 0.3f);
-                                }
-                            }
-                        }
-
-                        // 4XBR extra smoothing: blend with 4-connected average
-                        if (stronger && dEdge < threshold * 2) {
-                            int avg4 = blendColor(
-                                    blendColor(p01, p21, 0.5f),
-                                    blendColor(p10, p12, 0.5f), 0.5f);
-                            result = blendColor(result, avg4, 0.15f);
-                        }
-
-                        dp[di] = result;
+                // Fill the scale×scale output block
+                if (scale == 2) {
+                    // 2xBR: simple 2x2 output
+                    // Pattern from reference: mix(E, F, 0.5) for all sub-pixels
+                    dp[(y * 2)     * dw + (x * 2)]     = e11Color;
+                    dp[(y * 2)     * dw + (x * 2 + 1)] = e11Color;
+                    dp[(y * 2 + 1) * dw + (x * 2)]     = e11Color;
+                    dp[(y * 2 + 1) * dw + (x * 2 + 1)] = e11Color;
+                } else {
+                    // 4xBR: specific 4x4 pattern from reference 4xbr.fsh
+                    // Sub-pixel positions: fx < 0.25, 0.25-0.50, 0.50-0.75, 0.75-1.0
+                    //                     fy same
+                    // Pattern:
+                    //   E15 E11 E11 E15
+                    //   E11 E   E   E11
+                    //   E11 E   E   E11
+                    //   E15 E11 E11 E15
+                    int[] block = {
+                        e15Color, e11Color, e11Color, e15Color,
+                        e11Color, e11,      e11,      e11Color,
+                        e11Color, e11,      e11,      e11Color,
+                        e15Color, e11Color, e11Color, e15Color
+                    };
+                    for (int sy = 0; sy < 4; sy++) {
+                        System.arraycopy(block, sy * 4, dp,
+                                (y * 4 + sy) * dw + x * 4, 4);
                     }
                 }
             }
@@ -323,12 +259,17 @@ public final class J2meBitmapFilter {
         return result;
     }
 
-    // ─── HQ4x Upscaling Algorithm ───────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    //  HQ4x Algorithm (guest(r)'s 4xGLSLHqFilter)
+    //  Weighted interpolation using 13 texels
+    // ════════════════════════════════════════════════════════════════════
 
     /**
-     * HQ4x-inspired 4x upscaling algorithm.
-     * Detects edge patterns using luminance thresholds and applies
-     * directional interpolation for each of the 16 output pixels.
+     * HQ4x upscaling. Based on the 4xGLSLHqFilter shader by guest(r).
+     *
+     * <p>Samples 13 texels: center (c), 4 inner (i1-i4), 4 outer (o1-o4),
+     * 4 side (s1-s4). Computes edge weights and applies weighted interpolation.
+     * Each source pixel produces a 4×4 block with the same filtered color.
      */
     private static Bitmap hq4xUpscale(Bitmap src) {
         int sw = src.getWidth();
@@ -340,122 +281,99 @@ public final class J2meBitmapFilter {
         src.getPixels(sp, 0, sw, 0, 0, sw, sh);
         int[] dp = new int[dw * dh];
 
-        final int T1 = 8;   // low threshold for edge detection
-        final int T2 = 24;  // medium threshold for smoothing
+        // Constants from the reference shader
+        final float mx = 1.00f;       // start smoothing wt.
+        final float k = -1.10f;       // wt. decrease factor
+        final float max_w = 0.75f;    // max filter weight
+        final float min_w = 0.03f;    // min filter weight
+        final float lum_add = 0.33f;  // effects smoothing
 
         for (int y = 0; y < sh; y++) {
             for (int x = 0; x < sw; x++) {
-                int c = sp[y * sw + x];
-                int yc = rgbToY(c);
+                // Center
+                int c = getPixelSafe(sp, sw, sh, x, y);
 
-                // 3x3 neighborhood
-                int p00 = getPixelSafe(sp, sw, sh, x - 1, y - 1);
-                int p01 = getPixelSafe(sp, sw, sh, x,     y - 1);
-                int p02 = getPixelSafe(sp, sw, sh, x + 1, y - 1);
-                int p10 = getPixelSafe(sp, sw, sh, x - 1, y);
-                int p12 = getPixelSafe(sp, sw, sh, x + 1, y);
-                int p20 = getPixelSafe(sp, sw, sh, x - 1, y + 1);
-                int p21 = getPixelSafe(sp, sw, sh, x,     y + 1);
-                int p22 = getPixelSafe(sp, sw, sh, x + 1, y + 1);
+                // Inner neighbors (half-texel offsets)
+                int i1 = getPixelSafe(sp, sw, sh, x,     y - 1); // top
+                int i2 = getPixelSafe(sp, sw, sh, x + 1, y);     // right
+                int i3 = getPixelSafe(sp, sw, sh, x,     y + 1); // bottom
+                int i4 = getPixelSafe(sp, sw, sh, x - 1, y);     // left
 
-                int y00 = rgbToY(p00), y01 = rgbToY(p01), y02 = rgbToY(p02);
-                int y10 = rgbToY(p10), y12 = rgbToY(p12);
-                int y20 = rgbToY(p20), y21 = rgbToY(p21), y22 = rgbToY(p22);
+                // Outer neighbors (full-texel diagonal offsets)
+                int o1 = getPixelSafe(sp, sw, sh, x - 1, y - 1); // TL
+                int o2 = getPixelSafe(sp, sw, sh, x + 1, y - 1); // TR
+                int o3 = getPixelSafe(sp, sw, sh, x + 1, y + 1); // BR
+                int o4 = getPixelSafe(sp, sw, sh, x - 1, y + 1); // BL
 
-                // Edge flags
-                boolean eT = Math.abs(y01 - yc) > T1;
-                boolean eB = Math.abs(y21 - yc) > T1;
-                boolean eL = Math.abs(y10 - yc) > T1;
-                boolean eR = Math.abs(y12 - yc) > T1;
-                boolean eTL = Math.abs(y00 - yc) > T1;
-                boolean eTR = Math.abs(y02 - yc) > T1;
-                boolean eBL = Math.abs(y20 - yc) > T1;
-                boolean eBR = Math.abs(y22 - yc) > T1;
+                // Side neighbors (quarter-texel offsets)
+                int s1 = getPixelSafe(sp, sw, sh, x,     y - 2); // far top
+                int s2 = getPixelSafe(sp, sw, sh, x + 2, y);     // far right
+                int s3 = getPixelSafe(sp, sw, sh, x,     y + 2); // far bottom
+                int s4 = getPixelSafe(sp, sw, sh, x - 2, y);     // far left
 
-                // Smooth area check
-                boolean smoothH = Math.abs(y10 - yc) < T2 && Math.abs(y12 - yc) < T2;
-                boolean smoothV = Math.abs(y01 - yc) < T2 && Math.abs(y21 - yc) < T2;
+                // Convert to float vectors for computation
+                float[] cv = toVec3(c);
+                float[] i1v = toVec3(i1), i2v = toVec3(i2);
+                float[] i3v = toVec3(i3), i4v = toVec3(i4);
+                float[] o1v = toVec3(o1), o2v = toVec3(o2);
+                float[] o3v = toVec3(o3), o4v = toVec3(o4);
+                float[] s1v = toVec3(s1), s2v = toVec3(s2);
+                float[] s3v = toVec3(s3), s4v = toVec3(s4);
 
+                // ko = dot(abs(outer - center), dt)
+                float ko1 = dotAbs(o1v, cv);
+                float ko2 = dotAbs(o2v, cv);
+                float ko3 = dotAbs(o3v, cv);
+                float ko4 = dotAbs(o4v, cv);
+
+                // k = min(dot(abs(inner_i - inner_j), dt), max(ko_a, ko_b))
+                float sd1 = dotAbs(sub(i1v, i3v));
+                float sd2 = dotAbs(sub(i2v, i4v));
+
+                float k1 = Math.min(sd2, Math.max(ko1, ko3));
+                float k2 = Math.min(sd1, Math.max(ko2, ko4));
+                float k3 = Math.min(sd2, Math.max(ko3, ko1));
+                float k4 = Math.min(sd1, Math.max(ko4, ko2));
+
+                // First pass: smooth center
+                float w1 = (ko3 < ko1) ? k1 * ko3 / Math.max(ko1, 0.001f) : k1;
+                float w2 = (ko4 < ko2) ? k2 * ko4 / Math.max(ko2, 0.001f) : k2;
+                float w3 = (ko1 < ko3) ? k3 * ko1 / Math.max(ko3, 0.001f) : k3;
+                float w4 = (ko2 < ko4) ? k4 * ko2 / Math.max(ko4, 0.001f) : k4;
+
+                float wsum = w1 + w2 + w3 + w4 + 0.001f;
+                cv[0] = (w1 * o1v[0] + w2 * o2v[0] + w3 * o3v[0] + w4 * o4v[0] + 0.001f * cv[0]) / wsum;
+                cv[1] = (w1 * o1v[1] + w2 * o2v[1] + w3 * o3v[1] + w4 * o4v[1] + 0.001f * cv[1]) / wsum;
+                cv[2] = (w1 * o1v[2] + w2 * o2v[2] + w3 * o3v[2] + w4 * o4v[2] + 0.001f * cv[2]) / wsum;
+
+                // Second pass: weighted interpolation
+                float lc = cv[0] + cv[1] + cv[2] + 0.2f;
+
+                w1 = clamp(k * dotAbs(sub(i1v, cv)) / (0.125f * (i1v[0] + i1v[1] + i1v[2]) + lum_add) + mx, min_w, max_w);
+                w2 = clamp(k * dotAbs(sub(i2v, cv)) / (0.125f * (i2v[0] + i2v[1] + i2v[2]) + lum_add) + mx, min_w, max_w);
+                w3 = clamp(k * dotAbs(sub(i3v, cv)) / (0.125f * (i3v[0] + i3v[1] + i3v[2]) + lum_add) + mx, min_w, max_w);
+                w4 = clamp(k * dotAbs(sub(i4v, cv)) / (0.125f * (i4v[0] + i4v[1] + i4v[2]) + lum_add) + mx, min_w, max_w);
+
+                float w5 = clamp(k * dotAbs(sub(s1v, cv)) / (0.125f * (s1v[0] + s1v[1] + s1v[2]) + lum_add) + mx, min_w, max_w);
+                float w6 = clamp(k * dotAbs(sub(s2v, cv)) / (0.125f * (s2v[0] + s2v[1] + s2v[2]) + lum_add) + mx, min_w, max_w);
+                float w7 = clamp(k * dotAbs(sub(s3v, cv)) / (0.125f * (s3v[0] + s3v[1] + s3v[2]) + lum_add) + mx, min_w, max_w);
+                float w8 = clamp(k * dotAbs(sub(s4v, cv)) / (0.125f * (s4v[0] + s4v[1] + s4v[2]) + lum_add) + mx, min_w, max_w);
+
+                float tw = 2.0f * (w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8) + 1.0f;
+                float r = (w1 * (i1v[0] + i3v[0]) + w2 * (i2v[0] + i4v[0]) +
+                           w5 * (s1v[0] + s3v[0]) + w6 * (s2v[0] + s4v[0]) + cv[0]) / tw;
+                float g = (w1 * (i1v[1] + i3v[1]) + w2 * (i2v[1] + i4v[1]) +
+                           w5 * (s1v[1] + s3v[1]) + w6 * (s2v[1] + s4v[1]) + cv[1]) / tw;
+                float b = (w1 * (i1v[2] + i3v[2]) + w2 * (i2v[2] + i4v[2]) +
+                           w5 * (s1v[2] + s3v[2]) + w6 * (s2v[2] + s4v[2]) + cv[2]) / tw;
+
+                int result = clampRGB(r, g, b);
+
+                // Fill 4x4 block
                 for (int sy = 0; sy < 4; sy++) {
+                    int rowStart = (y * 4 + sy) * dw + x * 4;
                     for (int sx = 0; sx < 4; sx++) {
-                        int dx = x * 4 + sx;
-                        int dy = y * 4 + sy;
-                        int di = dy * dw + dx;
-
-                        float fx = (sx + 0.5f) / 4.0f;
-                        float fy = (sy + 0.5f) / 4.0f;
-
-                        int result = c;
-
-                        // No edges → output center
-                        if (!eT && !eB && !eL && !eR &&
-                            !eTL && !eTR && !eBL && !eBR) {
-                            dp[di] = result;
-                            continue;
-                        }
-
-                        // Smooth area → slight blending with orthogonal neighbors
-                        if (smoothH && smoothV) {
-                            int avg4 = blendColor(
-                                    blendColor(p01, p21, 0.5f),
-                                    blendColor(p10, p12, 0.5f), 0.5f);
-                            result = blendColor(c, avg4, 0.2f);
-                            dp[di] = result;
-                            continue;
-                        }
-
-                        // Edge-adaptive interpolation based on sub-pixel quadrant
-                        if (fx < 0.5f && fy < 0.5f) {
-                            // Top-left quadrant
-                            if (eL && eT) {
-                                result = blendColor(c, blendColor(p10, p01, 0.5f),
-                                        0.4f * (1.0f - fx) * (1.0f - fy));
-                            } else if (eL) {
-                                result = blendColor(c, p10, (1.0f - fx) * 0.35f);
-                            } else if (eT) {
-                                result = blendColor(c, p01, (1.0f - fy) * 0.35f);
-                            } else if (eTL) {
-                                result = blendColor(c, p00, (1.0f - fx) * (1.0f - fy) * 0.4f);
-                            }
-                        } else if (fx >= 0.5f && fy < 0.5f) {
-                            // Top-right quadrant
-                            if (eR && eT) {
-                                result = blendColor(c, blendColor(p12, p01, 0.5f),
-                                        0.4f * fx * (1.0f - fy));
-                            } else if (eR) {
-                                result = blendColor(c, p12, fx * 0.35f);
-                            } else if (eT) {
-                                result = blendColor(c, p01, (1.0f - fy) * 0.35f);
-                            } else if (eTR) {
-                                result = blendColor(c, p02, fx * (1.0f - fy) * 0.4f);
-                            }
-                        } else if (fx < 0.5f && fy >= 0.5f) {
-                            // Bottom-left quadrant
-                            if (eL && eB) {
-                                result = blendColor(c, blendColor(p10, p21, 0.5f),
-                                        0.4f * (1.0f - fx) * fy);
-                            } else if (eL) {
-                                result = blendColor(c, p10, (1.0f - fx) * 0.35f);
-                            } else if (eB) {
-                                result = blendColor(c, p21, fy * 0.35f);
-                            } else if (eBL) {
-                                result = blendColor(c, p20, (1.0f - fx) * fy * 0.4f);
-                            }
-                        } else {
-                            // Bottom-right quadrant
-                            if (eR && eB) {
-                                result = blendColor(c, blendColor(p12, p21, 0.5f),
-                                        0.4f * fx * fy);
-                            } else if (eR) {
-                                result = blendColor(c, p12, fx * 0.35f);
-                            } else if (eB) {
-                                result = blendColor(c, p21, fy * 0.35f);
-                            } else if (eBR) {
-                                result = blendColor(c, p22, fx * fy * 0.4f);
-                            }
-                        }
-
-                        dp[di] = result;
+                        dp[rowStart + sx] = result;
                     }
                 }
             }
@@ -466,45 +384,104 @@ public final class J2meBitmapFilter {
         return result;
     }
 
-    // ─── Dot mask (applied to upscaled bitmap for XBR+dot modes) ────────
+    // ════════════════════════════════════════════════════════════════════
+    //  Dot Mask (Themaister's dot shader)
+    // ════════════════════════════════════════════════════════════════════
 
     /**
-     * Applies a dot mask pattern to the bitmap in-place.
-     * Darkens pixels in a circular pattern within each 4x4 cell.
+     * Applies the dot mask to an upscaled bitmap (for +dot modes).
+     * Uses the reference dot shader's lookup function:
+     * {@code color * exp(-gamma * delta * color_bloom(color))}
+     * with 9-tap sampling and {@code mix(1.2 * mid, color, 0.65)}.
      */
-    private static Bitmap applyDotMaskToBitmap(Bitmap bmp) {
+    private static Bitmap applyDotMask(Bitmap bmp) {
         int w = bmp.getWidth();
         int h = bmp.getHeight();
         int[] pixels = new int[w * h];
         bmp.getPixels(pixels, 0, w, 0, 0, w, h);
 
+        final float gamma = 2.4f;
+        final float shine = 0.05f;
+        final float blend = 0.65f;
+
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int idx = y * w + x;
-                int pixel = pixels[idx];
-                float cellX = (x % 4) / 3.0f - 0.5f;
-                float cellY = (y % 4) / 3.0f - 0.5f;
-                float dist = (float) Math.sqrt(cellX * cellX + cellY * cellY);
-                float mask = Math.min(1.0f, Math.max(0.5f,
-                        0.5f + 0.5f * smoothstep(0.2f, 0.5f, dist)));
+                // pixel_no = position in source-resolution space
+                float px = x;
+                float py = y;
 
-                int r = (int) (((pixel >> 16) & 0xFF) * mask);
-                int g = (int) (((pixel >> 8) & 0xFF) * mask);
-                int b = (int) ((pixel & 0xFF) * mask);
-                int a = (pixel >> 24) & 0xFF;
-                pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
+                // 9-tap sampling
+                float[] mid = lookup(px, py, 0, 0, pixels, w, h, gamma, shine);
+                float[] sum = new float[3];
+
+                addLookup(sum, px, py, -1, -1, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py,  0, -1, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py,  1, -1, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py, -1,  0, pixels, w, h, gamma, shine);
+                addLookup(sum, mid);
+                addLookup(sum, px, py,  1,  0, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py, -1,  1, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py,  0,  1, pixels, w, h, gamma, shine);
+                addLookup(sum, px, py,  1,  1, pixels, w, h, gamma, shine);
+
+                // mix(1.2 * mid_color, color, blend)
+                float r = mix(1.2f * mid[0], sum[0], blend);
+                float g = mix(1.2f * mid[1], sum[1], blend);
+                float b = mix(1.2f * mid[2], sum[2], blend);
+
+                int idx = y * w + x;
+                int a = (pixels[idx] >> 24) & 0xFF;
+                pixels[idx] = (a << 24) | clampRGB(r, g, b);
             }
         }
+
         bmp.setPixels(pixels, 0, w, 0, 0, w, h);
         return bmp;
     }
 
-    // ─── Canvas mask overlay (for scanline/CRT/dot in non-GL mode) ───────
+    private static float[] lookup(float px, float py, float ox, float oy,
+                                  int[] pixels, int w, int h,
+                                  float gamma, float shine) {
+        int sx = clampInt((int)(px + ox), 0, w - 1);
+        int sy = clampInt((int)(py + oy), 0, h - 1);
+        int color = pixels[sy * w + sx];
+        float[] rgb = toVec3(color);
+
+        float deltaX = (float)(px - Math.floor(px)) - (ox + 0.5f);
+        float deltaY = (float)(py - Math.floor(py)) - (oy + 0.5f);
+        float delta = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        float bright = rgb[0] * 0.30f + rgb[1] * 0.59f + rgb[2] * 0.11f;
+        float bloom = mix(1.0f + shine, 1.0f - shine, bright);
+
+        float factor = (float) Math.exp(-gamma * delta * bloom);
+        rgb[0] *= factor;
+        rgb[1] *= factor;
+        rgb[2] *= factor;
+        return rgb;
+    }
+
+    private static void addLookup(float[] sum, float px, float py, float ox, float oy,
+                                  int[] pixels, int w, int h,
+                                  float gamma, float shine) {
+        float[] v = lookup(px, py, ox, oy, pixels, w, h, gamma, shine);
+        sum[0] += v[0];
+        sum[1] += v[1];
+        sum[2] += v[2];
+    }
+
+    private static void addLookup(float[] sum, float[] v) {
+        sum[0] += v[0];
+        sum[1] += v[1];
+        sum[2] += v[2];
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Canvas Mask Overlay (scanline/CRT/dot for non-GL mode)
+    // ════════════════════════════════════════════════════════════════════
 
     private static void applyCanvasMask(Canvas canvas, RectF rect, int mode) {
         sMaskPaint.setAntiAlias(false);
-        sMaskPaint.setFilterBitmap(false);
-
         switch (mode) {
             case MODE_SCANLINE:
                 drawScanlineMask(canvas, rect);
@@ -519,15 +496,20 @@ public final class J2meBitmapFilter {
     }
 
     private static void drawScanlineMask(Canvas canvas, RectF rect) {
-        float top = rect.top;
-        float bottom = rect.bottom;
         float left = rect.left;
         float right = rect.right;
+        float top = rect.top;
+        float bottom = rect.bottom;
+        float height = bottom - top;
 
-        sMaskPaint.setColor(0x8C000000);
-        for (float y = top; y < bottom; y += 4) {
-            float rowBottom = Math.min(y + 1, bottom);
-            canvas.drawRect(left, y, right, rowBottom, sMaskPaint);
+        for (float y = top; y < bottom; y += 1.0f) {
+            float t = (y - top) / height;
+            float sine = (float) Math.sin(t * Math.PI * 2.0 * height / 4.0f);
+            float brightness = 0.95f + 0.15f * sine;
+            brightness = Math.max(0.0f, Math.min(1.0f, brightness));
+            int alpha = (int) ((1.0f - brightness) * 200);
+            sMaskPaint.setColor((alpha << 24));
+            canvas.drawRect(left, y, right, y + 1, sMaskPaint);
         }
     }
 
@@ -537,23 +519,36 @@ public final class J2meBitmapFilter {
         float right = rect.right;
         float bottom = rect.bottom;
 
-        sMaskPaint.setColor(0x26FF0000);
+        // RGB phosphor stripes
+        sMaskPaint.setColor(0x22FF0000);
         for (float x = left; x < right; x += 3) {
             canvas.drawRect(x, top, Math.min(x + 1, right), bottom, sMaskPaint);
         }
-        sMaskPaint.setColor(0x2600FF00);
+        sMaskPaint.setColor(0x2200FF00);
         for (float x = left + 1; x < right; x += 3) {
             canvas.drawRect(x, top, Math.min(x + 1, right), bottom, sMaskPaint);
         }
-        sMaskPaint.setColor(0x260000FF);
+        sMaskPaint.setColor(0x220000FF);
         for (float x = left + 2; x < right; x += 3) {
             canvas.drawRect(x, top, Math.min(x + 1, right), bottom, sMaskPaint);
         }
 
-        sMaskPaint.setColor(0x80000000);
-        for (float y = top; y < bottom; y += 6) {
-            float rowBottom = Math.min(y + 1, bottom);
-            canvas.drawRect(left, y, right, rowBottom, sMaskPaint);
+        // Scanlines
+        sMaskPaint.setColor(0x50000000);
+        for (float y = top; y < bottom; y += 3) {
+            canvas.drawRect(left, y, right, Math.min(y + 1, bottom), sMaskPaint);
+        }
+
+        // Vignette
+        float cx = (left + right) / 2;
+        float cy = (top + bottom) / 2;
+        float maxDist = (float) Math.sqrt(
+                (right - cx) * (right - cx) + (bottom - cy) * (bottom - cy));
+        sMaskPaint.setColor(0x30000000);
+        for (float r = maxDist * 0.6f; r < maxDist; r += 2) {
+            int alpha = (int) (80 * (r - maxDist * 0.6f) / (maxDist * 0.4f));
+            sMaskPaint.setColor((alpha << 24));
+            canvas.drawCircle(cx, cy, r, sMaskPaint);
         }
     }
 
@@ -563,18 +558,27 @@ public final class J2meBitmapFilter {
         float right = rect.right;
         float bottom = rect.bottom;
 
-        sMaskPaint.setColor(0x66000000);
-        for (float y = top; y < bottom; y += 4) {
-            for (float x = left; x < right; x += 4) {
-                canvas.drawPoint(x, y, sMaskPaint);
-                canvas.drawPoint(x + 3, y, sMaskPaint);
-                canvas.drawPoint(x, y + 3, sMaskPaint);
-                canvas.drawPoint(x + 3, y + 3, sMaskPaint);
+        final float gamma = 2.4f;
+        final float shine = 0.05f;
+
+        for (float y = top; y < bottom; y += 1.0f) {
+            for (float x = left; x < right; x += 1.0f) {
+                float dx = (float)(x - Math.floor(x)) - 0.5f;
+                float dy = (float)(y - Math.floor(y)) - 0.5f;
+                float delta = (float) Math.sqrt(dx * dx + dy * dy);
+                float factor = (float) Math.exp(-gamma * delta * (1.0f - shine));
+                int alpha = (int) ((1.0f - factor) * 120);
+                if (alpha > 0) {
+                    sMaskPaint.setColor((alpha << 24));
+                    canvas.drawPoint(x, y, sMaskPaint);
+                }
             }
         }
     }
 
-    // ─── Utility methods ─────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    //  Utility methods
+    // ════════════════════════════════════════════════════════════════════
 
     private static int getPixelSafe(int[] pixels, int w, int h, int x, int y) {
         if (x < 0) x = 0;
@@ -584,37 +588,68 @@ public final class J2meBitmapFilter {
         return pixels[y * w + x];
     }
 
-    private static int rgbToY(int color) {
+    /**
+     * reduce() from the reference XBR shader: R*65536 + G*255 + B.
+     * Uses long to avoid overflow.
+     */
+    private static long reduce(int color) {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
         int b = color & 0xFF;
-        return (r * 77 + g * 150 + b * 29) >> 8;
+        return (long) r * 65536L + (long) g * 255L + (long) b;
     }
 
-    private static int colorDist(int c1, int c2) {
-        int dr = ((c1 >> 16) & 0xFF) - ((c2 >> 16) & 0xFF);
-        int dg = ((c1 >> 8) & 0xFF) - ((c2 >> 8) & 0xFF);
-        int db = (c1 & 0xFF) - (c2 & 0xFF);
-        return dr * dr + dg * dg + db * db;
+    private static float[] toVec3(int color) {
+        return new float[] {
+            ((color >> 16) & 0xFF) / 255.0f,
+            ((color >> 8) & 0xFF) / 255.0f,
+            (color & 0xFF) / 255.0f
+        };
+    }
+
+    private static float dotAbs(float[] a, float[] b) {
+        return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    }
+
+    private static float dotAbs(float[] v) {
+        return Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2]);
+    }
+
+    private static float[] sub(float[] a, float[] b) {
+        return new float[] { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+    }
+
+    private static float clamp(float v, float min, float max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private static int clampInt(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private static float mix(float a, float b, float t) {
+        return a * (1.0f - t) + b * t;
+    }
+
+    private static int clampRGB(float r, float g, float b) {
+        int ri = clampInt(Math.round(r * 255), 0, 255);
+        int gi = clampInt(Math.round(g * 255), 0, 255);
+        int bi = clampInt(Math.round(b * 255), 0, 255);
+        return 0xFF000000 | (ri << 16) | (gi << 8) | bi;
     }
 
     private static int blendColor(int c1, int c2, float ratio) {
-        float r1 = (c1 >> 16) & 0xFF;
-        float g1 = (c1 >> 8) & 0xFF;
-        float b1 = c1 & 0xFF;
-        float r2 = (c2 >> 16) & 0xFF;
-        float g2 = (c2 >> 8) & 0xFF;
-        float b2 = c2 & 0xFF;
+        int r1 = (c1 >> 16) & 0xFF;
+        int g1 = (c1 >> 8) & 0xFF;
+        int b1 = c1 & 0xFF;
+        int r2 = (c2 >> 16) & 0xFF;
+        int g2 = (c2 >> 8) & 0xFF;
+        int b2 = c2 & 0xFF;
         int r = Math.round(r1 * (1 - ratio) + r2 * ratio);
         int g = Math.round(g1 * (1 - ratio) + g2 * ratio);
         int b = Math.round(b1 * (1 - ratio) + b2 * ratio);
         int a = (c1 >> 24) & 0xFF;
         return (a << 24) | (r << 16) | (g << 8) | b;
-    }
-
-    private static float smoothstep(float edge0, float edge1, float x) {
-        float t = Math.min(1f, Math.max(0f, (x - edge0) / (edge1 - edge0)));
-        return t * t * (3 - 2 * t);
     }
 
     public static void release() {

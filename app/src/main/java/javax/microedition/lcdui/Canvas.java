@@ -135,7 +135,7 @@ public abstract class Canvas extends Displayable {
 	private static boolean screenshotRawMode;
 	private static int scaleType;
 	private static int screenGravity;
-	/** J2ME video filter mode (0=none,1=scanline,2=CRT,3=dot,4=XBR,5=4XBR,6=XBR+dot,7=4XBR+dot,8=HQ4x) */
+	/** J2ME video filter mode (0=none,1=scanline,2=CRT,3=dot,4=2XBR,5=4XBR,6=2XBR+dot,7=4XBR+dot,8=HQ4x,9=HQ4x+dot) */
 	private static volatile int j2meFilterMode = 0;
 
 	private final Object bufferLock = new Object();
@@ -810,14 +810,11 @@ public abstract class Canvas extends Displayable {
 		private GLSurfaceView mView;
 		private final int[] bgTextureId = new int[1];
 		private ShaderProgram program;
-		/** Passthrough shader for CPU-filtered (upscaled) textures. */
+		/** Passthrough shader for unfiltered rendering (mode 0). */
 		private ShaderProgram passthroughProgram;
 		private boolean isStarted;
-		/** Tracks the current rendering approach:
-		 *  0 = no filter (default shader), 1 = GLSL mask shader, 2 = CPU pixel-processing. */
-		private int currentRenderMode = -1;
-		/** Last filter mode compiled into the GLSL shader (for mask modes). */
-		private int lastMaskFilterMode = -1;
+		/** Last filter mode compiled into the GLSL shader (to detect mode changes). */
+		private int lastFilterMode = -1;
 
 		@Override
 		public void onSurfaceCreated(GL10 gl, EGLConfig config) {
@@ -825,28 +822,22 @@ public abstract class Canvas extends Displayable {
 			passthroughProgram = new ShaderProgram(J2meFilterShaders.VERTEX_SHADER,
 					J2meFilterShaders.FRAGMENT_NONE);
 
-			// Determine initial program based on filter mode
+			// Determine initial program based on filter mode.
+			// All modes (0-9) now use GLSL shaders — no CPU pixel-processing path.
 			int fm = j2meFilterMode;
-			if (J2meBitmapFilter.isPixelProcessingMode(fm)) {
-				// CPU pixel processing: use passthrough shader, NEAREST filtering
-				program = passthroughProgram;
-				currentRenderMode = 2;
-				lastMaskFilterMode = -1;
-			} else if (fm != 0 && J2meBitmapFilter.isMaskMode(fm)) {
-				// GLSL mask shader
-				String fragCode = J2meFilterShaders.getFragmentShader(fm);
-				program = new ShaderProgram(J2meFilterShaders.VERTEX_SHADER, fragCode);
-				currentRenderMode = 1;
-				lastMaskFilterMode = fm;
-			} else if (shaderFilter != null) {
-				program = new ShaderProgram(shaderFilter);
-				currentRenderMode = 0;
-				lastMaskFilterMode = -1;
+			if (fm == 0) {
+				// No filter: use custom shader filter if available, otherwise passthrough
+				if (shaderFilter != null) {
+					program = new ShaderProgram(shaderFilter);
+				} else {
+					program = passthroughProgram;
+				}
 			} else {
-				program = passthroughProgram;
-				currentRenderMode = 0;
-				lastMaskFilterMode = -1;
+				// GLSL shader for the selected filter mode (1-9)
+				program = new ShaderProgram(J2meFilterShaders.getVertexShader(fm),
+						J2meFilterShaders.getFragmentShader(fm));
 			}
+			lastFilterMode = fm;
 
 			int c = Canvas.backgroundColor;
 			glClearColor((c >> 16 & 0xff) / 255.0f, (c >> 8 & 0xff) / 255.0f, (c & 0xff) / 255.0f, 1.0f);
@@ -856,6 +847,10 @@ public abstract class Canvas extends Displayable {
 			initTex();
 			Bitmap bitmap = offscreenCopy.getBitmap();
 			program.loadVbo(vbo, bitmap.getWidth(), bitmap.getHeight());
+			if (program.uPixelDelta != -1 && mView != null) {
+				glUniform2f(program.uPixelDelta,
+						1.0f / mView.getWidth(), 1.0f / mView.getHeight());
+			}
 			if (shaderFilter != null && shaderFilter.values != null && program.uSetting != -1) {
 				glUniform4fv(program.uSetting, 1, shaderFilter.values, 0);
 			}
@@ -865,8 +860,18 @@ public abstract class Canvas extends Displayable {
 		@Override
 		public void onSurfaceChanged(GL10 gl, int width, int height) {
 			glViewport(0, 0, width, height);
-			if (program != null && program.uPixelDelta != -1) {
-				glUniform2f(program.uPixelDelta, 1.0f / width, 1.0f / height);
+			if (program != null) {
+				// u_pixelDelta = 1/screenSize (screen-space uniform)
+				if (program.uPixelDelta != -1) {
+					glUniform2f(program.uPixelDelta, 1.0f / width, 1.0f / height);
+				}
+				// u_texelDelta = 1/textureSize — re-set here in case the surface
+				// changed without a program switch (loadVbo normally sets it).
+				Bitmap bitmap = offscreenCopy.getBitmap();
+				if (program.uTexelDelta != -1) {
+					glUniform2f(program.uTexelDelta,
+							1.0f / bitmap.getWidth(), 1.0f / bitmap.getHeight());
+				}
 			}
 		}
 
@@ -874,34 +879,10 @@ public abstract class Canvas extends Displayable {
 		public void onDrawFrame(GL10 gl) {
 			int fm = j2meFilterMode;
 
-			// Determine the rendering approach for this frame
-			int newRenderMode;
-			Bitmap filteredBitmap = null;
-
-			if (J2meBitmapFilter.isPixelProcessingMode(fm)) {
-				// CPU pixel-processing filter (XBR/4XBR/HQ4x etc.):
-				// Apply the filter on the CPU to produce an upscaled bitmap,
-				// then upload it as the GL texture with a passthrough shader.
-				// This ensures the filter truly processes the game's pixels.
-				newRenderMode = 2;
-				synchronized (bufferLock) {
-					filteredBitmap = J2meBitmapFilter.applyFilter(
-							offscreenCopy.getBitmap(), fm);
-				}
-			} else if (fm != 0 && J2meBitmapFilter.isMaskMode(fm)) {
-				// GLSL mask filter (scanline/CRT/dot):
-				newRenderMode = 1;
-			} else {
-				// No filter (or custom shader filter)
-				newRenderMode = 0;
-			}
-
-			// Switch shader program if the render mode or filter changed
-			if (newRenderMode != currentRenderMode && isStarted) {
-				switchProgram(newRenderMode, fm);
-			} else if (newRenderMode == 1 && fm != lastMaskFilterMode) {
-				// Mask mode: only recompile if the specific filter changed
-				switchProgram(newRenderMode, fm);
+			// Switch shader program if the filter mode changed.
+			// All modes (0-9) are handled by GLSL shaders — no CPU pixel-processing.
+			if (fm != lastFilterMode && isStarted) {
+				switchProgram(fm);
 			}
 
 			// Ensure the correct shader program is active
@@ -910,16 +891,11 @@ public abstract class Canvas extends Displayable {
 			}
 
 			glClear(GL_COLOR_BUFFER_BIT);
-			if (filteredBitmap != null) {
-				// Pixel-processing: upload the CPU-filtered upscaled bitmap
-				// (not shared with other threads, no lock needed)
-				GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, filteredBitmap, 0);
-			} else {
-				// Mask or no-filter: upload original bitmap with lock held
-				synchronized (bufferLock) {
-					GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0,
-							offscreenCopy.getBitmap(), 0);
-				}
+			// Always upload the original game bitmap as the GL texture;
+			// the GLSL shader performs all filtering on the GPU.
+			synchronized (bufferLock) {
+				GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0,
+						offscreenCopy.getBitmap(), 0);
 			}
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 			if (fpsCounter != null) {
@@ -928,31 +904,25 @@ public abstract class Canvas extends Displayable {
 		}
 
 		/**
-		 * Switches the active shader program based on the rendering approach.
+		 * Switches the active shader program based on the filter mode.
 		 *
-		 * Mode 0 (no filter): uses passthrough/default shader with LINEAR or NEAREST.
-		 * Mode 1 (GLSL mask): compiles a mask fragment shader (scanline/CRT/dot).
-		 * Mode 2 (CPU pixel-processing): uses passthrough shader with NEAREST,
-		 *   because the CPU filter already produced the final upscaled image.
+		 * Mode 0 (no filter): uses passthrough (or custom shaderFilter if set)
+		 *   with LINEAR or NEAREST based on the filter flag.
+		 * Modes 1-9: compiles a GLSL vertex+fragment shader pair from
+		 *   {@link J2meFilterShaders}. Pixel-processing modes (4-9) use NEAREST
+		 *   input filtering so the shader reads exact texel values; mask modes
+		 *   (1-3) respect the filter flag.
+		 *
+		 * After creating the program, {@code loadVbo} is called to re-bind the
+		 * vertex buffer and set {@code u_texelDelta}; {@code u_pixelDelta} is
+		 * set from {@code mView} dimensions.
+		 *
+		 * @param filterMode the new filter mode (0-9)
 		 */
-		private void switchProgram(int newMode, int filterMode) {
+		private void switchProgram(int filterMode) {
 			try {
-				if (newMode == 2) {
-					// CPU pixel-processing: passthrough shader, NEAREST filtering
-					program = passthroughProgram;
-					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-					lastMaskFilterMode = -1;
-				} else if (newMode == 1) {
-					// GLSL mask filter: compile the appropriate shader
-					String fragCode = J2meFilterShaders.getFragmentShader(filterMode);
-					program = new ShaderProgram(J2meFilterShaders.VERTEX_SHADER, fragCode);
-					int filterParam = filter ? GL_LINEAR : GL_NEAREST;
-					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterParam);
-					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterParam);
-					lastMaskFilterMode = filterMode;
-				} else {
-					// No filter
+				if (filterMode == 0) {
+					// No filter: use custom shader filter if available, otherwise passthrough
 					if (shaderFilter != null) {
 						program = new ShaderProgram(shaderFilter);
 					} else {
@@ -961,13 +931,26 @@ public abstract class Canvas extends Displayable {
 					int filterParam = filter ? GL_LINEAR : GL_NEAREST;
 					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterParam);
 					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterParam);
-					lastMaskFilterMode = -1;
+				} else {
+					// GLSL shader for the selected filter mode (1-9)
+					program = new ShaderProgram(
+							J2meFilterShaders.getVertexShader(filterMode),
+							J2meFilterShaders.getFragmentShader(filterMode));
+					// Pixel-processing modes (XBR/HQ4x) require NEAREST input so
+					// the GLSL shader reads exact texel values.
+					int filterParam = J2meFilterShaders.usesNearestFiltering(filterMode)
+							? GL_NEAREST
+							: (filter ? GL_LINEAR : GL_NEAREST);
+					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterParam);
+					glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterParam);
 				}
 
-				// Re-bind VBO and uniforms for the new program
+				// Re-bind VBO and uniforms for the new program.
+				// loadVbo sets u_texelDelta = 1/textureWidth, 1/textureHeight.
 				glUseProgram(program.programId);
 				Bitmap bitmap = offscreenCopy.getBitmap();
 				program.loadVbo(vbo, bitmap.getWidth(), bitmap.getHeight());
+				// u_pixelDelta = 1/screenWidth, 1/screenHeight
 				if (program.uPixelDelta != -1 && mView != null) {
 					glUniform2f(program.uPixelDelta,
 							1.0f / mView.getWidth(), 1.0f / mView.getHeight());
@@ -978,12 +961,12 @@ public abstract class Canvas extends Displayable {
 				if (shaderFilter != null && shaderFilter.values != null && program.uSetting != -1) {
 					glUniform4fv(program.uSetting, 1, shaderFilter.values, 0);
 				}
-				currentRenderMode = newMode;
+				lastFilterMode = filterMode;
 			} catch (Exception e) {
 				Log.w("GLRenderer", "Program switch failed for mode " + filterMode + ": " + e);
 				// Fall back to passthrough
 				program = passthroughProgram;
-				currentRenderMode = newMode;
+				lastFilterMode = filterMode;
 			}
 		}
 
@@ -991,10 +974,10 @@ public abstract class Canvas extends Displayable {
 			glGenTextures(1, bgTextureId, 0);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, bgTextureId[0]);
-			// For CPU pixel-processing modes, use NEAREST (the CPU filter already
-			// produced the final upscaled image). For other modes, use LINEAR if
+			// Pixel-processing modes (XBR/HQ4x, modes 4-9) require NEAREST input so
+			// the GLSL shader reads exact texel values. Other modes use LINEAR if
 			// the bitmap filter flag is set, otherwise NEAREST.
-			boolean useNearest = !filter || J2meBitmapFilter.isPixelProcessingMode(j2meFilterMode);
+			boolean useNearest = !filter || J2meFilterShaders.usesNearestFiltering(j2meFilterMode);
 			int filterParam = useNearest ? GL_NEAREST : GL_LINEAR;
 			glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterParam);
 			glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterParam);
