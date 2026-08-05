@@ -25,8 +25,8 @@ package javax.microedition.lcdui.graphics;
  *   1 = Scanline      (scanlines-emu)
  *   2 = CRT           (crt, u_time removed)
  *   3 = Dot           (LCD dot effect, full version)
- *   4 = 2xBR          (Hyllian 5xBR v3.5a)
- *   5 = 4xBR          (Hyllian xBR-lv2 Accuracy)
+ *   4 = 2xBR          (Hyllian 2xBR)
+ *   5 = 4xBR          (Hyllian 4xBR)
  *   6 = 2xBR + Dot
  *   7 = 4xBR + Dot
  *   8 = HQ4x          (4xGLSLHqFilter)
@@ -144,16 +144,27 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * XBR vertex shader — standard passthrough (same as 5xBR.vsh reference).
-     * Uses {@code attribute vec4 a_position} and {@code varying vec2 v_texcoord0}.
-     * The 5xBR fragment shader computes all neighborhood texcoords itself using
-     * {@code u_texelDelta} and {@code u_pixelDelta}, so no special vertex shader
-     * is needed.
+     * 2xBR vertex shader — Hyllian's 2xBR (reference 2xbr.vsh).
+     * Provides {@code varying vec2 v_texcoord0[3]}: [0]=texcoord, [1]=up vector, [2]=left vector.
      */
-    public static final String VERTEX_2XBR = VERTEX_SHADER;
+    public static final String VERTEX_2XBR =
+            "uniform mediump vec2 u_texelDelta;\n" +
+            "attribute vec2 a_position;\n" +
+            "attribute vec2 a_texcoord0;\n" +
+            "varying vec2 v_texcoord0[3];\n" +
+            "\n" +
+            "void main() {\n" +
+            "    vec2 ps = u_texelDelta;\n" +
+            "    v_texcoord0[0] = a_texcoord0;\n" +
+            "    v_texcoord0[1] = vec2(0.0, -ps.y);\n" +
+            "    v_texcoord0[2] = vec2(-ps.x, 0.0);\n" +
+            "    gl_Position = vec4(a_position, 0.0, 1.0);\n" +
+            "}\n";
 
-    /** 4xBR vertex shader — identical to 2XBR (standard passthrough). */
-    public static final String VERTEX_4XBR = VERTEX_SHADER;
+    /**
+     * 4xBR vertex shader — identical to 2xBR (reference 4xbr.vsh).
+     */
+    public static final String VERTEX_4XBR = VERTEX_2XBR;
 
     /** HQ4x vertex shader (hq4x.vsh). Provides {@code varying vec4 v_texcoord0[7]}. */
     public static final String VERTEX_HQ4X =
@@ -311,299 +322,111 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * XBR fragment shader — Hyllian's 5xBR v3.5a (5xBR.fsh reference).
+     * 2xBR fragment shader — Hyllian's 2xBR (reference 2xbr.fsh).
      *
-     * <p>Replaces the original 2xBR shader which used {@code reduce()} with
-     * {@code dtt = vec3(65536.0, 255.0, 1.0)} — the value 65536.0 exceeds
-     * {@code mediump} float max (65504), causing overflow and breaking edge
-     * detection on mobile GPUs.
-     *
-     * <p>The 5xBR shader uses a completely different, mobile-safe approach:
-     * <ul>
-     *   <li>Weighted luminance via {@code dot(color, rgbw)} where
-     *       {@code rgbw = vec3(16.163, 23.351, 8.4772)} — max value ~ 48,
-     *       well within {@code mediump} range.</li>
-     *   <li>Standard passthrough vertex shader ({@code varying vec2 v_texcoord0}).</li>
-     *   <li>Uses both {@code u_texelDelta} and {@code u_pixelDelta} to compute
-     *       neighborhood texcoords in the fragment shader.</li>
-     *   <li>Advanced edge detection with 4-direction rules and line equations.</li>
-     * </ul>
+     * <p>Uses direct RGB component comparison ({@code eq()}) instead of the
+     * reference's {@code reduce()} with {@code dtt = vec3(65536, 255, 1)}.
+     * The {@code reduce()} approach overflows mediump float (max ~16384) on
+     * GPUs without {@code GL_FRAGMENT_PRECISION_HIGH}, causing incorrect edge
+     * detection and artifacts. Direct comparison produces identical results
+     * on highp and correct results on mediump.
      */
     public static final String FRAGMENT_2XBR =
-            "#ifdef GL_ES\n" +
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
             "precision mediump float;\n" +
-            "precision mediump int;\n" +
             "#endif\n" +
-            "\n" +
+            "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "uniform vec2 u_texelDelta;\n" +
-            "uniform vec2 u_pixelDelta;\n" +
-            "varying vec2 v_texcoord0;\n" +
+            "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const float coef = 2.0;\n" +
-            "const vec3  rgbw = vec3(16.163, 23.351, 8.4772);\n" +
-            "\n" +
-            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0 );\n" +
-            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5 );\n" +
-            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0 );\n" +
-            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0 );\n" +
-            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5 );\n" +
-            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5 );\n" +
-            "\n" +
-            "vec4 df(vec4 A, vec4 B) {\n" +
-            "    return abs(A-B);\n" +
-            "}\n" +
-            "\n" +
-            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d, vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
-            "    return (df(a,b) + df(a,c) + df(d,e) + df(d,f) + 4.0*df(g,h));\n" +
-            "}\n" +
-            "\n" +
-            "void main(){\n" +
-            " bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
-            " vec3 res = texture2D(sampler0, v_texcoord0.xy).xyz;\n" +
-            "\n" +
-            " if (upscale) {\n" +
-            "    bvec4 edr, edr_left, edr_up, px;\n" +
-            "    bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
-            "    bvec4 nc;\n" +
-            "    bvec4 fx, fx_left, fx_up;\n" +
-            "\n" +
-            "    vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
-            "    vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
-            "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
-            "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
-            "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
-            "\n" +
-            "    vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
-            "    vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
-            "    vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
-            "    vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
-            "    vec3 E  = texture2D(sampler0, TexCoord_0        ).xyz;\n" +
-            "    vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
-            "    vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
-            "    vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
-            "    vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
-            "    vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
-            "    vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
-            "    vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
-            "    vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
-            "    vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
-            "    vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
-            "    vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
-            "    vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
-            "    vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
-            "    vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
-            "    vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
-            "    vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
-            "\n" +
-            "    vec4 b  = vec4(dot(B ,rgbw), dot(D ,rgbw), dot(H ,rgbw), dot(F ,rgbw));\n" +
-            "    vec4 c  = vec4(dot(C ,rgbw), dot(A ,rgbw), dot(G ,rgbw), dot(I ,rgbw));\n" +
-            "    vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
-            "    vec4 e  = vec4(dot(E,rgbw));\n" +
-            "    vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
-            "    vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
-            "    vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
-            "    vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
-            "    vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
-            "    vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
-            "    vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
-            "    vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
-            "\n" +
-            "    fx       = greaterThan(Ao*fp.y+Bo*fp.x,Co);\n" +
-            "    fx_left  = greaterThan(Ax*fp.y+Bx*fp.x,Cx);\n" +
-            "    fx_up    = greaterThan(Ay*fp.y+By*fp.x,Cy);\n" +
-            "\n" +
-            "    interp_restriction_lv1     = bvec4(vec4(notEqual(e,f))*vec4(notEqual(e,h)));\n" +
-            "    interp_restriction_lv2_left = bvec4(vec4(notEqual(e,g))*vec4(notEqual(d,g)));\n" +
-            "    interp_restriction_lv2_up   = bvec4(vec4(notEqual(e,c))*vec4(notEqual(b,c)));\n" +
-            "\n" +
-            "    edr      = bvec4(vec4(lessThan(weighted_distance( e, c, g, i, h5, f4, h, f), weighted_distance( h, d, i5, f, i4, b, e, i)))*vec4(interp_restriction_lv1));\n" +
-            "    edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g),df(h,c)))*vec4(interp_restriction_lv2_left));\n" +
-            "    edr_up   = bvec4(vec4(greaterThanEqual(df(f,g),coef*df(h,c)))*vec4(interp_restriction_lv2_up));\n" +
-            "\n" +
-            "    nc.x = ( edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x) );\n" +
-            "    nc.y = ( edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y) );\n" +
-            "    nc.z = ( edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z) );\n" +
-            "    nc.w = ( edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w) );\n" +
-            "\n" +
-            "    px = lessThanEqual(df(e,f),df(e,h));\n" +
-            "\n" +
-            "    res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            " }\n" +
-            " gl_FragColor.rgb = res;\n" +
-            " gl_FragColor.a = 1.0;\n" +
-            "}\n";
-
-    /**
-     * 4XBR fragment shader — Hyllian's xBR-lv2 Accuracy (5xBR-lv2.fsh reference).
-     *
-     * <p>An enhanced version of 5xBR with level-2 interpolation restrictions,
-     * corner rounding, and smooth tips. Preprocessed with CornerA=0, CornerB=0,
-     * CornerD=0 (default CornerC behavior, SMOOTH_TIPS enabled).
-     */
-    public static final String FRAGMENT_4XBR =
-            "#ifdef GL_ES\n" +
-            "precision mediump float;\n" +
-            "precision mediump int;\n" +
-            "#endif\n" +
-            "\n" +
-            "const float XBR_SCALE = 3.0;\n" +
-            "const float lv2_cf    = 2.0;\n" +
-            "\n" +
-            "const float coef          = 2.0;\n" +
-            "const vec3  rgbw          = vec3(14.352, 28.176, 5.472);\n" +
-            "const vec4  eq_threshold  = vec4(15.0, 15.0, 15.0, 15.0);\n" +
-            "\n" +
-            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0 );\n" +
-            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5 );\n" +
-            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0 );\n" +
-            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0 );\n" +
-            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5 );\n" +
-            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5 );\n" +
-            "const vec4 Ci = vec4(0.25, 0.25, 0.25, 0.25);\n" +
-            "\n" +
-            "uniform sampler2D sampler0;\n" +
-            "uniform vec2 u_texelDelta;\n" +
-            "uniform vec2 u_pixelDelta;\n" +
-            "varying vec2 v_texcoord0;\n" +
-            "\n" +
-            "vec4 df(vec4 A, vec4 B) {\n" +
-            "    return vec4(abs(A-B));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 diff(vec4 A, vec4 B) {\n" +
-            "    return vec4(notEqual(A, B));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 eq(vec4 A, vec4 B) {\n" +
-            "    return (step(df(A, B), eq_threshold));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 neq(vec4 A, vec4 B) {\n" +
-            "    return (vec4(1.0, 1.0, 1.0, 1.0) - eq(A, B));\n" +
-            "}\n" +
-            "\n" +
-            "float c_df(vec3 c1, vec3 c2) {\n" +
-            "    vec3 df = abs(c1 - c2);\n" +
-            "    return df.r + df.g + df.b;\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
-            " bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
-            " vec3 res = texture2D(sampler0, v_texcoord0.xy).xyz;\n" +
+            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            " if (upscale) {\n" +
-            "    vec4 edri, edr, edr_l, edr_u, px;\n" +
-            "    vec4 irlv0, irlv1, irlv2l, irlv2u;\n" +
-            "    vec4 fx, fx_l, fx_u;\n" +
+            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
-            "    vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
-            "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
-            "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
-            "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
+            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    vec4 delta   = vec4(1.0/XBR_SCALE, 1.0/XBR_SCALE, 1.0/XBR_SCALE, 1.0/XBR_SCALE);\n" +
-            "    vec4 delta_l = vec4(0.5/XBR_SCALE, 1.0/XBR_SCALE, 0.5/XBR_SCALE, 1.0/XBR_SCALE);\n" +
-            "    vec4 delta_u = delta_l.yxwz;\n" +
+            "    gl_FragColor.rgb = E;\n" +
             "\n" +
-            "    vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
-            "    vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
-            "    vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
-            "    vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
-            "    vec3 E  = texture2D(sampler0, TexCoord_0        ).xyz;\n" +
-            "    vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
-            "    vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
-            "    vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
-            "    vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
-            "    vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
-            "    vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
-            "    vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
-            "    vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
-            "    vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
-            "    vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
-            "    vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
-            "    vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
-            "    vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
-            "    vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
-            "    vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
-            "    vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
+            "    {\n" +
+            "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
+            "    }\n" +
+            "    gl_FragColor.a = 1.0;\n" +
+            "}\n";
+
+    /**
+     * 4xBR fragment shader — Hyllian's 4xBR (reference 4xbr.fsh).
+     *
+     * <p>Same edge detection as 2xBR but outputs a 4x4 sub-pixel pattern
+     * based on the fractional position {@code fp}. Uses direct RGB comparison
+     * ({@code eq()}) to avoid mediump overflow (see {@link #FRAGMENT_2XBR}).
+     * Pattern:
+     * <pre>
+     *   E15 E11 E11 E15
+     *   E11 E   E   E11
+     *   E11 E   E   E11
+     *   E15 E11 E11 E15
+     * </pre>
+     * where E11 = mix(E, F, 0.5) and E15 = F on edges, E otherwise.
+     */
+    public static final String FRAGMENT_4XBR =
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
+            "precision mediump float;\n" +
+            "#endif\n" +
+            "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform sampler2D sampler0;\n" +
+            "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "    vec4 b  = vec4(dot(B ,rgbw), dot(D ,rgbw), dot(H ,rgbw), dot(F ,rgbw));\n" +
-            "    vec4 c  = vec4(dot(C ,rgbw), dot(A ,rgbw), dot(G ,rgbw), dot(I ,rgbw));\n" +
-            "    vec4 d  = b.yzwx;\n" +
-            "    vec4 e  = vec4(dot(E,rgbw));\n" +
-            "    vec4 f  = b.wxyz;\n" +
-            "    vec4 g  = c.zwxy;\n" +
-            "    vec4 h  = b.zwxy;\n" +
-            "    vec4 i  = c.wxyz;\n" +
-            "    vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
-            "    vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
-            "    vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
-            "    vec4 f4 = h5.yzwx;\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
+            "}\n" +
             "\n" +
-            "    fx   = (Ao*fp.y+Bo*fp.x);\n" +
-            "    fx_l = (Ax*fp.y+Bx*fp.x);\n" +
-            "    fx_u = (Ay*fp.y+By*fp.x);\n" +
-            "    irlv1 = irlv0 = diff(e,f) * diff(e,h);\n" +
-            "    irlv1 = (irlv0 * ( neq(f,b) * neq(f,c) + neq(h,d) * neq(h,g) + eq(e,i) * (neq(f,f4) * neq(f,i4) + neq(h,h5) * neq(h,i5)) + eq(e,g) + eq(e,c)) );\n" +
-            "    irlv2l = diff(e,g) * diff(d,g);\n" +
-            "    irlv2u = diff(e,c) * diff(b,c);\n" +
+            "void main() {\n" +
+            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            "    vec4 fx45i = clamp((fx   + delta   -Co - Ci) / (2.0*delta  ), 0.0, 1.0);\n" +
-            "    vec4 fx45  = clamp((fx   + delta   -Co     ) / (2.0*delta  ), 0.0, 1.0);\n" +
-            "    vec4 fx30  = clamp((fx_l + delta_l -Cx     ) / (2.0*delta_l), 0.0, 1.0);\n" +
-            "    vec4 fx60  = clamp((fx_u + delta_u -Cy     ) / (2.0*delta_u), 0.0, 1.0);\n" +
-            "    vec4 w1, w2;\n" +
+            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    w1.x = dot(abs(E-C),rgbw) + dot(abs(E-G),rgbw) + dot(abs(I-H5),rgbw) + dot(abs(I-F4),rgbw) + 4.0*dot(abs(H-F),rgbw);\n" +
-            "    w1.y = dot(abs(E-A),rgbw) + dot(abs(E-I),rgbw) + dot(abs(C-F4),rgbw) + dot(abs(C-B1),rgbw) + 4.0*dot(abs(F-B),rgbw);\n" +
-            "    w1.z = dot(abs(E-G),rgbw) + dot(abs(E-C),rgbw) + dot(abs(A-B1),rgbw) + dot(abs(A-D0),rgbw) + 4.0*dot(abs(B-D),rgbw);\n" +
-            "    w1.w = dot(abs(E-I),rgbw) + dot(abs(E-A),rgbw) + dot(abs(G-D0),rgbw) + dot(abs(G-H5),rgbw) + 4.0*dot(abs(D-H),rgbw);\n" +
-            "    w2.x = dot(abs(H-D),rgbw) + dot(abs(H-I5),rgbw) + dot(abs(F-I4),rgbw) + dot(abs(F-B),rgbw) + 4.0*dot(abs(E-I),rgbw);\n" +
-            "    w2.y = dot(abs(F-H),rgbw) + dot(abs(F-C4),rgbw) + dot(abs(B-C1),rgbw) + dot(abs(B-D),rgbw) + 4.0*dot(abs(E-C),rgbw);\n" +
-            "    w2.z = dot(abs(B-F),rgbw) + dot(abs(B-A1),rgbw) + dot(abs(D-A0),rgbw) + dot(abs(D-H),rgbw) + 4.0*dot(abs(E-A),rgbw);\n" +
-            "    w2.w = dot(abs(D-B),rgbw) + dot(abs(D-G0),rgbw) + dot(abs(H-G5),rgbw) + dot(abs(H-F),rgbw) + 4.0*dot(abs(E-G),rgbw);\n" +
+            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    edri  = step(w1, w2) * irlv0;\n" +
-            "    edr   = step(w1 + vec4(0.1, 0.1, 0.1, 0.1), w2) * step(vec4(0.5, 0.5, 0.5, 0.5), irlv1);\n" +
+            "    vec3 E11 = E;\n" +
+            "    vec3 E15 = E;\n" +
             "\n" +
-            "    w1.x = dot(abs(F-G),rgbw); w1.y = dot(abs(B-I),rgbw); w1.z = dot(abs(D-C),rgbw); w1.w = dot(abs(H-A),rgbw);\n" +
-            "    w2.x = dot(abs(H-C),rgbw); w2.y = dot(abs(F-A),rgbw); w2.z = dot(abs(B-G),rgbw); w2.w = dot(abs(D-I),rgbw);\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            "        E11 = E11 * 0.5 + F * 0.5;\n" +
+            "        E15 = F;\n" +
+            "    }\n" +
             "\n" +
-            "    edr_l = step( lv2_cf*w1, w2 ) * irlv2l * edr;\n" +
-            "    edr_u = step( lv2_cf*w2, w1 ) * irlv2u * edr;\n" +
-            "\n" +
-            "    fx45  = edr   * fx45;\n" +
-            "    fx30  = edr_l * fx30;\n" +
-            "    fx60  = edr_u * fx60;\n" +
-            "    fx45i = edri  * fx45i;\n" +
-            "\n" +
-            "    w1.x = dot(abs(E-F),rgbw); w1.y = dot(abs(E-B),rgbw); w1.z = dot(abs(E-D),rgbw); w1.w = dot(abs(E-H),rgbw);\n" +
-            "    w2.x = dot(abs(E-H),rgbw); w2.y = dot(abs(E-F),rgbw); w2.z = dot(abs(E-B),rgbw); w2.w = dot(abs(E-D),rgbw);\n" +
-            "\n" +
-            "    px = step(w1, w2);\n" +
-            "    vec4 maximos = max(max(fx30, fx60), max(fx45, fx45i));\n" +
-            "    vec3 res1 = E;\n" +
-            "    res1 = mix(res1, mix(H, F, px.x), maximos.x);\n" +
-            "    res1 = mix(res1, mix(B, D, px.z), maximos.z);\n" +
-            "\n" +
-            "    vec3 res2 = E;\n" +
-            "    res2 = mix(res2, mix(F, B, px.y), maximos.y);\n" +
-            "    res2 = mix(res2, mix(D, H, px.w), maximos.w);\n" +
-            "\n" +
-            "    res = mix(res1, res2, step(c_df(E, res1), c_df(E, res2)));\n" +
-            " }\n" +
-            " gl_FragColor.xyz = res;\n" +
-            " gl_FragColor.a = 1.0;\n" +
+            "    gl_FragColor.rgb = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
+            "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
     /** HQ4x fragment shader (hq4x.fsh / 4xGLSLHqFilter). guest(r)'s high-quality 4x filter. */
@@ -670,53 +493,37 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR + Dot fragment shader — Hyllian's 5xBR v3.5a followed by LCD dot-mask
-     * post-processing.
+     * 2xBR + Dot fragment shader — Hyllian's 2xBR followed by the full
+     * reference dot.fsh LCD dot-mask algorithm (9-tap neighborhood).
      *
-     * <p>Uses the exact same 5xBR edge-detection algorithm as {@link #FRAGMENT_2XBR},
-     * then applies the dot mask from the reference {@code dot.fsh} shader
-     * (gamma=2.4, shine=0.05, blend=0.65) using the pixel-fraction {@code fp}
-     * already computed by the XBR algorithm.
-     *
-     * <p>Uses {@code varying vec2 v_texcoord0} (single, matching {@link #VERTEX_2XBR})
-     * — NOT the old {@code varying vec2 v_texcoord0[3]} array that caused
-     * vertex/fragment linking failure.
+     * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_2XBR}).
+     * The 2xBR edge detection uses direct RGB comparison ({@code eq()}) to
+     * avoid mediump overflow. The dot mask samples a regular 3x3 neighborhood
+     * of the original texture (8 additional taps) plus the XBR result as the
+     * center tap, matching the reference dot.fsh's {@code lookup()} function
+     * and {@code mix(1.2 * mid_color, color, blend)} output.
      */
     public static final String FRAGMENT_2XBR_DOT =
-            "#ifdef GL_ES\n" +
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
             "precision mediump float;\n" +
-            "precision mediump int;\n" +
             "#endif\n" +
-            "\n" +
+            "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "uniform vec2 u_texelDelta;\n" +
-            "uniform vec2 u_pixelDelta;\n" +
-            "varying vec2 v_texcoord0;\n" +
+            "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const float coef = 2.0;\n" +
-            "const vec3  rgbw = vec3(16.163, 23.351, 8.4772);\n" +
-            "\n" +
-            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0 );\n" +
-            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5 );\n" +
-            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0 );\n" +
-            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0 );\n" +
-            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5 );\n" +
-            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5 );\n" +
-            "\n" +
-            "// Dot mask config\n" +
             "const float gamma_dot = 2.4;\n" +
             "const float shine = 0.05;\n" +
             "const float blend_dot = 0.65;\n" +
             "\n" +
-            "vec4 df(vec4 A, vec4 B) {\n" +
-            "    return abs(A-B);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
             "}\n" +
             "\n" +
-            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d, vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
-            "    return (df(a,b) + df(a,c) + df(d,e) + df(d,f) + 4.0*df(g,h));\n" +
+            "float dist(vec2 coord, vec2 source) {\n" +
+            "    vec2 delta = coord - source;\n" +
+            "    return sqrt(dot(delta, delta));\n" +
             "}\n" +
             "\n" +
             "float color_bloom(vec3 color) {\n" +
@@ -725,283 +532,150 @@ public final class J2meFilterShaders {
             "    return mix(1.0 + shine, 1.0 - shine, bright);\n" +
             "}\n" +
             "\n" +
-            "void main(){\n" +
-            " bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
-            " vec3 res = texture2D(sampler0, v_texcoord0.xy).xyz;\n" +
-            "\n" +
-            " vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
-            " vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
-            "\n" +
-            " if (upscale) {\n" +
-            "    bvec4 edr, edr_left, edr_up, px;\n" +
-            "    bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
-            "    bvec4 nc;\n" +
-            "    bvec4 fx, fx_left, fx_up;\n" +
-            "\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
-            "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
-            "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
-            "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
-            "\n" +
-            "    vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
-            "    vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
-            "    vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
-            "    vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
-            "    vec3 E  = texture2D(sampler0, TexCoord_0        ).xyz;\n" +
-            "    vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
-            "    vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
-            "    vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
-            "    vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
-            "    vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
-            "    vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
-            "    vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
-            "    vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
-            "    vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
-            "    vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
-            "    vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
-            "    vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
-            "    vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
-            "    vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
-            "    vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
-            "    vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
-            "\n" +
-            "    vec4 b  = vec4(dot(B ,rgbw), dot(D ,rgbw), dot(H ,rgbw), dot(F ,rgbw));\n" +
-            "    vec4 c  = vec4(dot(C ,rgbw), dot(A ,rgbw), dot(G ,rgbw), dot(I ,rgbw));\n" +
-            "    vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
-            "    vec4 e  = vec4(dot(E,rgbw));\n" +
-            "    vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
-            "    vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
-            "    vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
-            "    vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
-            "    vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
-            "    vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
-            "    vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
-            "    vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
-            "\n" +
-            "    fx       = greaterThan(Ao*fp.y+Bo*fp.x,Co);\n" +
-            "    fx_left  = greaterThan(Ax*fp.y+Bx*fp.x,Cx);\n" +
-            "    fx_up    = greaterThan(Ay*fp.y+By*fp.x,Cy);\n" +
-            "\n" +
-            "    interp_restriction_lv1     = bvec4(vec4(notEqual(e,f))*vec4(notEqual(e,h)));\n" +
-            "    interp_restriction_lv2_left = bvec4(vec4(notEqual(e,g))*vec4(notEqual(d,g)));\n" +
-            "    interp_restriction_lv2_up   = bvec4(vec4(notEqual(e,c))*vec4(notEqual(b,c)));\n" +
-            "\n" +
-            "    edr      = bvec4(vec4(lessThan(weighted_distance( e, c, g, i, h5, f4, h, f), weighted_distance( h, d, i5, f, i4, b, e, i)))*vec4(interp_restriction_lv1));\n" +
-            "    edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g),df(h,c)))*vec4(interp_restriction_lv2_left));\n" +
-            "    edr_up   = bvec4(vec4(greaterThanEqual(df(f,g),coef*df(h,c)))*vec4(interp_restriction_lv2_up));\n" +
-            "\n" +
-            "    nc.x = ( edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x) );\n" +
-            "    nc.y = ( edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y) );\n" +
-            "    nc.z = ( edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z) );\n" +
-            "    nc.w = ( edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w) );\n" +
-            "\n" +
-            "    px = lessThanEqual(df(e,f),df(e,h));\n" +
-            "\n" +
-            "    res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            " }\n" +
-            "\n" +
-            " // Dot mask post-processing — use output pixel position for per-pixel dots\n" +
-            " vec2 fpDot = fract(v_texcoord0.xy / u_pixelDelta.xy);\n" +
-            " float delta = length(fpDot - vec2(0.5));\n" +
-            " float bloom = color_bloom(res);\n" +
-            " float dotMask = exp(-gamma_dot * delta * bloom);\n" +
-            " res = mix(min(1.2 * res, 1.0), res * dotMask, blend_dot);\n" +
-            "\n" +
-            " gl_FragColor.rgb = res;\n" +
-            " gl_FragColor.a = 1.0;\n" +
-            "}\n";
-
-    /**
-     * 4xBR + Dot fragment shader — Hyllian's xBR-lv2 Accuracy followed by LCD
-     * dot-mask post-processing.
-     *
-     * <p>Uses the exact same xBR-lv2 edge-detection algorithm as
-     * {@link #FRAGMENT_4XBR} (SMOOTH_TIPS enabled, CornerC default), then
-     * applies the dot mask from the reference {@code dot.fsh} shader.
-     *
-     * <p>Uses {@code varying vec2 v_texcoord0} (single, matching
-     * {@link #VERTEX_4XBR}) — NOT the old {@code varying vec2 v_texcoord0[3]}
-     * array that caused vertex/fragment linking failure.
-     */
-    public static final String FRAGMENT_4XBR_DOT =
-            "#ifdef GL_ES\n" +
-            "precision mediump float;\n" +
-            "precision mediump int;\n" +
-            "#endif\n" +
-            "\n" +
-            "const float XBR_SCALE = 3.0;\n" +
-            "const float lv2_cf    = 2.0;\n" +
-            "\n" +
-            "const float coef          = 2.0;\n" +
-            "const vec3  rgbw          = vec3(14.352, 28.176, 5.472);\n" +
-            "const vec4  eq_threshold  = vec4(15.0, 15.0, 15.0, 15.0);\n" +
-            "\n" +
-            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0 );\n" +
-            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5 );\n" +
-            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0 );\n" +
-            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0 );\n" +
-            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0 );\n" +
-            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5 );\n" +
-            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5 );\n" +
-            "const vec4 Ci = vec4(0.25, 0.25, 0.25, 0.25);\n" +
-            "\n" +
-            "uniform sampler2D sampler0;\n" +
-            "uniform vec2 u_texelDelta;\n" +
-            "uniform vec2 u_pixelDelta;\n" +
-            "varying vec2 v_texcoord0;\n" +
-            "\n" +
-            "// Dot mask config\n" +
-            "const float gamma_dot = 2.4;\n" +
-            "const float shine = 0.05;\n" +
-            "const float blend_dot = 0.65;\n" +
-            "\n" +
-            "vec4 df(vec4 A, vec4 B) {\n" +
-            "    return vec4(abs(A-B));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 diff(vec4 A, vec4 B) {\n" +
-            "    return vec4(notEqual(A, B));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 eq(vec4 A, vec4 B) {\n" +
-            "    return (step(df(A, B), eq_threshold));\n" +
-            "}\n" +
-            "\n" +
-            "vec4 neq(vec4 A, vec4 B) {\n" +
-            "    return (vec4(1.0, 1.0, 1.0, 1.0) - eq(A, B));\n" +
-            "}\n" +
-            "\n" +
-            "float c_df(vec3 c1, vec3 c2) {\n" +
-            "    vec3 df = abs(c1 - c2);\n" +
-            "    return df.r + df.g + df.b;\n" +
-            "}\n" +
-            "\n" +
-            "float color_bloom(vec3 color) {\n" +
-            "    const vec3 gray_coeff = vec3(0.30, 0.59, 0.11);\n" +
-            "    float bright = dot(color, gray_coeff);\n" +
-            "    return mix(1.0 + shine, 1.0 - shine, bright);\n" +
+            "vec3 lookup(vec2 pixel_no, float ox, float oy, vec3 color) {\n" +
+            "    float delta = dist(fract(pixel_no), vec2(ox + 0.5, oy + 0.5));\n" +
+            "    return color * exp(-gamma_dot * delta * color_bloom(color));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
-            " bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
-            " vec3 res = texture2D(sampler0, v_texcoord0.xy).xyz;\n" +
+            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            " vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
-            " vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
+            "    // === 2xBR edge detection ===\n" +
+            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            " if (upscale) {\n" +
-            "    vec4 edri, edr, edr_l, edr_u, px;\n" +
-            "    vec4 irlv0, irlv1, irlv2l, irlv2u;\n" +
-            "    vec4 fx, fx_l, fx_u;\n" +
+            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
-            "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
-            "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
-            "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
+            "    vec3 res = E;\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
+            "    {\n" +
+            "        res = mix(E, F, 0.5);\n" +
+            "    }\n" +
             "\n" +
-            "    vec4 delta   = vec4(1.0/XBR_SCALE, 1.0/XBR_SCALE, 1.0/XBR_SCALE, 1.0/XBR_SCALE);\n" +
-            "    vec4 delta_l = vec4(0.5/XBR_SCALE, 1.0/XBR_SCALE, 0.5/XBR_SCALE, 1.0/XBR_SCALE);\n" +
-            "    vec4 delta_u = delta_l.yxwz;\n" +
+            "    // === Dot mask (full dot.fsh 9-tap neighborhood) ===\n" +
+            "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
+            "    vec2 dx = vec2(u_texelDelta.x, 0.0);\n" +
+            "    vec2 dy = vec2(0.0, u_texelDelta.y);\n" +
+            "    vec2 tc = v_texcoord0[0];\n" +
             "\n" +
-            "    vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
-            "    vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
-            "    vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
-            "    vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
-            "    vec3 E  = texture2D(sampler0, TexCoord_0        ).xyz;\n" +
-            "    vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
-            "    vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
-            "    vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
-            "    vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
-            "    vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
-            "    vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
-            "    vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
-            "    vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
-            "    vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
-            "    vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
-            "    vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
-            "    vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
-            "    vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
-            "    vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
-            "    vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
-            "    vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
+            "    vec3 mid_color = lookup(pixel_no, 0.0, 0.0, res);\n" +
             "\n" +
-            "    vec4 b  = vec4(dot(B ,rgbw), dot(D ,rgbw), dot(H ,rgbw), dot(F ,rgbw));\n" +
-            "    vec4 c  = vec4(dot(C ,rgbw), dot(A ,rgbw), dot(G ,rgbw), dot(I ,rgbw));\n" +
-            "    vec4 d  = b.yzwx;\n" +
-            "    vec4 e  = vec4(dot(E,rgbw));\n" +
-            "    vec4 f  = b.wxyz;\n" +
-            "    vec4 g  = c.zwxy;\n" +
-            "    vec4 h  = b.zwxy;\n" +
-            "    vec4 i  = c.wxyz;\n" +
-            "    vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
-            "    vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
-            "    vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
-            "    vec4 f4 = h5.yzwx;\n" +
+            "    vec3 color = mid_color;\n" +
+            "    color += lookup(pixel_no, -1.0, -1.0, texture2D(sampler0, tc - dx - dy).xyz);\n" +
+            "    color += lookup(pixel_no,  0.0, -1.0, texture2D(sampler0, tc      - dy).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0, -1.0, texture2D(sampler0, tc + dx - dy).xyz);\n" +
+            "    color += lookup(pixel_no, -1.0,  0.0, texture2D(sampler0, tc - dx     ).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0,  0.0, texture2D(sampler0, tc + dx     ).xyz);\n" +
+            "    color += lookup(pixel_no, -1.0,  1.0, texture2D(sampler0, tc - dx + dy).xyz);\n" +
+            "    color += lookup(pixel_no,  0.0,  1.0, texture2D(sampler0, tc      + dy).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0,  1.0, texture2D(sampler0, tc + dx + dy).xyz);\n" +
             "\n" +
-            "    fx   = (Ao*fp.y+Bo*fp.x);\n" +
-            "    fx_l = (Ax*fp.y+Bx*fp.x);\n" +
-            "    fx_u = (Ay*fp.y+By*fp.x);\n" +
-            "    irlv1 = irlv0 = diff(e,f) * diff(e,h);\n" +
-            "    irlv1 = (irlv0 * ( neq(f,b) * neq(f,c) + neq(h,d) * neq(h,g) + eq(e,i) * (neq(f,f4) * neq(f,i4) + neq(h,h5) * neq(h,i5)) + eq(e,g) + eq(e,c)) );\n" +
-            "    irlv2l = diff(e,g) * diff(d,g);\n" +
-            "    irlv2u = diff(e,c) * diff(b,c);\n" +
+            "    gl_FragColor.rgb = mix(1.2 * mid_color, color, blend_dot);\n" +
+            "    gl_FragColor.a = 1.0;\n" +
+            "}\n";
+
+    /**
+     * 4xBR + Dot fragment shader — Hyllian's 4xBR followed by the full
+     * reference dot.fsh LCD dot-mask algorithm (9-tap neighborhood).
+     *
+     * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_4XBR}).
+     * The 4xBR edge detection uses direct RGB comparison ({@code eq()}) to
+     * avoid mediump overflow. The dot mask samples a regular 3x3 neighborhood
+     * of the original texture (8 additional taps) plus the 4xBR result as the
+     * center tap, matching the reference dot.fsh's {@code lookup()} function
+     * and {@code mix(1.2 * mid_color, color, blend)} output.
+     */
+    public static final String FRAGMENT_4XBR_DOT =
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
+            "precision mediump float;\n" +
+            "#endif\n" +
+            "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform sampler2D sampler0;\n" +
+            "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "    vec4 fx45i = clamp((fx   + delta   -Co - Ci) / (2.0*delta  ), 0.0, 1.0);\n" +
-            "    vec4 fx45  = clamp((fx   + delta   -Co     ) / (2.0*delta  ), 0.0, 1.0);\n" +
-            "    vec4 fx30  = clamp((fx_l + delta_l -Cx     ) / (2.0*delta_l), 0.0, 1.0);\n" +
-            "    vec4 fx60  = clamp((fx_u + delta_u -Cy     ) / (2.0*delta_u), 0.0, 1.0);\n" +
-            "    vec4 w1, w2;\n" +
+            "const float gamma_dot = 2.4;\n" +
+            "const float shine = 0.05;\n" +
+            "const float blend_dot = 0.65;\n" +
             "\n" +
-            "    w1.x = dot(abs(E-C),rgbw) + dot(abs(E-G),rgbw) + dot(abs(I-H5),rgbw) + dot(abs(I-F4),rgbw) + 4.0*dot(abs(H-F),rgbw);\n" +
-            "    w1.y = dot(abs(E-A),rgbw) + dot(abs(E-I),rgbw) + dot(abs(C-F4),rgbw) + dot(abs(C-B1),rgbw) + 4.0*dot(abs(F-B),rgbw);\n" +
-            "    w1.z = dot(abs(E-G),rgbw) + dot(abs(E-C),rgbw) + dot(abs(A-B1),rgbw) + dot(abs(A-D0),rgbw) + 4.0*dot(abs(B-D),rgbw);\n" +
-            "    w1.w = dot(abs(E-I),rgbw) + dot(abs(E-A),rgbw) + dot(abs(G-D0),rgbw) + dot(abs(G-H5),rgbw) + 4.0*dot(abs(D-H),rgbw);\n" +
-            "    w2.x = dot(abs(H-D),rgbw) + dot(abs(H-I5),rgbw) + dot(abs(F-I4),rgbw) + dot(abs(F-B),rgbw) + 4.0*dot(abs(E-I),rgbw);\n" +
-            "    w2.y = dot(abs(F-H),rgbw) + dot(abs(F-C4),rgbw) + dot(abs(B-C1),rgbw) + dot(abs(B-D),rgbw) + 4.0*dot(abs(E-C),rgbw);\n" +
-            "    w2.z = dot(abs(B-F),rgbw) + dot(abs(B-A1),rgbw) + dot(abs(D-A0),rgbw) + dot(abs(D-H),rgbw) + 4.0*dot(abs(E-A),rgbw);\n" +
-            "    w2.w = dot(abs(D-B),rgbw) + dot(abs(D-G0),rgbw) + dot(abs(H-G5),rgbw) + dot(abs(H-F),rgbw) + 4.0*dot(abs(E-G),rgbw);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
+            "}\n" +
             "\n" +
-            "    edri  = step(w1, w2) * irlv0;\n" +
-            "    edr   = step(w1 + vec4(0.1, 0.1, 0.1, 0.1), w2) * step(vec4(0.5, 0.5, 0.5, 0.5), irlv1);\n" +
+            "float dist(vec2 coord, vec2 source) {\n" +
+            "    vec2 delta = coord - source;\n" +
+            "    return sqrt(dot(delta, delta));\n" +
+            "}\n" +
             "\n" +
-            "    w1.x = dot(abs(F-G),rgbw); w1.y = dot(abs(B-I),rgbw); w1.z = dot(abs(D-C),rgbw); w1.w = dot(abs(H-A),rgbw);\n" +
-            "    w2.x = dot(abs(H-C),rgbw); w2.y = dot(abs(F-A),rgbw); w2.z = dot(abs(B-G),rgbw); w2.w = dot(abs(D-I),rgbw);\n" +
+            "float color_bloom(vec3 color) {\n" +
+            "    const vec3 gray_coeff = vec3(0.30, 0.59, 0.11);\n" +
+            "    float bright = dot(color, gray_coeff);\n" +
+            "    return mix(1.0 + shine, 1.0 - shine, bright);\n" +
+            "}\n" +
             "\n" +
-            "    edr_l = step( lv2_cf*w1, w2 ) * irlv2l * edr;\n" +
-            "    edr_u = step( lv2_cf*w2, w1 ) * irlv2u * edr;\n" +
+            "vec3 lookup(vec2 pixel_no, float ox, float oy, vec3 color) {\n" +
+            "    float delta = dist(fract(pixel_no), vec2(ox + 0.5, oy + 0.5));\n" +
+            "    return color * exp(-gamma_dot * delta * color_bloom(color));\n" +
+            "}\n" +
             "\n" +
-            "    fx45  = edr   * fx45;\n" +
-            "    fx30  = edr_l * fx30;\n" +
-            "    fx60  = edr_u * fx60;\n" +
-            "    fx45i = edri  * fx45i;\n" +
+            "void main() {\n" +
+            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            "    w1.x = dot(abs(E-F),rgbw); w1.y = dot(abs(E-B),rgbw); w1.z = dot(abs(E-D),rgbw); w1.w = dot(abs(E-H),rgbw);\n" +
-            "    w2.x = dot(abs(E-H),rgbw); w2.y = dot(abs(E-F),rgbw); w2.z = dot(abs(E-B),rgbw); w2.w = dot(abs(E-D),rgbw);\n" +
+            "    // === 4xBR edge detection ===\n" +
+            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    px = step(w1, w2);\n" +
-            "    vec4 maximos = max(max(fx30, fx60), max(fx45, fx45i));\n" +
-            "    vec3 res1 = E;\n" +
-            "    res1 = mix(res1, mix(H, F, px.x), maximos.x);\n" +
-            "    res1 = mix(res1, mix(B, D, px.z), maximos.z);\n" +
+            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    vec3 res2 = E;\n" +
-            "    res2 = mix(res2, mix(F, B, px.y), maximos.y);\n" +
-            "    res2 = mix(res2, mix(D, H, px.w), maximos.w);\n" +
+            "    vec3 E11 = E;\n" +
+            "    vec3 E15 = E;\n" +
             "\n" +
-            "    res = mix(res1, res2, step(c_df(E, res1), c_df(E, res2)));\n" +
-            " }\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            "        E11 = E11 * 0.5 + F * 0.5;\n" +
+            "        E15 = F;\n" +
+            "    }\n" +
             "\n" +
-            " // Dot mask post-processing — use output pixel position for per-pixel dots\n" +
-            " vec2 fpDot = fract(v_texcoord0.xy / u_pixelDelta.xy);\n" +
-            " float delta = length(fpDot - vec2(0.5));\n" +
-            " float bloom = color_bloom(res);\n" +
-            " float dotMask = exp(-gamma_dot * delta * bloom);\n" +
-            " res = mix(min(1.2 * res, 1.0), res * dotMask, blend_dot);\n" +
+            "    vec3 res = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
             "\n" +
-            " gl_FragColor.xyz = res;\n" +
-            " gl_FragColor.a = 1.0;\n" +
+            "    // === Dot mask (full dot.fsh 9-tap neighborhood) ===\n" +
+            "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
+            "    vec2 dx = vec2(u_texelDelta.x, 0.0);\n" +
+            "    vec2 dy = vec2(0.0, u_texelDelta.y);\n" +
+            "    vec2 tc = v_texcoord0[0];\n" +
+            "\n" +
+            "    vec3 mid_color = lookup(pixel_no, 0.0, 0.0, res);\n" +
+            "\n" +
+            "    vec3 color = mid_color;\n" +
+            "    color += lookup(pixel_no, -1.0, -1.0, texture2D(sampler0, tc - dx - dy).xyz);\n" +
+            "    color += lookup(pixel_no,  0.0, -1.0, texture2D(sampler0, tc      - dy).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0, -1.0, texture2D(sampler0, tc + dx - dy).xyz);\n" +
+            "    color += lookup(pixel_no, -1.0,  0.0, texture2D(sampler0, tc - dx     ).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0,  0.0, texture2D(sampler0, tc + dx     ).xyz);\n" +
+            "    color += lookup(pixel_no, -1.0,  1.0, texture2D(sampler0, tc - dx + dy).xyz);\n" +
+            "    color += lookup(pixel_no,  0.0,  1.0, texture2D(sampler0, tc      + dy).xyz);\n" +
+            "    color += lookup(pixel_no,  1.0,  1.0, texture2D(sampler0, tc + dx + dy).xyz);\n" +
+            "\n" +
+            "    gl_FragColor.rgb = mix(1.2 * mid_color, color, blend_dot);\n" +
+            "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
     /** HQ4x + Dot: HQ4x followed by a dot-mask post-processing pass. */
