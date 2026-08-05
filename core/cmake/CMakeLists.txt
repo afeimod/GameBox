@@ -158,6 +158,173 @@ target_link_libraries(nescore log android)
 # build output — no manual LIBRARY_OUTPUT_DIRECTORY needed.
 
 # ---------------------------------------------------------------------------
+# libretro-snes9x (the best-in-class SNES/SFC core) — compiled as a separate
+# .so (libsnescore.so) to avoid retro_* symbol conflicts with libnescore.so.
+# Driven through the standard libretro API, same pull-model as FCEUmm.
+# ---------------------------------------------------------------------------
+set(SNES9X_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../snes9x")
+set(SNES9X_SRC "${SNES9X_DIR}")
+
+if(EXISTS "${SNES9X_SRC}/libretro/libretro.cpp")
+    set(SNES9X_CORE_SOURCES
+        "${SNES9X_SRC}/filter/snes_ntsc.c"
+        "${SNES9X_SRC}/apu/apu.cpp"
+        "${SNES9X_SRC}/apu/bapu/dsp/sdsp.cpp"
+        "${SNES9X_SRC}/apu/bapu/smp/smp.cpp"
+        "${SNES9X_SRC}/apu/bapu/smp/smp_state.cpp"
+        "${SNES9X_SRC}/bsx.cpp"
+        "${SNES9X_SRC}/c4.cpp"
+        "${SNES9X_SRC}/c4emu.cpp"
+        "${SNES9X_SRC}/cheats.cpp"
+        "${SNES9X_SRC}/cheats2.cpp"
+        "${SNES9X_SRC}/clip.cpp"
+        "${SNES9X_SRC}/conffile.cpp"
+        "${SNES9X_SRC}/controls.cpp"
+        "${SNES9X_SRC}/cpu.cpp"
+        "${SNES9X_SRC}/cpuexec.cpp"
+        "${SNES9X_SRC}/cpuops.cpp"
+        "${SNES9X_SRC}/crosshairs.cpp"
+        "${SNES9X_SRC}/dma.cpp"
+        "${SNES9X_SRC}/dsp.cpp"
+        "${SNES9X_SRC}/dsp1.cpp"
+        "${SNES9X_SRC}/dsp2.cpp"
+        "${SNES9X_SRC}/dsp3.cpp"
+        "${SNES9X_SRC}/dsp4.cpp"
+        "${SNES9X_SRC}/fxinst.cpp"
+        "${SNES9X_SRC}/fxemu.cpp"
+        "${SNES9X_SRC}/gfx.cpp"
+        "${SNES9X_SRC}/globals.cpp"
+        "${SNES9X_SRC}/memmap.cpp"
+        "${SNES9X_SRC}/obc1.cpp"
+        "${SNES9X_SRC}/msu1.cpp"
+        "${SNES9X_SRC}/ppu.cpp"
+        "${SNES9X_SRC}/stream.cpp"
+        "${SNES9X_SRC}/sa1.cpp"
+        "${SNES9X_SRC}/sa1cpu.cpp"
+        "${SNES9X_SRC}/screenshot.cpp"
+        "${SNES9X_SRC}/sdd1.cpp"
+        "${SNES9X_SRC}/sdd1emu.cpp"
+        "${SNES9X_SRC}/seta.cpp"
+        "${SNES9X_SRC}/seta010.cpp"
+        "${SNES9X_SRC}/seta011.cpp"
+        "${SNES9X_SRC}/seta018.cpp"
+        "${SNES9X_SRC}/snapshot.cpp"
+        "${SNES9X_SRC}/snes9x.cpp"
+        "${SNES9X_SRC}/spc7110.cpp"
+        "${SNES9X_SRC}/srtc.cpp"
+        "${SNES9X_SRC}/tile.cpp"
+        "${SNES9X_SRC}/tileimpl-n1x1.cpp"
+        "${SNES9X_SRC}/tileimpl-n2x1.cpp"
+        "${SNES9X_SRC}/tileimpl-h2x1.cpp"
+        "${SNES9X_SRC}/sha256.cpp"
+        "${SNES9X_SRC}/bml.cpp"
+        "${SNES9X_SRC}/movie.cpp"
+        "${SNES9X_SRC}/fscompat.cpp"
+        # libretro frontend (provides retro_init / retro_load_game / retro_run ...)
+        "${SNES9X_SRC}/libretro/libretro.cpp"
+    )
+
+    set(SNES9X_JNI_SOURCES
+        "${APP_JNI_DIR}/snes_bridge.cpp"
+        "${APP_JNI_DIR}/snes_loader.cpp"
+        ${HQX_SOURCES}
+    )
+
+    add_library(snescore SHARED
+        ${SNES9X_CORE_SOURCES}
+        ${SNES9X_JNI_SOURCES}
+    )
+
+    target_include_directories(snescore PRIVATE
+        "${SNES9X_SRC}"
+        "${SNES9X_SRC}/libretro"
+        "${SNES9X_SRC}/apu"
+        "${SNES9X_SRC}/apu/bapu"
+        "${APP_JNI_DIR}"
+        "${HQX_DIR}"
+    )
+
+    target_compile_definitions(snescore PRIVATE
+        __LIBRETRO__
+        ANDROID
+        HAVE_STRINGS_H
+        RIGHTSHIFT_IS_SAR
+        NDEBUG
+    )
+
+    target_compile_options(snescore PRIVATE
+        -O2
+        -fvisibility=hidden
+        -ffunction-sections -fdata-sections
+        -fno-rtti
+        -fno-exceptions
+        -Wno-unused-parameter
+        -Wno-unused-variable
+        -Wno-sign-compare
+        -Wno-write-strings
+        -Wno-deprecated-declarations
+    )
+
+    target_link_libraries(snescore log android)
+endif()
+
+# ---------------------------------------------------------------------------
+# mGBA (GB/GBC/GBA core) — built as a static library via its CMake, then
+# linked with our JNI bridge + libretro frontend into libgbacore.so.
+# Separate .so avoids retro_* symbol conflicts with the other cores.
+# ---------------------------------------------------------------------------
+set(MGBA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../mgba")
+
+if(EXISTS "${MGBA_DIR}/CMakeLists.txt")
+    # Build mGBA core as a static library (no frontends, no deps)
+    set(LIBMGBA_ONLY ON CACHE BOOL "" FORCE)
+    set(BINARY_NAME mgba CACHE INTERNAL "")
+    add_subdirectory("${MGBA_DIR}" "${CMAKE_BINARY_DIR}/mgba-build" EXCLUDE_FROM_ALL)
+
+    set(GBA_JNI_SOURCES
+        "${APP_JNI_DIR}/gba_bridge.cpp"
+        "${APP_JNI_DIR}/gba_loader.cpp"
+        "${MGBA_DIR}/src/platform/libretro/libretro.c"
+        ${HQX_SOURCES}
+    )
+
+    add_library(gbacore SHARED ${GBA_JNI_SOURCES})
+
+    target_include_directories(gbacore PRIVATE
+        "${MGBA_DIR}/include"
+        "${MGBA_DIR}/src"
+        "${MGBA_DIR}/src/platform/libretro"
+        "${CMAKE_BINARY_DIR}/mgba-build/include"
+        "${APP_JNI_DIR}"
+        "${HQX_DIR}"
+    )
+
+    target_compile_definitions(gbacore PRIVATE
+        __LIBRETRO__
+        COLOR_16_BIT
+        COLOR_5_6_5
+        DISABLE_THREADING
+        MGBA_STANDALONE
+        MINIMAL_CORE=2
+        ENABLE_VFS
+        ANDROID
+        NDEBUG
+    )
+
+    target_compile_options(gbacore PRIVATE
+        -O2
+        -fvisibility=hidden
+        -ffunction-sections -fdata-sections
+        -Wno-unused-parameter
+        -Wno-unused-variable
+        -Wno-sign-compare
+        -Wno-deprecated-declarations
+    )
+
+    target_link_libraries(gbacore mgba log android)
+endif()
+
+# ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
 # Converted from J2ME-Loader's Android.mk to CMake
 # ---------------------------------------------------------------------------

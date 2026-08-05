@@ -3,6 +3,8 @@ package com.nesstation.app
 import android.app.Application
 import android.util.Log
 import com.nesstation.app.core.engine.NesEngine
+import com.nesstation.app.core.engine.SnesEngine
+import com.nesstation.app.core.engine.GbaEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
 import java.io.File
@@ -47,6 +49,8 @@ class NesApp : Application() {
         tryInit("SettingsRepository") { SettingsRepository.init(this) }
         tryInit("AppContainer")       { _container = AppContainer(this) }
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
+        tryInit("SnesEngine")         { SnesEngine.ensureLoaded() }
+        tryInit("GbaEngine")          { GbaEngine.ensureLoaded() }
         tryInit("FdsBios")            { ensureFdsBios() }
     }
 

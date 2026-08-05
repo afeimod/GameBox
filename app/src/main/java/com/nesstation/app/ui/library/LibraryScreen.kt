@@ -65,8 +65,13 @@ import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
 import java.io.File
 
-/// ROM file extensions we support
-val ROM_EXTENSIONS = listOf("nes", "fds", "unf", "unif", "zip", "7z", "gz")
+/// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA)
+val ROM_EXTENSIONS = listOf(
+    "nes", "fds", "unf", "unif", "nez", "unh",  // NES/Famicom
+    "smc", "sfc", "swc", "fig", "bs",            // SNES/SFC
+    "gb", "sgb", "gbc", "gba",                    // GB/GBC/GBA
+    "zip", "7z", "gz"                             // compressed archives
+)
 
 @Composable
 fun LibraryScreen(
@@ -122,7 +127,7 @@ fun LibraryScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        val entries = mutableListOf<Pair<String, String>>()
+        var count = 0
         uris.forEach { uri ->
             try {
                 context.contentResolver.takePersistableUriPermission(
@@ -132,13 +137,14 @@ fun LibraryScreen(
             val name = queryDisplayName(uri) ?: "unknown.nes"
             val ext = name.substringAfterLast('.', "").lowercase()
             if (ext in ROM_EXTENSIONS) {
-                entries.add(name.substringBeforeLast('.') to uri.toString())
+                val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                RomStore.add(context, name.substringBeforeLast('.'), uri.toString(), platform)
+                count++
             }
         }
-        if (entries.isNotEmpty()) {
-            RomStore.addAll(context, entries)
+        if (count > 0) {
             refreshList()
-            dialogMsg = "已导入 ${entries.size} 个ROM文件"
+            dialogMsg = "已导入 $count 个ROM文件"
         }
     }
 
@@ -156,12 +162,17 @@ fun LibraryScreen(
         // Recursively scan the selected folder for ROM files
         val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
         if (romFiles.isEmpty()) {
-            dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .fds .zip .7z .gz）"
+            dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip）"
         } else {
-            val entries = romFiles.map { it.first to it.second.toString() }
-            RomStore.addAll(context, entries)
+            var count = 0
+            romFiles.forEach { (name, fileUri) ->
+                val ext = name.substringAfterLast('.', "").lowercase()
+                val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                RomStore.add(context, name.substringBeforeLast('.'), fileUri.toString(), platform)
+                count++
+            }
             refreshList()
-            dialogMsg = "从文件夹导入 ${entries.size} 个ROM文件"
+            dialogMsg = "从文件夹导入 $count 个ROM文件"
         }
     }
 
@@ -172,7 +183,11 @@ fun LibraryScreen(
         if (result.values.any { it }) {
             val entries = scanForRoms(context)
             if (entries.isNotEmpty()) {
-                RomStore.addAll(context, entries)
+                entries.forEach { (name, path) ->
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                    RomStore.add(context, name.substringBeforeLast('.'), path, platform)
+                }
                 refreshList()
                 dialogMsg = "权限已授予，扫描到 ${entries.size} 个ROM文件"
             } else {
@@ -253,7 +268,11 @@ fun LibraryScreen(
             } else {
                 val entries = scanForRoms(context)
                 if (entries.isNotEmpty()) {
-                    RomStore.addAll(context, entries)
+                    entries.forEach { (name, path) ->
+                        val ext = name.substringAfterLast('.', "").lowercase()
+                        val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                        RomStore.add(context, name.substringBeforeLast('.'), path, platform)
+                    }
                     refreshList()
                     dialogMsg = "已扫描到 ${entries.size} 个ROM文件"
                 } else {
@@ -344,7 +363,11 @@ fun LibraryScreen(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    lazyItems(listOf(GamePlatform.NES, GamePlatform.JAVA)) { platform ->
+                    lazyItems(listOf(
+                        GamePlatform.NES, GamePlatform.SFC,
+                        GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA,
+                        GamePlatform.JAVA
+                    )) { platform ->
                         FilterChip(
                             text = platform.displayName,
                             selected = selectedPlatform == platform,

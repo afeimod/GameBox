@@ -24,23 +24,23 @@ import kotlin.concurrent.thread
  * frame directly to the surface buffer (hardware-accelerated path). The
  * Kotlin-side frame buffer copy is skipped entirely, giving smooth 60fps.
  */
-class NesEngine private constructor() {
+class NesEngine private constructor() : EmulatorEngine {
 
-    val frameBuffer = IntArray(256 * 240)
+    override val frameBuffer = IntArray(256 * 240)
 
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
     private val audioBuf = ShortArray(8192) // pulled per frame, ~93ms @44.1k stereo
 
-    @Volatile var isLoaded = false
+    @Volatile override var isLoaded = false
         private set
 
     @Volatile private var _fastForward = false
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
-    fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
+    override fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
     /**
      * Load a ROM and start the emulation thread.
@@ -50,7 +50,7 @@ class NesEngine private constructor() {
      * @param onFrame called on the emulation thread after each produced frame
      * @return true if the ROM loaded and emulation started
      */
-    fun loadRom(
+    override fun loadRom(
         rom: File,
         systemDir: String,
         saveDir: String,
@@ -128,7 +128,7 @@ class NesEngine private constructor() {
      * ANativeWindow, bypassing the JNI frame buffer copy entirely.
      * Pass null to detach (e.g. when the SurfaceView is destroyed).
      */
-    fun setSurface(surface: Surface?) {
+    override fun setSurface(surface: Surface?) {
         hasSurface = surface != null
         NesNative.setSurface(surface)
     }
@@ -137,24 +137,24 @@ class NesEngine private constructor() {
      * Set a core option (e.g. NTSC filter, aspect ratio, palette).
      * The change takes effect on the next frame.
      */
-    fun setCoreOption(key: String, value: String) {
+    override fun setCoreOption(key: String, value: String) {
         NesNative.setCoreOption(key, value)
     }
 
     /** Current video width from the core (e.g. 256, or 302 with NTSC filter). */
-    fun videoWidth(): Int = if (isLoaded) NesNative.videoWidth() else 256
+    override fun videoWidth(): Int = if (isLoaded) NesNative.videoWidth() else 256
 
     /** Current video height from the core (e.g. 240). */
-    fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
+    override fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
 
     /**
      * Set the frontend video post-processing filter.
      *   0 = none, 1 = scanline, 2 = crt, 3 = dot, 4 = xbr,
      *   5 = hq2x, 6 = hq4x, 7 = xbr+dot
      */
-    fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
+    override fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
 
-    fun setFastForward(on: Boolean) {
+    override fun setFastForward(on: Boolean) {
         _fastForward = on
         if (isLoaded) NesNative.setFastForward(on)
     }
@@ -163,7 +163,7 @@ class NesEngine private constructor() {
      * Pause or resume emulation. When paused, the emulation thread stays alive
      * but doesn't call runFrame(), so the game freezes while the UI remains responsive.
      */
-    fun setPaused(paused: Boolean) {
+    override fun setPaused(paused: Boolean) {
         _paused = paused
     }
 
@@ -204,9 +204,9 @@ class NesEngine private constructor() {
         audioTrack = null
     }
 
-    fun reset(hard: Boolean = false) = NesNative.reset(hard)
+    override fun reset(hard: Boolean) = NesNative.reset(hard)
 
-    fun unload() {
+    override fun unload() {
         stop()
         stopAudio()
         setSurface(null)
@@ -216,14 +216,14 @@ class NesEngine private constructor() {
         }
     }
 
-    fun shutdown() = unload()
+    override fun shutdown() = unload()
 
-    fun setPad1(bits: Int) = NesNative.setPad1(bits)
-    fun setRegion(region: Int) = NesNative.setRegion(region)
-    fun setSampleRate(rate: Int) = NesNative.setSampleRate(rate)
-    fun saveState(slot: Int, dst: File) = NesNative.saveState(slot, dst.absolutePath)
-    fun loadState(slot: Int, src: File) = NesNative.loadState(slot, src.absolutePath)
-    fun lastError(): String = NesNative.lastError()
+    override fun setPad1(bits: Int) = NesNative.setPad1(bits)
+    override fun setRegion(region: Int) = NesNative.setRegion(region)
+    override fun setSampleRate(rate: Int) = NesNative.setSampleRate(rate)
+    override fun saveState(slot: Int, dst: File) = NesNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File) = NesNative.loadState(slot, src.absolutePath)
+    override fun lastError(): String = NesNative.lastError()
 
     private fun stop() {
         if (running.getAndSet(false)) {

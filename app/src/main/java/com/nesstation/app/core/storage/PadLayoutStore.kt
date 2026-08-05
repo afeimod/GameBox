@@ -16,8 +16,8 @@ data class ButtonLayout(
 
 /**
  * Complete on-screen controller layout with per-button positioning.
- * Every button (D-pad, A, B, Turbo A, Turbo B, Start, Select) can be
- * individually positioned and resized.
+ * Every button can be individually positioned and resized.
+ * Includes L/R shoulder buttons (GBA/SNES) and X/Y face buttons (SNES).
  */
 data class PadLayout(
     // D-pad — cross-shaped, positioned on the left
@@ -34,6 +34,14 @@ data class PadLayout(
     val btnStart: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.92f, sizeDp = 56),
     // Select — center-left, bottom
     val btnSelect: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.92f, sizeDp = 56),
+    // L button — top-left shoulder (GBA/SNES)
+    val btnL: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.15f, sizeDp = 56),
+    // R button — top-right shoulder (GBA/SNES)
+    val btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56),
+    // X button — above A (SNES 4-face button layout)
+    val btnX: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 60),
+    // Y button — left of B (SNES 4-face button layout)
+    val btnY: ButtonLayout = ButtonLayout(x = 0.60f, y = 0.76f, sizeDp = 60),
     // Global settings
     val opacity: Float = 0.7f,     // 0.3 – 1.0
     val showPad: Boolean = true,
@@ -49,8 +57,6 @@ data class PadLayout(
     // Video filter — applied in the native blit function (frontend-level post-processing)
     val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
     // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
-    // in games like Contra Force. VBlank is most effective for such games;
-    // Postrender is more broadly compatible. (FCEUmm core option values.)
     val overclocking: String = "disabled" // disabled | 2x-Postrender | 2x-VBlank
 )
 
@@ -83,6 +89,22 @@ object PadLayoutStore {
     private const val KEY_SELECT_X = "select_x"
     private const val KEY_SELECT_Y = "select_y"
     private const val KEY_SELECT_SIZE = "select_size"
+
+    // L/R shoulder button keys
+    private const val KEY_L_X = "l_x"
+    private const val KEY_L_Y = "l_y"
+    private const val KEY_L_SIZE = "l_size"
+    private const val KEY_R_X = "r_x"
+    private const val KEY_R_Y = "r_y"
+    private const val KEY_R_SIZE = "r_size"
+
+    // X/Y face button keys (SNES)
+    private const val KEY_X_X = "x_x"
+    private const val KEY_X_Y = "x_y"
+    private const val KEY_X_SIZE = "x_size"
+    private const val KEY_Y_X = "y_x"
+    private const val KEY_Y_Y = "y_y"
+    private const val KEY_Y_SIZE = "y_size"
 
     // Global keys
     private const val KEY_OPACITY = "opacity"
@@ -140,6 +162,26 @@ object PadLayoutStore {
                 p.getFloat(KEY_SELECT_Y, 0.92f),
                 p.getInt(KEY_SELECT_SIZE, 56)
             ),
+            btnL = ButtonLayout(
+                p.getFloat(KEY_L_X, 0.10f),
+                p.getFloat(KEY_L_Y, 0.15f),
+                p.getInt(KEY_L_SIZE, 56)
+            ),
+            btnR = ButtonLayout(
+                p.getFloat(KEY_R_X, 0.90f),
+                p.getFloat(KEY_R_Y, 0.15f),
+                p.getInt(KEY_R_SIZE, 56)
+            ),
+            btnX = ButtonLayout(
+                p.getFloat(KEY_X_X, 0.87f),
+                p.getFloat(KEY_X_Y, 0.62f),
+                p.getInt(KEY_X_SIZE, 60)
+            ),
+            btnY = ButtonLayout(
+                p.getFloat(KEY_Y_X, 0.60f),
+                p.getFloat(KEY_Y_Y, 0.76f),
+                p.getInt(KEY_Y_SIZE, 60)
+            ),
             opacity = p.getFloat(KEY_OPACITY, 0.7f),
             showPad = p.getBoolean(KEY_SHOW_PAD, true),
             ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled",
@@ -183,6 +225,22 @@ object PadLayoutStore {
             putFloat(KEY_SELECT_X, layout.btnSelect.x)
             putFloat(KEY_SELECT_Y, layout.btnSelect.y)
             putInt(KEY_SELECT_SIZE, layout.btnSelect.sizeDp)
+
+            putFloat(KEY_L_X, layout.btnL.x)
+            putFloat(KEY_L_Y, layout.btnL.y)
+            putInt(KEY_L_SIZE, layout.btnL.sizeDp)
+
+            putFloat(KEY_R_X, layout.btnR.x)
+            putFloat(KEY_R_Y, layout.btnR.y)
+            putInt(KEY_R_SIZE, layout.btnR.sizeDp)
+
+            putFloat(KEY_X_X, layout.btnX.x)
+            putFloat(KEY_X_Y, layout.btnX.y)
+            putInt(KEY_X_SIZE, layout.btnX.sizeDp)
+
+            putFloat(KEY_Y_X, layout.btnY.x)
+            putFloat(KEY_Y_Y, layout.btnY.y)
+            putInt(KEY_Y_SIZE, layout.btnY.sizeDp)
 
             putFloat(KEY_OPACITY, layout.opacity)
             putBoolean(KEY_SHOW_PAD, layout.showPad)

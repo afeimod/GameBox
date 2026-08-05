@@ -77,8 +77,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.nesstation.app.core.engine.NesEngine
+import com.nesstation.app.core.engine.EmulatorEngine
 import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.storage.PadLayoutStore
@@ -87,9 +88,12 @@ import kotlinx.coroutines.delay
 // ---------------------------------------------------------------------------
 // Button types for multi-touch tracking
 // ---------------------------------------------------------------------------
-private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT }
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y }
 
-// Bit masks for NES controller
+// Bit masks for NES/SNES/GBA controller
+// NES/GB/GBC: A B SEL STA U D L R (8 buttons)
+// GBA: adds L(bit8) R(bit9) (10 buttons)
+// SNES: adds X(bit8) Y(bit9) L(bit10) R(bit11) (12 buttons)
 private const val BTN_UP = 0x10
 private const val BTN_DOWN = 0x20
 private const val BTN_LEFT = 0x40
@@ -98,6 +102,12 @@ private const val BTN_A = 0x01
 private const val BTN_B = 0x02
 private const val BTN_SELECT = 0x04
 private const val BTN_START = 0x08
+private const val BTN_X = 0x100       // bit8 — SNES X
+private const val BTN_Y = 0x200       // bit9 — SNES Y (or GBA L)
+private const val BTN_L_SNES = 0x400  // bit10 — SNES L
+private const val BTN_R_SNES = 0x800  // bit11 — SNES R
+private const val BTN_L_GBA = 0x100   // bit8 — GBA L
+private const val BTN_R_GBA = 0x200   // bit9 — GBA R
 
 // ---------------------------------------------------------------------------
 // Main Emulator Screen
@@ -107,7 +117,8 @@ fun EmulatorScreen(
     game: GameEntry,
     onExit: () -> Unit
 ) {
-    val engine = remember { NesEngine.get() }
+    val engine = remember { EmulatorEngine.forPlatform(game.platform) }
+    val platform = game.platform
     val context = LocalContext.current
     var running by remember { mutableStateOf(true) }
     var fastForward by remember { mutableStateOf(false) }
@@ -125,7 +136,7 @@ fun EmulatorScreen(
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
                    padLayout.region, padLayout.cropOverscan,
                    padLayout.videoFilter, padLayout.overclocking) {
-        applyCoreOptions(engine, padLayout)
+        applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         val filterInt = when (padLayout.videoFilter) {
             "scanline" -> 1
@@ -178,10 +189,22 @@ fun EmulatorScreen(
                     val origName = game.title.ifBlank { romPath.substringAfterLast('/') }
                     val ext = when {
                         origName.endsWith(".fds", ignoreCase = true) -> ".fds"
-                        origName.endsWith(".unf", ignoreCase = true) -> ".unf"
-                        origName.endsWith(".unif", ignoreCase = true) -> ".unif"
+                        origName.endsWith(".unf", ignoreCase = true) || origName.endsWith(".unif", ignoreCase = true) -> ".unf"
+                        origName.endsWith(".smc", ignoreCase = true) -> ".smc"
+                        origName.endsWith(".sfc", ignoreCase = true) -> ".sfc"
+                        origName.endsWith(".swc", ignoreCase = true) -> ".swc"
+                        origName.endsWith(".fig", ignoreCase = true) -> ".fig"
+                        origName.endsWith(".gbc", ignoreCase = true) -> ".gbc"
+                        origName.endsWith(".gba", ignoreCase = true) -> ".gba"
+                        origName.endsWith(".gb", ignoreCase = true) -> ".gb"
+                        origName.endsWith(".sgb", ignoreCase = true) -> ".sgb"
                         romPath.contains(".fds", ignoreCase = true) -> ".fds"
                         romPath.contains(".unf", ignoreCase = true) -> ".unf"
+                        romPath.contains(".sfc", ignoreCase = true) -> ".sfc"
+                        romPath.contains(".smc", ignoreCase = true) -> ".smc"
+                        romPath.contains(".gba", ignoreCase = true) -> ".gba"
+                        romPath.contains(".gbc", ignoreCase = true) -> ".gbc"
+                        romPath.contains(".gb", ignoreCase = true) -> ".gb"
                         else -> ".nes"
                     }
                     val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
@@ -236,6 +259,7 @@ fun EmulatorScreen(
             OnScreenController(
                 padLayout = padLayout,
                 surfaceSize = surfaceSize,
+                platform = platform,
                 onPadBits = { bits -> engine.setPad1(bits) }
             )
         }
@@ -259,6 +283,7 @@ fun EmulatorScreen(
         if (loaded && showLayoutEditor) {
             PadLayoutEditor(
                 padLayout = padLayout,
+                platform = platform,
                 onLayoutChange = { newLayout ->
                     padLayout = newLayout
                     PadLayoutStore.save(context, newLayout)
@@ -271,10 +296,11 @@ fun EmulatorScreen(
         if (loaded && showSettings) {
             SettingsPanel(
                 padLayout = padLayout,
+                platform = platform,
                 onLayoutChange = { newLayout ->
                     padLayout = newLayout
                     PadLayoutStore.save(context, newLayout)
-                    applyCoreOptions(engine, newLayout)
+                    applyCoreOptions(engine, newLayout, platform)
                 },
                 onClose = { showSettings = false }
             )
@@ -283,25 +309,38 @@ fun EmulatorScreen(
 }
 
 // ---------------------------------------------------------------------------
-// Apply core options to engine — maps PadLayout fields to FCEUmm option keys
+// Apply core options to engine — platform-aware option mapping
 // ---------------------------------------------------------------------------
-private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
-    engine.setCoreOption("fceumm_ntsc_filter", layout.ntscFilter)
-    engine.setCoreOption("fceumm_palette", layout.palette)
-    engine.setCoreOption("fceumm_region", layout.region)
-    // Audio options (sndquality, sndlowpass, sndvolume) are NOT set —
-    // FCEUmm uses its own built-in defaults for correct audio.
-    // Aspect ratio (fceumm_aspect) is NOT set — the frontend controls
-    // display aspect ratio via videoScale (SurfaceView layout).
-    val cropVal = if (layout.cropOverscan == "enabled") "8" else "0"
-    engine.setCoreOption("fceumm_overscan_h_left", cropVal)
-    engine.setCoreOption("fceumm_overscan_h_right", cropVal)
-    engine.setCoreOption("fceumm_overscan_v_top", cropVal)
-    engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
-    // Overclocking — adds dummy scanlines to reduce slowdowns (e.g. Contra Force).
-    // The core picks this up via GET_VARIABLE_UPDATE on the next frame and
-    // reinitializes its video buffer; switching takes effect immediately.
-    engine.setCoreOption("fceumm_overclocking", layout.overclocking)
+private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform: GamePlatform = GamePlatform.NES) {
+    when (platform) {
+        GamePlatform.NES -> {
+            engine.setCoreOption("fceumm_ntsc_filter", layout.ntscFilter)
+            engine.setCoreOption("fceumm_palette", layout.palette)
+            engine.setCoreOption("fceumm_region", layout.region)
+            val cropVal = if (layout.cropOverscan == "enabled") "8" else "0"
+            engine.setCoreOption("fceumm_overscan_h_left", cropVal)
+            engine.setCoreOption("fceumm_overscan_h_right", cropVal)
+            engine.setCoreOption("fceumm_overscan_v_top", cropVal)
+            engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+            engine.setCoreOption("fceumm_overclocking", layout.overclocking)
+        }
+        GamePlatform.SFC -> {
+            engine.setCoreOption("snes9x_aspect", layout.aspectRatio)
+            engine.setCoreOption("snes9x_overclock_superfx", layout.overclocking)
+            engine.setCoreOption("snes9x_blargg_filter", layout.ntscFilter)
+            engine.setCoreOption("snes9x_up_down_allowed", if (layout.cropOverscan == "enabled") "enabled" else "disabled")
+        }
+        GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA -> {
+            engine.setCoreOption("mgba_gb_model", layout.region)
+            engine.setCoreOption("mgba_gb_colors", if (layout.ntscFilter != "disabled") "enabled" else "enabled")
+            engine.setCoreOption("mgba_gba_colors", "enabled")
+            engine.setCoreOption("mgba_interframe_blending", if (layout.cropOverscan == "enabled") "ON" else "OFF")
+            engine.setCoreOption("mgba_frameskip", "0")
+            engine.setCoreOption("mgba_audio_resampler", "sinc")
+            engine.setCoreOption("mgba_sgb_borders", if (layout.cropOverscan == "enabled") "OFF" else "ON")
+        }
+        GamePlatform.JAVA -> { /* no core options for J2ME */ }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +348,7 @@ private fun applyCoreOptions(engine: NesEngine, layout: PadLayout) {
 // ---------------------------------------------------------------------------
 @Composable
 private fun GameSurfaceView(
-    engine: NesEngine,
+    engine: EmulatorEngine,
     videoScale: String,
     videoFilter: String,
     modifier: Modifier = Modifier
@@ -465,10 +504,19 @@ private fun createDotPattern(): Bitmap {
 private fun OnScreenController(
     padLayout: PadLayout,
     surfaceSize: IntSize,
-    onPadBits: (Int) -> Unit
+    onPadBits: (Int) -> Unit,
+    platform: GamePlatform = GamePlatform.NES
 ) {
     val density = LocalDensity.current
     val opacity = padLayout.opacity
+
+    // Which extra buttons to show based on platform
+    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC
+    val showXY = platform == GamePlatform.SFC
+
+    // L/R bit values differ between GBA (bit8/9) and SNES (bit10/11)
+    val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
+    val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
 
     // Compute button hit-areas in pixels
     fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): androidx.compose.ui.geometry.Rect {
@@ -532,6 +580,10 @@ private fun OnScreenController(
                 val tbRect = btnRect(padLayout.btnTurboB)
                 val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
                 val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
+                val lRect = if (showLR) btnRect(padLayout.btnL, 1.6f, 0.7f) else null
+                val rRect = if (showLR) btnRect(padLayout.btnR, 1.6f, 0.7f) else null
+                val xRect = if (showXY) btnRect(padLayout.btnX) else null
+                val yRect = if (showXY) btnRect(padLayout.btnY) else null
 
                 // Process a pointer DOWN at the given position.
                 // Returns true if the pointer landed on a button.
@@ -544,6 +596,10 @@ private fun OnScreenController(
                         tbRect.contains(pos) -> BtnType.TURBO_B
                         startRect.contains(pos) -> BtnType.START
                         selectRect.contains(pos) -> BtnType.SELECT
+                        lRect?.contains(pos) == true -> BtnType.L
+                        rRect?.contains(pos) == true -> BtnType.R
+                        xRect?.contains(pos) == true -> BtnType.X
+                        yRect?.contains(pos) == true -> BtnType.Y
                         else -> null
                     }
                     if (btnType != null) {
@@ -557,6 +613,10 @@ private fun OnScreenController(
                             BtnType.TURBO_B -> turboBits = BTN_B
                             BtnType.START -> bits = BTN_START
                             BtnType.SELECT -> bits = BTN_SELECT
+                            BtnType.L -> bits = lBit
+                            BtnType.R -> bits = rBit
+                            BtnType.X -> bits = BTN_X
+                            BtnType.Y -> bits = BTN_Y
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -598,7 +658,9 @@ private fun OnScreenController(
                                         val (bt, heldBits) = entry
                                         when (bt) {
                                             BtnType.DPAD, BtnType.A, BtnType.B,
-                                            BtnType.START, BtnType.SELECT -> {
+                                            BtnType.START, BtnType.SELECT,
+                                            BtnType.L, BtnType.R,
+                                            BtnType.X, BtnType.Y -> {
                                                 visualState = visualState and heldBits.inv()
                                                 sendStateNow(visualState, turboState)
                                             }
@@ -646,6 +708,16 @@ private fun OnScreenController(
         PillButtonCanvas("START", padLayout.btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
         // Select
         PillButtonCanvas("SELECT", padLayout.btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
+        // L/R shoulder buttons (GBA/SNES)
+        if (showLR) {
+            ShoulderButtonCanvas("L", padLayout.btnL, surfaceSize, opacity, visualState and lBit != 0)
+            ShoulderButtonCanvas("R", padLayout.btnR, surfaceSize, opacity, visualState and rBit != 0)
+        }
+        // X/Y face buttons (SNES only)
+        if (showXY) {
+            ActionButtonCanvas("X", Color(0xFF3498DB), padLayout.btnX, surfaceSize, opacity, visualState and BTN_X != 0)
+            ActionButtonCanvas("Y", Color(0xFF2ECC71), padLayout.btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
+        }
     }
 }
 
@@ -819,6 +891,42 @@ private fun PillButtonCanvas(
     }
 }
 
+// Shoulder button (L/R) — wide pill-shaped, top corners
+@Composable
+private fun ShoulderButtonCanvas(
+    label: String,
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    opacity: Float,
+    isPressed: Boolean
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val widthDp = sizeDp * 1.6f
+    val heightDp = sizeDp * 0.7f
+    val wPx = with(density) { widthDp.toPx() }
+    val hPx = with(density) { heightDp.toPx() }
+    val px = surfaceSize.width * layout.x - wPx / 2
+    val py = surfaceSize.height * layout.y - hPx / 2
+
+    Box(
+        modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(width = widthDp, height = heightDp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height; val r = h * 0.4f
+            val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
+            drawRoundRect(
+                if (isPressed) Color(0xFF3A4050).copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
+                else Color(0xFF2A3040).copy(alpha = opacity),
+                Offset(0f, 0f), Size(w, h), cr
+            )
+            drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
+        }
+        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.28f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Menu overlay
 // ---------------------------------------------------------------------------
@@ -867,12 +975,16 @@ private fun MenuOverlay(
 @Composable
 private fun PadLayoutEditor(
     padLayout: PadLayout,
+    platform: GamePlatform = GamePlatform.NES,
     onLayoutChange: (PadLayout) -> Unit,
     surfaceSize: IntSize,
     onClose: () -> Unit
 ) {
     val density = LocalDensity.current
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
+
+    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC
+    val showXY = platform == GamePlatform.SFC
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
         // Top toolbar
@@ -950,6 +1062,44 @@ private fun PadLayoutEditor(
                 },
                 onSelect = { selectedBtn = BtnType.SELECT }
             )
+            // L/R shoulder buttons (GBA/SNES)
+            if (showLR) {
+                EditablePillBtn("L", padLayout.btnL, surfaceSize, selectedBtn == BtnType.L,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.05f, 0.4f)
+                        val ny = targetY.coerceIn(0.02f, 0.3f)
+                        onLayoutChange(padLayout.copy(btnL = padLayout.btnL.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.L }
+                )
+                EditablePillBtn("R", padLayout.btnR, surfaceSize, selectedBtn == BtnType.R,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.6f, 0.95f)
+                        val ny = targetY.coerceIn(0.02f, 0.3f)
+                        onLayoutChange(padLayout.copy(btnR = padLayout.btnR.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.R }
+                )
+            }
+            // X/Y face buttons (SNES only)
+            if (showXY) {
+                EditableRoundBtn("X", Color(0xFF3498DB), padLayout.btnX, surfaceSize, selectedBtn == BtnType.X,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        onLayoutChange(padLayout.copy(btnX = padLayout.btnX.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.X }
+                )
+                EditableRoundBtn("Y", Color(0xFF2ECC71), padLayout.btnY, surfaceSize, selectedBtn == BtnType.Y,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        onLayoutChange(padLayout.copy(btnY = padLayout.btnY.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.Y }
+                )
+            }
         }
 
         // Size slider at bottom — shown when a button is selected
@@ -967,6 +1117,10 @@ private fun PadLayoutEditor(
                 BtnType.TURBO_B -> { currentSize = padLayout.btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
                 BtnType.START -> { currentSize = padLayout.btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
                 BtnType.SELECT -> { currentSize = padLayout.btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
+                BtnType.L -> { currentSize = padLayout.btnL.sizeDp; minSize = 36; maxSize = 90; label = "L键大小" }
+                BtnType.R -> { currentSize = padLayout.btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
+                BtnType.X -> { currentSize = padLayout.btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
+                BtnType.Y -> { currentSize = padLayout.btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
             }
 
             Column(
@@ -995,6 +1149,10 @@ private fun PadLayoutEditor(
                             BtnType.TURBO_B -> padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(sizeDp = intVal))
                             BtnType.START -> padLayout.copy(btnStart = padLayout.btnStart.copy(sizeDp = intVal))
                             BtnType.SELECT -> padLayout.copy(btnSelect = padLayout.btnSelect.copy(sizeDp = intVal))
+                            BtnType.L -> padLayout.copy(btnL = padLayout.btnL.copy(sizeDp = intVal))
+                            BtnType.R -> padLayout.copy(btnR = padLayout.btnR.copy(sizeDp = intVal))
+                            BtnType.X -> padLayout.copy(btnX = padLayout.btnX.copy(sizeDp = intVal))
+                            BtnType.Y -> padLayout.copy(btnY = padLayout.btnY.copy(sizeDp = intVal))
                         }
                         onLayoutChange(newLayout)
                     },
@@ -1212,6 +1370,7 @@ private fun EditablePillBtn(
 @Composable
 private fun SettingsPanel(
     padLayout: PadLayout,
+    platform: GamePlatform = GamePlatform.NES,
     onLayoutChange: (PadLayout) -> Unit,
     onClose: () -> Unit
 ) {
@@ -1235,32 +1394,7 @@ private fun SettingsPanel(
         }
         Spacer(Modifier.size(8.dp))
 
-        DropdownSetting("NTSC 滤镜",
-            listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
-            padLayout.ntscFilter
-        ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
-
-        DropdownSetting("调色板",
-            listOf(
-                "default" to "默认", "asqrealc" to "AspiringSquire", "wii-vc" to "Wii VC",
-                "rgb" to "Nintendo RGB", "yuv-v3" to "FBX YUV-V3", "unsaturated-final" to "Unsaturated",
-                "sony-cxa2025as-us" to "Sony CXA", "pal" to "PAL", "bmf-final2" to "BMF Final 2",
-                "smooth-fbx" to "FBX Smooth", "composite-direct-fbx" to "FBX Composite",
-                "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
-            ),
-            padLayout.palette
-        ) { onLayoutChange(padLayout.copy(palette = it)) }
-
-        DropdownSetting("区域",
-            listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
-            padLayout.region
-        ) { onLayoutChange(padLayout.copy(region = it)) }
-
-        DropdownSetting("裁剪过扫描",
-            listOf("disabled" to "关闭", "enabled" to "开启"),
-            padLayout.cropOverscan
-        ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
-
+        // Common video settings for all platforms
         DropdownSetting("画面缩放",
             listOf("stretch" to "全屏拉伸(默认)", "4:3" to "4:3", "8:7" to "8:7", "16:9" to "16:9"),
             padLayout.videoScale
@@ -1273,34 +1407,129 @@ private fun SettingsPanel(
             padLayout.videoFilter
         ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
 
-        DropdownSetting("超频(减少慢动作)",
-            listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
-            padLayout.overclocking
-        ) { onLayoutChange(padLayout.copy(overclocking = it)) }
-
-        Spacer(Modifier.size(12.dp))
-
-        // FDS BIOS import section
+        Spacer(Modifier.size(8.dp))
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
         Spacer(Modifier.size(8.dp))
-        Text("FDS BIOS (磁盘系统)", color = Color(0xFFFFD66B), fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        Spacer(Modifier.size(4.dp))
-        Text(
-            "如已将disksys.rom放入assets目录，FDS游戏将自动加载BIOS。" +
-            "也可手动导入disksys.rom (8KB)。",
-            color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
-        )
-        Spacer(Modifier.size(6.dp))
 
-        FdsBiosImportSection(
-            biosStatus = biosStatus,
-            onImport = { uri ->
-                val result = importFdsBios(context, uri)
-                biosStatus = checkFdsBiosStatus(context)
-                biosStatus = biosStatus.copy(message = result)
+        when (platform) {
+            GamePlatform.NES -> {
+                Text("NES 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                DropdownSetting("NTSC 滤镜",
+                    listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
+                    padLayout.ntscFilter
+                ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
+
+                DropdownSetting("调色板",
+                    listOf(
+                        "default" to "默认", "asqrealc" to "AspiringSquire", "wii-vc" to "Wii VC",
+                        "rgb" to "Nintendo RGB", "yuv-v3" to "FBX YUV-V3", "unsaturated-final" to "Unsaturated",
+                        "sony-cxa2025as-us" to "Sony CXA", "pal" to "PAL", "bmf-final2" to "BMF Final 2",
+                        "smooth-fbx" to "FBX Smooth", "composite-direct-fbx" to "FBX Composite",
+                        "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
+                    ),
+                    padLayout.palette
+                ) { onLayoutChange(padLayout.copy(palette = it)) }
+
+                DropdownSetting("区域",
+                    listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
+                    padLayout.region
+                ) { onLayoutChange(padLayout.copy(region = it)) }
+
+                DropdownSetting("裁剪过扫描",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.cropOverscan
+                ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
+
+                DropdownSetting("超频(减少慢动作)",
+                    listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
+                    padLayout.overclocking
+                ) { onLayoutChange(padLayout.copy(overclocking = it)) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("FDS BIOS (磁盘系统)", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "如已将disksys.rom放入assets目录，FDS游戏将自动加载BIOS。" +
+                    "也可手动导入disksys.rom (8KB)。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                FdsBiosImportSection(
+                    biosStatus = biosStatus,
+                    onImport = { uri ->
+                        val result = importFdsBios(context, uri)
+                        biosStatus = checkFdsBiosStatus(context)
+                        biosStatus = biosStatus.copy(message = result)
+                    }
+                )
             }
-        )
+            GamePlatform.SFC -> {
+                Text("SFC/SNES 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                DropdownSetting("画面比例",
+                    listOf("8:7 PAR" to "8:7 (原始像素比)", "4:3" to "4:3 (标准)", "PP" to "Pixel Perfect"),
+                    padLayout.aspectRatio
+                ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
+
+                DropdownSetting("超频(SuperFX)",
+                    listOf("disabled" to "关闭", "10MHz (150%)" to "10MHz (150%)",
+                           "14MHz (200%)" to "14MHz (200%)", "20MHz (300%)" to "20MHz (300%)"),
+                    padLayout.overclocking
+                ) { onLayoutChange(padLayout.copy(overclocking = it)) }
+
+                DropdownSetting("NTSC 滤镜",
+                    listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video",
+                           "rgb" to "RGB", "monochrome" to "黑白"),
+                    padLayout.ntscFilter
+                ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
+
+                DropdownSetting("裁剪过扫描",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.cropOverscan
+                ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
+            }
+            GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA -> {
+                val platName = when (platform) {
+                    GamePlatform.GB -> "GB"
+                    GamePlatform.GBC -> "GBC"
+                    else -> "GBA"
+                }
+                Text("$platName 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                DropdownSetting("主机型号",
+                    listOf("Auto" to "自动", "GB" to "Game Boy (DMG)",
+                           "GBC" to "Game Boy Color", "SGB" to "Super Game Boy",
+                           "GBA" to "Game Boy Advance"),
+                    padLayout.region
+                ) { onLayoutChange(padLayout.copy(region = it)) }
+
+                DropdownSetting("SGB 边框",
+                    listOf("ON" to "显示", "OFF" to "隐藏"),
+                    if (padLayout.cropOverscan == "enabled") "OFF" else "ON"
+                ) { onLayoutChange(padLayout.copy(cropOverscan = if (it == "OFF") "enabled" else "disabled")) }
+
+                DropdownSetting("帧混合",
+                    listOf("ON" to "开启", "OFF" to "关闭"),
+                    if (padLayout.cropOverscan == "enabled") "OFF" else "ON"
+                ) { /* handled via mgba_interframe_blending in applyCoreOptions */ }
+
+                DropdownSetting("跳帧",
+                    listOf("0" to "关闭", "1" to "1帧", "2" to "2帧", "3" to "3帧", "4" to "4帧", "5" to "5帧"),
+                    "0"
+                ) { /* frameskip is handled in applyCoreOptions */ }
+            }
+            GamePlatform.JAVA -> { /* no core options for J2ME */ }
+        }
 
         Spacer(Modifier.size(8.dp))
         Text("修改后即时生效。设置与主界面设置同步。", color = Color(0xFF8899AA), fontSize = 11.sp)

@@ -9,16 +9,27 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Scans common ROM directories and any user-granted SAF tree for `.nes` and `.fds` files.
+ * Scans common ROM directories and any user-granted SAF tree for ROM files.
+ * Supports NES/FDS, SNES/SFC, GB/GBC/GBA, and J2ME JAR files.
  */
 class RomScanner(private val context: Context) {
 
     private fun isRomFile(name: String): Boolean =
         name.endsWith(".nes", ignoreCase = true) ||
         name.endsWith(".fds", ignoreCase = true) ||
-        name.endsWith(".zip", ignoreCase = true) ||
         name.endsWith(".unf", ignoreCase = true) ||
-        name.endsWith(".unif", ignoreCase = true)
+        name.endsWith(".unif", ignoreCase = true) ||
+        name.endsWith(".zip", ignoreCase = true) ||
+        // SNES / SFC
+        name.endsWith(".smc", ignoreCase = true) ||
+        name.endsWith(".sfc", ignoreCase = true) ||
+        name.endsWith(".swc", ignoreCase = true) ||
+        name.endsWith(".fig", ignoreCase = true) ||
+        // GB / GBC / GBA
+        name.endsWith(".gb", ignoreCase = true) ||
+        name.endsWith(".sgb", ignoreCase = true) ||
+        name.endsWith(".gbc", ignoreCase = true) ||
+        name.endsWith(".gba", ignoreCase = true)
 
     suspend fun scanDefaults(): List<File> = withContext(Dispatchers.IO) {
         val candidates = buildList {
