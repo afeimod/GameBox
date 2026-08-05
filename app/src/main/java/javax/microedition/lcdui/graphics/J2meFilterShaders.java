@@ -336,16 +336,19 @@ public final class J2meFilterShaders {
      *
      * <p><b>Color comparison:</b> The reference shader uses {@code reduce()} with
      * {@code dtt = vec3(65536.0, 255.0, 1.0)} to pack RGB into a scalar for exact
-     * equality comparison. However, on many mobile GPUs {@code mediump} float
-     * (max 65504) overflows when computing {@code R * 65536}, causing all
-     * {@code reduce()} values to become infinity. This makes {@code h==f} true
-     * but {@code h!=e} false for all pixels, so the edge detection never triggers
-     * and the filter has no visible effect.
+     * equality comparison. However, {@code 65536.0} exceeds the {@code mediump}
+     * float maximum (65504), which causes a <b>compilation error</b> on GPUs
+     * without {@code highp} fragment shader support — the shader silently falls
+     * back to the default passthrough, producing "no effect."
      *
-     * <p>The fix replaces {@code reduce()} with direct vec3 comparison using
-     * {@code all(equal())} and {@code any(notEqual())}, which works correctly
-     * in both {@code highp} and {@code mediump}. The edge-detection logic is
-     * otherwise identical to the reference shader.
+     * <p>Instead, we use <b>scalar component-wise comparison</b> ({@code a.x == b.x
+     * && a.y == b.y && a.z == b.z}) which is universally supported on ALL GLSL ES
+     * 1.00 implementations. This avoids:
+     * <ul>
+     *   <li>{@code const} overflow on {@code mediump} (compilation error)</li>
+     *   <li>Vector {@code ==}/{@code !=} operator bugs on some GPU drivers</li>
+     *   <li>{@code all()}/{@code equal()} function compatibility issues</li>
+     * </ul>
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -356,14 +359,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
-            "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return all(equal(a, b));\n" +
-            "}\n" +
-            "\n" +
-            "bool neq(vec3 a, vec3 b) {\n" +
-            "    return any(notEqual(a, b));\n" +
-            "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
@@ -384,7 +379,16 @@ public final class J2meFilterShaders {
             "\n" +
             "    gl_FragColor.rgb = E;\n" +
             "\n" +
-            "    if (eq(H, F) && neq(H, E) && ( eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)) ))\n" +
+            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
+            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
+            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
+            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
+            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
+            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
+            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
+            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "\n" +
+            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb)))\n" +
             "    {\n" +
             "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -399,8 +403,8 @@ public final class J2meFilterShaders {
      * based on the fractional position within the texel. Only requires
      * {@code u_texelDelta}.
      *
-     * <p>Color comparison uses {@code all(equal())} instead of {@code reduce()}
-     * to avoid mediump overflow (see {@link #FRAGMENT_2XBR} for details).
+     * <p>Color comparison uses scalar component-wise comparison (see
+     * {@link #FRAGMENT_2XBR} for details).
      */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -411,14 +415,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
-            "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return all(equal(a, b));\n" +
-            "}\n" +
-            "\n" +
-            "bool neq(vec3 a, vec3 b) {\n" +
-            "    return any(notEqual(a, b));\n" +
-            "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
@@ -440,7 +436,16 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    if (eq(H, F) && neq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
+            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
+            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
+            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
+            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
+            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
+            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
+            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "\n" +
+            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
@@ -518,11 +523,9 @@ public final class J2meFilterShaders {
      * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_2XBR}).
-     * The 2xBR edge detection is based on the reference 2xbr.fsh, using
-     * {@code all(equal())} for color comparison instead of {@code reduce()}
-     * to avoid mediump overflow. The dot mask uses the same formula
-     * as HQ4x+Dot: {@code pixel_no / u_texelDelta} → distance from texel
-     * center → {@code exp(-2.4 * delta * bloom)} → {@code mix(1.2*res, res*dotMask, 0.65)}.
+     * Color comparison uses scalar component-wise comparison (see
+     * {@link #FRAGMENT_2XBR} for details). The dot mask uses the same
+     * formula as HQ4x+Dot.
      */
     public static final String FRAGMENT_2XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -533,14 +536,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
-            "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return all(equal(a, b));\n" +
-            "}\n" +
-            "\n" +
-            "bool neq(vec3 a, vec3 b) {\n" +
-            "    return any(notEqual(a, b));\n" +
-            "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
@@ -561,7 +556,16 @@ public final class J2meFilterShaders {
             "\n" +
             "    vec3 res = E;\n" +
             "\n" +
-            "    if (eq(H, F) && neq(H, E) && ( eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)) ))\n" +
+            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
+            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
+            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
+            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
+            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
+            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
+            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
+            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "\n" +
+            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb)))\n" +
             "    {\n" +
             "        res = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -585,9 +589,9 @@ public final class J2meFilterShaders {
      * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_4XBR}).
-     * The 4xBR edge detection is based on the reference 4xbr.fsh, using
-     * {@code all(equal())} for color comparison instead of {@code reduce()}
-     * to avoid mediump overflow. The dot mask uses the same formula as HQ4x+Dot.
+     * Color comparison uses scalar component-wise comparison (see
+     * {@link #FRAGMENT_2XBR} for details). The dot mask uses the same
+     * formula as HQ4x+Dot.
      */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -598,14 +602,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
-            "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return all(equal(a, b));\n" +
-            "}\n" +
-            "\n" +
-            "bool neq(vec3 a, vec3 b) {\n" +
-            "    return any(notEqual(a, b));\n" +
-            "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
@@ -627,7 +623,16 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    if (eq(H, F) && neq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
+            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
+            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
+            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
+            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
+            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
+            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
+            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "\n" +
+            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +

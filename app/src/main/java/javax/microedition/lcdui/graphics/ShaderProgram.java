@@ -43,6 +43,8 @@ public class ShaderProgram {
 	public int uPixelDelta;
 	/** The OpenGL program ID, stored so we can call glUseProgram() when needed. */
 	public int programId = -1;
+	/** True if the requested shader failed to compile and fell back to default. */
+	public boolean compileFailed = false;
 
 	public ShaderProgram(ShaderInfo shader) {
 		if (shader != null) {
@@ -55,6 +57,7 @@ public class ShaderProgram {
 					glReleaseShaderCompiler();
 					return;
 				}
+				compileFailed = true;
 				ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getActivity(),
 						"Error loading shader - default shader is used!",
 						Toast.LENGTH_LONG).show());
@@ -81,6 +84,11 @@ public class ShaderProgram {
 		int program = createProgram(vertexCode, fragmentCode);
 		glReleaseShaderCompiler();
 		if (program == -1) {
+			compileFailed = true;
+			Log.e(TAG, "Shader compilation failed — falling back to default shader");
+			ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getActivity(),
+					"Shader compile error — using default shader",
+					Toast.LENGTH_LONG).show());
 			// Fall back to default shader
 			String defaultVertex = ContextHolder.getAssetAsString(VERTEX);
 			String defaultFragment = ContextHolder.getAssetAsString(FRAGMENT);
