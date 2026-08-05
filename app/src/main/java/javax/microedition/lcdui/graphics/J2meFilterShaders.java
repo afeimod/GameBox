@@ -373,7 +373,7 @@ public final class J2meFilterShaders {
             "\n" +
             "    vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
             "    vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_pixelDelta.xy;\n" +
+            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
             "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
             "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
             "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
@@ -506,7 +506,7 @@ public final class J2meFilterShaders {
             "\n" +
             "    vec2 pS  = 1.0 / u_texelDelta.xy;\n" +
             "    vec2 fp  = fract(v_texcoord0.xy*pS.xy);\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_pixelDelta.xy;\n" +
+            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
             "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
             "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
             "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
@@ -738,7 +738,7 @@ public final class J2meFilterShaders {
             "    bvec4 nc;\n" +
             "    bvec4 fx, fx_left, fx_up;\n" +
             "\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_pixelDelta.xy;\n" +
+            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
             "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
             "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
             "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
@@ -800,11 +800,12 @@ public final class J2meFilterShaders {
             "    res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
             " }\n" +
             "\n" +
-            " // Dot mask post-processing\n" +
-            " float delta = length(fp - vec2(0.5));\n" +
+            " // Dot mask post-processing — use output pixel position for per-pixel dots\n" +
+            " vec2 fpDot = fract(v_texcoord0.xy / u_pixelDelta.xy);\n" +
+            " float delta = length(fpDot - vec2(0.5));\n" +
             " float bloom = color_bloom(res);\n" +
             " float dotMask = exp(-gamma_dot * delta * bloom);\n" +
-            " res = mix(1.2 * res, res * dotMask, blend_dot);\n" +
+            " res = mix(min(1.2 * res, 1.0), res * dotMask, blend_dot);\n" +
             "\n" +
             " gl_FragColor.rgb = res;\n" +
             " gl_FragColor.a = 1.0;\n" +
@@ -895,7 +896,7 @@ public final class J2meFilterShaders {
             "    vec4 irlv0, irlv1, irlv2l, irlv2u;\n" +
             "    vec4 fx, fx_l, fx_u;\n" +
             "\n" +
-            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_pixelDelta.xy;\n" +
+            "    vec2 TexCoord_0 = v_texcoord0.xy-fp*u_texelDelta.xy;\n" +
             "    vec2 dx  = vec2(u_texelDelta.x,0.0);\n" +
             "    vec2 dy  = vec2(0.0,u_texelDelta.y);\n" +
             "    vec2 y2  = dy + dy; vec2 x2  = dx + dx;\n" +
@@ -992,11 +993,12 @@ public final class J2meFilterShaders {
             "    res = mix(res1, res2, step(c_df(E, res1), c_df(E, res2)));\n" +
             " }\n" +
             "\n" +
-            " // Dot mask post-processing\n" +
-            " float delta = length(fp - vec2(0.5));\n" +
+            " // Dot mask post-processing — use output pixel position for per-pixel dots\n" +
+            " vec2 fpDot = fract(v_texcoord0.xy / u_pixelDelta.xy);\n" +
+            " float delta = length(fpDot - vec2(0.5));\n" +
             " float bloom = color_bloom(res);\n" +
             " float dotMask = exp(-gamma_dot * delta * bloom);\n" +
-            " res = mix(1.2 * res, res * dotMask, blend_dot);\n" +
+            " res = mix(min(1.2 * res, 1.0), res * dotMask, blend_dot);\n" +
             "\n" +
             " gl_FragColor.xyz = res;\n" +
             " gl_FragColor.a = 1.0;\n" +
