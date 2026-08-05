@@ -144,8 +144,15 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR vertex shader — Hyllian's 2xBR (reference 2xbr.vsh).
-     * Provides {@code varying vec2 v_texcoord0[3]}: [0]=texcoord, [1]=up vector, [2]=left vector.
+     * 2xBR vertex shader — reference 2xbr.vsh (verbatim).
+     * Provides {@code varying vec2 v_texcoord0[3]} where:
+     * <ul>
+     *   <li>[0] = base texcoord</li>
+     *   <li>[1] = vec2(0, -texelDelta.y) — up-direction gradient (B)</li>
+     *   <li>[2] = vec2(-texelDelta.x, 0) — left-direction gradient (D)</li>
+     * </ul>
+     * Used by both 2xBR and 4xBR modes (and their +Dot variants), since the
+     * reference 4xbr.vsh is identical to 2xbr.vsh.
      */
     public static final String VERTEX_2XBR =
             "uniform mediump vec2 u_texelDelta;\n" +
@@ -162,7 +169,7 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 4xBR vertex shader — identical to 2xBR (reference 4xbr.vsh).
+     * 4xBR vertex shader — identical to 2xBR (reference 4xbr.vsh is the same).
      */
     public static final String VERTEX_4XBR = VERTEX_2XBR;
 
@@ -322,14 +329,13 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR fragment shader — Hyllian's 2xBR (reference 2xbr.fsh).
+     * 2xBR fragment shader — Hyllian's 2xBR (reference 2xbr.fsh, verbatim).
      *
-     * <p>Uses direct RGB component comparison ({@code eq()}) instead of the
-     * reference's {@code reduce()} with {@code dtt = vec3(65536, 255, 1)}.
-     * The {@code reduce()} approach overflows mediump float (max ~16384) on
-     * GPUs without {@code GL_FRAGMENT_PRECISION_HIGH}, causing incorrect edge
-     * detection and artifacts. Direct comparison produces identical results
-     * on highp and correct results on mediump.
+     * <p>Uses {@code reduce()} with {@code dtt = vec3(65536.0, 255.0, 1.0)} and
+     * {@code varying vec2 v_texcoord0[3]} exactly as the reference file.
+     * Only requires {@code u_texelDelta} (no {@code u_pixelDelta}).
+     * Highp is requested when available to avoid mediump overflow in the
+     * {@code reduce()} color-packing dot product.
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -341,8 +347,10 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
+            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "\n" +
+            "float reduce(vec3 color) {\n" +
+            "    return dot(color, dtt);\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -362,9 +370,18 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
+            "    float b = reduce(B);\n" +
+            "    float c = reduce(C);\n" +
+            "    float d = reduce(D);\n" +
+            "    float e = reduce(E);\n" +
+            "    float f = reduce(F);\n" +
+            "    float g = reduce(G);\n" +
+            "    float h = reduce(H);\n" +
+            "    float i = reduce(I);\n" +
+            "\n" +
             "    gl_FragColor.rgb = E;\n" +
             "\n" +
-            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
+            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
             "    {\n" +
             "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -372,19 +389,11 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 4xBR fragment shader — Hyllian's 4xBR (reference 4xbr.fsh).
+     * 4xBR fragment shader — Hyllian's 4xBR (reference 4xbr.fsh, verbatim).
      *
-     * <p>Same edge detection as 2xBR but outputs a 4x4 sub-pixel pattern
-     * based on the fractional position {@code fp}. Uses direct RGB comparison
-     * ({@code eq()}) to avoid mediump overflow (see {@link #FRAGMENT_2XBR}).
-     * Pattern:
-     * <pre>
-     *   E15 E11 E11 E15
-     *   E11 E   E   E11
-     *   E11 E   E   E11
-     *   E15 E11 E11 E15
-     * </pre>
-     * where E11 = mix(E, F, 0.5) and E15 = F on edges, E otherwise.
+     * <p>Uses the same {@code reduce()} + {@code dtt} and {@code v_texcoord0[3]}
+     * as 2xBR, but outputs a 4×4 sub-pixel pattern based on the fractional
+     * position within the texel. Only requires {@code u_texelDelta}.
      */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -396,8 +405,10 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
+            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
+            "\n" +
+            "float reduce(vec3 color) {\n" +
+            "    return dot(color, dtt);\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -420,7 +431,16 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            "    float b = reduce(B);\n" +
+            "    float c = reduce(C);\n" +
+            "    float d = reduce(D);\n" +
+            "    float e = reduce(E);\n" +
+            "    float f = reduce(F);\n" +
+            "    float g = reduce(G);\n" +
+            "    float h = reduce(H);\n" +
+            "    float i = reduce(I);\n" +
+            "\n" +
+            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
@@ -493,15 +513,15 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR + Dot fragment shader — Hyllian's 2xBR followed by the full
-     * reference dot.fsh LCD dot-mask algorithm (9-tap neighborhood).
+     * 2xBR + Dot fragment shader — reference 2xBR followed by the same
+     * simplified dot-mask used in {@link #FRAGMENT_HQ4X_DOT} (which the
+     * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_2XBR}).
-     * The 2xBR edge detection uses direct RGB comparison ({@code eq()}) to
-     * avoid mediump overflow. The dot mask samples a regular 3x3 neighborhood
-     * of the original texture (8 additional taps) plus the XBR result as the
-     * center tap, matching the reference dot.fsh's {@code lookup()} function
-     * and {@code mix(1.2 * mid_color, color, blend)} output.
+     * The 2xBR edge detection is verbatim from the reference 2xbr.fsh
+     * ({@code reduce()} + {@code dtt}). The dot mask uses the same formula
+     * as HQ4x+Dot: {@code pixel_no / u_texelDelta} → distance from texel
+     * center → {@code exp(-2.4 * delta * bloom)} → {@code mix(1.2*res, res*dotMask, 0.65)}.
      */
     public static final String FRAGMENT_2XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -513,34 +533,15 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const float gamma_dot = 2.4;\n" +
-            "const float shine = 0.05;\n" +
-            "const float blend_dot = 0.65;\n" +
+            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
             "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
-            "}\n" +
-            "\n" +
-            "float dist(vec2 coord, vec2 source) {\n" +
-            "    vec2 delta = coord - source;\n" +
-            "    return sqrt(dot(delta, delta));\n" +
-            "}\n" +
-            "\n" +
-            "float color_bloom(vec3 color) {\n" +
-            "    const vec3 gray_coeff = vec3(0.30, 0.59, 0.11);\n" +
-            "    float bright = dot(color, gray_coeff);\n" +
-            "    return mix(1.0 + shine, 1.0 - shine, bright);\n" +
-            "}\n" +
-            "\n" +
-            "vec3 lookup(vec2 pixel_no, float ox, float oy, vec3 color) {\n" +
-            "    float delta = dist(fract(pixel_no), vec2(ox + 0.5, oy + 0.5));\n" +
-            "    return color * exp(-gamma_dot * delta * color_bloom(color));\n" +
+            "float reduce(vec3 color) {\n" +
+            "    return dot(color, dtt);\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            "    // === 2xBR edge detection ===\n" +
             "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
             "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
             "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
@@ -555,44 +556,44 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
+            "    float b = reduce(B);\n" +
+            "    float c = reduce(C);\n" +
+            "    float d = reduce(D);\n" +
+            "    float e = reduce(E);\n" +
+            "    float f = reduce(F);\n" +
+            "    float g = reduce(G);\n" +
+            "    float h = reduce(H);\n" +
+            "    float i = reduce(I);\n" +
+            "\n" +
             "    vec3 res = E;\n" +
-            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
+            "\n" +
+            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
             "    {\n" +
             "        res = mix(E, F, 0.5);\n" +
             "    }\n" +
             "\n" +
-            "    // === Dot mask (full dot.fsh 9-tap neighborhood) ===\n" +
+            "    // Dot mask (same as FRAGMENT_HQ4X_DOT)\n" +
             "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
-            "    vec2 dx = vec2(u_texelDelta.x, 0.0);\n" +
-            "    vec2 dy = vec2(0.0, u_texelDelta.y);\n" +
-            "    vec2 tc = v_texcoord0[0];\n" +
+            "    vec2 fp_dot = fract(pixel_no);\n" +
+            "    float delta = length(fp_dot - vec2(0.5));\n" +
+            "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
+            "    float bloom = mix(1.05, 0.95, bright);\n" +
+            "    float dotMask = exp(-2.4 * delta * bloom);\n" +
+            "    res = mix(1.2 * res, res * dotMask, 0.65);\n" +
             "\n" +
-            "    vec3 mid_color = lookup(pixel_no, 0.0, 0.0, res);\n" +
-            "\n" +
-            "    vec3 color = mid_color;\n" +
-            "    color += lookup(pixel_no, -1.0, -1.0, texture2D(sampler0, tc - dx - dy).xyz);\n" +
-            "    color += lookup(pixel_no,  0.0, -1.0, texture2D(sampler0, tc      - dy).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0, -1.0, texture2D(sampler0, tc + dx - dy).xyz);\n" +
-            "    color += lookup(pixel_no, -1.0,  0.0, texture2D(sampler0, tc - dx     ).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0,  0.0, texture2D(sampler0, tc + dx     ).xyz);\n" +
-            "    color += lookup(pixel_no, -1.0,  1.0, texture2D(sampler0, tc - dx + dy).xyz);\n" +
-            "    color += lookup(pixel_no,  0.0,  1.0, texture2D(sampler0, tc      + dy).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0,  1.0, texture2D(sampler0, tc + dx + dy).xyz);\n" +
-            "\n" +
-            "    gl_FragColor.rgb = mix(1.2 * mid_color, color, blend_dot);\n" +
+            "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
     /**
-     * 4xBR + Dot fragment shader — Hyllian's 4xBR followed by the full
-     * reference dot.fsh LCD dot-mask algorithm (9-tap neighborhood).
+     * 4xBR + Dot fragment shader — reference 4xBR followed by the same
+     * simplified dot-mask used in {@link #FRAGMENT_HQ4X_DOT} (which the
+     * user confirmed works correctly).
      *
      * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_4XBR}).
-     * The 4xBR edge detection uses direct RGB comparison ({@code eq()}) to
-     * avoid mediump overflow. The dot mask samples a regular 3x3 neighborhood
-     * of the original texture (8 additional taps) plus the 4xBR result as the
-     * center tap, matching the reference dot.fsh's {@code lookup()} function
-     * and {@code mix(1.2 * mid_color, color, blend)} output.
+     * The 4xBR edge detection is verbatim from the reference 4xbr.fsh
+     * ({@code reduce()} + {@code dtt}). The dot mask uses the same formula
+     * as HQ4x+Dot.
      */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -604,34 +605,15 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const float gamma_dot = 2.4;\n" +
-            "const float shine = 0.05;\n" +
-            "const float blend_dot = 0.65;\n" +
+            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
             "\n" +
-            "bool eq(vec3 a, vec3 b) {\n" +
-            "    return a.x == b.x && a.y == b.y && a.z == b.z;\n" +
-            "}\n" +
-            "\n" +
-            "float dist(vec2 coord, vec2 source) {\n" +
-            "    vec2 delta = coord - source;\n" +
-            "    return sqrt(dot(delta, delta));\n" +
-            "}\n" +
-            "\n" +
-            "float color_bloom(vec3 color) {\n" +
-            "    const vec3 gray_coeff = vec3(0.30, 0.59, 0.11);\n" +
-            "    float bright = dot(color, gray_coeff);\n" +
-            "    return mix(1.0 + shine, 1.0 - shine, bright);\n" +
-            "}\n" +
-            "\n" +
-            "vec3 lookup(vec2 pixel_no, float ox, float oy, vec3 color) {\n" +
-            "    float delta = dist(fract(pixel_no), vec2(ox + 0.5, oy + 0.5));\n" +
-            "    return color * exp(-gamma_dot * delta * color_bloom(color));\n" +
+            "float reduce(vec3 color) {\n" +
+            "    return dot(color, dtt);\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
-            "    // === 4xBR edge detection ===\n" +
             "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
             "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
             "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
@@ -649,32 +631,32 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
+            "    float b = reduce(B);\n" +
+            "    float c = reduce(C);\n" +
+            "    float d = reduce(D);\n" +
+            "    float e = reduce(E);\n" +
+            "    float f = reduce(F);\n" +
+            "    float g = reduce(G);\n" +
+            "    float h = reduce(H);\n" +
+            "    float i = reduce(I);\n" +
+            "\n" +
+            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
             "\n" +
             "    vec3 res = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
             "\n" +
-            "    // === Dot mask (full dot.fsh 9-tap neighborhood) ===\n" +
+            "    // Dot mask (same as FRAGMENT_HQ4X_DOT)\n" +
             "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
-            "    vec2 dx = vec2(u_texelDelta.x, 0.0);\n" +
-            "    vec2 dy = vec2(0.0, u_texelDelta.y);\n" +
-            "    vec2 tc = v_texcoord0[0];\n" +
+            "    vec2 fp_dot = fract(pixel_no);\n" +
+            "    float delta = length(fp_dot - vec2(0.5));\n" +
+            "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
+            "    float bloom = mix(1.05, 0.95, bright);\n" +
+            "    float dotMask = exp(-2.4 * delta * bloom);\n" +
+            "    res = mix(1.2 * res, res * dotMask, 0.65);\n" +
             "\n" +
-            "    vec3 mid_color = lookup(pixel_no, 0.0, 0.0, res);\n" +
-            "\n" +
-            "    vec3 color = mid_color;\n" +
-            "    color += lookup(pixel_no, -1.0, -1.0, texture2D(sampler0, tc - dx - dy).xyz);\n" +
-            "    color += lookup(pixel_no,  0.0, -1.0, texture2D(sampler0, tc      - dy).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0, -1.0, texture2D(sampler0, tc + dx - dy).xyz);\n" +
-            "    color += lookup(pixel_no, -1.0,  0.0, texture2D(sampler0, tc - dx     ).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0,  0.0, texture2D(sampler0, tc + dx     ).xyz);\n" +
-            "    color += lookup(pixel_no, -1.0,  1.0, texture2D(sampler0, tc - dx + dy).xyz);\n" +
-            "    color += lookup(pixel_no,  0.0,  1.0, texture2D(sampler0, tc      + dy).xyz);\n" +
-            "    color += lookup(pixel_no,  1.0,  1.0, texture2D(sampler0, tc + dx + dy).xyz);\n" +
-            "\n" +
-            "    gl_FragColor.rgb = mix(1.2 * mid_color, color, blend_dot);\n" +
+            "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 

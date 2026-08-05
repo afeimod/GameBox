@@ -11,8 +11,8 @@ import android.graphics.RectF;
  *
  * <p>Uses the <b>exact same algorithms</b> as the reference GLSL shaders:
  * <ul>
- *   <li>2xBR / 4xBR: Hyllian's 5xBR v3.5a with weighted-luminance edge
- *       detection (matches the GLSL shader in {@link J2meFilterShaders}).</li>
+ *   <li>2xBR / 4xBR: Hyllian's 2xBR / 4xBR with {@code reduce()} color
+ *       packing (matches the GLSL shader in {@link J2meFilterShaders}).</li>
  *   <li>HQ4x: guest(r)'s 4xGLSLHqFilter weighted interpolation.</li>
  *   <li>Dot: Themaister's LCD dot effect with {@code exp(-gamma * delta * bloom)}.</li>
  *   <li>Scanline: sine-modulated brightness.</li>
@@ -155,41 +155,37 @@ public final class J2meBitmapFilter {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  XBR Algorithm (Hyllian's 5xBR v3.5a — per-output-pixel)
+    //  XBR Algorithm (Hyllian's 2xBR / 4xBR — reference implementation)
     //  Matches the GLSL FRAGMENT_2XBR / FRAGMENT_4XBR shaders exactly.
     // ════════════════════════════════════════════════════════════════════
 
-    // 5xBR v3.5a constants
-    private static final float XBR_COEF = 2.0f;
-    private static final float[] XBR_RGBW = {16.163f, 23.351f, 8.4772f};
-
-    // Line-equation constants (vec4 components: x=N, y=W, z=S, w=E)
-    private static final float[] XBR_Ao = {1, -1, -1, 1};
-    private static final float[] XBR_Bo = {1, 1, -1, -1};
-    private static final float[] XBR_Co = {1.5f, 0.5f, -0.5f, 0.5f};
-    private static final float[] XBR_Ax = {1, -1, -1, 1};
-    private static final float[] XBR_Bx = {0.5f, 2, -0.5f, -2};
-    private static final float[] XBR_Cx = {1, 1, -0.5f, 0};
-    private static final float[] XBR_Ay = {1, -1, -1, 1};
-    private static final float[] XBR_By = {2, 0.5f, -2, -0.5f};
-    private static final float[] XBR_Cy = {2, 0, -1, 0.5f};
+    /**
+     * {@code reduce()} from the reference shader — packs RGB into a single
+     * scalar for exact equality comparison.
+     * <p>{@code dtt = vec3(65536.0, 255.0, 1.0)}, so
+     * {@code reduce(color) = R*65536 + G*255 + B}.
+     */
+    private static long reduceColor(int color) {
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
+        return (long) r * 65536 + (long) g * 255 + b;
+    }
 
     /**
-     * 5xBR v3.5a upscaling. Produces a {@code scale}×{@code scale} output.
+     * 2xBR / 4xBR upscaling — reference Hyllian algorithm.
      *
-     * <p>Processes each output pixel individually, computing the fractional
-     * position within the source texel and performing full 4-direction edge
-     * detection with weighted-luminance comparison — exactly matching the
-     * {@link J2meFilterShaders#FRAGMENT_2XBR} GLSL shader.
-     *
-     * <p>Neighborhood layout (21 texels):
+     * <p>For each output pixel, computes the fractional position ({@code fp})
+     * within the source texel, determines the gradient vectors {@code g1}
+     * and {@code g2} (which select the 3×3 neighborhood orientation), then
+     * applies the exact edge-detection rule from the reference GLSL:
      * <pre>
-     *           A0  B1  C4
-     *       A0  A   B   C   C4
-     *   D0  D   E   F   F4
-     *       G0  G   H   I   I4
-     *           G5  H5  I5
+     *   if (h==f && h!=e && ( e==g && (h==i || e==d)
+     *                      || e==c && (h==i || e==b) ))
      * </pre>
+     *
+     * <p>For 2xBR: outputs {@code E} or {@code mix(E, F, 0.5)}.
+     * For 4xBR: uses the 4×4 sub-pixel pattern with {@code E11} and {@code E15}.
      */
     private static Bitmap xbrUpscale(Bitmap src, int scale) {
         int sw = src.getWidth();
@@ -203,199 +199,102 @@ public final class J2meBitmapFilter {
 
         for (int oy = 0; oy < dh; oy++) {
             for (int ox = 0; ox < dw; ox++) {
-                // Source texel coordinates and fractional position
-                float sxf = (float) ox / scale;
-                float syf = (float) oy / scale;
-                int tx = (int) Math.floor(sxf);
-                int ty = (int) Math.floor(syf);
-                float fpx = sxf - tx;
-                float fpy = syf - ty;
+                // Source texel coordinates
+                int tx = ox / scale;
+                int ty = oy / scale;
 
-                dp[oy * dw + ox] = xbrPixel(sp, sw, sh, tx, ty, fpx, fpy);
+                // Fractional position within source texel (pixel-center sampled
+                // to match GPU rasterisation: 0.125, 0.375, 0.625, 0.875 for 4x)
+                float fpx = ((float) (ox - tx * scale) + 0.5f) / scale;
+                float fpy = ((float) (oy - ty * scale) + 0.5f) / scale;
+
+                // step(0.5, fp.x) / step(0.5, fp.y) — determines quadrant
+                float sx = (fpx >= 0.5f) ? 1.0f : 0.0f;
+                float sy = (fpy >= 0.5f) ? 1.0f : 0.0f;
+
+                // Gradient vectors as integer pixel offsets.
+                // v_texcoord0[1] = (0, -texelDelta.y) → up  = (0, -1)
+                // v_texcoord0[2] = (-texelDelta.x, 0) → left = (-1, 0)
+                // g1 = v[1]*(sx+sy-1) + v[2]*(sx-sy) → (sy-sx, 1-sx-sy)
+                // g2 = v[1]*(sy-sx) + v[2]*(sx+sy-1) → (1-sx-sy, sx-sy)
+                int g1x = (int) (sy - sx);
+                int g1y = (int) (1 - sx - sy);
+                int g2x = (int) (1 - sx - sy);
+                int g2y = (int) (sx - sy);
+
+                // Sample 3×3 neighborhood (B,C,D,E,F,G,H,I) using g1,g2
+                int B = getPixelSafe(sp, sw, sh, tx + g1x,         ty + g1y);
+                int C = getPixelSafe(sp, sw, sh, tx + g1x - g2x,   ty + g1y - g2y);
+                int D = getPixelSafe(sp, sw, sh, tx + g2x,         ty + g2y);
+                int E = getPixelSafe(sp, sw, sh, tx,               ty);
+                int F = getPixelSafe(sp, sw, sh, tx - g2x,         ty - g2y);
+                int G = getPixelSafe(sp, sw, sh, tx - g1x + g2x,   ty - g1y + g2y);
+                int H = getPixelSafe(sp, sw, sh, tx - g1x,         ty - g1y);
+                int I = getPixelSafe(sp, sw, sh, tx - g1x - g2x,   ty - g1y - g2y);
+
+                // reduce() for exact color comparison
+                long b = reduceColor(B);
+                long c = reduceColor(C);
+                long d = reduceColor(D);
+                long e = reduceColor(E);
+                long f = reduceColor(F);
+                long g = reduceColor(G);
+                long h = reduceColor(H);
+                long i = reduceColor(I);
+
+                // Edge detection (verbatim from reference shader)
+                boolean edge = (h == f && h != e &&
+                        ((e == g && (h == i || e == d)) ||
+                         (e == c && (h == i || e == b))));
+
+                if (scale == 2) {
+                    // 2xBR: E or mix(E, F, 0.5)
+                    dp[oy * dw + ox] = edge ? blendColor(E, F, 0.5f) : E;
+                } else {
+                    // 4xBR: 4×4 sub-pixel pattern
+                    // E11 = E (default), E15 = E (default)
+                    // if (edge) { E11 = mix(E, F, 0.5); E15 = F; }
+                    int E11 = edge ? blendColor(E, F, 0.5f) : E;
+                    int E15 = edge ? F : E;
+
+                    int result;
+                    if (fpx < 0.50f) {
+                        if (fpx < 0.25f) {
+                            // Column 0: E15, E11, E11, E15
+                            if (fpy < 0.25f)      result = E15;
+                            else if (fpy < 0.50f)  result = E11;
+                            else if (fpy < 0.75f)  result = E11;
+                            else                   result = E15;
+                        } else {
+                            // Column 1: E11, E, E, E11
+                            if (fpy < 0.25f)      result = E11;
+                            else if (fpy < 0.50f)  result = E;
+                            else if (fpy < 0.75f)  result = E;
+                            else                   result = E11;
+                        }
+                    } else {
+                        if (fpx < 0.75f) {
+                            // Column 2: E11, E, E, E11
+                            if (fpy < 0.25f)      result = E11;
+                            else if (fpy < 0.50f)  result = E;
+                            else if (fpy < 0.75f)  result = E;
+                            else                   result = E11;
+                        } else {
+                            // Column 3: E15, E11, E11, E15
+                            if (fpy < 0.25f)      result = E15;
+                            else if (fpy < 0.50f)  result = E11;
+                            else if (fpy < 0.75f)  result = E11;
+                            else                   result = E15;
+                        }
+                    }
+                    dp[oy * dw + ox] = result;
+                }
             }
         }
 
         Bitmap result = Bitmap.createBitmap(dw, dh, Bitmap.Config.ARGB_8888);
         result.setPixels(dp, 0, dw, 0, 0, dw, dh);
         return result;
-    }
-
-    /**
-     * Computes one output pixel of the 5xBR v3.5a algorithm.
-     * Samples the 21-texel neighborhood and selects the best neighbor.
-     */
-    private static int xbrPixel(int[] sp, int sw, int sh,
-                                int tx, int ty, float fpx, float fpy) {
-        // ── Sample 21-neighborhood (RGB as weighted luminance scalars) ──
-        float la = lum(sp, sw, sh, tx - 1, ty - 1);  // A
-        float lb = lum(sp, sw, sh, tx,     ty - 1);  // B
-        float lc = lum(sp, sw, sh, tx + 1, ty - 1);  // C
-        float ld = lum(sp, sw, sh, tx - 1, ty);      // D
-        float le = lum(sp, sw, sh, tx,     ty);      // E
-        float lf = lum(sp, sw, sh, tx + 1, ty);      // F
-        float lg = lum(sp, sw, sh, tx - 1, ty + 1);  // G
-        float lh = lum(sp, sw, sh, tx,     ty + 1);  // H
-        float li = lum(sp, sw, sh, tx + 1, ty + 1);  // I
-
-        float la1 = lum(sp, sw, sh, tx - 1, ty - 2); // A1
-        float lc1 = lum(sp, sw, sh, tx + 1, ty - 2); // C1
-        float la0 = lum(sp, sw, sh, tx - 2, ty - 1); // A0
-        float lg0 = lum(sp, sw, sh, tx - 2, ty + 1); // G0
-        float lc4 = lum(sp, sw, sh, tx + 2, ty - 1); // C4
-        float li4 = lum(sp, sw, sh, tx + 2, ty + 1); // I4
-        float lg5 = lum(sp, sw, sh, tx - 1, ty + 2); // G5
-        float li5 = lum(sp, sw, sh, tx + 1, ty + 2); // I5
-        float lb1 = lum(sp, sw, sh, tx,     ty - 2); // B1
-        float ld0 = lum(sp, sw, sh, tx - 2, ty);     // D0
-        float lh5 = lum(sp, sw, sh, tx,     ty + 2); // H5
-        float lf4 = lum(sp, sw, sh, tx + 2, ty);     // F4
-
-        // ── Pack into vec4 (4 directions: x=N, y=W, z=S, w=E) ──
-        // vec4 b  = (B, D, H, F)
-        float[] b  = {lb, ld, lh, lf};
-        // vec4 c  = (C, A, G, I)
-        float[] c  = {lc, la, lg, li};
-        // vec4 d  = b.yzwx
-        float[] d  = {b[1], b[2], b[3], b[0]};
-        // vec4 e  = (E, E, E, E)
-        float[] e  = {le, le, le, le};
-        // vec4 f  = b.wxyz
-        float[] f  = {b[3], b[0], b[1], b[2]};
-        // vec4 g  = c.zwxy
-        float[] g  = {c[2], c[3], c[0], c[1]};
-        // vec4 h  = b.zwxy
-        float[] hv = {b[2], b[3], b[0], b[1]};
-        // vec4 i  = c.wxyz
-        float[] iv = {c[3], c[0], c[1], c[2]};
-        // vec4 i4 = (I4, C1, A0, G5)
-        float[] i4 = {li4, lc1, la0, lg5};
-        // vec4 i5 = (I5, C4, A1, G0)
-        float[] i5 = {li5, lc4, la1, lg0};
-        // vec4 h5 = (H5, F4, B1, D0)
-        float[] h5 = {lh5, lf4, lb1, ld0};
-        // vec4 f4 = h5.yzwx
-        float[] f4 = {h5[1], h5[2], h5[3], h5[0]};
-
-        // ── Line equations ──
-        boolean[] fx      = gt4(lineEq(XBR_Ao, XBR_Bo, fpx, fpy), XBR_Co);
-        boolean[] fxLeft  = gt4(lineEq(XBR_Ax, XBR_Bx, fpx, fpy), XBR_Cx);
-        boolean[] fxUp    = gt4(lineEq(XBR_Ay, XBR_By, fpx, fpy), XBR_Cy);
-
-        // ── Interpolation restrictions ──
-        boolean[] irlv1    = and4(neq4(e, f), neq4(e, hv));
-        boolean[] irlv2L   = and4(neq4(e, g), neq4(d, g));
-        boolean[] irlv2U   = and4(neq4(e, c), neq4(b, c));
-
-        // ── Edge detection rules ──
-        float[] wd1 = wdist(e, c, g, iv, h5, f4, hv, f);
-        float[] wd2 = wdist(hv, d, i5, f, i4, b, e, iv);
-        boolean[] edr     = and4(lt4(wd1, wd2), irlv1);
-
-        float[] dfg = df4(f, g);
-        float[] dhc = df4(hv, c);
-        boolean[] edrLeft = and4(le4(scl4(dfg, XBR_COEF), dhc), irlv2L);
-        boolean[] edrUp   = and4(ge4(dfg, scl4(dhc, XBR_COEF)), irlv2U);
-
-        // ── Neighbor selection (nc) ──
-        boolean[] nc = new boolean[4];
-        for (int k = 0; k < 4; k++) {
-            nc[k] = edr[k] && (fx[k] || (edrLeft[k] && fxLeft[k]) || (edrUp[k] && fxUp[k]));
-        }
-
-        // ── Pixel selection (px) ──
-        boolean[] px = le4(df4(e, f), df4(e, hv));
-
-        // ── Final color selection ──
-        // res = nc.x ? px.x ? F : H
-        //     : nc.y ? px.y ? B : F
-        //     : nc.z ? px.z ? D : B
-        //     : nc.w ? px.w ? H : D
-        //     : E;
-        if (nc[0]) {
-            return px[0] ? getPixelSafe(sp, sw, sh, tx + 1, ty)      // F
-                         : getPixelSafe(sp, sw, sh, tx,     ty + 1); // H
-        } else if (nc[1]) {
-            return px[1] ? getPixelSafe(sp, sw, sh, tx,     ty - 1)  // B
-                         : getPixelSafe(sp, sw, sh, tx + 1, ty);    // F
-        } else if (nc[2]) {
-            return px[2] ? getPixelSafe(sp, sw, sh, tx - 1, ty)     // D
-                         : getPixelSafe(sp, sw, sh, tx,     ty - 1);// B
-        } else if (nc[3]) {
-            return px[3] ? getPixelSafe(sp, sw, sh, tx,     ty + 1) // H
-                         : getPixelSafe(sp, sw, sh, tx - 1, ty);    // D
-        } else {
-            return getPixelSafe(sp, sw, sh, tx, ty);                // E
-        }
-    }
-
-    // ── 5xBR vec4 helper methods ──────────────────────────────────────────
-
-    /** Weighted luminance: dot(RGB, rgbw). */
-    private static float lum(int[] sp, int sw, int sh, int x, int y) {
-        int c = getPixelSafe(sp, sw, sh, x, y);
-        return ((c >> 16) & 0xFF) * XBR_RGBW[0]
-             + ((c >>  8) & 0xFF) * XBR_RGBW[1]
-             + (c         & 0xFF) * XBR_RGBW[2];
-    }
-
-    /** Line equation: Ao*fpy + Bo*fpx → vec4. */
-    private static float[] lineEq(float[] ao, float[] bo, float fpx, float fpy) {
-        return new float[] {
-            ao[0] * fpy + bo[0] * fpx,
-            ao[1] * fpy + bo[1] * fpx,
-            ao[2] * fpy + bo[2] * fpx,
-            ao[3] * fpy + bo[3] * fpx
-        };
-    }
-
-    /** abs(A - B) for vec4. */
-    private static float[] df4(float[] a, float[] b) {
-        return new float[] {
-            Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]),
-            Math.abs(a[2] - b[2]), Math.abs(a[3] - b[3])
-        };
-    }
-
-    /** weighted_distance(a,b,c,d,e,f,g,h) = df(a,b)+df(a,c)+df(d,e)+df(d,f)+4*df(g,h). */
-    private static float[] wdist(float[] a, float[] b, float[] c, float[] d,
-                                  float[] e, float[] f, float[] g, float[] h) {
-        float[] ab = df4(a, b), ac = df4(a, c);
-        float[] de = df4(d, e), df = df4(d, f);
-        float[] gh = df4(g, h);
-        return new float[] {
-            ab[0] + ac[0] + de[0] + df[0] + 4f * gh[0],
-            ab[1] + ac[1] + de[1] + df[1] + 4f * gh[1],
-            ab[2] + ac[2] + de[2] + df[2] + 4f * gh[2],
-            ab[3] + ac[3] + de[3] + df[3] + 4f * gh[3]
-        };
-    }
-
-    private static float[] scl4(float[] a, float s) {
-        return new float[] { a[0]*s, a[1]*s, a[2]*s, a[3]*s };
-    }
-
-    private static boolean[] gt4(float[] a, float[] b) {
-        return new boolean[] { a[0]>b[0], a[1]>b[1], a[2]>b[2], a[3]>b[3] };
-    }
-
-    private static boolean[] lt4(float[] a, float[] b) {
-        return new boolean[] { a[0]<b[0], a[1]<b[1], a[2]<b[2], a[3]<b[3] };
-    }
-
-    private static boolean[] le4(float[] a, float[] b) {
-        return new boolean[] { a[0]<=b[0], a[1]<=b[1], a[2]<=b[2], a[3]<=b[3] };
-    }
-
-    private static boolean[] ge4(float[] a, float[] b) {
-        return new boolean[] { a[0]>=b[0], a[1]>=b[1], a[2]>=b[2], a[3]>=b[3] };
-    }
-
-    private static boolean[] neq4(float[] a, float[] b) {
-        return new boolean[] { a[0]!=b[0], a[1]!=b[1], a[2]!=b[2], a[3]!=b[3] };
-    }
-
-    private static boolean[] and4(boolean[] a, boolean[] b) {
-        return new boolean[] { a[0]&&b[0], a[1]&&b[1], a[2]&&b[2], a[3]&&b[3] };
     }
 
     // ════════════════════════════════════════════════════════════════════
