@@ -11,8 +11,9 @@ import android.graphics.RectF;
  *
  * <p>Uses the <b>exact same algorithms</b> as the reference GLSL shaders:
  * <ul>
- *   <li>2xBR / 4xBR: Hyllian's XBR with {@code reduce()} = {@code R*65536 + G*255 + B}
- *       and exact-integer edge detection.</li>
+ *   <li>2xBR / 4xBR: Hyllian's XBR with direct ARGB integer comparison
+ *       for edge detection (replaces reference's {@code reduce()} to avoid
+ *       {@code mediump} float overflow in GLSL).</li>
  *   <li>HQ4x: guest(r)'s 4xGLSLHqFilter weighted interpolation.</li>
  *   <li>Dot: Themaister's LCD dot effect with {@code exp(-gamma * delta * bloom)}.</li>
  *   <li>Scanline: sine-modulated brightness.</li>
@@ -156,7 +157,7 @@ public final class J2meBitmapFilter {
 
     // ════════════════════════════════════════════════════════════════════
     //  XBR Algorithm (Hyllian's 2xBR / 4xBR)
-    //  Uses reduce() = R*65536 + G*255 + B for exact equality comparison
+    //  Uses direct ARGB integer comparison for edge detection
     // ════════════════════════════════════════════════════════════════════
 
     /**
@@ -199,20 +200,19 @@ public final class J2meBitmapFilter {
                 int e21 = getPixelSafe(sp, sw, sh, x,     y + 1); // H (bottom)
                 int e22 = getPixelSafe(sp, sw, sh, x + 1, y + 1); // I
 
-                // reduce() for exact comparison: R*65536 + G*255 + B
-                long b = reduce(e01);
-                long c = reduce(e02);
-                long d = reduce(e10);
-                long e = reduce(e11);
-                long f = reduce(e12);
-                long g = reduce(e20);
-                long h = reduce(e21);
-                long i = reduce(e22);
+                // Direct integer color comparison (ARGB ints — == is exact).
+                // This replaces the reduce() function from the reference shader,
+                // which used R*65536+G*255+B packed into a float (overflows
+                // mediump in GLSL). For CPU, direct int comparison is simpler
+                // and equally correct.
+                int B = e01, C = e02, D = e10, E = e11, F = e12;
+                int G = e20, H = e21, I2 = e22;
 
-                // Edge detection from reference
-                boolean edge = (h == f && h != e &&
-                        ((e == g && (h == i || e == d)) ||
-                         (e == c && (h == i || e == b))));
+                // Edge detection from reference 2xbr.fsh / 4xbr.fsh:
+                // if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b)))
+                boolean edge = (H == F && H != E &&
+                        ((E == G && (H == I2 || E == D)) ||
+                         (E == C && (H == I2 || E == B))));
 
                 int e11Color, e15Color;
                 if (edge) {
@@ -242,8 +242,8 @@ public final class J2meBitmapFilter {
                     //   E15 E11 E11 E15
                     int[] block = {
                         e15Color, e11Color, e11Color, e15Color,
-                        e11Color, e11,      e11,      e11Color,
-                        e11Color, e11,      e11,      e11Color,
+                        e11Color, E,        E,        e11Color,
+                        e11Color, E,        E,        e11Color,
                         e15Color, e11Color, e11Color, e15Color
                     };
                     for (int sy = 0; sy < 4; sy++) {
@@ -586,17 +586,6 @@ public final class J2meBitmapFilter {
         if (x >= w) x = w - 1;
         if (y >= h) y = h - 1;
         return pixels[y * w + x];
-    }
-
-    /**
-     * reduce() from the reference XBR shader: R*65536 + G*255 + B.
-     * Uses long to avoid overflow.
-     */
-    private static long reduce(int color) {
-        int r = (color >> 16) & 0xFF;
-        int g = (color >> 8) & 0xFF;
-        int b = color & 0xFF;
-        return (long) r * 65536L + (long) g * 255L + (long) b;
     }
 
     private static float[] toVec3(int color) {

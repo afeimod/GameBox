@@ -333,11 +333,17 @@ public final class J2meFilterShaders {
     /**
      * 2xBR fragment shader (2xbr.fsh). Hyllian's 2xBR.
      *
-     * <p>The {@code reduce()} function uses {@code vec3 dtt = vec3(65536.0, 255.0, 1.0)}
-     * and {@code dot(color, dtt)}. Because texture colors are normalized (0.0-1.0),
-     * {@code R*65536 + G*255 + B} produces a unique comparable value, so the exact
-     * equality comparisons ({@code h==f} etc.) implement correct edge detection.
-     * A {@code highp} fragment precision is requested when available for this reason.
+     * <p><b>Key fix</b>: The reference shader uses {@code reduce()} with
+     * {@code dtt = vec3(65536.0, 255.0, 1.0)} to pack RGB into a single float
+     * for equality comparison. However, {@code 65536.0} exceeds the maximum
+     * value representable by {@code mediump} float (65504), causing overflow
+     * to infinity on mobile GPUs. This makes all color comparisons trivially
+     * true/false, disabling edge detection entirely.
+     *
+     * <p>Fix: replace {@code reduce()} + float {@code ==} with a tolerance-based
+     * {@code eq()} function that directly compares vec3 colors. The tolerance
+     * of {@code 0.002} (≈ 0.5/255) correctly identifies colors that round to
+     * the same 8-bit value, working at any float precision.
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -349,10 +355,10 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
-            "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "// Tolerance-based color equality — works at any float precision.\n" +
+            "// 0.002 ≈ 0.5/255, so colors that round to the same 8-bit value match.\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(lessThanEqual(abs(a - b), vec3(0.002)));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -372,18 +378,9 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
             "    vec3 result = E;\n" +
             "\n" +
-            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
             "    {\n" +
             "        result = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -391,7 +388,12 @@ public final class J2meFilterShaders {
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    /** 4xBR fragment shader (4xbr.fsh). Hyllian's 4xBR with the sub-pixel lookup table. */
+    /**
+     * 4xBR fragment shader (4xbr.fsh). Hyllian's 4xBR with the sub-pixel lookup table.
+     *
+     * <p>Uses the same {@code eq()} fix as {@link #FRAGMENT_2XBR} to avoid
+     * {@code mediump} float overflow with {@code reduce()}.
+     */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -402,19 +404,17 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
-            "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(lessThanEqual(abs(a - b), vec3(0.002)));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
             "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "    v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
             "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "    v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
             "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
             "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
@@ -428,16 +428,7 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
-            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
@@ -510,7 +501,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    /** 2xBR + Dot: 2xBR followed by a dot-mask post-processing pass. */
+    /** 2xBR + Dot: 2xBR followed by a dot-mask post-processing pass. Uses eq() fix. */
     public static final String FRAGMENT_2XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -521,10 +512,8 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
-            "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(lessThanEqual(abs(a - b), vec3(0.002)));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
@@ -544,18 +533,9 @@ public final class J2meFilterShaders {
             "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
             "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
             "    vec3 result = E;\n" +
             "\n" +
-            "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B))))\n" +
             "    {\n" +
             "        result = mix(E, F, 0.5);\n" +
             "    }\n" +
@@ -570,7 +550,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    /** 4xBR + Dot: 4xBR followed by a dot-mask post-processing pass. */
+    /** 4xBR + Dot: 4xBR followed by a dot-mask post-processing pass. Uses eq() fix. */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -581,19 +561,17 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_texcoord0[3];\n" +
             "\n" +
-            "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
-            "\n" +
-            "float reduce(vec3 color) {\n" +
-            "    return dot(color, dtt);\n" +
+            "bool eq(vec3 a, vec3 b) {\n" +
+            "    return all(lessThanEqual(abs(a - b), vec3(0.002)));\n" +
             "}\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
             "\n" +
             "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "    v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
             "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "    v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
             "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
             "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
@@ -607,16 +585,7 @@ public final class J2meFilterShaders {
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            "    float b = reduce(B);\n" +
-            "    float c = reduce(C);\n" +
-            "    float d = reduce(D);\n" +
-            "    float e = reduce(E);\n" +
-            "    float f = reduce(F);\n" +
-            "    float g = reduce(G);\n" +
-            "    float h = reduce(H);\n" +
-            "    float i = reduce(I);\n" +
-            "\n" +
-            "    if (h==f && h!=e && (e==g && (h==i || e==d) || e==c && (h==i || e==b))) {\n" +
+            "    if (eq(H, F) && !eq(H, E) && (eq(E, G) && (eq(H, I) || eq(E, D)) || eq(E, C) && (eq(H, I) || eq(E, B)))) {\n" +
             "        E11 = E11 * 0.5 + F * 0.5;\n" +
             "        E15 = F;\n" +
             "    }\n" +
