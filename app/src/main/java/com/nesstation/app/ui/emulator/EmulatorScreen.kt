@@ -148,6 +148,7 @@ fun EmulatorScreen(
                    padLayout.sfcReduceSpriteFlicker, padLayout.sfcReduceSlowdown,
                    padLayout.sfcAudioInterpolation, padLayout.sfcGfxTransparency,
                    padLayout.sfcGfxHires, padLayout.sfcUpDownAllowed,
+                   padLayout.sfcBlockInvalidVram,
                    padLayout.sfcLayer1, padLayout.sfcLayer2, padLayout.sfcLayer3,
                    padLayout.sfcLayer4, padLayout.sfcLayer5,
                    padLayout.gbcColorPreset, padLayout.gbaColorPreset,
@@ -423,7 +424,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("snes9x_gfx_transp", layout.sfcGfxTransparency)
             engine.setCoreOption("snes9x_gfx_hires", layout.sfcGfxHires)
             engine.setCoreOption("snes9x_gfx_clip", layout.sfcGfxClip)
-            engine.setCoreOption("snes9x_block_invalid_vram_access", "enabled")
+            engine.setCoreOption("snes9x_block_invalid_vram_access", layout.sfcBlockInvalidVram)
             engine.setCoreOption("snes9x_hires_blend", layout.sfcSideBySide)
             engine.setCoreOption("snes9x_echo_buffer_hack", layout.sfcSoundOutput)
             engine.setCoreOption("snes9x_randomize_memory", layout.sfcSuperScope)
@@ -1714,6 +1715,11 @@ private fun SettingsPanel(
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.sfcGfxClip
                 ) { onLayoutChange(padLayout.copy(sfcGfxClip = it)) }
+
+                DropdownSetting("允许无效VRAM访问",
+                    listOf("disabled" to "开启 (允许)", "enabled" to "关闭 (禁止)"),
+                    padLayout.sfcBlockInvalidVram
+                ) { onLayoutChange(padLayout.copy(sfcBlockInvalidVram = it)) }
 
                 DropdownSetting("高分辨率混合",
                     listOf("disabled" to "关闭", "merge" to "合并", "blur" to "模糊"),

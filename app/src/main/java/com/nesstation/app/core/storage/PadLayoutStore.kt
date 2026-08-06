@@ -65,6 +65,7 @@ data class PadLayout(
     val sfcGfxTransparency: String = "enabled",       // enabled | disabled
     val sfcGfxHires: String = "enabled",              // enabled | disabled
     val sfcGfxClip: String = "enabled",               // enabled | disabled
+    val sfcBlockInvalidVram: String = "disabled",      // disabled(allow) | enabled(block) — allow by default to fix font garbling
     val sfcSoundOutput: String = "disabled",           // disabled | enabled (echo buffer hack)
     val sfcOverscan: String = "enabled",              // enabled | disabled | auto
     val sfcSideBySide: String = "disabled",            // disabled | merge | blur (hires blend)
@@ -236,6 +237,7 @@ object PadLayoutStore {
             sfcGfxTransparency = p.getString("sfc_gfx_transparency", "enabled") ?: "enabled",
             sfcGfxHires = p.getString("sfc_gfx_hires", "enabled") ?: "enabled",
             sfcGfxClip = p.getString("sfc_gfx_clip", "enabled") ?: "enabled",
+            sfcBlockInvalidVram = p.getString("sfc_block_invalid_vram", "disabled") ?: "disabled",
             sfcSoundOutput = p.getString("sfc_sound_output", "disabled") ?: "disabled",
             sfcOverscan = p.getString("sfc_overscan", "enabled") ?: "enabled",
             sfcSideBySide = p.getString("sfc_side_by_side", "disabled") ?: "disabled",
@@ -333,6 +335,7 @@ object PadLayoutStore {
             putString("sfc_gfx_transparency", layout.sfcGfxTransparency)
             putString("sfc_gfx_hires", layout.sfcGfxHires)
             putString("sfc_gfx_clip", layout.sfcGfxClip)
+            putString("sfc_block_invalid_vram", layout.sfcBlockInvalidVram)
             putString("sfc_sound_output", layout.sfcSoundOutput)
             putString("sfc_overscan", layout.sfcOverscan)
             putString("sfc_side_by_side", layout.sfcSideBySide)

@@ -98,23 +98,30 @@ class NesEngine private constructor() : EmulatorEngine {
                     NesNative.getFrameBuffer(frameBuffer)
                 }
 
-                // Pull and play audio
-                val n = NesNative.readAudio(audioBuf)
-                if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                }
+                if (_fastForward) {
+                    // Fast-forward: skip audio, drain ring buffer, yield for max speed.
+                    NesNative.readAudio(audioBuf) // discard
+                    onFrame()
+                    Thread.yield()
+                } else {
+                    // Normal speed: read and play audio, pace to ~60fps.
+                    val n = NesNative.readAudio(audioBuf)
+                    if (n > 0) {
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    }
 
-                onFrame()
+                    onFrame()
 
-                // Pace to ~60fps (NTSC) unless fast-forward
-                val targetNs = if (_fastForward) 1_000_000L else 1_000_000_000L / 60
-                val elapsed = System.nanoTime() - t0
-                val sleep = targetNs - elapsed
-                if (sleep > 0) {
-                    try {
-                        Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                    } catch (_: InterruptedException) {
-                        break
+                    // Pace to ~60fps (NTSC)
+                    val targetNs = 1_000_000_000L / 60
+                    val elapsed = System.nanoTime() - t0
+                    val sleep = targetNs - elapsed
+                    if (sleep > 0) {
+                        try {
+                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                     }
                 }
             }

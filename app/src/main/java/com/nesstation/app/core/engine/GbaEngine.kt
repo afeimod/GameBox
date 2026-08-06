@@ -79,29 +79,31 @@ class GbaEngine private constructor() : EmulatorEngine {
                     GbaNative.getFrameBuffer(frameBuffer)
                 }
 
-                // Use NON_BLOCKING writes. BLOCKING writes stall the emulation
-                // thread when the AudioTrack buffer is full, causing GBA games
-                // to lag/stutter. Audio quality is handled by the mGBA core's
-                // sinc resampler + low-pass filter (set in gba_loader.cpp),
-                // not by the write mode. NON_BLOCKING drops excess audio frames
-                // but this is inaudible since the core produces slightly more
-                // samples than needed per frame anyway.
-                val n = GbaNative.readAudio(audioBuf)
-                if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                }
+                if (_fastForward) {
+                    // Fast-forward: skip audio, drain ring buffer, yield for max speed.
+                    GbaNative.readAudio(audioBuf) // discard
+                    onFrame()
+                    Thread.yield()
+                } else {
+                    // Normal speed: read and play audio, pace to ~60fps.
+                    // NON_BLOCKING writes prevent audio buffer stalls.
+                    val n = GbaNative.readAudio(audioBuf)
+                    if (n > 0) {
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    }
 
-                onFrame()
+                    onFrame()
 
-                // GB/GBC ~60fps, GBA ~60fps
-                val targetNs = if (_fastForward) 1_000_000L else 1_000_000_000L / 60
-                val elapsed = System.nanoTime() - t0
-                val sleep = targetNs - elapsed
-                if (sleep > 0) {
-                    try {
-                        Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                    } catch (_: InterruptedException) {
-                        break
+                    // GB/GBC ~60fps, GBA ~60fps
+                    val targetNs = 1_000_000_000L / 60
+                    val elapsed = System.nanoTime() - t0
+                    val sleep = targetNs - elapsed
+                    if (sleep > 0) {
+                        try {
+                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                     }
                 }
             }

@@ -176,8 +176,12 @@ static void initDefaultOptions() {
     s_options["snes9x_gfx_hires"]             = "enabled";
 
     // --- VRAM / Compatibility ---
-    // Block invalid VRAM access — prevents garbage data corrupting text tiles.
-    s_options["snes9x_block_invalid_vram_access"] = "enabled";
+    // Allow invalid VRAM access by default (block_invalid_vram_access = "disabled").
+    // Some games (e.g. Fire Emblem) write to VRAM in non-standard ways that
+    // SNES9x considers "invalid". Blocking these writes prevents the game from
+    // writing text/font tiles correctly, causing garbled text (字体花屏).
+    // Allowing invalid access lets these games render text properly.
+    s_options["snes9x_block_invalid_vram_access"] = "disabled";
     s_options["snes9x_echo_buffer_hack"]      = "disabled";
 
     // --- Advanced AV Settings ---

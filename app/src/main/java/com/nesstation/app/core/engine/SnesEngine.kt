@@ -79,24 +79,33 @@ class SnesEngine private constructor() : EmulatorEngine {
                     SnesNative.getFrameBuffer(frameBuffer)
                 }
 
-                // Use NON_BLOCKING writes to prevent audio buffer stalls from
-                // slowing down the emulation thread (same fix as GBA/NES).
-                val n = SnesNative.readAudio(audioBuf)
-                if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                }
+                if (_fastForward) {
+                    // Fast-forward: skip audio entirely to maximize speed.
+                    // Drain the audio ring buffer to prevent overflow, but
+                    // don't write to AudioTrack. Use Thread.yield() instead
+                    // of sleep to run as fast as possible.
+                    SnesNative.readAudio(audioBuf) // discard
+                    onFrame()
+                    Thread.yield()
+                } else {
+                    // Normal speed: read and play audio, pace to 60fps.
+                    val n = SnesNative.readAudio(audioBuf)
+                    if (n > 0) {
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    }
 
-                onFrame()
+                    onFrame()
 
-                // SNES NTSC ~60fps, PAL ~50fps
-                val targetNs = if (_fastForward) 1_000_000L else 1_000_000_000L / 60
-                val elapsed = System.nanoTime() - t0
-                val sleep = targetNs - elapsed
-                if (sleep > 0) {
-                    try {
-                        Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                    } catch (_: InterruptedException) {
-                        break
+                    // SNES NTSC ~60fps, PAL ~50fps
+                    val targetNs = 1_000_000_000L / 60
+                    val elapsed = System.nanoTime() - t0
+                    val sleep = targetNs - elapsed
+                    if (sleep > 0) {
+                        try {
+                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                     }
                 }
             }
