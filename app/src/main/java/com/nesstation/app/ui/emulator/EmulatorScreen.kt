@@ -135,7 +135,17 @@ fun EmulatorScreen(
     // Apply core options on load and when they change
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
                    padLayout.region, padLayout.cropOverscan,
-                   padLayout.videoFilter, padLayout.overclocking) {
+                   padLayout.videoFilter, padLayout.overclocking,
+                   padLayout.aspectRatio,
+                   padLayout.sfcReduceSpriteFlicker, padLayout.sfcReduceSlowdown,
+                   padLayout.sfcAudioInterpolation, padLayout.sfcGfxTransparency,
+                   padLayout.sfcGfxHires, padLayout.sfcUpDownAllowed,
+                   padLayout.sfcLayer1, padLayout.sfcLayer2, padLayout.sfcLayer3,
+                   padLayout.sfcLayer4, padLayout.sfcLayer5,
+                   padLayout.gbcColorPreset, padLayout.gbaColorPreset,
+                   padLayout.gbaAudioResampler, padLayout.gbaAudioLowPass,
+                   padLayout.gbaFrameskipType, padLayout.gbaForceRTC,
+                   padLayout.gbaAllowOpposite) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         val filterInt = when (padLayout.videoFilter) {
@@ -325,19 +335,53 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("fceumm_overclocking", layout.overclocking)
         }
         GamePlatform.SFC -> {
-            engine.setCoreOption("snes9x_aspect", layout.aspectRatio)
-            engine.setCoreOption("snes9x_overclock_superfx", layout.overclocking)
+            // Map shared aspectRatio field to SNES9x values (8:7 PAR -> 8:7)
+            val sfcAspect = when (layout.aspectRatio) {
+                "8:7 PAR" -> "8:7"
+                "PP" -> "PP"
+                else -> "4:3"
+            }
+            engine.setCoreOption("snes9x_aspect", sfcAspect)
+            engine.setCoreOption("snes9x_overclock_superfx", layout.sfcOverclock)
             engine.setCoreOption("snes9x_blargg_filter", layout.ntscFilter)
-            engine.setCoreOption("snes9x_up_down_allowed", if (layout.cropOverscan == "enabled") "enabled" else "disabled")
+            engine.setCoreOption("snes9x_overscan", layout.sfcOverscan)
+            engine.setCoreOption("snes9x_side_by_side", layout.sfcSideBySide)
+            engine.setCoreOption("snes9x_superscope", layout.sfcSuperScope)
+            engine.setCoreOption("snes9x_up_down_allowed", layout.sfcUpDownAllowed)
+            engine.setCoreOption("snes9x_reduce_sprite_flicker", layout.sfcReduceSpriteFlicker)
+            engine.setCoreOption("snes9x_reduce_slowdown", layout.sfcReduceSlowdown)
+            engine.setCoreOption("snes9x_audio_interpolation", layout.sfcAudioInterpolation)
+            engine.setCoreOption("snes9x_gfx_transparency", layout.sfcGfxTransparency)
+            engine.setCoreOption("snes9x_gfx_hires", layout.sfcGfxHires)
+            engine.setCoreOption("snes9x_gfx_clip", layout.sfcGfxClip)
+            engine.setCoreOption("snes9x_sound_output", layout.sfcSoundOutput)
+            engine.setCoreOption("snes9x_sound_channels", "all")
+            engine.setCoreOption("snes9x_layer_1", layout.sfcLayer1)
+            engine.setCoreOption("snes9x_layer_2", layout.sfcLayer2)
+            engine.setCoreOption("snes9x_layer_3", layout.sfcLayer3)
+            engine.setCoreOption("snes9x_layer_4", layout.sfcLayer4)
+            engine.setCoreOption("snes9x_layer_5", layout.sfcLayer5)
         }
-        GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA -> {
-            engine.setCoreOption("mgba_gb_model", layout.region)
-            engine.setCoreOption("mgba_gb_colors", if (layout.ntscFilter != "disabled") "enabled" else "enabled")
-            engine.setCoreOption("mgba_gba_colors", "enabled")
-            engine.setCoreOption("mgba_interframe_blending", if (layout.cropOverscan == "enabled") "ON" else "OFF")
-            engine.setCoreOption("mgba_frameskip", "0")
-            engine.setCoreOption("mgba_audio_resampler", "sinc")
-            engine.setCoreOption("mgba_sgb_borders", if (layout.cropOverscan == "enabled") "OFF" else "ON")
+        GamePlatform.GB, GamePlatform.GBA -> {
+            engine.setCoreOption("mgba_gb_model", layout.gbModel)
+            engine.setCoreOption("mgba_gb_colors", layout.gbColorCorrection)
+            engine.setCoreOption("mgba_gb_colors_preset", layout.gbcColorPreset)
+            engine.setCoreOption("mgba_gba_colors", layout.gbaColorCorrection)
+            engine.setCoreOption("mgba_gba_colors_preset", layout.gbaColorPreset)
+            engine.setCoreOption("mgba_interframe_blending", layout.gbaFrameBlending)
+            engine.setCoreOption("mgba_solar_sensor_level", layout.gbaSolarSensor)
+            engine.setCoreOption("mgba_frameskip", layout.gbaFrameskipCount)
+            engine.setCoreOption("mgba_frameskip_type", layout.gbaFrameskipType)
+            engine.setCoreOption("mgba_frameskip_threshold", layout.gbaFrameskipThreshold)
+            engine.setCoreOption("mgba_audio_resampler", layout.gbaAudioResampler)
+            engine.setCoreOption("mgba_audio_low_pass_filter", layout.gbaAudioLowPass)
+            engine.setCoreOption("mgba_audio_low_pass_range", layout.gbaAudioLowPassRange)
+            engine.setCoreOption("mgba_sgb_borders", layout.gbSgbBorders)
+            engine.setCoreOption("mgba_gba_forceRTC", layout.gbaForceRTC)
+            engine.setCoreOption("mgba_allow_opposite_directions", layout.gbaAllowOpposite)
+            if (platform == GamePlatform.GBA) {
+                engine.setCoreOption("mgba_gba_idle_optimization", layout.gbaIdleOptimization)
+            }
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -576,8 +620,9 @@ private fun OnScreenController(
                 val dpadRect = btnRect(padLayout.dpad)
                 val aRect = btnRect(padLayout.btnA)
                 val bRect = btnRect(padLayout.btnB)
-                val taRect = btnRect(padLayout.btnTurboA)
-                val tbRect = btnRect(padLayout.btnTurboB)
+                // Turbo A/B hit areas only for non-SNES platforms
+                val taRect = if (!showXY) btnRect(padLayout.btnTurboA) else null
+                val tbRect = if (!showXY) btnRect(padLayout.btnTurboB) else null
                 val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
                 val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
                 val lRect = if (showLR) btnRect(padLayout.btnL, 1.6f, 0.7f) else null
@@ -592,8 +637,8 @@ private fun OnScreenController(
                         dpadRect.contains(pos) -> BtnType.DPAD
                         aRect.contains(pos) -> BtnType.A
                         bRect.contains(pos) -> BtnType.B
-                        taRect.contains(pos) -> BtnType.TURBO_A
-                        tbRect.contains(pos) -> BtnType.TURBO_B
+                        taRect?.contains(pos) == true -> BtnType.TURBO_A
+                        tbRect?.contains(pos) == true -> BtnType.TURBO_B
                         startRect.contains(pos) -> BtnType.START
                         selectRect.contains(pos) -> BtnType.SELECT
                         lRect?.contains(pos) == true -> BtnType.L
@@ -700,10 +745,11 @@ private fun OnScreenController(
         ActionButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnA, surfaceSize, opacity, visualState and BTN_A != 0)
         // Draw B
         ActionButtonCanvas("B", Color(0xFFE67E22), padLayout.btnB, surfaceSize, opacity, visualState and BTN_B != 0)
-        // Turbo A
-        TurboButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
-        // Turbo B
-        TurboButtonCanvas("B", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
+        // Turbo A/B — hidden on SNES (X/Y buttons take their place)
+        if (!showXY) {
+            TurboButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
+            TurboButtonCanvas("B", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
+        }
         // Start
         PillButtonCanvas("START", padLayout.btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
         // Select
@@ -1030,22 +1076,24 @@ private fun PadLayoutEditor(
                 },
                 onSelect = { selectedBtn = BtnType.B }
             )
-            EditableRoundBtn("TA", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.4f, 0.95f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(x = nx, y = ny)))
-                },
-                onSelect = { selectedBtn = BtnType.TURBO_A }
-            )
-            EditableRoundBtn("TB", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.4f, 0.95f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(x = nx, y = ny)))
-                },
-                onSelect = { selectedBtn = BtnType.TURBO_B }
-            )
+            if (!showXY) {
+                EditableRoundBtn("TA", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.TURBO_A }
+                )
+                EditableRoundBtn("TB", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(x = nx, y = ny)))
+                    },
+                    onSelect = { selectedBtn = BtnType.TURBO_B }
+                )
+            }
             EditablePillBtn("START", padLayout.btnStart, surfaceSize, selectedBtn == BtnType.START,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.1f, 0.9f)
@@ -1474,16 +1522,11 @@ private fun SettingsPanel(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(6.dp))
 
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("画面比例",
                     listOf("8:7 PAR" to "8:7 (原始像素比)", "4:3" to "4:3 (标准)", "PP" to "Pixel Perfect"),
                     padLayout.aspectRatio
                 ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
-
-                DropdownSetting("超频(SuperFX)",
-                    listOf("disabled" to "关闭", "10MHz (150%)" to "10MHz (150%)",
-                           "14MHz (200%)" to "14MHz (200%)", "20MHz (300%)" to "20MHz (300%)"),
-                    padLayout.overclocking
-                ) { onLayoutChange(padLayout.copy(overclocking = it)) }
 
                 DropdownSetting("NTSC 滤镜",
                     listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video",
@@ -1493,40 +1536,217 @@ private fun SettingsPanel(
 
                 DropdownSetting("裁剪过扫描",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
-                    padLayout.cropOverscan
-                ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
+                    padLayout.sfcOverscan
+                ) { onLayoutChange(padLayout.copy(sfcOverscan = it)) }
+
+                DropdownSetting("高分辨率模式",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.sfcGfxHires
+                ) { onLayoutChange(padLayout.copy(sfcGfxHires = it)) }
+
+                DropdownSetting("透明效果",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.sfcGfxTransparency
+                ) { onLayoutChange(padLayout.copy(sfcGfxTransparency = it)) }
+
+                DropdownSetting("图形裁剪",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.sfcGfxClip
+                ) { onLayoutChange(padLayout.copy(sfcGfxClip = it)) }
+
+                DropdownSetting("并排显示",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcSideBySide
+                ) { onLayoutChange(padLayout.copy(sfcSideBySide = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("超频(SuperFX)",
+                    listOf("disabled" to "关闭", "10MHz (150%)" to "10MHz (150%)",
+                           "14MHz (200%)" to "14MHz (200%)", "20MHz (300%)" to "20MHz (300%)"),
+                    padLayout.sfcOverclock
+                ) { onLayoutChange(padLayout.copy(sfcOverclock = it)) }
+
+                DropdownSetting("减少精灵闪烁",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcReduceSpriteFlicker
+                ) { onLayoutChange(padLayout.copy(sfcReduceSpriteFlicker = it)) }
+
+                DropdownSetting("减少慢动作",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcReduceSlowdown
+                ) { onLayoutChange(padLayout.copy(sfcReduceSlowdown = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("声音输出",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.sfcSoundOutput
+                ) { onLayoutChange(padLayout.copy(sfcSoundOutput = it)) }
+
+                DropdownSetting("音频插值",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcAudioInterpolation
+                ) { onLayoutChange(padLayout.copy(sfcAudioInterpolation = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("上下方向同时输入",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcUpDownAllowed
+                ) { onLayoutChange(padLayout.copy(sfcUpDownAllowed = it)) }
+
+                DropdownSetting("Super Scope",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.sfcSuperScope
+                ) { onLayoutChange(padLayout.copy(sfcSuperScope = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("图层显示", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("BG图层 1",
+                    listOf("enabled" to "显示", "disabled" to "隐藏"),
+                    padLayout.sfcLayer1
+                ) { onLayoutChange(padLayout.copy(sfcLayer1 = it)) }
+
+                DropdownSetting("BG图层 2",
+                    listOf("enabled" to "显示", "disabled" to "隐藏"),
+                    padLayout.sfcLayer2
+                ) { onLayoutChange(padLayout.copy(sfcLayer2 = it)) }
+
+                DropdownSetting("BG图层 3",
+                    listOf("enabled" to "显示", "disabled" to "隐藏"),
+                    padLayout.sfcLayer3
+                ) { onLayoutChange(padLayout.copy(sfcLayer3 = it)) }
+
+                DropdownSetting("BG图层 4",
+                    listOf("enabled" to "显示", "disabled" to "隐藏"),
+                    padLayout.sfcLayer4
+                ) { onLayoutChange(padLayout.copy(sfcLayer4 = it)) }
+
+                DropdownSetting("精灵图层",
+                    listOf("enabled" to "显示", "disabled" to "隐藏"),
+                    padLayout.sfcLayer5
+                ) { onLayoutChange(padLayout.copy(sfcLayer5 = it)) }
             }
-            GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA -> {
-                val platName = when (platform) {
-                    GamePlatform.GB -> "GB"
-                    GamePlatform.GBC -> "GBC"
-                    else -> "GBA"
-                }
+            GamePlatform.GB, GamePlatform.GBA -> {
+                val platName = if (platform == GamePlatform.GBA) "GBA" else "GB/GBC"
                 Text("$platName 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(6.dp))
 
+                Text("系统", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("主机型号",
-                    listOf("Auto" to "自动", "GB" to "Game Boy (DMG)",
-                           "GBC" to "Game Boy Color", "SGB" to "Super Game Boy",
-                           "GBA" to "Game Boy Advance"),
-                    padLayout.region
-                ) { onLayoutChange(padLayout.copy(region = it)) }
+                    listOf("Autodetect" to "自动", "Game Boy" to "Game Boy (DMG)",
+                           "Super Game Boy" to "Super Game Boy", "Game Boy Color" to "Game Boy Color",
+                           "Game Boy Advance" to "Game Boy Advance"),
+                    padLayout.gbModel
+                ) { onLayoutChange(padLayout.copy(gbModel = it)) }
 
                 DropdownSetting("SGB 边框",
                     listOf("ON" to "显示", "OFF" to "隐藏"),
-                    if (padLayout.cropOverscan == "enabled") "OFF" else "ON"
-                ) { onLayoutChange(padLayout.copy(cropOverscan = if (it == "OFF") "enabled" else "disabled")) }
+                    padLayout.gbSgbBorders
+                ) { onLayoutChange(padLayout.copy(gbSgbBorders = it)) }
 
+                Spacer(Modifier.size(4.dp))
+                Text("色彩校正", color = Color(0xFF8899AA), fontSize = 11.sp)
+                if (platform == GamePlatform.GB) {
+                    DropdownSetting("GB色彩校正",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.gbColorCorrection
+                    ) { onLayoutChange(padLayout.copy(gbColorCorrection = it)) }
+
+                    DropdownSetting("GB色彩预设",
+                        listOf("default" to "默认", "AGB" to "GBA风格", "GB Pocket" to "Pocket风格",
+                               "GB Light" to "亮色", "GB Original" to "原始"),
+                        padLayout.gbcColorPreset
+                    ) { onLayoutChange(padLayout.copy(gbcColorPreset = it)) }
+                }
+                if (platform == GamePlatform.GBA) {
+                    DropdownSetting("GBA色彩校正",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.gbaColorCorrection
+                    ) { onLayoutChange(padLayout.copy(gbaColorCorrection = it)) }
+
+                    DropdownSetting("GBA色彩预设",
+                        listOf("default" to "默认", "AGB" to "GBA原机", "GBA SP" to "GBA SP风格",
+                               "GB Micro" to "GB Micro风格"),
+                        padLayout.gbaColorPreset
+                    ) { onLayoutChange(padLayout.copy(gbaColorPreset = it)) }
+                }
+
+                Spacer(Modifier.size(4.dp))
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("帧混合",
-                    listOf("ON" to "开启", "OFF" to "关闭"),
-                    if (padLayout.cropOverscan == "enabled") "OFF" else "ON"
-                ) { /* handled via mgba_interframe_blending in applyCoreOptions */ }
+                    listOf("OFF" to "关闭", "ON" to "开启", "fast" to "快速"),
+                    padLayout.gbaFrameBlending
+                ) { onLayoutChange(padLayout.copy(gbaFrameBlending = it)) }
 
-                DropdownSetting("跳帧",
-                    listOf("0" to "关闭", "1" to "1帧", "2" to "2帧", "3" to "3帧", "4" to "4帧", "5" to "5帧"),
-                    "0"
-                ) { /* frameskip is handled in applyCoreOptions */ }
+                Spacer(Modifier.size(4.dp))
+                Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("音频重采样器",
+                    listOf("nearest" to "最近邻(快速)", "sinc" to "Sinc(高质量)",
+                           "cosine" to "余弦(均衡)", "cubic" to "三次(高质量)"),
+                    padLayout.gbaAudioResampler
+                ) { onLayoutChange(padLayout.copy(gbaAudioResampler = it)) }
+
+                DropdownSetting("低通滤波",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.gbaAudioLowPass
+                ) { onLayoutChange(padLayout.copy(gbaAudioLowPass = it)) }
+
+                DropdownSetting("低通滤波范围",
+                    listOf("20" to "20", "40" to "40", "60" to "60 (默认)",
+                           "80" to "80", "100" to "100"),
+                    padLayout.gbaAudioLowPassRange
+                ) { onLayoutChange(padLayout.copy(gbaAudioLowPassRange = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("跳帧类型",
+                    listOf("disabled" to "关闭", "auto" to "自动跳帧", "fixed" to "固定跳帧"),
+                    padLayout.gbaFrameskipType
+                ) { onLayoutChange(padLayout.copy(gbaFrameskipType = it)) }
+
+                DropdownSetting("跳帧数量",
+                    listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
+                           "4" to "4", "5" to "5", "6" to "6", "7" to "7",
+                           "8" to "8", "9" to "9", "10" to "10"),
+                    padLayout.gbaFrameskipCount
+                ) { onLayoutChange(padLayout.copy(gbaFrameskipCount = it)) }
+
+                DropdownSetting("跳帧阈值(自动)",
+                    listOf("10" to "10", "20" to "20", "33" to "33 (默认)",
+                           "50" to "50", "70" to "70", "90" to "90"),
+                    padLayout.gbaFrameskipThreshold
+                ) { onLayoutChange(padLayout.copy(gbaFrameskipThreshold = it)) }
+
+                if (platform == GamePlatform.GBA) {
+                    DropdownSetting("空闲优化",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.gbaIdleOptimization
+                    ) { onLayoutChange(padLayout.copy(gbaIdleOptimization = it)) }
+                }
+
+                Spacer(Modifier.size(4.dp))
+                Text("高级", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("允许相反方向",
+                    listOf("OFF" to "关闭", "ON" to "开启"),
+                    padLayout.gbaAllowOpposite
+                ) { onLayoutChange(padLayout.copy(gbaAllowOpposite = it)) }
+
+                DropdownSetting("太阳能传感器",
+                    listOf("0" to "0 (黑暗)", "1" to "1", "2" to "2", "3" to "3",
+                           "4" to "4", "5" to "5 (中等)", "6" to "6", "7" to "7",
+                           "8" to "8", "9" to "9", "10" to "10 (明亮)"),
+                    padLayout.gbaSolarSensor
+                ) { onLayoutChange(padLayout.copy(gbaSolarSensor = it)) }
+
+                if (platform == GamePlatform.GBA) {
+                    DropdownSetting("强制RTC",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.gbaForceRTC
+                    ) { onLayoutChange(padLayout.copy(gbaForceRTC = it)) }
+                }
             }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }

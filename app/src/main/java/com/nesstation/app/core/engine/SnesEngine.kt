@@ -63,7 +63,7 @@ class SnesEngine private constructor() : EmulatorEngine {
                 if (_paused) {
                     val n = SnesNative.readAudio(audioBuf)
                     if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                     }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
@@ -79,7 +79,7 @@ class SnesEngine private constructor() : EmulatorEngine {
 
                 val n = SnesNative.readAudio(audioBuf)
                 if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                 }
 
                 onFrame()
@@ -126,11 +126,12 @@ class SnesEngine private constructor() : EmulatorEngine {
     private fun startAudio(sampleRate: Int) {
         stopAudio()
         try {
-            val bufSize = AudioTrack.getMinBufferSize(
+            val minBuf = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(4096)
+            )
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)

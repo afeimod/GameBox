@@ -38,8 +38,8 @@ static inline uint32_t xrgbToRgba(uint32_t px) {
     return ((px & 0x00FFFFFF) << 8) | 0x000000FFu;
 }
 
-// Blit a source framebuffer to the ANativeWindow with nearest-neighbor scaling.
-// Supports RGBA_8888 and RGB_565 window formats.
+// Blit a source ARGB framebuffer to the ANativeWindow with nearest-neighbor
+// scaling. Source must be 0xAARRGGBB (uint32_t per pixel).
 static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
                                   const uint32_t* src, unsigned w, unsigned h,
                                   size_t srcStride) {
@@ -100,6 +100,78 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
                 uint16_t g = ((px >> 8) & 0xFC) >> 2;
                 uint16_t b = (px & 0xF8) >> 3;
                 drow[x] = (r << 11) | (g << 5) | b;
+            }
+        }
+    }
+
+    ANativeWindow_unlockAndPost(window);
+}
+
+// Blit RGB565 source data directly to the surface — no ARGB conversion.
+// The surface MUST be set to WINDOW_FORMAT_RGB_565 via setSurface565().
+// This produces exact pixel-accurate colors with zero conversion loss.
+static inline void blitToSurface565(ANativeWindow* window, std::mutex& windowMtx,
+                                     const uint16_t* src, unsigned w, unsigned h,
+                                     size_t srcStride) {
+    std::lock_guard<std::mutex> lk(windowMtx);
+    if (!window) return;
+
+    ANativeWindow_Buffer buf;
+    memset(&buf, 0, sizeof(buf));
+    int rc = ANativeWindow_lock(window, &buf, nullptr);
+    if (rc != 0) {
+        LOGE("ANativeWindow_lock failed (565): %d", rc);
+        return;
+    }
+
+    const uint32_t dstW = (uint32_t)buf.width;
+    const uint32_t dstH = (uint32_t)buf.height;
+    if (dstW == 0 || dstH == 0) {
+        ANativeWindow_unlockAndPost(window);
+        return;
+    }
+
+    if (buf.format == WINDOW_FORMAT_RGB_565) {
+        // Direct 565-to-565 blit — no conversion needed!
+        uint16_t* dst = static_cast<uint16_t*>(buf.bits);
+        const uint32_t dstStride = (uint32_t)buf.stride;
+        const float sx = (float)w / (float)dstW;
+        const float sy = (float)h / (float)dstH;
+        for (uint32_t y = 0; y < dstH; ++y) {
+            uint32_t srcY = (uint32_t)(y * sy);
+            if (srcY >= h) srcY = h - 1;
+            uint16_t* drow = dst + y * dstStride;
+            const uint16_t* srow = src + srcY * srcStride;
+            for (uint32_t x = 0; x < dstW; ++x) {
+                uint32_t srcX = (uint32_t)(x * sx);
+                if (srcX >= w) srcX = w - 1;
+                drow[x] = srow[srcX];
+            }
+        }
+    } else if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
+               buf.format == WINDOW_FORMAT_RGBX_8888) {
+        // Fallback: convert 565 to RGBA8888 on the fly
+        uint8_t* dst = static_cast<uint8_t*>(buf.bits);
+        const uint32_t dstStride = buf.stride * 4;
+        const float sx = (float)w / (float)dstW;
+        const float sy = (float)h / (float)dstH;
+        for (uint32_t y = 0; y < dstH; ++y) {
+            uint32_t srcY = (uint32_t)(y * sy);
+            if (srcY >= h) srcY = h - 1;
+            uint8_t* drow = dst + y * dstStride;
+            const uint16_t* srow = src + srcY * srcStride;
+            for (uint32_t x = 0; x < dstW; ++x) {
+                uint32_t srcX = (uint32_t)(x * sx);
+                if (srcX >= w) srcX = w - 1;
+                uint16_t px = srow[srcX];
+                // Proper 5-bit to 8-bit expansion: (v << 3) | (v >> 2)
+                uint32_t r5 = (px >> 11) & 0x1F;
+                uint32_t g6 = (px >> 5) & 0x3F;
+                uint32_t b5 = px & 0x1F;
+                drow[x * 4 + 0] = (r5 << 3) | (r5 >> 2);
+                drow[x * 4 + 1] = (g6 << 2) | (g6 >> 4);
+                drow[x * 4 + 2] = (b5 << 3) | (b5 >> 2);
+                drow[x * 4 + 3] = 0xFF;
             }
         }
     }
@@ -397,6 +469,60 @@ static inline void setSurface(ANativeWindow*& window, std::mutex& windowMtx,
         window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(window);
         ANativeWindow_setBuffersGeometry(window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+    }
+}
+
+// Set surface with a specific pixel format (e.g. WINDOW_FORMAT_RGB_565 for
+// direct 16-bit blitting from cores that output RGB565).
+static inline void setSurfaceFormat(ANativeWindow*& window, std::mutex& windowMtx,
+                                     void* nativeWindow, int format) {
+    std::lock_guard<std::mutex> lk(windowMtx);
+    if (window) {
+        ANativeWindow_release(window);
+        window = nullptr;
+    }
+    if (nativeWindow) {
+        window = static_cast<ANativeWindow*>(nativeWindow);
+        ANativeWindow_acquire(window);
+        ANativeWindow_setBuffersGeometry(window, 0, 0, format);
+    }
+}
+
+// Apply filter and blit for RGB565 source data.
+// When no filter is selected, blits RGB565 directly to the surface (no ARGB
+// conversion — maximum color accuracy). When a filter is selected, the caller
+// must provide a pre-converted ARGB buffer (srcArgb) for the filter path.
+static inline void applyFilterAndBlit565(
+    ANativeWindow* window, std::mutex& windowMtx,
+    const uint16_t* src565, unsigned width, unsigned height, size_t srcStride,
+    const uint32_t* srcArgb,  // pre-converted ARGB buffer (for filters)
+    int filter,
+    uint32_t* xbrBuffer2x, uint32_t* xbrBuffer4x, uint32_t* xbrMidBuffer,
+    unsigned maxSrcW, unsigned maxSrcH)
+{
+    const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
+
+    if (filter == 0 || !canUpscale || !srcArgb) {
+        // No filter: direct RGB565 blit — zero conversion loss
+        blitToSurface565(window, windowMtx, src565, width, height, srcStride);
+    } else if (filter == 4 || filter == 7) {
+        xbr2xUpscale(srcArgb, width, height, width, xbrBuffer2x);
+        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2);
+    } else if (filter == 8 || filter == 9) {
+        xbr4xUpscale(srcArgb, width, height, width, xbrBuffer4x, xbrMidBuffer);
+        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4);
+    } else if (filter == 5) {
+        hq2x_32_rb(srcArgb, (uint32_t)(width * sizeof(uint32_t)),
+                   xbrBuffer2x, (uint32_t)(width * 2 * sizeof(uint32_t)),
+                   (int)width, (int)height);
+        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2);
+    } else if (filter == 6 || filter == 10) {
+        hq4x_32_rb(srcArgb, (uint32_t)(width * sizeof(uint32_t)),
+                   xbrBuffer4x, (uint32_t)(width * 4 * sizeof(uint32_t)),
+                   (int)width, (int)height);
+        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4);
+    } else {
+        blitToSurface565(window, windowMtx, src565, width, height, srcStride);
     }
 }
 

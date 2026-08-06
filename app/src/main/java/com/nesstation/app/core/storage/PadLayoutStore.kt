@@ -38,10 +38,10 @@ data class PadLayout(
     val btnL: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.15f, sizeDp = 56),
     // R button — top-right shoulder (GBA/SNES)
     val btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56),
-    // X button — above A (SNES 4-face button layout)
-    val btnX: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 60),
-    // Y button — left of B (SNES 4-face button layout)
-    val btnY: ButtonLayout = ButtonLayout(x = 0.60f, y = 0.76f, sizeDp = 60),
+    // X button — above A (SNES 4-face button layout, top-right of diamond)
+    val btnX: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.54f, sizeDp = 60),
+    // Y button — above B (SNES 4-face button layout, top-left of diamond)
+    val btnY: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.60f, sizeDp = 60),
     // Global settings
     val opacity: Float = 0.7f,     // 0.3 – 1.0
     val showPad: Boolean = true,
@@ -57,7 +57,44 @@ data class PadLayout(
     // Video filter — applied in the native blit function (frontend-level post-processing)
     val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
     // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
-    val overclocking: String = "disabled" // disabled | 2x-Postrender | 2x-VBlank
+    val overclocking: String = "disabled", // disabled | 2x-Postrender | 2x-VBlank
+    // --- SFC/SNES (snes9x) specific options ---
+    val sfcReduceSpriteFlicker: String = "disabled",  // disabled | enabled
+    val sfcReduceSlowdown: String = "disabled",       // disabled | enabled
+    val sfcAudioInterpolation: String = "disabled",   // disabled | enabled
+    val sfcGfxTransparency: String = "enabled",       // enabled | disabled
+    val sfcGfxHires: String = "enabled",              // enabled | disabled
+    val sfcGfxClip: String = "enabled",               // enabled | disabled
+    val sfcSoundOutput: String = "enabled",            // enabled | disabled
+    val sfcOverscan: String = "disabled",              // disabled | enabled
+    val sfcSideBySide: String = "disabled",            // disabled | enabled
+    val sfcUpDownAllowed: String = "disabled",        // disabled | enabled
+    val sfcSuperScope: String = "disabled",            // disabled | enabled
+    val sfcLayer1: String = "enabled",                // BG layer 1
+    val sfcLayer2: String = "enabled",                // BG layer 2
+    val sfcLayer3: String = "enabled",                // BG layer 3
+    val sfcLayer4: String = "enabled",                // BG layer 4
+    val sfcLayer5: String = "enabled",                // OBJ/sprite layer
+    val sfcOverclock: String = "disabled",            // disabled | 10MHz (150%) | 14MHz (200%) | 20MHz (300%)
+    // --- GB/GBA (mGBA) specific options ---
+    val gbColorCorrection: String = "enabled",        // enabled | disabled
+    val gbcColorPreset: String = "default",           // default | various presets
+    val gbaColorCorrection: String = "enabled",       // enabled | disabled
+    val gbaColorPreset: String = "default",           // default | various presets
+    val gbaFrameBlending: String = "OFF",             // OFF | ON | fast
+    val gbaAudioResampler: String = "nearest",        // nearest | sinc | cosine | cubic
+    val gbaAudioLowPass: String = "disabled",         // disabled | enabled
+    val gbaAudioLowPassRange: String = "60",          // 0-100
+    val gbaFrameskipType: String = "disabled",        // disabled | auto | fixed
+    val gbaFrameskipCount: String = "0",              // 0-10
+    val gbaSolarSensor: String = "0",                 // 0-10
+    val gbaIdleOptimization: String = "disabled",     // disabled | enabled (GBA only)
+    val gbaForceRTC: String = "disabled",             // disabled | enabled
+    val gbaAllowOpposite: String = "OFF",             // OFF | ON
+    // --- Additional GB/GBA (mGBA) options ---
+    val gbModel: String = "Autodetect",               // Autodetect | Game Boy | Super Game Boy | Game Boy Color | Game Boy Advance
+    val gbSgbBorders: String = "ON",                  // ON | OFF
+    val gbaFrameskipThreshold: String = "33"          // 0-100 (audio buffer threshold for auto frameskip)
 )
 
 /**
@@ -173,13 +210,13 @@ object PadLayoutStore {
                 p.getInt(KEY_R_SIZE, 56)
             ),
             btnX = ButtonLayout(
-                p.getFloat(KEY_X_X, 0.87f),
-                p.getFloat(KEY_X_Y, 0.62f),
+                p.getFloat(KEY_X_X, 0.88f),
+                p.getFloat(KEY_X_Y, 0.54f),
                 p.getInt(KEY_X_SIZE, 60)
             ),
             btnY = ButtonLayout(
-                p.getFloat(KEY_Y_X, 0.60f),
-                p.getFloat(KEY_Y_Y, 0.76f),
+                p.getFloat(KEY_Y_X, 0.73f),
+                p.getFloat(KEY_Y_Y, 0.60f),
                 p.getInt(KEY_Y_SIZE, 60)
             ),
             opacity = p.getFloat(KEY_OPACITY, 0.7f),
@@ -192,7 +229,41 @@ object PadLayoutStore {
             cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled",
             videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch",
             videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none",
-            overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled"
+            overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled",
+            sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled",
+            sfcReduceSlowdown = p.getString("sfc_reduce_slowdown", "disabled") ?: "disabled",
+            sfcAudioInterpolation = p.getString("sfc_audio_interpolation", "disabled") ?: "disabled",
+            sfcGfxTransparency = p.getString("sfc_gfx_transparency", "enabled") ?: "enabled",
+            sfcGfxHires = p.getString("sfc_gfx_hires", "enabled") ?: "enabled",
+            sfcGfxClip = p.getString("sfc_gfx_clip", "enabled") ?: "enabled",
+            sfcSoundOutput = p.getString("sfc_sound_output", "enabled") ?: "enabled",
+            sfcOverscan = p.getString("sfc_overscan", "disabled") ?: "disabled",
+            sfcSideBySide = p.getString("sfc_side_by_side", "disabled") ?: "disabled",
+            sfcUpDownAllowed = p.getString("sfc_up_down_allowed", "disabled") ?: "disabled",
+            sfcSuperScope = p.getString("sfc_superscope", "disabled") ?: "disabled",
+            sfcLayer1 = p.getString("sfc_layer_1", "enabled") ?: "enabled",
+            sfcLayer2 = p.getString("sfc_layer_2", "enabled") ?: "enabled",
+            sfcLayer3 = p.getString("sfc_layer_3", "enabled") ?: "enabled",
+            sfcLayer4 = p.getString("sfc_layer_4", "enabled") ?: "enabled",
+            sfcLayer5 = p.getString("sfc_layer_5", "enabled") ?: "enabled",
+            sfcOverclock = p.getString("sfc_overclock", "disabled") ?: "disabled",
+            gbColorCorrection = p.getString("gb_color_correction", "enabled") ?: "enabled",
+            gbcColorPreset = p.getString("gbc_color_preset", "default") ?: "default",
+            gbaColorCorrection = p.getString("gba_color_correction", "enabled") ?: "enabled",
+            gbaColorPreset = p.getString("gba_color_preset", "default") ?: "default",
+            gbaFrameBlending = p.getString("gba_frame_blending", "OFF") ?: "OFF",
+            gbaAudioResampler = p.getString("gba_audio_resampler", "nearest") ?: "nearest",
+            gbaAudioLowPass = p.getString("gba_audio_low_pass", "disabled") ?: "disabled",
+            gbaAudioLowPassRange = p.getString("gba_audio_low_pass_range", "60") ?: "60",
+            gbaFrameskipType = p.getString("gba_frameskip_type", "disabled") ?: "disabled",
+            gbaFrameskipCount = p.getString("gba_frameskip_count", "0") ?: "0",
+            gbaSolarSensor = p.getString("gba_solar_sensor", "0") ?: "0",
+            gbaIdleOptimization = p.getString("gba_idle_optimization", "disabled") ?: "disabled",
+            gbaForceRTC = p.getString("gba_force_rtc", "disabled") ?: "disabled",
+            gbaAllowOpposite = p.getString("gba_allow_opposite", "OFF") ?: "OFF",
+            gbModel = p.getString("gb_model", "Autodetect") ?: "Autodetect",
+            gbSgbBorders = p.getString("gb_sgb_borders", "ON") ?: "ON",
+            gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33"
         )
     }
 
@@ -254,6 +325,43 @@ object PadLayoutStore {
             putString(KEY_VIDEO_SCALE, layout.videoScale)
             putString(KEY_VIDEO_FILTER, layout.videoFilter)
             putString(KEY_OVERCLOCKING, layout.overclocking)
+
+            // SFC specific options
+            putString("sfc_reduce_sprite_flicker", layout.sfcReduceSpriteFlicker)
+            putString("sfc_reduce_slowdown", layout.sfcReduceSlowdown)
+            putString("sfc_audio_interpolation", layout.sfcAudioInterpolation)
+            putString("sfc_gfx_transparency", layout.sfcGfxTransparency)
+            putString("sfc_gfx_hires", layout.sfcGfxHires)
+            putString("sfc_gfx_clip", layout.sfcGfxClip)
+            putString("sfc_sound_output", layout.sfcSoundOutput)
+            putString("sfc_overscan", layout.sfcOverscan)
+            putString("sfc_side_by_side", layout.sfcSideBySide)
+            putString("sfc_up_down_allowed", layout.sfcUpDownAllowed)
+            putString("sfc_superscope", layout.sfcSuperScope)
+            putString("sfc_layer_1", layout.sfcLayer1)
+            putString("sfc_layer_2", layout.sfcLayer2)
+            putString("sfc_layer_3", layout.sfcLayer3)
+            putString("sfc_layer_4", layout.sfcLayer4)
+            putString("sfc_layer_5", layout.sfcLayer5)
+            putString("sfc_overclock", layout.sfcOverclock)
+            // GB/GBA specific options
+            putString("gb_color_correction", layout.gbColorCorrection)
+            putString("gbc_color_preset", layout.gbcColorPreset)
+            putString("gba_color_correction", layout.gbaColorCorrection)
+            putString("gba_color_preset", layout.gbaColorPreset)
+            putString("gba_frame_blending", layout.gbaFrameBlending)
+            putString("gba_audio_resampler", layout.gbaAudioResampler)
+            putString("gba_audio_low_pass", layout.gbaAudioLowPass)
+            putString("gba_audio_low_pass_range", layout.gbaAudioLowPassRange)
+            putString("gba_frameskip_type", layout.gbaFrameskipType)
+            putString("gba_frameskip_count", layout.gbaFrameskipCount)
+            putString("gba_solar_sensor", layout.gbaSolarSensor)
+            putString("gba_idle_optimization", layout.gbaIdleOptimization)
+            putString("gba_force_rtc", layout.gbaForceRTC)
+            putString("gba_allow_opposite", layout.gbaAllowOpposite)
+            putString("gb_model", layout.gbModel)
+            putString("gb_sgb_borders", layout.gbSgbBorders)
+            putString("gba_frameskip_threshold", layout.gbaFrameskipThreshold)
         }.apply()
     }
 }

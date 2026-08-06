@@ -79,13 +79,12 @@ interface EmulatorEngine {
          * Factory: return the appropriate engine for the given platform.
          * NES  -> NesEngine
          * SFC  -> SnesEngine
-         * GB/GBC/GBA -> GbaEngine
+         * GB/GBA -> GbaEngine
          */
         fun forPlatform(platform: GamePlatform): EmulatorEngine = when (platform) {
             GamePlatform.NES  -> NesEngine.get()
             GamePlatform.SFC  -> SnesEngine.get()
             GamePlatform.GB   -> GbaEngine.get()
-            GamePlatform.GBC  -> GbaEngine.get()
             GamePlatform.GBA  -> GbaEngine.get()
             GamePlatform.JAVA -> NesEngine.get() // fallback, should not be used
         }

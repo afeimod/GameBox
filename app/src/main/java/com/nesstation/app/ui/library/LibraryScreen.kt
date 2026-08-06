@@ -367,7 +367,7 @@ fun LibraryScreen(
                 ) {
                     lazyItems(listOf(
                         GamePlatform.NES, GamePlatform.SFC,
-                        GamePlatform.GB, GamePlatform.GBC, GamePlatform.GBA,
+                        GamePlatform.GB, GamePlatform.GBA,
                         GamePlatform.JAVA
                     )) { platform ->
                         FilterChip(

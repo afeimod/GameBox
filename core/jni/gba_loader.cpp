@@ -153,6 +153,9 @@ static void initDefaultOptions() {
     // --- GBA RTC ---
     s_options["mgba_gba_forceRTC"]              = "disabled";
 
+    // --- GBA idle optimization ---
+    s_options["mgba_gba_idle_optimization"]     = "disabled";
+
     // --- Super Game Boy borders ---
     s_options["mgba_sgb_borders"]               = "ON";
 }
@@ -182,7 +185,10 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
             // Accept the core's pixel format request and store it for
-            // conversion in cb_video. mGBA typically requests XRGB8888.
+            // conversion in cb_video. mGBA typically requests XRGB8888
+            // (compiled without COLOR_16_BIT). We always convert to ARGB
+            // in cb_video and blit via RGBA_8888 surface — never change
+            // the surface format here.
             if (data) {
                 s_pixelFormat = *static_cast<const unsigned*>(data);
                 LOGI("Pixel format set: %u (0=0RGB1555, 1=XRGB8888, 2=RGB565)",
@@ -289,14 +295,15 @@ static bool cb_environment(unsigned cmd, void* data) {
 
 // Convert and store the incoming video frame into the internal ARGB buffer.
 // Handles XRGB8888, RGB565, and 0RGB1555 pixel formats, normalizing all to
-// 0xFFRRGGBB (opaque ARGB).
+// 0xFFRRGGBB (opaque ARGB). Uses proper bit expansion for accurate colors.
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return; // duplicate frame / no data this frame
 
     s_videoW = width;
     s_videoH = height;
 
-    // Convert source to ARGB and store in s_frame
+    // Convert source to ARGB and store in s_frame (for fallback rendering,
+    // screenshots, and filter upscaling).
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
 
@@ -320,7 +327,9 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
                 }
             }
         } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
-            // RGB565:  rrrrrggggggbbbbb -> ARGB 0xFFRRGGBB
+            // RGB565: rrrrrggggggbbbbb -> ARGB 0xFFRRGGBB
+            // Proper bit expansion: (v << 3) | (v >> 2) for 5-bit,
+            // (v << 2) | (v >> 4) for 6-bit.
             const uint16_t* src = static_cast<const uint16_t*>(data);
             const size_t stride = pitch / sizeof(uint16_t);
             for (unsigned y = 0; y < height; ++y) {
@@ -328,9 +337,12 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
                 uint32_t* drow = s_frame.data() + y * width;
                 for (unsigned x = 0; x < width; ++x) {
                     uint16_t px = srow[x];
-                    uint32_t r = ((px >> 11) & 0x1F) << 3;
-                    uint32_t g = ((px >> 5)  & 0x3F) << 2;
-                    uint32_t b = (px         & 0x1F) << 3;
+                    uint32_t r5 = (px >> 11) & 0x1F;
+                    uint32_t g6 = (px >> 5)  & 0x3F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g6 << 2) | (g6 >> 4);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
                     drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
                 }
             }
@@ -343,9 +355,12 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
                 uint32_t* drow = s_frame.data() + y * width;
                 for (unsigned x = 0; x < width; ++x) {
                     uint16_t px = srow[x];
-                    uint32_t r = ((px >> 10) & 0x1F) << 3;
-                    uint32_t g = ((px >> 5)  & 0x1F) << 3;
-                    uint32_t b = (px         & 0x1F) << 3;
+                    uint32_t r5 = (px >> 10) & 0x1F;
+                    uint32_t g5 = (px >> 5)  & 0x1F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g5 << 3) | (g5 >> 2);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
                     drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
                 }
             }
@@ -353,9 +368,11 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_newFrame.store(true, std::memory_order_release);
     }
 
-    // Blit to ANativeWindow with the selected filter (shared implementation).
-    // s_frame is now in ARGB format with stride == width (contiguous).
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
+
+    // Always use the ARGB blit path. The cb_video function above already
+    // converted the core's native pixel format (XRGB8888/RGB565/0RGB1555)
+    // to ARGB 0xFFRRGGBB in s_frame. The surface is always RGBA_8888.
     coreshared::applyFilterAndBlit(
         s_window, s_windowMtx,
         s_frame.data(), width, height, width,

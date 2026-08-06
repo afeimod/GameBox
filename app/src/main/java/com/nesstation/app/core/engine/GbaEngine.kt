@@ -26,7 +26,7 @@ class GbaEngine private constructor() : EmulatorEngine {
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
     private val audioBuf = ShortArray(8192)
-
+    private var audioSampleRate = 44100
     @Volatile override var isLoaded = false
         private set
 
@@ -55,7 +55,9 @@ class GbaEngine private constructor() : EmulatorEngine {
 
         GbaNative.setFastForward(_fastForward)
 
-        startAudio(GbaNative.audioSampleRate().takeIf { it > 0 } ?: 32768)
+        val rate = GbaNative.audioSampleRate().takeIf { it > 0 } ?: 32768
+        audioSampleRate = rate
+        startAudio(rate)
 
         running.set(true)
         thread = thread(name = "gbacore-loop", isDaemon = true) {
@@ -63,7 +65,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 if (_paused) {
                     val n = GbaNative.readAudio(audioBuf)
                     if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                     }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
@@ -77,9 +79,13 @@ class GbaEngine private constructor() : EmulatorEngine {
                     GbaNative.getFrameBuffer(frameBuffer)
                 }
 
+                // Only write audio when the core has produced samples.
+                // Writing silence when the buffer is empty causes timing
+                // drift and audible glitches on GBA (65536 Hz sample rate).
+                // The ring buffer naturally absorbs frame-to-frame jitter.
                 val n = GbaNative.readAudio(audioBuf)
                 if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                 }
 
                 onFrame()
@@ -126,24 +132,45 @@ class GbaEngine private constructor() : EmulatorEngine {
     private fun startAudio(sampleRate: Int) {
         stopAudio()
         try {
-            val bufSize = AudioTrack.getMinBufferSize(
-                sampleRate,
+            var rate = sampleRate
+            var minBuf = AudioTrack.getMinBufferSize(
+                rate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(4096)
+            )
+            // If the native sample rate is not supported (e.g., GBA's 65536 Hz
+            // on some devices), fall back to standard rates. The AudioTrack
+            // will resample internally to the device's output rate.
+            if (minBuf <= 0 && rate != 48000) {
+                rate = 48000
+                minBuf = AudioTrack.getMinBufferSize(
+                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
+                )
+            }
+            if (minBuf <= 0 && rate != 44100) {
+                rate = 44100
+                minBuf = AudioTrack.getMinBufferSize(
+                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
+                )
+            }
+            if (minBuf <= 0) return
+            audioSampleRate = rate
+            // Use 8x the minimum buffer size for smoother audio playback.
+            // GBA's 65536 Hz sample rate can cause underruns with smaller buffers.
+            val bufSize = (minBuf * 8).coerceAtLeast(16384)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
                 AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
+                    .setSampleRate(rate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build(),
                 bufSize,
                 AudioTrack.MODE_STREAM,
-                AudioTrack.PERFORMANCE_MODE_LOW_LATENCY
+                AudioTrack.PERFORMANCE_MODE_NONE
             )
             audioTrack?.play()
         } catch (e: Exception) {

@@ -70,6 +70,10 @@ static std::string s_systemDir;
 static std::string s_saveDir;
 static std::string s_coreMessage;  // last message from the core
 
+// Pixel format requested by the core via SET_PIXEL_FORMAT.
+// SNES9x typically requests XRGB8888, but we handle all formats for safety.
+static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+
 // Frame buffer (ARGB, 0xAARRGGBB). Written by video_cb, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
 // SNES resolution is variable, so we use a dynamically-sized vector rather
@@ -125,6 +129,7 @@ static std::atomic<bool> s_optionsChanged{false};
 static void initDefaultOptions() {
     // --- Video / Aspect ---
     s_options["snes9x_aspect"]                = "4:3";
+    s_options["snes9x_overscan"]              = "disabled";
 
     // --- Overclock / Hacks ---
     s_options["snes9x_overclock_superfx"]     = "disabled";
@@ -180,7 +185,17 @@ static bool cb_environment(unsigned cmd, void* data) {
             return true;
 
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
-            // Accept the core's request (XRGB8888 with FRONTEND_SUPPORTS_RGB888).
+            // Accept the core's pixel format request and store it for
+            // conversion in cb_video. SNES9x typically requests RGB565.
+            // We always convert to ARGB in cb_video and blit via RGBA_8888
+            // surface — never change the surface format here, as the
+            // SurfaceView was created with RGBX_8888 and changing it
+            // mid-stream causes garbled output.
+            if (data) {
+                s_pixelFormat = *static_cast<const unsigned*>(data);
+                LOGI("Pixel format set: %u (0=0RGB1555, 1=XRGB8888, 2=RGB565)",
+                     s_pixelFormat);
+            }
             return true;
 
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
@@ -267,35 +282,83 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     s_videoW = width;
     s_videoH = height;
 
-    const uint32_t* src = static_cast<const uint32_t*>(data);
-    const size_t srcStride = pitch / sizeof(uint32_t);
-
-    // Copy to internal frame buffer (for fallback Bitmap rendering + screenshots).
-    // SNES resolution is variable, so we resize the vector on demand.
+    // Convert source to ARGB and store in s_frame (for fallback rendering,
+    // screenshots, and filter upscaling). Also used for direct surface blit
+    // when the pixel format is not RGB565.
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
-        if ((int)width != s_frameW || (int)height != s_frameH) {
+
+        const size_t need = (size_t)width * height;
+        if ((int)width != s_frameW || (int)height != s_frameH || s_frame.size() < need) {
             s_frameW = (int)width;
             s_frameH = (int)height;
-            s_frame.resize((size_t)width * height);
+            s_frame.resize(need);
         }
-        for (unsigned y = 0; y < height; ++y) {
-            const uint32_t* srow = src + y * srcStride;
-            uint32_t* drow = s_frame.data() + (size_t)y * width;
-            for (unsigned x = 0; x < width; ++x) {
-                // XRGB8888 (0xXXRRGGBB) -> ARGB (0xFFRRGGBB)
-                drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+
+        if (s_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
+            // XRGB8888: 0xXXRRGGBB -> ARGB 0xFFRRGGBB
+            const uint32_t* src = static_cast<const uint32_t*>(data);
+            const size_t stride = pitch / sizeof(uint32_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint32_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+                }
+            }
+        } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
+            // RGB565: rrrrrggggggbbbbb -> ARGB 0xFFRRGGBB
+            // Use proper bit expansion: (v << 3) | (v >> 2) for 5-bit,
+            // (v << 2) | (v >> 4) for 6-bit. This maps 0-31 to 0-255 and
+            // 0-63 to 0-255 correctly (vs simple << 3 which only reaches 248).
+            const uint16_t* src = static_cast<const uint16_t*>(data);
+            const size_t stride = pitch / sizeof(uint16_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint16_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    uint16_t px = srow[x];
+                    uint32_t r5 = (px >> 11) & 0x1F;
+                    uint32_t g6 = (px >> 5)  & 0x3F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g6 << 2) | (g6 >> 4);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
+                    drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+                }
+            }
+        } else {
+            // 0RGB1555: 0rrrrrgggggbbbbb -> ARGB 0xFFRRGGBB
+            const uint16_t* src = static_cast<const uint16_t*>(data);
+            const size_t stride = pitch / sizeof(uint16_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint16_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    uint16_t px = srow[x];
+                    uint32_t r5 = (px >> 10) & 0x1F;
+                    uint32_t g5 = (px >> 5)  & 0x1F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g5 << 3) | (g5 >> 2);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
+                    drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+                }
             }
         }
         s_newFrame.store(true, std::memory_order_release);
     }
 
-    // Blit directly to ANativeWindow if a surface is attached (hardware accel).
-    // Uses the shared filter+blit dispatcher from core_shared.h.
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
+
+    // Always use the ARGB blit path. The cb_video function above already
+    // converted the core's native pixel format (RGB565/XRGB8888/0RGB1555)
+    // to ARGB 0xFFRRGGBB in s_frame. The surface is always RGBA_8888, so
+    // the ARGB blit path handles all formats correctly without any surface
+    // format mismatch issues.
     coreshared::applyFilterAndBlit(
         s_window, s_windowMtx,
-        src, width, height, srcStride,
+        s_frame.data(), width, height, width,
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
         (unsigned)kSnesMaxW, (unsigned)kSnesMaxH);
@@ -360,6 +423,9 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         }
     }
     s_optionsChanged.store(true, std::memory_order_release);
+
+    // Reset pixel format to libretro default before init.
+    s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 
     // CRITICAL: retro_set_environment MUST be called before retro_init().
     // SNES9x's retro_init() calls the environment callback (e.g. to get the
@@ -453,6 +519,7 @@ void unload() {
     s_sampleRate = 0;
     s_audio.reset();
     s_newFrame.store(false);
+    s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
         s_frame.clear();
@@ -543,10 +610,14 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
 // --- Hardware-accelerated rendering ---------------------------------------
 
 void setSurface(void* nativeWindow) {
-    // Use the shared surface management from core_shared.h.
+    // Always use RGBA_8888 surface format. The cb_video function converts
+    // all pixel formats (RGB565/XRGB8888/0RGB1555) to ARGB 0xFFRRGGBB,
+    // and blitToSurface handles RGBA_8888/RGBX_8888 surfaces correctly.
+    // Never change the surface format to RGB_565 — the SurfaceView was
+    // created with RGBX_8888 and changing it causes garbled output.
     coreshared::setSurface(s_window, s_windowMtx, nativeWindow);
     if (nativeWindow) {
-        LOGI("Surface attached (buffer geometry = window default)");
+        LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888)", s_pixelFormat);
     } else {
         LOGI("Surface detached");
     }
