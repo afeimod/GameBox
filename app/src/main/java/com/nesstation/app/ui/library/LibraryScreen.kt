@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -64,6 +65,8 @@ import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
 import java.io.File
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 /// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA)
 val ROM_EXTENSIONS = listOf(
@@ -137,7 +140,7 @@ fun LibraryScreen(
             val name = queryDisplayName(uri) ?: "unknown.nes"
             val ext = name.substringAfterLast('.', "").lowercase()
             if (ext in ROM_EXTENSIONS) {
-                val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                val platform = detectPlatformFromUri(context, uri, name)
                 RomStore.add(context, name.substringBeforeLast('.'), uri.toString(), platform)
                 count++
             }
@@ -167,7 +170,7 @@ fun LibraryScreen(
             var count = 0
             romFiles.forEach { (name, fileUri) ->
                 val ext = name.substringAfterLast('.', "").lowercase()
-                val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                val platform = detectPlatformFromUri(context, fileUri, name)
                 RomStore.add(context, name.substringBeforeLast('.'), fileUri.toString(), platform)
                 count++
             }
@@ -185,7 +188,7 @@ fun LibraryScreen(
             if (entries.isNotEmpty()) {
                 entries.forEach { (name, path) ->
                     val ext = name.substringAfterLast('.', "").lowercase()
-                    val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                    val platform = detectPlatformFromFile(File(path))
                     RomStore.add(context, name.substringBeforeLast('.'), path, platform)
                 }
                 refreshList()
@@ -318,7 +321,7 @@ fun LibraryScreen(
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (selectedPlatform == GamePlatform.NES) {
+                        if (selectedPlatform != GamePlatform.JAVA) {
                             ExtendedFloatingActionButton(
                                 onClick = { importFolder() },
                                 icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
@@ -455,7 +458,14 @@ fun LibraryScreen(
     longPressGame?.let { game ->
         AlertDialog(
             onDismissRequest = { longPressGame = null },
-            title = { Text(game.title, fontWeight = FontWeight.SemiBold) },
+            title = {
+                Text(
+                    game.title,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
             text = {
                 Column {
                     MenuOption("开始游戏") {
@@ -597,6 +607,69 @@ private fun scanForRoms(context: android.content.Context): List<Pair<String, Str
         }
     }
     return results
+}
+
+/**
+ * Detect the game platform from a file URI.
+ * For ZIP/7z/gz archives, looks inside to find the actual ROM extension.
+ */
+private fun detectPlatformFromUri(
+    context: android.content.Context,
+    uri: Uri,
+    fileName: String
+): GamePlatform {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+
+    // Direct ROM extension — use it immediately
+    GamePlatform.fromExtension(ext)?.let { return it }
+
+    // For compressed archives, inspect contents to determine platform
+    if (ext == "zip") {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ZipInputStream(stream).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val entryExt = entry.name.substringAfterLast('.', "").lowercase()
+                            GamePlatform.fromExtension(entryExt)?.let { return it }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    return GamePlatform.NES // fallback
+}
+
+/**
+ * Detect the game platform from a local File.
+ * For ZIP archives, looks inside to find the actual ROM extension.
+ */
+private fun detectPlatformFromFile(file: File): GamePlatform {
+    val ext = file.extension.lowercase()
+
+    GamePlatform.fromExtension(ext)?.let { return it }
+
+    if (ext == "zip") {
+        try {
+            ZipFile(file).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (!entry.isDirectory) {
+                        val entryExt = entry.name.substringAfterLast('.', "").lowercase()
+                        GamePlatform.fromExtension(entryExt)?.let { return it }
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    return GamePlatform.NES
 }
 
 @Composable

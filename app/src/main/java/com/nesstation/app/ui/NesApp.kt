@@ -17,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavType
@@ -277,7 +279,14 @@ private fun PhoneNavHost(
     longPressGame?.let { game ->
         AlertDialog(
             onDismissRequest = { longPressGame = null },
-            title = { Text(game.title) },
+            title = {
+                Text(
+                    game.title,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
             text = {
                 Column {
                     TextButton(onClick = { longPressGame = null; openGame(game) }) { Text("开始游戏") }
