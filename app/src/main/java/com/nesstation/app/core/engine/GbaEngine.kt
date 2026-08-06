@@ -65,7 +65,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 if (_paused) {
                     val n = GbaNative.readAudio(audioBuf)
                     if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
                     }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
@@ -79,13 +79,14 @@ class GbaEngine private constructor() : EmulatorEngine {
                     GbaNative.getFrameBuffer(frameBuffer)
                 }
 
-                // Only write audio when the core has produced samples.
-                // Writing silence when the buffer is empty causes timing
-                // drift and audible glitches on GBA (65536 Hz sample rate).
-                // The ring buffer naturally absorbs frame-to-frame jitter.
+                // Use NON_BLOCKING to prevent audio writes from stalling the
+                // emulation thread. GBA's 65536 Hz sample rate produces ~1092
+                // stereo frames per frame; BLOCKING writes cause the thread to
+                // stall when the AudioTrack buffer is full, making the game
+                // stutter. NON_BLOCKING drops excess audio instead.
                 val n = GbaNative.readAudio(audioBuf)
                 if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
                 }
 
                 onFrame()
