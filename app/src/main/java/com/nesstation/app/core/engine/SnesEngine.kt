@@ -63,7 +63,9 @@ class SnesEngine private constructor() : EmulatorEngine {
                 if (_paused) {
                     val n = SnesNative.readAudio(audioBuf)
                     if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                        // NON_BLOCKING: avoid stalling the emulation thread when
+                        // the AudioTrack buffer is full during pause state.
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
                     }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
@@ -77,9 +79,11 @@ class SnesEngine private constructor() : EmulatorEngine {
                     SnesNative.getFrameBuffer(frameBuffer)
                 }
 
+                // Use NON_BLOCKING writes to prevent audio buffer stalls from
+                // slowing down the emulation thread (same fix as GBA/NES).
                 val n = SnesNative.readAudio(audioBuf)
                 if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
                 }
 
                 onFrame()
@@ -179,6 +183,18 @@ class SnesEngine private constructor() : EmulatorEngine {
     override fun setSampleRate(rate: Int) = SnesNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { SnesNative.saveState(slot, dst.absolutePath) }
     override fun loadState(slot: Int, src: File) { SnesNative.loadState(slot, src.absolutePath) }
+
+    override fun captureFrame(): FrameCapture? {
+        if (!isLoaded) return null
+        val w = videoWidth()
+        val h = videoHeight()
+        if (w <= 0 || h <= 0) return null
+        val buf = IntArray(w * h)
+        val ok = SnesNative.getFrameBuffer(buf)
+        if (!ok) return null
+        return FrameCapture(buf, w, h)
+    }
+
     override fun lastError(): String = SnesNative.lastError()
 
     private fun stop() {

@@ -180,6 +180,11 @@ static void initDefaultOptions() {
     s_options["snes9x_block_invalid_vram_access"] = "enabled";
     s_options["snes9x_echo_buffer_hack"]      = "disabled";
 
+    // --- Advanced AV Settings ---
+    // Must be "enabled" so the core processes gfx_clip, gfx_transp, layers, etc.
+    // Without this, the core may skip reading these options in some code paths.
+    s_options["snes9x_show_advanced_av_settings"] = "enabled";
+
     // --- Region ---
     s_options["snes9x_region"]                = "auto";
 
@@ -256,6 +261,40 @@ static bool cb_environment(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_SET_VARIABLES:
             return true;
 
+        // --- Core Options API (v1) ---
+        // SNES9x uses the modern SET_CORE_OPTIONS API. We must handle
+        // GET_CORE_OPTIONS_VERSION to tell the core we support v1, otherwise
+        // it falls back to the legacy SET_VARIABLES path which may not
+        // properly register all options. Returning version 1 ensures the
+        // core uses SET_CORE_OPTIONS / SET_CORE_OPTIONS_INTL to register
+        // its options, and then queries GET_VARIABLE for current values.
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+            if (data) *static_cast<unsigned*>(data) = 1;
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+            // Accept the core's option definitions. We don't need to parse
+            // them since we serve values via GET_VARIABLE from s_options.
+            return true;
+
+        // SNES9x sends SET_GEOMETRY when the video aspect ratio or base
+        // dimensions change (e.g., switching between standard and hi-res).
+        // Accept it so the core knows we handle geometry changes.
+        case RETRO_ENVIRONMENT_SET_GEOMETRY:
+            return true;
+
+        // The core may send SET_SYSTEM_AV_INFO to change timing/dimensions.
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+            return true;
+
+        // Tell the core we want both audio (bit 1) and video (bit 0) enabled.
+        // Without this, the core may default to disabling rendering in some
+        // code paths, causing blank/garbled output.
+        case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+            if (data) *static_cast<int*>(data) = 3; // audio + video
+            return true;
+
         case RETRO_ENVIRONMENT_SET_MESSAGE: {
             // Capture core messages for error reporting
             if (data) {
@@ -299,6 +338,11 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
             return false;
+
+        // SNES9x sends SET_CORE_OPTIONS_DISPLAY to show/hide options in the UI.
+        // We don't have a UI options browser, so just accept and ignore.
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+            return true;
 
         default:
             return false;

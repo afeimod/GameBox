@@ -223,6 +223,18 @@ class NesEngine private constructor() : EmulatorEngine {
     override fun setSampleRate(rate: Int) = NesNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { NesNative.saveState(slot, dst.absolutePath) }
     override fun loadState(slot: Int, src: File) { NesNative.loadState(slot, src.absolutePath) }
+
+    override fun captureFrame(): FrameCapture? {
+        if (!isLoaded) return null
+        val w = videoWidth()
+        val h = videoHeight()
+        if (w <= 0 || h <= 0) return null
+        val buf = IntArray(w * h)
+        val ok = NesNative.getFrameBuffer(buf)
+        if (!ok) return null
+        return FrameCapture(buf, w, h)
+    }
+
     override fun lastError(): String = NesNative.lastError()
 
     private fun stop() {

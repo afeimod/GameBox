@@ -31,10 +31,14 @@ import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -98,6 +102,9 @@ fun LibraryScreen(
 
     // 选中的平台分类标签（NES / Java）
     var selectedPlatform by remember { mutableStateOf(GamePlatform.NES) }
+
+    // 搜索关键字 — 空字符串表示不搜索，显示当前平台所有游戏
+    var searchQuery by remember { mutableStateOf("") }
 
     // 长按菜单相关状态
     var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
@@ -288,6 +295,12 @@ fun LibraryScreen(
 
     val allGames = importedGames.distinctBy { it.id }
     val platformGames = allGames.filter { it.platform == selectedPlatform }
+    // When searching, search across ALL platforms for better discoverability
+    val displayGames = if (searchQuery.isBlank()) {
+        platformGames
+    } else {
+        allGames.filter { it.title.contains(searchQuery, ignoreCase = true) }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
@@ -308,7 +321,11 @@ fun LibraryScreen(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "${platformGames.size} 款 ${selectedPlatform.displayName} 游戏 · 复古之旅",
+                        text = if (searchQuery.isNotBlank()) {
+                            "搜索「${searchQuery}」· 找到 ${displayGames.size} 款游戏"
+                        } else {
+                            "${platformGames.size} 款 ${selectedPlatform.displayName} 游戏 · 复古之旅"
+                        },
                         color = Color(0xFF4A5568),
                         fontSize = 11.sp
                     )
@@ -380,8 +397,52 @@ fun LibraryScreen(
                 IconButton(onClick = { refreshList() }) {
                     Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = Color(0xFF1E2A3A), modifier = Modifier.size(18.dp))
                 }
-                SearchPill(onClick = onSearch)
             }
+
+            // 搜索栏 — 实时过滤游戏列表
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                placeholder = {
+                    Text(
+                        "搜索游戏名称…",
+                        fontSize = 13.sp,
+                        color = Color(0xFF9CA3AF)
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = Color(0xFF4A5568),
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                Icons.Rounded.Clear,
+                                contentDescription = "清除",
+                                tint = Color(0xFF4A5568),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF4F8AC4),
+                    unfocusedBorderColor = Color(0xFFD1D5DB),
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White.copy(alpha = 0.7f),
+                    cursorColor = Color(0xFF4F8AC4)
+                )
+            )
 
             // Permission hint for Android 11+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
@@ -409,7 +470,7 @@ fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(platformGames) { g ->
+                items(displayGames) { g ->
                     GameCard(
                         title = g.title,
                         accent = g.accent,

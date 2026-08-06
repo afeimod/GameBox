@@ -5,6 +5,15 @@ import com.nesstation.app.core.model.GamePlatform
 import java.io.File
 
 /**
+ * Captured frame data for screenshots.
+ */
+data class FrameCapture(
+    val pixels: IntArray,
+    val width: Int,
+    val height: Int
+)
+
+/**
  * Common interface for all emulator engines (NES, SNES, GB/GBC/GBA).
  * EmulatorScreen uses this interface instead of a concrete engine class,
  * allowing any platform's engine to drive the same UI.
@@ -70,6 +79,14 @@ interface EmulatorEngine {
 
     /** Load state from a file. */
     fun loadState(slot: Int, src: File)
+
+    /**
+     * Capture the current frame as an ARGB bitmap (0xAARRGGBB).
+     * Returns the bitmap array and dimensions, or null if no frame is available.
+     * Works even with hardware-accelerated surface rendering by requesting
+     * a fresh frame buffer copy from the native core.
+     */
+    fun captureFrame(): FrameCapture?
 
     /** Last error message from the core. */
     fun lastError(): String

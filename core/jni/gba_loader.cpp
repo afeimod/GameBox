@@ -239,6 +239,24 @@ static bool cb_environment(unsigned cmd, void* data) {
 #ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
         case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
 #endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+#endif
+            return true;
+
+        // Handle core options version query so mGBA uses the new API path.
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+            if (data) *static_cast<unsigned*>(data) = 1;
+            return true;
+
+        // Geometry / AV info changes
+        case RETRO_ENVIRONMENT_SET_GEOMETRY:
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+            return true;
+
+        // Tell the core we want both audio and video enabled.
+        case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+            if (data) *static_cast<int*>(data) = 3;
             return true;
 
         case RETRO_ENVIRONMENT_SET_MESSAGE: {

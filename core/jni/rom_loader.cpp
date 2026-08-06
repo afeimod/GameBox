@@ -207,6 +207,40 @@ static bool cb_environment(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_SET_VARIABLES:
             return true;
 
+        // --- Core Options API (v1/v2) ---
+        // FCEUmm uses the modern SET_CORE_OPTIONS API. Handle
+        // GET_CORE_OPTIONS_VERSION so the core uses the new API path.
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+            if (data) *static_cast<unsigned*>(data) = 1;
+            return true;
+
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+#endif
+            return true;
+
+        // Geometry / AV info changes
+        case RETRO_ENVIRONMENT_SET_GEOMETRY:
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+            return true;
+
+        // Tell the core we want both audio and video enabled.
+        case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+            if (data) *static_cast<int*>(data) = 3;
+            return true;
+
         case RETRO_ENVIRONMENT_SET_MESSAGE: {
             // Capture core messages (e.g. "FDS BIOS image missing") for error reporting
             if (data) {

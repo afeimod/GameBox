@@ -3,8 +3,10 @@ package com.nesstation.app.ui.emulator
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Shader
+import android.os.Environment
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -129,6 +134,8 @@ fun EmulatorScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showLayoutEditor by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var saveLoadSlot by remember { mutableStateOf(0) } // 0-9 state slots
+    var showSlotPicker by remember { mutableStateOf<String?>(null) } // "save" | "load" | null
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
@@ -279,14 +286,81 @@ fun EmulatorScreen(
                 gameTitle = game.title,
                 running = running,
                 fastForward = fastForward,
+                currentSlot = saveLoadSlot,
                 onTogglePause = { running = !running },
                 onToggleFastForward = { fastForward = !fastForward },
-                onScreenshot = { /* TODO */ },
-                onSaveState = { /* TODO */ },
+                onScreenshot = {
+                    val capture = engine.captureFrame()
+                    if (capture != null) {
+                        try {
+                            val bitmap = Bitmap.createBitmap(
+                                capture.pixels, capture.width, capture.height, Bitmap.Config.ARGB_8888
+                            )
+                            val screenshotsDir = java.io.File(
+                                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                                    ?: context.filesDir,
+                                "screenshots"
+                            )
+                            screenshotsDir.mkdirs()
+                            val timestamp = java.text.SimpleDateFormat(
+                                "yyyyMMdd_HHmmss", java.util.Locale.getDefault()
+                            ).format(java.util.Date())
+                            val safeTitle = game.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                            val file = java.io.File(screenshotsDir, "${safeTitle}_${timestamp}.png")
+                            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                            Toast.makeText(context, "截图已保存: ${file.name}", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, "截图失败：无画面数据", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onSaveState = { showSlotPicker = "save" },
+                onLoadState = { showSlotPicker = "load" },
+                onReset = {
+                    engine.reset(hard = false)
+                    Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
+                },
                 onLayoutEditor = { showLayoutEditor = true },
                 onSettings = { showSettings = true },
                 onClose = { showMenu = false },
                 onExit = { onExit() }
+            )
+        }
+
+        // State slot picker dialog
+        if (showSlotPicker != null) {
+            SlotPickerDialog(
+                mode = showSlotPicker!!,
+                currentSlot = saveLoadSlot,
+                onSlotSelected = { slot ->
+                    val saveDir = java.io.File(context.filesDir, "saves")
+                    saveDir.mkdirs()
+                    val stateFile = java.io.File(saveDir, "${game.id}_slot${slot}.state")
+                    if (showSlotPicker == "save") {
+                        try {
+                            engine.saveState(slot, stateFile)
+                            Toast.makeText(context, "存档已保存 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "存档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        if (stateFile.exists()) {
+                            try {
+                                engine.loadState(slot, stateFile)
+                                Toast.makeText(context, "存档已读取 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "读档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "槽位 $slot 无存档", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    saveLoadSlot = slot
+                    showSlotPicker = null
+                },
+                onDismiss = { showSlotPicker = null }
             )
         }
 
@@ -987,10 +1061,13 @@ private fun MenuOverlay(
     gameTitle: String,
     running: Boolean,
     fastForward: Boolean,
+    currentSlot: Int = 0,
     onTogglePause: () -> Unit,
     onToggleFastForward: () -> Unit,
     onScreenshot: () -> Unit,
     onSaveState: () -> Unit,
+    onLoadState: () -> Unit,
+    onReset: () -> Unit,
     onLayoutEditor: () -> Unit,
     onSettings: () -> Unit,
     onClose: () -> Unit,
@@ -1008,16 +1085,92 @@ private fun MenuOverlay(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp))
+        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp), maxLines = 1)
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
         IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForward) Color(0xFFFFD66B) else Color.White) }
         IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
         IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
+        IconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }
+        IconButton(onClick = onReset) { Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B)) }
         IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
         IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
         IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
         IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// State slot picker dialog — choose a save slot (0-9) for save/load state
+// ---------------------------------------------------------------------------
+@Composable
+private fun SlotPickerDialog(
+    mode: String, // "save" | "load"
+    currentSlot: Int,
+    onSlotSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (mode == "save") "保存存档" else "读取存档") },
+        text = {
+            Column {
+                Text(
+                    if (mode == "save") "选择一个存档槽位（覆盖已有存档）" else "选择一个存档槽位读取",
+                    fontSize = 13.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (slot in 0..4) {
+                        SlotButton(
+                            slot = slot,
+                            isCurrent = slot == currentSlot,
+                            onClick = { onSlotSelected(slot) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (slot in 5..9) {
+                        SlotButton(
+                            slot = slot,
+                            isCurrent = slot == currentSlot,
+                            onClick = { onSlotSelected(slot) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun SlotButton(slot: Int, isCurrent: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isCurrent) Color(0xFF4F8AC4) else Color(0xFFE0E0E0))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "$slot",
+            color = if (isCurrent) Color.White else Color(0xFF1E2A3A),
+            fontSize = 16.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+        )
     }
 }
 
