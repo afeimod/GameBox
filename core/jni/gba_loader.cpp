@@ -38,6 +38,11 @@
 #include <vector>
 
 #define TAG "gbacore-rom"
+// core_shared.h already defines LOGI/LOGW/LOGE with tag "core-shared".
+// Redefine them with our specific tag for better log filtering.
+#undef LOGI
+#undef LOGW
+#undef LOGE
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -208,7 +213,9 @@ static bool cb_environment(unsigned cmd, void* data) {
         // The core registers these; we accept.
         case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
+#ifdef RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE
         case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE:
+#endif
         case RETRO_ENVIRONMENT_SET_VARIABLES:
             return true;
 

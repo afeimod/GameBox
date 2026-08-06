@@ -238,6 +238,7 @@ if(EXISTS "${SNES9X_SRC}/libretro/libretro.cpp")
     target_include_directories(snescore PRIVATE
         "${SNES9X_SRC}"
         "${SNES9X_SRC}/libretro"
+        "${SNES9X_SRC}/libretro/libretro-common/include"
         "${SNES9X_SRC}/apu"
         "${SNES9X_SRC}/apu/bapu"
         "${APP_JNI_DIR}"
