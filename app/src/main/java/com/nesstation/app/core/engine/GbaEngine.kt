@@ -11,7 +11,17 @@ import kotlin.concurrent.thread
 
 /**
  * High-level façade around [GbaNative] (mGBA core for GB/GBC/GBA).
- * Same architecture as [NesEngine].
+ *
+ * Architecture:
+ *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
+ *   - Audio thread: reads from native ring buffer, writes to AudioTrack with
+ *     BLOCKING mode (prevents sample drops / crackling)
+ *
+ * Separating audio into its own thread eliminates the tradeoff between
+ * BLOCKING (causes lag when buffer full) and NON_BLOCKING (drops samples,
+ * causing "滋滋" crackling). The audio thread blocks on AudioTrack.write,
+ * which naturally throttles to the playback rate, while the emulation
+ * thread runs independently at full speed.
  *
  * GBA button bit layout (10 buttons):
  *   bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down, bit6=Left, bit7=Right
@@ -25,8 +35,12 @@ class GbaEngine private constructor() : EmulatorEngine {
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
-    private val audioBuf = ShortArray(8192)
     private var audioSampleRate = 44100
+
+    // Audio thread state
+    private val audioRunning = AtomicBoolean(false)
+    private var audioThread: Thread? = null
+
     @Volatile override var isLoaded = false
         private set
 
@@ -63,10 +77,6 @@ class GbaEngine private constructor() : EmulatorEngine {
         thread = thread(name = "gbacore-loop", isDaemon = true) {
             while (running.get()) {
                 if (_paused) {
-                    val n = GbaNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
                 }
@@ -79,22 +89,15 @@ class GbaEngine private constructor() : EmulatorEngine {
                     GbaNative.getFrameBuffer(frameBuffer)
                 }
 
+                onFrame()
+
                 if (_fastForward) {
-                    // Fast-forward: skip audio, drain ring buffer, yield for max speed.
-                    GbaNative.readAudio(audioBuf) // discard
-                    onFrame()
-                    Thread.yield()
+                    // Fast-forward: minimal sleep so the game runs much faster.
+                    // Audio is handled by the separate audio thread and plays
+                    // at normal speed (ring buffer absorbs overflow).
+                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                 } else {
-                    // Normal speed: read and play audio, pace to ~60fps.
-                    // NON_BLOCKING writes prevent audio buffer stalls.
-                    val n = GbaNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
-
-                    onFrame()
-
-                    // GB/GBC ~60fps, GBA ~60fps
+                    // Normal: pace to ~60fps
                     val targetNs = 1_000_000_000L / 60
                     val elapsed = System.nanoTime() - t0
                     val sleep = targetNs - elapsed
@@ -159,7 +162,7 @@ class GbaEngine private constructor() : EmulatorEngine {
             }
             if (minBuf <= 0) return
             audioSampleRate = rate
-            // Use 4x the minimum buffer size with NON_BLOCKING writes.
+            // Use 4x min buffer for smooth playback with BLOCKING writes.
             val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
@@ -179,9 +182,40 @@ class GbaEngine private constructor() : EmulatorEngine {
         } catch (e: Exception) {
             audioTrack = null
         }
+
+        // Start dedicated audio thread — uses BLOCKING writes so no samples
+        // are dropped. This eliminates the "滋滋" crackling that NON_BLOCKING
+        // caused. The thread reads from the native ring buffer (which is
+        // mutex-protected, safe to call from a different thread).
+        audioRunning.set(true)
+        audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
+            val buf = ShortArray(4096)
+            while (audioRunning.get()) {
+                try {
+                    val n = GbaNative.readAudio(buf)
+                    if (n > 0) {
+                        // BLOCKING write: waits if AudioTrack buffer is full.
+                        // This prevents sample drops and crackling.
+                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                    } else {
+                        // No audio available (e.g. paused or starting up).
+                        Thread.sleep(2)
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }
     }
 
     private fun stopAudio() {
+        audioRunning.set(false)
+        audioThread?.let {
+            it.interrupt()
+            try { it.join(200) } catch (_: InterruptedException) {}
+        }
+        audioThread = null
+
         audioTrack?.let {
             try { it.stop() } catch (_: Exception) {}
             try { it.release() } catch (_: Exception) {}

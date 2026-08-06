@@ -11,8 +11,11 @@ import kotlin.concurrent.thread
 
 /**
  * High-level façade around [SnesNative] (snes9x core).
- * Same architecture as [NesEngine]: owns the emulation thread, AudioTrack,
- * and optional hardware-accelerated surface rendering.
+ *
+ * Architecture:
+ *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
+ *   - Audio thread: reads from native ring buffer, writes to AudioTrack with
+ *     BLOCKING mode (prevents sample drops / crackling)
  *
  * SNES button bit layout (12 buttons):
  *   bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down, bit6=Left, bit7=Right
@@ -25,7 +28,10 @@ class SnesEngine private constructor() : EmulatorEngine {
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
-    private val audioBuf = ShortArray(8192)
+
+    // Audio thread state
+    private val audioRunning = AtomicBoolean(false)
+    private var audioThread: Thread? = null
 
     @Volatile override var isLoaded = false
         private set
@@ -61,12 +67,6 @@ class SnesEngine private constructor() : EmulatorEngine {
         thread = thread(name = "snescore-loop", isDaemon = true) {
             while (running.get()) {
                 if (_paused) {
-                    val n = SnesNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        // NON_BLOCKING: avoid stalling the emulation thread when
-                        // the AudioTrack buffer is full during pause state.
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
                 }
@@ -79,24 +79,14 @@ class SnesEngine private constructor() : EmulatorEngine {
                     SnesNative.getFrameBuffer(frameBuffer)
                 }
 
+                onFrame()
+
                 if (_fastForward) {
-                    // Fast-forward: skip audio entirely to maximize speed.
-                    // Drain the audio ring buffer to prevent overflow, but
-                    // don't write to AudioTrack. Use Thread.yield() instead
-                    // of sleep to run as fast as possible.
-                    SnesNative.readAudio(audioBuf) // discard
-                    onFrame()
-                    Thread.yield()
+                    // Fast-forward: minimal sleep so the game runs much faster.
+                    // Audio plays at normal speed via the separate audio thread.
+                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                 } else {
-                    // Normal speed: read and play audio, pace to 60fps.
-                    val n = SnesNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
-
-                    onFrame()
-
-                    // SNES NTSC ~60fps, PAL ~50fps
+                    // Normal: pace to ~60fps (NTSC)
                     val targetNs = 1_000_000_000L / 60
                     val elapsed = System.nanoTime() - t0
                     val sleep = targetNs - elapsed
@@ -163,9 +153,34 @@ class SnesEngine private constructor() : EmulatorEngine {
         } catch (e: Exception) {
             audioTrack = null
         }
+
+        // Dedicated audio thread with BLOCKING writes — no crackling.
+        audioRunning.set(true)
+        audioThread = thread(name = "snes-audio-loop", isDaemon = true) {
+            val buf = ShortArray(4096)
+            while (audioRunning.get()) {
+                try {
+                    val n = SnesNative.readAudio(buf)
+                    if (n > 0) {
+                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                    } else {
+                        Thread.sleep(2)
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }
     }
 
     private fun stopAudio() {
+        audioRunning.set(false)
+        audioThread?.let {
+            it.interrupt()
+            try { it.join(200) } catch (_: InterruptedException) {}
+        }
+        audioThread = null
+
         audioTrack?.let {
             try { it.stop() } catch (_: Exception) {}
             try { it.release() } catch (_: Exception) {}

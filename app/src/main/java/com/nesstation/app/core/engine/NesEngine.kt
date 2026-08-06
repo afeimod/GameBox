@@ -13,16 +13,17 @@ import kotlin.concurrent.thread
  * High-level façade around [NesNative]. Owns the emulation thread, the
  * AudioTrack for sound, and optional hardware-accelerated surface rendering.
  *
+ * Architecture:
+ *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
+ *   - Audio thread: reads from native ring buffer, writes to AudioTrack with
+ *     BLOCKING mode (prevents sample drops / crackling)
+ *
  * Lifecycle:
  *  - [ensureLoaded] loads the native library (call once at app startup).
  *  - [loadRom] boots a native session and starts the emulation thread.
  *  - [setSurface] attaches a Surface for direct ANativeWindow blitting.
  *  - [unload] / [shutdown] stop the thread and release audio.
  *  - [setPad1] pushes controller state to the core for the next frame.
- *
- * When a Surface is attached via [setSurface], the native core blits each
- * frame directly to the surface buffer (hardware-accelerated path). The
- * Kotlin-side frame buffer copy is skipped entirely, giving smooth 60fps.
  */
 class NesEngine private constructor() : EmulatorEngine {
 
@@ -31,7 +32,10 @@ class NesEngine private constructor() : EmulatorEngine {
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
-    private val audioBuf = ShortArray(8192) // pulled per frame, ~93ms @44.1k stereo
+
+    // Audio thread state
+    private val audioRunning = AtomicBoolean(false)
+    private var audioThread: Thread? = null
 
     @Volatile override var isLoaded = false
         private set
@@ -42,14 +46,6 @@ class NesEngine private constructor() : EmulatorEngine {
 
     override fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
-    /**
-     * Load a ROM and start the emulation thread.
-     * @param rom the .nes ROM file
-     * @param systemDir directory for FDS BIOS etc. (app files dir)
-     * @param saveDir directory for SRAM / save states
-     * @param onFrame called on the emulation thread after each produced frame
-     * @return true if the ROM loaded and emulation started
-     */
     override fun loadRom(
         rom: File,
         systemDir: String,
@@ -58,7 +54,6 @@ class NesEngine private constructor() : EmulatorEngine {
     ): Boolean {
         if (!ensureLoaded()) return false
 
-        // Stop any existing emulation thread first.
         stop()
 
         NesNative.setPaths(systemDir, saveDir)
@@ -68,21 +63,14 @@ class NesEngine private constructor() : EmulatorEngine {
         }
         isLoaded = true
 
-        // Apply current fast-forward state
         NesNative.setFastForward(_fastForward)
 
-        // Set up AudioTrack at the core's native sample rate.
         startAudio(NesNative.audioSampleRate().takeIf { it > 0 } ?: 44100)
 
         running.set(true)
         thread = thread(name = "nescore-loop", isDaemon = true) {
             while (running.get()) {
                 if (_paused) {
-                    // Paused: drain audio to prevent buffer overflow, but don't step the core
-                    val n = NesNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
                 }
@@ -91,28 +79,18 @@ class NesEngine private constructor() : EmulatorEngine {
 
                 NesNative.runFrame()
 
-                // Only copy the frame buffer to Kotlin if we DON'T have a
-                // hardware-accelerated surface (the native code already blitted
-                // the frame directly to the ANativeWindow when a surface is set).
                 if (!hasSurface) {
                     NesNative.getFrameBuffer(frameBuffer)
                 }
 
+                onFrame()
+
                 if (_fastForward) {
-                    // Fast-forward: skip audio, drain ring buffer, yield for max speed.
-                    NesNative.readAudio(audioBuf) // discard
-                    onFrame()
-                    Thread.yield()
+                    // Fast-forward: minimal sleep so the game runs much faster.
+                    // Audio plays at normal speed via the separate audio thread.
+                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                 } else {
-                    // Normal speed: read and play audio, pace to ~60fps.
-                    val n = NesNative.readAudio(audioBuf)
-                    if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
-                    }
-
-                    onFrame()
-
-                    // Pace to ~60fps (NTSC)
+                    // Normal: pace to ~60fps (NTSC)
                     val targetNs = 1_000_000_000L / 60
                     val elapsed = System.nanoTime() - t0
                     val sleep = targetNs - elapsed
@@ -129,36 +107,18 @@ class NesEngine private constructor() : EmulatorEngine {
         return true
     }
 
-    /**
-     * Attach a [Surface] for hardware-accelerated direct rendering.
-     * The native core will blit each frame directly to the surface via
-     * ANativeWindow, bypassing the JNI frame buffer copy entirely.
-     * Pass null to detach (e.g. when the SurfaceView is destroyed).
-     */
     override fun setSurface(surface: Surface?) {
         hasSurface = surface != null
         NesNative.setSurface(surface)
     }
 
-    /**
-     * Set a core option (e.g. NTSC filter, aspect ratio, palette).
-     * The change takes effect on the next frame.
-     */
     override fun setCoreOption(key: String, value: String) {
         NesNative.setCoreOption(key, value)
     }
 
-    /** Current video width from the core (e.g. 256, or 302 with NTSC filter). */
     override fun videoWidth(): Int = if (isLoaded) NesNative.videoWidth() else 256
-
-    /** Current video height from the core (e.g. 240). */
     override fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
 
-    /**
-     * Set the frontend video post-processing filter.
-     *   0 = none, 1 = scanline, 2 = crt, 3 = dot, 4 = xbr,
-     *   5 = hq2x, 6 = hq4x, 7 = xbr+dot
-     */
     override fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
 
     override fun setFastForward(on: Boolean) {
@@ -166,10 +126,6 @@ class NesEngine private constructor() : EmulatorEngine {
         if (isLoaded) NesNative.setFastForward(on)
     }
 
-    /**
-     * Pause or resume emulation. When paused, the emulation thread stays alive
-     * but doesn't call runFrame(), so the game freezes while the UI remains responsive.
-     */
     override fun setPaused(paused: Boolean) {
         _paused = paused
     }
@@ -177,11 +133,12 @@ class NesEngine private constructor() : EmulatorEngine {
     private fun startAudio(sampleRate: Int) {
         stopAudio()
         try {
-            val bufSize = AudioTrack.getMinBufferSize(
+            val minBuf = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(4096)
+            )
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -198,12 +155,36 @@ class NesEngine private constructor() : EmulatorEngine {
             )
             audioTrack?.play()
         } catch (e: Exception) {
-            // Audio is non-fatal — game still runs without sound
             audioTrack = null
+        }
+
+        // Dedicated audio thread with BLOCKING writes — no crackling.
+        audioRunning.set(true)
+        audioThread = thread(name = "nes-audio-loop", isDaemon = true) {
+            val buf = ShortArray(4096)
+            while (audioRunning.get()) {
+                try {
+                    val n = NesNative.readAudio(buf)
+                    if (n > 0) {
+                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                    } else {
+                        Thread.sleep(2)
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
         }
     }
 
     private fun stopAudio() {
+        audioRunning.set(false)
+        audioThread?.let {
+            it.interrupt()
+            try { it.join(200) } catch (_: InterruptedException) {}
+        }
+        audioThread = null
+
         audioTrack?.let {
             try { it.stop() } catch (_: Exception) {}
             try { it.release() } catch (_: Exception) {}
