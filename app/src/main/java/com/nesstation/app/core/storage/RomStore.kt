@@ -86,8 +86,16 @@ object RomStore {
     /** Add a single ROM entry and persist */
     fun add(ctx: Context, title: String, romPath: String, platform: GamePlatform = GamePlatform.NES): GameEntry {
         val list = loadAll(ctx)
-        if (list.any { it.romPath == romPath }) {
-            return list.first { it.romPath == romPath }
+        val existingIdx = list.indexOfFirst { it.romPath == romPath }
+        if (existingIdx >= 0) {
+            // Update platform and title if they differ — fixes wrong platform
+            // from older imports that defaulted everything to NES.
+            val existing = list[existingIdx]
+            if (existing.platform != platform || existing.title != title) {
+                list[existingIdx] = existing.copy(platform = platform, title = title)
+                saveAll(ctx, list)
+            }
+            return list[existingIdx]
         }
         val accent = ACCENT_COLORS[list.size % ACCENT_COLORS.size]
         val entry = GameEntry(

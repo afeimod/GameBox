@@ -272,8 +272,7 @@ fun LibraryScreen(
                 val entries = scanForRoms(context)
                 if (entries.isNotEmpty()) {
                     entries.forEach { (name, path) ->
-                        val ext = name.substringAfterLast('.', "").lowercase()
-                        val platform = GamePlatform.fromExtension(ext) ?: GamePlatform.NES
+                        val platform = detectPlatformFromFile(File(path))
                         RomStore.add(context, name.substringBeforeLast('.'), path, platform)
                     }
                     refreshList()
@@ -574,7 +573,7 @@ private fun scanUriForRomsRecursive(
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext in ROM_EXTENSIONS) {
                         val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                        results.add(name.substringBeforeLast('.') to fileUri)
+                        results.add(name to fileUri)
                     }
                 }
             }
@@ -601,7 +600,7 @@ private fun scanForRoms(context: android.content.Context): List<Pair<String, Str
         if (dir.exists() && dir.isDirectory) {
             dir.walkTopDown().take(500).forEach { file ->
                 if (file.isFile && file.extension.lowercase() in ROM_EXTENSIONS) {
-                    results.add(file.nameWithoutExtension to file.absolutePath)
+                    results.add(file.name to file.absolutePath)
                 }
             }
         }
