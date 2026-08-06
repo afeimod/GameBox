@@ -139,8 +139,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 AudioFormat.ENCODING_PCM_16BIT
             )
             // If the native sample rate is not supported (e.g., GBA's 65536 Hz
-            // on some devices), fall back to standard rates. The AudioTrack
-            // will resample internally to the device's output rate.
+            // on some devices), fall back to standard rates.
             if (minBuf <= 0 && rate != 48000) {
                 rate = 48000
                 minBuf = AudioTrack.getMinBufferSize(
@@ -155,9 +154,9 @@ class GbaEngine private constructor() : EmulatorEngine {
             }
             if (minBuf <= 0) return
             audioSampleRate = rate
-            // Use 8x the minimum buffer size for smoother audio playback.
-            // GBA's 65536 Hz sample rate can cause underruns with smaller buffers.
-            val bufSize = (minBuf * 8).coerceAtLeast(16384)
+            // Use 4x the minimum buffer size — same as SnesEngine.
+            // Larger buffers (8x) cause blocking writes to stall the emulation loop.
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -170,7 +169,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                     .build(),
                 bufSize,
                 AudioTrack.MODE_STREAM,
-                AudioTrack.PERFORMANCE_MODE_NONE
+                AudioTrack.PERFORMANCE_MODE_LOW_LATENCY
             )
             audioTrack?.play()
         } catch (e: Exception) {

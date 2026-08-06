@@ -316,14 +316,21 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         }
 
         if (s_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
-            // XRGB8888: 0xXXRRGGBB -> ARGB 0xFFRRGGBB
+            // mGBA outputs XBGR8 (R in bits 0-7, G in bits 8-15, B in bits 16-23)
+            // despite declaring RETRO_PIXEL_FORMAT_XRGB8888. This is because mGBA's
+            // mColor type in 32-bit mode uses M_COLOR_RED=0x000000FF, M_COLOR_BLUE=0x00FF0000.
+            // We must swap R and B to produce proper ARGB 0xFFRRGGBB.
             const uint32_t* src = static_cast<const uint32_t*>(data);
             const size_t stride = pitch / sizeof(uint32_t);
             for (unsigned y = 0; y < height; ++y) {
                 const uint32_t* srow = src + y * stride;
                 uint32_t* drow = s_frame.data() + y * width;
                 for (unsigned x = 0; x < width; ++x) {
-                    drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+                    uint32_t px = srow[x];
+                    uint32_t r = px & 0xFF;
+                    uint32_t g = (px >> 8) & 0xFF;
+                    uint32_t b = (px >> 16) & 0xFF;
+                    drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
                 }
             }
         } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
