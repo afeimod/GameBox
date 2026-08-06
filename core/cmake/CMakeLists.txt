@@ -300,14 +300,32 @@ if(EXISTS "${MGBA_DIR}/CMakeLists.txt")
         "${HQX_DIR}"
     )
 
+    # ABI-critical: these defines MUST match the ones used when building the
+    # mgba static library target (via add_subdirectory above).  Mismatched
+    # defines change struct layouts (mCore, mColor) and cause silent crashes.
+    #
+    # Library defines (from mgba CMakeLists.txt):
+    #   M_CORE_GBA, M_CORE_GB       — via add_definitions()
+    #   ENABLE_VFS, ENABLE_DIRECTORIES — via FEATURE_DEFINES (ENABLE_VFS=ON)
+    #   ENABLE_VFS_FD, BUILD_STATIC    — via OS_DEFINES (Linux/Android)
+    #   _GNU_SOURCE, USE_PTHREADS      — via add_definitions()
+    #
+    # NOT defined by library (so must NOT be defined here either):
+    #   MINIMAL_CORE   — would shrink mCore struct (inputMap, startVideoLog…)
+    #   COLOR_16_BIT   — would change mColor from uint32_t to uint16_t
+    #   COLOR_5_6_5    — only meaningful with COLOR_16_BIT
+    #
+    # DISABLE_THREADING is safe: it only affects mLockstep/mRewindContext,
+    # neither of which libretro.c accesses directly.
     target_compile_definitions(gbacore PRIVATE
         __LIBRETRO__
-        COLOR_16_BIT
-        COLOR_5_6_5
         DISABLE_THREADING
         MGBA_STANDALONE
-        MINIMAL_CORE=2
         ENABLE_VFS
+        ENABLE_DIRECTORIES
+        ENABLE_VFS_FD
+        M_CORE_GBA
+        M_CORE_GB
         ANDROID
         NDEBUG
     )

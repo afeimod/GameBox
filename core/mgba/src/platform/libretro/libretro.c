@@ -25,6 +25,7 @@
 #endif
 #include <mgba-util/memory.h>
 #include <mgba-util/vfs.h>
+#include <mgba-util/audio-buffer.h>
 
 #include "libretro_core_options.h"
 
