@@ -146,8 +146,12 @@ static void initDefaultOptions() {
     s_options["mgba_frameskip_threshold"]       = "33";
 
     // --- Audio ---
-    s_options["mgba_audio_resampler"]           = "nearest";
-    s_options["mgba_audio_low_pass_filter"]     = "disabled";
+    // Use "sinc" resampler instead of "nearest" — "nearest" causes aliasing
+    // artifacts and crackling/noise. "sinc" provides smooth, clean audio.
+    // The low-pass filter removes harsh high-frequency artifacts that make
+    // GBA audio sound "muffled with noise" (闷音+杂音).
+    s_options["mgba_audio_resampler"]           = "sinc";
+    s_options["mgba_audio_low_pass_filter"]     = "enabled";
     s_options["mgba_audio_low_pass_range"]      = "60";
 
     // --- GBA RTC ---

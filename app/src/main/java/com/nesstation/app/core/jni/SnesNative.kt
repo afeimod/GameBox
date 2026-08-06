@@ -51,14 +51,21 @@ object SnesNative {
 
     /**
      * Set a core option by key and value.
-     * Common snes9x keys:
-     *   "snes9x_aspect"             -> "4:3" | "8:7" | "PP"
-     *   "snes9x_overclock_superfx"  -> "disabled" | "enabled"
-     *   "snes9x_blargg_filter"      -> "disabled" | "composite" | "svideo" | "rgb" | "monochrome"
-     *   "snes9x_audio_interpolation"-> "disabled" | "linear" | "cubic" | "sinc" | "gaussian"
+     * Common snes9x keys (MUST match libretro_core_options.h exactly):
+     *   "snes9x_aspect"             -> "4:3" | "uncorrected" | "auto" | "ntsc" | "pal"
+     *   "snes9x_overclock"          -> "50%" to "500%" (SuperFX frequency, "100%" default)
+     *   "snes9x_overclock_cycles"   -> "disabled" | "light" | "compatible" | "max"
+     *   "snes9x_blargg"             -> "disabled" | "monochrome" | "rf" | "composite" | "s-video" | "rgb"
+     *   "snes9x_audio_interpolation"-> "gaussian" | "cubic" | "sinc" | "none" | "linear"
      *   "snes9x_reduce_sprite_flicker" -> "disabled" | "enabled"
-     *   "snes9x_reduce_slowdown"    -> "disabled" | "enabled" | "max"
+     *   "snes9x_gfx_clip"           -> "enabled" | "disabled" (CRITICAL for text rendering)
+     *   "snes9x_gfx_transp"         -> "enabled" | "disabled" (CRITICAL for text rendering)
+     *   "snes9x_gfx_hires"          -> "enabled" | "disabled"
+     *   "snes9x_block_invalid_vram_access" -> "enabled" | "disabled"
+     *   "snes9x_overscan"           -> "enabled" | "disabled" | "auto"
      *   "snes9x_up_down_allowed"    -> "disabled" | "enabled"
+     *   "snes9x_layer_1" to "snes9x_layer_5" -> "enabled" | "disabled"
+     *   "snes9x_sndchan_1" to "snes9x_sndchan_8" -> "enabled" | "disabled"
      */
     @JvmStatic external fun setCoreOption(key: String, value: String)
 

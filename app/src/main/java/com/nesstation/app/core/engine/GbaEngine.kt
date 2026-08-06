@@ -65,7 +65,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 if (_paused) {
                     val n = GbaNative.readAudio(audioBuf)
                     if (n > 0) {
-                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                        audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                     }
                     try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                     continue
@@ -79,14 +79,14 @@ class GbaEngine private constructor() : EmulatorEngine {
                     GbaNative.getFrameBuffer(frameBuffer)
                 }
 
-                // Use NON_BLOCKING to prevent audio writes from stalling the
-                // emulation thread. GBA's 65536 Hz sample rate produces ~1092
-                // stereo frames per frame; BLOCKING writes cause the thread to
-                // stall when the AudioTrack buffer is full, making the game
-                // stutter. NON_BLOCKING drops excess audio instead.
+                // Use BLOCKING writes with a large buffer. NON_BLOCKING drops
+                // audio frames when the buffer is full, causing audible gaps
+                // and crackling (杂音). BLOCKING ensures every sample is played,
+                // producing clean audio. The large buffer (8x min) prevents
+                // the emulation thread from stalling.
                 val n = GbaNative.readAudio(audioBuf)
                 if (n > 0) {
-                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                    audioTrack?.write(audioBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                 }
 
                 onFrame()
@@ -155,9 +155,11 @@ class GbaEngine private constructor() : EmulatorEngine {
             }
             if (minBuf <= 0) return
             audioSampleRate = rate
-            // Use 4x the minimum buffer size — same as SnesEngine.
-            // Larger buffers (8x) cause blocking writes to stall the emulation loop.
-            val bufSize = (minBuf * 4).coerceAtLeast(8192)
+            // Use 8x the minimum buffer size for BLOCKING writes. BLOCKING mode
+            // requires a larger buffer to prevent the emulation thread from
+            // stalling while waiting for audio playback. With "sinc" resampler
+            // and low-pass filter enabled, this produces clean, crackle-free audio.
+            val bufSize = (minBuf * 8).coerceAtLeast(16384)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)

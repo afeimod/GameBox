@@ -335,32 +335,38 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("fceumm_overclocking", layout.overclocking)
         }
         GamePlatform.SFC -> {
-            // Map shared aspectRatio field to SNES9x values (8:7 PAR -> 8:7)
-            val sfcAspect = when (layout.aspectRatio) {
-                "8:7 PAR" -> "8:7"
-                "PP" -> "PP"
-                else -> "4:3"
-            }
-            engine.setCoreOption("snes9x_aspect", sfcAspect)
-            engine.setCoreOption("snes9x_overclock_superfx", layout.sfcOverclock)
-            engine.setCoreOption("snes9x_blargg_filter", layout.ntscFilter)
+            // SNES9x aspect ratio values: "4:3" | "uncorrected" | "auto" | "ntsc" | "pal"
+            // The dropdown already provides these values directly.
+            engine.setCoreOption("snes9x_aspect", layout.aspectRatio)
+            engine.setCoreOption("snes9x_overclock", layout.sfcOverclock)
+            engine.setCoreOption("snes9x_blargg", layout.ntscFilter)
             engine.setCoreOption("snes9x_overscan", layout.sfcOverscan)
-            engine.setCoreOption("snes9x_side_by_side", layout.sfcSideBySide)
-            engine.setCoreOption("snes9x_superscope", layout.sfcSuperScope)
             engine.setCoreOption("snes9x_up_down_allowed", layout.sfcUpDownAllowed)
             engine.setCoreOption("snes9x_reduce_sprite_flicker", layout.sfcReduceSpriteFlicker)
-            engine.setCoreOption("snes9x_reduce_slowdown", layout.sfcReduceSlowdown)
+            engine.setCoreOption("snes9x_overclock_cycles", layout.sfcReduceSlowdown)
             engine.setCoreOption("snes9x_audio_interpolation", layout.sfcAudioInterpolation)
-            engine.setCoreOption("snes9x_gfx_transparency", layout.sfcGfxTransparency)
+            engine.setCoreOption("snes9x_gfx_transp", layout.sfcGfxTransparency)
             engine.setCoreOption("snes9x_gfx_hires", layout.sfcGfxHires)
             engine.setCoreOption("snes9x_gfx_clip", layout.sfcGfxClip)
-            engine.setCoreOption("snes9x_sound_output", layout.sfcSoundOutput)
-            engine.setCoreOption("snes9x_sound_channels", "all")
+            engine.setCoreOption("snes9x_block_invalid_vram_access", "enabled")
+            engine.setCoreOption("snes9x_hires_blend", layout.sfcSideBySide)
+            engine.setCoreOption("snes9x_echo_buffer_hack", layout.sfcSoundOutput)
+            engine.setCoreOption("snes9x_randomize_memory", layout.sfcSuperScope)
+            engine.setCoreOption("snes9x_region", "auto")
             engine.setCoreOption("snes9x_layer_1", layout.sfcLayer1)
             engine.setCoreOption("snes9x_layer_2", layout.sfcLayer2)
             engine.setCoreOption("snes9x_layer_3", layout.sfcLayer3)
             engine.setCoreOption("snes9x_layer_4", layout.sfcLayer4)
             engine.setCoreOption("snes9x_layer_5", layout.sfcLayer5)
+            // Sound channels (8 individual channels)
+            engine.setCoreOption("snes9x_sndchan_1", "enabled")
+            engine.setCoreOption("snes9x_sndchan_2", "enabled")
+            engine.setCoreOption("snes9x_sndchan_3", "enabled")
+            engine.setCoreOption("snes9x_sndchan_4", "enabled")
+            engine.setCoreOption("snes9x_sndchan_5", "enabled")
+            engine.setCoreOption("snes9x_sndchan_6", "enabled")
+            engine.setCoreOption("snes9x_sndchan_7", "enabled")
+            engine.setCoreOption("snes9x_sndchan_8", "enabled")
         }
         GamePlatform.GB, GamePlatform.GBA -> {
             engine.setCoreOption("mgba_gb_model", layout.gbModel)
@@ -1524,18 +1530,19 @@ private fun SettingsPanel(
 
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("画面比例",
-                    listOf("8:7 PAR" to "8:7 (原始像素比)", "4:3" to "4:3 (标准)", "PP" to "Pixel Perfect"),
+                    listOf("4:3" to "4:3 (标准)", "uncorrected" to "8:7 (原始像素比)",
+                           "auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
                     padLayout.aspectRatio
                 ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
 
                 DropdownSetting("NTSC 滤镜",
-                    listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video",
-                           "rgb" to "RGB", "monochrome" to "黑白"),
+                    listOf("disabled" to "关闭", "monochrome" to "黑白", "rf" to "RF",
+                           "composite" to "复合", "s-video" to "S-Video", "rgb" to "RGB"),
                     padLayout.ntscFilter
                 ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
 
                 DropdownSetting("裁剪过扫描",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("enabled" to "开启", "disabled" to "关闭", "auto" to "自动"),
                     padLayout.sfcOverscan
                 ) { onLayoutChange(padLayout.copy(sfcOverscan = it)) }
 
@@ -1554,16 +1561,16 @@ private fun SettingsPanel(
                     padLayout.sfcGfxClip
                 ) { onLayoutChange(padLayout.copy(sfcGfxClip = it)) }
 
-                DropdownSetting("并排显示",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                DropdownSetting("高分辨率混合",
+                    listOf("disabled" to "关闭", "merge" to "合并", "blur" to "模糊"),
                     padLayout.sfcSideBySide
                 ) { onLayoutChange(padLayout.copy(sfcSideBySide = it)) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("超频(SuperFX)",
-                    listOf("disabled" to "关闭", "10MHz (150%)" to "10MHz (150%)",
-                           "14MHz (200%)" to "14MHz (200%)", "20MHz (300%)" to "20MHz (300%)"),
+                    listOf("100%" to "100% (默认)", "150%" to "150%", "200%" to "200%",
+                           "300%" to "300%", "400%" to "400%", "500%" to "500%"),
                     padLayout.sfcOverclock
                 ) { onLayoutChange(padLayout.copy(sfcOverclock = it)) }
 
@@ -1573,21 +1580,23 @@ private fun SettingsPanel(
                 ) { onLayoutChange(padLayout.copy(sfcReduceSpriteFlicker = it)) }
 
                 DropdownSetting("减少慢动作",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("disabled" to "关闭", "light" to "轻微",
+                           "compatible" to "兼容", "max" to "最大"),
                     padLayout.sfcReduceSlowdown
                 ) { onLayoutChange(padLayout.copy(sfcReduceSlowdown = it)) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
-                DropdownSetting("声音输出",
-                    listOf("enabled" to "开启", "disabled" to "关闭"),
-                    padLayout.sfcSoundOutput
-                ) { onLayoutChange(padLayout.copy(sfcSoundOutput = it)) }
-
                 DropdownSetting("音频插值",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("gaussian" to "高斯(默认)", "cubic" to "三次", "sinc" to "Sinc",
+                           "linear" to "线性", "none" to "无"),
                     padLayout.sfcAudioInterpolation
                 ) { onLayoutChange(padLayout.copy(sfcAudioInterpolation = it)) }
+
+                DropdownSetting("回声缓冲Hack",
+                    listOf("disabled" to "关闭", "enabled" to "开启(旧版Addmusic)"),
+                    padLayout.sfcSoundOutput
+                ) { onLayoutChange(padLayout.copy(sfcSoundOutput = it)) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -1596,7 +1605,7 @@ private fun SettingsPanel(
                     padLayout.sfcUpDownAllowed
                 ) { onLayoutChange(padLayout.copy(sfcUpDownAllowed = it)) }
 
-                DropdownSetting("Super Scope",
+                DropdownSetting("随机内存(不安全)",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.sfcSuperScope
                 ) { onLayoutChange(padLayout.copy(sfcSuperScope = it)) }

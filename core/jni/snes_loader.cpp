@@ -125,40 +125,69 @@ static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
 
 // Initialize SNES9x core options with sensible defaults.
-// Values MUST match SNES9x's libretro_core_options.h defaults exactly.
+// Keys MUST match SNES9x's libretro_core_options.h exactly.
+// Wrong keys cause the core to ignore settings and use its own defaults,
+// which can break text rendering in RPGs like Fire Emblem (字体花屏).
 static void initDefaultOptions() {
     // --- Video / Aspect ---
     s_options["snes9x_aspect"]                = "4:3";
-    s_options["snes9x_overscan"]              = "disabled";
+    s_options["snes9x_overscan"]              = "enabled";
 
     // --- Overclock / Hacks ---
-    s_options["snes9x_overclock_superfx"]     = "disabled";
-    s_options["snes9x_blargg_filter"]         = "disabled";
-    s_options["snes9x_audio_interpolation"]   = "disabled";
-    s_options["snes9x_side_by_side"]          = "disabled";
+    s_options["snes9x_overclock"]             = "100%";
+    s_options["snes9x_overclock_cycles"]      = "disabled";
     s_options["snes9x_reduce_sprite_flicker"] = "disabled";
-    s_options["snes9x_reduce_slowdown"]       = "disabled";
+    s_options["snes9x_randomize_memory"]      = "disabled";
+
+    // --- Video Processing ---
+    s_options["snes9x_hires_blend"]           = "disabled";
+    s_options["snes9x_blargg"]                = "disabled";
+
+    // --- Audio ---
+    s_options["snes9x_audio_interpolation"]   = "gaussian";
+    s_options["snes9x_sndchan_1"]             = "enabled";
+    s_options["snes9x_sndchan_2"]             = "enabled";
+    s_options["snes9x_sndchan_3"]             = "enabled";
+    s_options["snes9x_sndchan_4"]             = "enabled";
+    s_options["snes9x_sndchan_5"]             = "enabled";
+    s_options["snes9x_sndchan_6"]             = "enabled";
+    s_options["snes9x_sndchan_7"]             = "enabled";
+    s_options["snes9x_sndchan_8"]             = "enabled";
 
     // --- Input ---
-    s_options["snes9x_superscope"]            = "disabled";
     s_options["snes9x_up_down_allowed"]       = "disabled";
-    s_options["snes9x_crosshair"]             = "0";
 
-    // --- Layers ---
+    // --- Layers (all enabled by default) ---
     s_options["snes9x_layer_1"]               = "enabled";
     s_options["snes9x_layer_2"]               = "enabled";
     s_options["snes9x_layer_3"]               = "enabled";
     s_options["snes9x_layer_4"]               = "enabled";
     s_options["snes9x_layer_5"]               = "enabled";
 
-    // --- Graphics ---
+    // --- Graphics (CRITICAL for text/font rendering) ---
+    // snes9x_gfx_clip: Enable graphic clip windows. WITHOUT this, RPGs like
+    //   Fire Emblem that use window clipping for text boxes/dialog will have
+    //   garbled or invisible text (字体花屏).
+    // snes9x_gfx_transp: Enable transparency effects. Text boxes use
+    //   transparency; disabling causes rendering artifacts.
+    // snes9x_gfx_hires: Enable hires mode. Some games use hi-res for text.
     s_options["snes9x_gfx_clip"]              = "enabled";
+    s_options["snes9x_gfx_transp"]            = "enabled";
     s_options["snes9x_gfx_hires"]             = "enabled";
-    s_options["snes9x_gfx_transparency"]      = "enabled";
 
-    // --- Audio ---
-    s_options["snes9x_sound_output"]          = "enabled";
-    s_options["snes9x_sound_channels"]        = "all";
+    // --- VRAM / Compatibility ---
+    // Block invalid VRAM access — prevents garbage data corrupting text tiles.
+    s_options["snes9x_block_invalid_vram_access"] = "enabled";
+    s_options["snes9x_echo_buffer_hack"]      = "disabled";
+
+    // --- Region ---
+    s_options["snes9x_region"]                = "auto";
+
+    // --- Lightgun crosshairs (defaults) ---
+    s_options["snes9x_superscope_crosshair"]  = "2";
+    s_options["snes9x_justifier1_crosshair"]  = "4";
+    s_options["snes9x_justifier2_crosshair"]  = "4";
+    s_options["snes9x_rifle_crosshair"]       = "2";
 }
 
 // ---------------------------------------------------------------------------
