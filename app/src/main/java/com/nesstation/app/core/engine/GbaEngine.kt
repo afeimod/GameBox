@@ -147,18 +147,26 @@ class GbaEngine private constructor() : EmulatorEngine {
         stopAudio()
         audioSrcRate = sampleRate
         try {
-            // Always use 48000 Hz for AudioTrack — this is the most universally
-            // supported rate on Android and avoids low-quality HAL resampling.
-            // We resample from the core's native rate (e.g., 32768 Hz for GBA)
-            // to 48000 Hz ourselves for better quality.
-            var rate = 48000
+            // Use the core's native sample rate directly (e.g., 32768 Hz for GBA).
+            // Android's AudioFlinger handles resampling to the device's output
+            // rate internally with far higher quality than a hand-rolled linear
+            // interpolation. This also eliminates the resampler bugs that caused
+            // audio distortion (lost samples, incorrect position tracking).
+            var rate = sampleRate
             var minBuf = AudioTrack.getMinBufferSize(
                 rate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            if (minBuf <= 0 && rate != 44100) {
+            // If the native rate isn't supported, fall back to 44100 then 48000.
+            if (minBuf <= 0) {
                 rate = 44100
+                minBuf = AudioTrack.getMinBufferSize(
+                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
+                )
+            }
+            if (minBuf <= 0) {
+                rate = 48000
                 minBuf = AudioTrack.getMinBufferSize(
                     rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
                 )
@@ -188,39 +196,50 @@ class GbaEngine private constructor() : EmulatorEngine {
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
             val srcBuf = ShortArray(4096)
-            // Resampling state
-            val ratio = audioSrcRate.toDouble() / audioDstRate.toDouble()
+
+            // Only needed if the device couldn't use the core's native rate.
+            val needResample = audioSrcRate != audioDstRate
+            val dstBuf = if (needResample) ShortArray(8192) else null
+            val ratio = if (needResample) audioSrcRate.toDouble() / audioDstRate.toDouble() else 0.0
             var srcPos = 0.0
             var lastL: Short = 0
             var lastR: Short = 0
-            val dstBuf = ShortArray(8192)
 
             while (audioRunning.get()) {
                 try {
                     val n = GbaNative.readAudio(srcBuf)
                     if (n > 0) {
-                        // Linear interpolation resampling from srcRate to dstRate
-                        var dstIdx = 0
-                        val maxDst = dstBuf.size / 2
-                        for (i in 0 until n) {
-                            val curL = srcBuf[i * 2]
-                            val curR = srcBuf[i * 2 + 1]
-                            while (srcPos < (i + 1).toDouble() && dstIdx < maxDst) {
-                                val frac = srcPos - i.toDouble()
-                                val l = lastL + ((curL - lastL).toFloat() * frac.toFloat()).toInt()
-                                val r = lastR + ((curR - lastR).toFloat() * frac.toFloat()).toInt()
-                                dstBuf[dstIdx * 2] = l.toShort()
-                                dstBuf[dstIdx * 2 + 1] = r.toShort()
-                                dstIdx++
-                                srcPos += ratio
+                        if (!needResample || dstBuf == null) {
+                            // Native rate — write directly, no resampling
+                            audioTrack?.write(srcBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                        } else {
+                            // Fallback resampling (rare — most devices support 32768 Hz)
+                            var dstIdx = 0
+                            val maxDst = dstBuf.size / 2
+                            var i = 0
+                            while (i < n && dstIdx < maxDst) {
+                                val curL = srcBuf[i * 2]
+                                val curR = srcBuf[i * 2 + 1]
+                                while (srcPos < (i + 1).toDouble() && dstIdx < maxDst) {
+                                    val frac = (srcPos - i.toDouble()).toFloat()
+                                    val l = (lastL + (curL - lastL) * frac).toInt()
+                                    val r = (lastR + (curR - lastR) * frac).toInt()
+                                    dstBuf[dstIdx * 2] = l.toShort()
+                                    dstBuf[dstIdx * 2 + 1] = r.toShort()
+                                    dstIdx++
+                                    srcPos += ratio
+                                }
+                                if (dstIdx < maxDst) {
+                                    lastL = curL
+                                    lastR = curR
+                                }
+                                i++
                             }
-                            if (dstIdx >= maxDst) break
-                            lastL = curL
-                            lastR = curR
-                        }
-                        srcPos -= n
-                        if (dstIdx > 0) {
-                            audioTrack?.write(dstBuf, 0, dstIdx * 2, AudioTrack.WRITE_BLOCKING)
+                            // Carry over fractional position for next call
+                            srcPos -= n
+                            if (dstIdx > 0) {
+                                audioTrack?.write(dstBuf, 0, dstIdx * 2, AudioTrack.WRITE_BLOCKING)
+                            }
                         }
                     } else {
                         Thread.sleep(2)

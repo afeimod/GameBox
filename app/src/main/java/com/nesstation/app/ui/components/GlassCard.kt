@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.foundation.lazy.list.TvLazyColumn
@@ -222,7 +223,10 @@ fun GameCard(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
                 maxLines = 1,
-                modifier = Modifier.padding(top = 6.dp)
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, start = 2.dp, end = 2.dp)
             )
         }
     }

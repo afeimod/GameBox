@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
@@ -515,53 +518,80 @@ fun LibraryScreen(
         )
     }
 
-    // 长按游戏卡片弹出的操作菜单
+    // 长按游戏卡片弹出的操作菜单 — 使用自定义 Dialog 确保
+    // 即使游戏名过长，所有选项（包括删除）也始终可见/可滚动
     longPressGame?.let { game ->
-        AlertDialog(
-            onDismissRequest = { longPressGame = null },
-            title = {
-                Text(
-                    game.title,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    MenuOption("开始游戏") {
-                        longPressGame = null
-                        onOpenGame(game)
-                    }
-                    MenuOption("游戏设置") {
-                        longPressGame = null
-                        if (game.platform == GamePlatform.JAVA) {
-                            JavaGameStore.openSettings(context, game)
-                        } else {
-                            // NES 游戏的设置在模拟器内
+        Dialog(onDismissRequest = { longPressGame = null }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth(0.88f)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(vertical = 8.dp)
+                        .heightIn(max = 440.dp)
+                ) {
+                    // 标题 — 限制1行+省略号，避免占用过多空间
+                    Text(
+                        text = game.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF1E2A3A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+
+                    // 可滚动的菜单选项列表
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .weight(1f, fill = false)
+                    ) {
+                        MenuOption("开始游戏") {
+                            longPressGame = null
                             onOpenGame(game)
                         }
+                        MenuOption("游戏设置") {
+                            longPressGame = null
+                            if (game.platform == GamePlatform.JAVA) {
+                                JavaGameStore.openSettings(context, game)
+                            } else {
+                                onOpenGame(game)
+                            }
+                        }
+                        MenuOption("自定义图标") {
+                            longPressGame = null
+                            pendingIconGame = game
+                            iconPickerLauncher.launch(arrayOf("image/*"))
+                        }
+                        MenuOption(if (game.isFavorite) "取消收藏" else "收藏") {
+                            longPressGame = null
+                            RomStore.toggleFavorite(context, game.id)
+                            refreshList()
+                        }
+                        MenuOption("删除游戏", danger = true) {
+                            longPressGame = null
+                            pendingDeleteGame = game
+                        }
                     }
-                    MenuOption("自定义图标") {
-                        longPressGame = null
-                        pendingIconGame = game
-                        iconPickerLauncher.launch(arrayOf("image/*"))
-                    }
-                    MenuOption(if (game.isFavorite) "取消收藏" else "收藏") {
-                        longPressGame = null
-                        RomStore.toggleFavorite(context, game.id)
-                        refreshList()
-                    }
-                    MenuOption("删除游戏", danger = true) {
-                        longPressGame = null
-                        pendingDeleteGame = game
+
+                    // 关闭按钮 — 始终固定在底部
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        TextButton(onClick = { longPressGame = null }) { Text("关闭") }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { longPressGame = null }) { Text("关闭") }
             }
-        )
+        }
     }
 
     // 删除游戏确认弹窗

@@ -431,47 +431,49 @@ static inline int xbrEq8(uint32_t A, uint32_t B) {
 }
 
 // Blend macros adapted for ARGB format
+// CRITICAL: Cast to int32_t before subtraction to avoid unsigned wraparound
+// when src < dst, which causes corrupted pixels (scattered dots).
 #define XBR_BLEND_128(dst, src) \
     dst = ((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)
 
 #define XBR_BLEND_32(dst, src) \
     dst = ( \
-        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
-            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK))) >> 3))) | \
-        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
-            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK))) >> 3))) | \
-        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
-            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK))) >> 3))) ) + \
+        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
+            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) >> 3))) | \
+        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
+            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) >> 3))) | \
+        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
+            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) >> 3))) ) + \
             XBR_ALPHA_MASK
 
 #define XBR_BLEND_64(dst, src) \
     dst = ( \
-        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
-            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK))) >> 2))) | \
-        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
-            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK))) >> 2))) | \
-        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
-            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK))) >> 2))) ) + \
+        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
+            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) >> 2))) | \
+        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
+            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) >> 2))) | \
+        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
+            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) >> 2))) ) + \
             XBR_ALPHA_MASK
 
 #define XBR_BLEND_192(dst, src) \
     dst = ( \
-        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
-            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK)) * 192) >> 8))) | \
-        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
-            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK)) * 192) >> 8))) | \
-        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
-            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK)) * 192) >> 8))) ) + \
+        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
+            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) * 192 >> 8))) | \
+        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
+            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) * 192 >> 8))) | \
+        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
+            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) * 192 >> 8))) ) + \
             XBR_ALPHA_MASK
 
 #define XBR_BLEND_224(dst, src) \
     dst = ( \
-        (XBR_RED_MASK & ((dst & XBR_RED_MASK) + \
-            ((((src & XBR_RED_MASK) - (dst & XBR_RED_MASK)) * 224) >> 8))) | \
-        (XBR_GREEN_MASK & ((dst & XBR_GREEN_MASK) + \
-            ((((src & XBR_GREEN_MASK) - (dst & XBR_GREEN_MASK)) * 224) >> 8))) | \
-        (XBR_BLUE_MASK & ((dst & XBR_BLUE_MASK) + \
-            ((((src & XBR_BLUE_MASK) - (dst & XBR_BLUE_MASK)) * 224) >> 8))) ) + \
+        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
+            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) * 224 >> 8))) | \
+        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
+            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) * 224 >> 8))) | \
+        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
+            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) * 224 >> 8))) ) + \
             XBR_ALPHA_MASK
 
 // Four interpolation modes from 2xBR reference
