@@ -51,7 +51,7 @@ void Engine::shutdown()     { rom::unload(); }
 void Engine::setPad1(int bits)        { rom::setControllerInput(0, (uint8_t)bits); }
 void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
-void Engine::setFastForward(bool on)  { rom::applySpeed(on ? 4.0f : 1.0f); }
+void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
 
 void Engine::saveState(int slot, const std::string& path) {
     rom::saveStateToPath(slot, path);
@@ -157,8 +157,8 @@ Java_com_nesstation_app_core_jni_NesNative_setSampleRate(JNIEnv*, jclass, jint r
 }
 
 JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NesNative_setFastForward(JNIEnv*, jclass, jboolean on) {
-    nescore::Engine::instance().setFastForward(on == JNI_TRUE);
+Java_com_nesstation_app_core_jni_NesNative_setFastForward(JNIEnv*, jclass, jint speed) {
+    nescore::Engine::instance().setFastForward(speed);
 }
 
 JNIEXPORT jboolean JNICALL

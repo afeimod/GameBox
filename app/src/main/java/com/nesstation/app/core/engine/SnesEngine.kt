@@ -36,7 +36,7 @@ class SnesEngine private constructor() : EmulatorEngine {
     @Volatile override var isLoaded = false
         private set
 
-    @Volatile private var _fastForward = false
+    @Volatile private var _ffSpeed = 0
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
@@ -59,7 +59,7 @@ class SnesEngine private constructor() : EmulatorEngine {
         }
         isLoaded = true
 
-        SnesNative.setFastForward(_fastForward)
+        SnesNative.setFastForward(_ffSpeed)
 
         startAudio(SnesNative.audioSampleRate().takeIf { it > 0 } ?: 32040)
 
@@ -81,10 +81,15 @@ class SnesEngine private constructor() : EmulatorEngine {
 
                 onFrame()
 
-                if (_fastForward) {
-                    // Fast-forward: minimal sleep so the game runs much faster.
-                    // Audio plays at normal speed via the separate audio thread.
-                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                if (_ffSpeed > 0) {
+                    // Fast-forward: pace to target speed
+                    val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                    val elapsed = System.nanoTime() - t0
+                    val sleep = targetNs - elapsed
+                    if (sleep > 0) {
+                        try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                        catch (_: InterruptedException) { break }
+                    }
                 } else {
                     // Normal: pace to ~60fps (NTSC)
                     val targetNs = 1_000_000_000L / 60
@@ -117,9 +122,9 @@ class SnesEngine private constructor() : EmulatorEngine {
 
     override fun setVideoFilter(filter: Int) = SnesNative.setVideoFilter(filter)
 
-    override fun setFastForward(on: Boolean) {
-        _fastForward = on
-        if (isLoaded) SnesNative.setFastForward(on)
+    override fun setFastForward(speed: Int) {
+        _ffSpeed = speed
+        if (isLoaded) SnesNative.setFastForward(speed)
     }
 
     override fun setPaused(paused: Boolean) {

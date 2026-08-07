@@ -37,7 +37,7 @@ public:
     void setPad1(int bits);
     void setRegion(int region);      // 0=NTSC 1=PAL (best-effort)
     void setSampleRate(int hz);
-    void setFastForward(bool on);
+    void setFastForward(int speed);
 
     void saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);

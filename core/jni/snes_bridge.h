@@ -27,7 +27,7 @@ public:
     void setPad1(int bits);          // bit layout: A B SEL STA U D L R X Y L R
     void setRegion(int region);      // 0=NTSC 1=PAL
     void setSampleRate(int hz);
-    void setFastForward(bool on);
+    void setFastForward(int speed);
 
     void saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);

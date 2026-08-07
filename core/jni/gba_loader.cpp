@@ -114,6 +114,7 @@ static std::mutex s_windowMtx;
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
 static std::atomic<int>  s_ffFrameSkip{0};
+static std::atomic<int>  s_ffMaxSkip{6};
 
 // ---------------------------------------------------------------------------
 // Core options — key/value map served to the core via GET_VARIABLE
@@ -403,7 +404,8 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     // user can still see the game. ARGB conversion above still runs every
     // frame (for screenshots).
     if (s_fastForward.load(std::memory_order_relaxed)) {
-        if (s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % 6 != 0)
+        int skip = s_ffMaxSkip.load(std::memory_order_relaxed);
+        if (skip > 0 && s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % skip != 0)
             return;
     } else {
         s_ffFrameSkip.store(0, std::memory_order_relaxed);
@@ -620,10 +622,13 @@ void setPaths(const std::string& systemDir, const std::string& saveDir) {
 void applyRegion(int /*region*/) { /* region is auto-detected at load */ }
 void applySampleRate(int /*hz*/) { /* fixed by the core */ }
 void applySpeed(float multiplier) {
-    // Set the fast-forward flag so cb_video skips most surface blits.
-    // This prevents ANativeWindow_lock from blocking the emulation thread
-    // when frames are produced faster than the display can consume them.
     s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
+    // Frame skip: higher speed = skip more frames between renders.
+    // For 2x: skip 1, render 1 (every 2nd frame)
+    // For 4x: skip 3, render 1 (every 4th frame)
+    // For 6x: skip 5, render 1 (every 6th frame)
+    // For 8x: skip 7, render 1 (every 8th frame)
+    s_ffMaxSkip.store((int)multiplier, std::memory_order_relaxed);
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 

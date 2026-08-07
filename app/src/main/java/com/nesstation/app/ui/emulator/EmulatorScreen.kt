@@ -127,7 +127,7 @@ fun EmulatorScreen(
     val platform = game.platform
     val context = LocalContext.current
     var running by remember { mutableStateOf(true) }
-    var fastForward by remember { mutableStateOf(false) }
+    var fastForwardSpeed by remember { mutableStateOf(0) } // 0=off, 6=default
     var loaded by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
@@ -137,6 +137,7 @@ fun EmulatorScreen(
     var showSettings by remember { mutableStateOf(false) }
     var saveLoadSlot by remember { mutableStateOf(0) } // 0-9 state slots
     var showSlotPicker by remember { mutableStateOf<String?>(null) } // "save" | "load" | null
+    var showFFSpeedPicker by remember { mutableStateOf(false) }
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
@@ -249,7 +250,7 @@ fun EmulatorScreen(
         onDispose { engine.unload() }
     }
 
-    LaunchedEffect(fastForward) { engine.setFastForward(fastForward) }
+    LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -286,10 +287,11 @@ fun EmulatorScreen(
             MenuOverlay(
                 gameTitle = game.title,
                 running = running,
-                fastForward = fastForward,
+                fastForwardSpeed = fastForwardSpeed,
                 currentSlot = saveLoadSlot,
                 onTogglePause = { running = !running },
-                onToggleFastForward = { fastForward = !fastForward },
+                onToggleFastForward = { fastForwardSpeed = if (fastForwardSpeed > 0) 0 else 6 },
+                onCycleFFSpeed = { showFFSpeedPicker = true },
                 onScreenshot = {
                     val capture = engine.captureFrame()
                     if (capture != null) {
@@ -362,6 +364,38 @@ fun EmulatorScreen(
                     showSlotPicker = null
                 },
                 onDismiss = { showSlotPicker = null }
+            )
+        }
+
+        // Fast-forward speed picker dialog
+        if (showFFSpeedPicker) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showFFSpeedPicker = false },
+                title = { Text("快进速度") },
+                text = {
+                    Column {
+                        listOf(2, 4, 6, 8).forEach { speed ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        fastForwardSpeed = speed
+                                        showFFSpeedPicker = false
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 4.dp)
+                            ) {
+                                Text(
+                                    "$speed 倍速" + if (speed == 6) " (默认)" else "",
+                                    color = if (fastForwardSpeed == speed) Color(0xFFFFD66B) else Color.White,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { showFFSpeedPicker = false }) { Text("关闭") }
+                }
             )
         }
 
@@ -1059,10 +1093,11 @@ private fun ShoulderButtonCanvas(
 private fun MenuOverlay(
     gameTitle: String,
     running: Boolean,
-    fastForward: Boolean,
+    fastForwardSpeed: Int,
     currentSlot: Int = 0,
     onTogglePause: () -> Unit,
     onToggleFastForward: () -> Unit,
+    onCycleFFSpeed: () -> Unit,
     onScreenshot: () -> Unit,
     onSaveState: () -> Unit,
     onLoadState: () -> Unit,
@@ -1084,10 +1119,16 @@ private fun MenuOverlay(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp), maxLines = 1)
-        Spacer(Modifier.weight(1f))
+        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Spacer(Modifier.width(4.dp))
         IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
-        IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForward) Color(0xFFFFD66B) else Color.White) }
+        IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
+        Text(
+            if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
+            color = Color(0xFFFFD66B),
+            fontSize = 12.sp,
+            modifier = Modifier.clickable { onCycleFFSpeed() }
+        )
         IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
         IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
         IconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }

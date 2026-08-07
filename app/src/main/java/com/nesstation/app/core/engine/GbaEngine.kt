@@ -36,6 +36,8 @@ class GbaEngine private constructor() : EmulatorEngine {
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
     private var audioSampleRate = 44100
+    private var audioSrcRate = 32768
+    private var audioDstRate = 48000
 
     // Audio thread state
     private val audioRunning = AtomicBoolean(false)
@@ -44,7 +46,7 @@ class GbaEngine private constructor() : EmulatorEngine {
     @Volatile override var isLoaded = false
         private set
 
-    @Volatile private var _fastForward = false
+    @Volatile private var _ffSpeed = 0
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
@@ -67,7 +69,7 @@ class GbaEngine private constructor() : EmulatorEngine {
         }
         isLoaded = true
 
-        GbaNative.setFastForward(_fastForward)
+        GbaNative.setFastForward(_ffSpeed)
 
         val rate = GbaNative.audioSampleRate().takeIf { it > 0 } ?: 32768
         audioSampleRate = rate
@@ -91,11 +93,15 @@ class GbaEngine private constructor() : EmulatorEngine {
 
                 onFrame()
 
-                if (_fastForward) {
-                    // Fast-forward: minimal sleep so the game runs much faster.
-                    // Audio is handled by the separate audio thread and plays
-                    // at normal speed (ring buffer absorbs overflow).
-                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                if (_ffSpeed > 0) {
+                    // Fast-forward: pace to target speed
+                    val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                    val elapsed = System.nanoTime() - t0
+                    val sleep = targetNs - elapsed
+                    if (sleep > 0) {
+                        try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                        catch (_: InterruptedException) { break }
+                    }
                 } else {
                     // Normal: pace to ~60fps
                     val targetNs = 1_000_000_000L / 60
@@ -128,9 +134,9 @@ class GbaEngine private constructor() : EmulatorEngine {
 
     override fun setVideoFilter(filter: Int) = GbaNative.setVideoFilter(filter)
 
-    override fun setFastForward(on: Boolean) {
-        _fastForward = on
-        if (isLoaded) GbaNative.setFastForward(on)
+    override fun setFastForward(speed: Int) {
+        _ffSpeed = speed
+        if (isLoaded) GbaNative.setFastForward(speed)
     }
 
     override fun setPaused(paused: Boolean) {
@@ -139,21 +145,18 @@ class GbaEngine private constructor() : EmulatorEngine {
 
     private fun startAudio(sampleRate: Int) {
         stopAudio()
+        audioSrcRate = sampleRate
         try {
-            var rate = sampleRate
+            // Always use 48000 Hz for AudioTrack — this is the most universally
+            // supported rate on Android and avoids low-quality HAL resampling.
+            // We resample from the core's native rate (e.g., 32768 Hz for GBA)
+            // to 48000 Hz ourselves for better quality.
+            var rate = 48000
             var minBuf = AudioTrack.getMinBufferSize(
                 rate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            // If the native sample rate is not supported (e.g., GBA's 65536 Hz
-            // on some devices), fall back to standard rates.
-            if (minBuf <= 0 && rate != 48000) {
-                rate = 48000
-                minBuf = AudioTrack.getMinBufferSize(
-                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
-                )
-            }
             if (minBuf <= 0 && rate != 44100) {
                 rate = 44100
                 minBuf = AudioTrack.getMinBufferSize(
@@ -161,8 +164,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 )
             }
             if (minBuf <= 0) return
-            audioSampleRate = rate
-            // Use 4x min buffer for smooth playback with BLOCKING writes.
+            audioDstRate = rate
             val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
@@ -183,22 +185,44 @@ class GbaEngine private constructor() : EmulatorEngine {
             audioTrack = null
         }
 
-        // Start dedicated audio thread — uses BLOCKING writes so no samples
-        // are dropped. This eliminates the "滋滋" crackling that NON_BLOCKING
-        // caused. The thread reads from the native ring buffer (which is
-        // mutex-protected, safe to call from a different thread).
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
-            val buf = ShortArray(4096)
+            val srcBuf = ShortArray(4096)
+            // Resampling state
+            val ratio = audioSrcRate.toDouble() / audioDstRate.toDouble()
+            var srcPos = 0.0
+            var lastL: Short = 0
+            var lastR: Short = 0
+            val dstBuf = ShortArray(8192)
+
             while (audioRunning.get()) {
                 try {
-                    val n = GbaNative.readAudio(buf)
+                    val n = GbaNative.readAudio(srcBuf)
                     if (n > 0) {
-                        // BLOCKING write: waits if AudioTrack buffer is full.
-                        // This prevents sample drops and crackling.
-                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                        // Linear interpolation resampling from srcRate to dstRate
+                        var dstIdx = 0
+                        val maxDst = dstBuf.size / 2
+                        for (i in 0 until n) {
+                            val curL = srcBuf[i * 2]
+                            val curR = srcBuf[i * 2 + 1]
+                            while (srcPos < (i + 1).toDouble() && dstIdx < maxDst) {
+                                val frac = srcPos - i.toDouble()
+                                val l = lastL + ((curL - lastL).toFloat() * frac.toFloat()).toInt()
+                                val r = lastR + ((curR - lastR).toFloat() * frac.toFloat()).toInt()
+                                dstBuf[dstIdx * 2] = l.toShort()
+                                dstBuf[dstIdx * 2 + 1] = r.toShort()
+                                dstIdx++
+                                srcPos += ratio
+                            }
+                            if (dstIdx >= maxDst) break
+                            lastL = curL
+                            lastR = curR
+                        }
+                        srcPos -= n
+                        if (dstIdx > 0) {
+                            audioTrack?.write(dstBuf, 0, dstIdx * 2, AudioTrack.WRITE_BLOCKING)
+                        }
                     } else {
-                        // No audio available (e.g. paused or starting up).
                         Thread.sleep(2)
                     }
                 } catch (_: InterruptedException) {

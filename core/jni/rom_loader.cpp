@@ -105,6 +105,7 @@ static std::mutex s_windowMtx;
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
 static std::atomic<int>  s_ffFrameSkip{0};
+static std::atomic<int>  s_ffMaxSkip{6};
 
 // ---------------------------------------------------------------------------
 // Core options — key/value map served to the core via GET_VARIABLE
@@ -310,7 +311,8 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
     // During fast-forward, skip most blits to prevent ANativeWindow_lock
     // from blocking the emulation thread. Only blit every 6th frame.
     if (s_fastForward.load(std::memory_order_relaxed)) {
-        if (s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % 6 != 0)
+        int skip = s_ffMaxSkip.load(std::memory_order_relaxed);
+        if (skip > 0 && s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % skip != 0)
             return;
     } else {
         s_ffFrameSkip.store(0, std::memory_order_relaxed);
@@ -631,23 +633,22 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
     const bool canUpscale = (width <= kNesW && height <= kNesH);
 
+    // Use s_frame (converted ARGB 0xFFRRGGBB) as source for all filters,
+    // not the raw core data. This ensures consistent pixel format (alpha=0xFF)
+    // across all three cores, preventing XBR edge detection artifacts.
     if ((filter == 4 || filter == 7) && canUpscale) {
-        // XBR / XBR+dot: 2x edge-preserving upscale (256x240 -> 512x480)
-        xbr2xUpscale(src, width, height, srcStride, s_xbrBuffer);
+        xbr2xUpscale(s_frame, width, height, kNesW, s_xbrBuffer);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
     } else if ((filter == 8 || filter == 9) && canUpscale) {
-        // 4xBR / 4xBR+dot: cascade two 2xBR passes (256x240 -> 1024x960)
-        xbr4xUpscale(src, width, height, srcStride, s_hq4xBuffer);
+        xbr4xUpscale(s_frame, width, height, kNesW, s_hq4xBuffer);
         blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
     } else if (filter == 5 && canUpscale) {
-        // HQ2X: use hqx library (Maxim Stepin's reference implementation)
-        hq2x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
+        hq2x_32_rb(s_frame, (uint32_t)(kNesW * sizeof(uint32_t)),
                    s_xbrBuffer, (uint32_t)(width * 2 * sizeof(uint32_t)),
                    (int)width, (int)height);
         blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
     } else if ((filter == 6 || filter == 10) && canUpscale) {
-        // HQ4X / HQ4X+dot: use hqx library (Maxim Stepin's reference implementation)
-        hq4x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
+        hq4x_32_rb(s_frame, (uint32_t)(kNesW * sizeof(uint32_t)),
                    s_hq4xBuffer, (uint32_t)(width * 4 * sizeof(uint32_t)),
                    (int)width, (int)height);
         blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
@@ -930,10 +931,13 @@ void setPaths(const std::string& systemDir, const std::string& saveDir) {
 void applyRegion(int /*region*/) { /* region is auto-detected at load */ }
 void applySampleRate(int /*hz*/) { /* fixed by the core */ }
 void applySpeed(float multiplier) {
-    // Set the fast-forward flag so blitToSurface skips most surface blits.
-    // This prevents ANativeWindow_lock from blocking the emulation thread
-    // when frames are produced faster than the display can consume them.
     s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
+    // Frame skip: higher speed = skip more frames between renders.
+    // For 2x: skip 1, render 1 (every 2nd frame)
+    // For 4x: skip 3, render 1 (every 4th frame)
+    // For 6x: skip 5, render 1 (every 6th frame)
+    // For 8x: skip 7, render 1 (every 8th frame)
+    s_ffMaxSkip.store((int)multiplier, std::memory_order_relaxed);
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 

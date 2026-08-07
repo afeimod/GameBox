@@ -36,7 +36,7 @@ object SnesNative {
     @JvmStatic external fun setPad1(bits: Int)
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)
-    @JvmStatic external fun setFastForward(on: Boolean)
+    @JvmStatic external fun setFastForward(speed: Int)
 
     @JvmStatic external fun saveState(slot: Int, path: String): Boolean
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean

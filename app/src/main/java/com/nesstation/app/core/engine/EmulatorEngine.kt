@@ -50,8 +50,8 @@ interface EmulatorEngine {
     /** Set the frontend video post-processing filter (0-10). */
     fun setVideoFilter(filter: Int)
 
-    /** Enable/disable fast-forward. */
-    fun setFastForward(on: Boolean)
+    /** Set fast-forward speed (0 = off, 2/4/6/8 = speed multiplier). */
+    fun setFastForward(speed: Int)
 
     /** Pause or resume emulation. */
     fun setPaused(paused: Boolean)
