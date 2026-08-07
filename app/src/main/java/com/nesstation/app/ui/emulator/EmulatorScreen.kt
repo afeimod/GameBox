@@ -171,6 +171,24 @@ fun EmulatorScreen(
             else -> 0
         }
         engine.setVideoFilter(filterInt)
+
+        // J2ME games use a separate rendering pipeline (Canvas + GLRenderer).
+        // Map native filter codes to J2ME filter modes and apply directly.
+        if (platform == GamePlatform.JAVA) {
+            val j2meMode = when (padLayout.videoFilter) {
+                "scanline" -> 1   // scanline
+                "crt"      -> 2   // CRT
+                "dot"      -> 3   // dot
+                "xbr"      -> 4   // 2xBR
+                "4xbr"     -> 5   // 4xBR
+                "xbr_dot"  -> 6   // 2xBR+dot
+                "4xbr_dot" -> 7   // 4xBR+dot
+                "hq4x"     -> 8   // HQ4x
+                "hq4x_dot" -> 9   // HQ4x+dot
+                else -> 0         // none (hq2x not supported in J2ME)
+            }
+            javax.microedition.lcdui.Canvas.setJ2meFilterMode(j2meMode)
+        }
     }
 
     BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings) {

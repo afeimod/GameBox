@@ -3,9 +3,18 @@ package com.nesstation.app.ui
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Dialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -14,11 +23,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavType
@@ -276,49 +290,79 @@ private fun PhoneNavHost(
     }
 
     // 长按游戏菜单（由 HomeScreen 的 onLongClickGame 触发）
+    // 使用自定义 Dialog 确保，即使游戏名过长，所有选项（包括删除）也始终可见/可滚动
     longPressGame?.let { game ->
-        AlertDialog(
-            onDismissRequest = { longPressGame = null },
-            title = {
-                Text(
-                    game.title,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column {
-                    TextButton(onClick = { longPressGame = null; openGame(game) }) { Text("开始游戏") }
-                    TextButton(onClick = {
-                        longPressGame = null
-                        if (game.platform == GamePlatform.JAVA) {
-                            JavaGameStore.openSettings(ctx, game)
-                        } else {
-                            // NES 游戏的设置在模拟器内
+        Dialog(onDismissRequest = { longPressGame = null }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth(0.88f)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(vertical = 8.dp)
+                        .heightIn(max = 440.dp)
+                ) {
+                    // 标题 — 限制1行+省略号，避免占用过多空间
+                    Text(
+                        text = game.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF1E2A3A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+
+                    // 可滚动的菜单选项列表
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .weight(1f, fill = false)
+                    ) {
+                        MenuOption("开始游戏") {
+                            longPressGame = null
                             openGame(game)
                         }
-                    }) { Text("游戏设置") }
-                    TextButton(onClick = {
-                        longPressGame = null
-                        pendingIconGame = game
-                        iconPickerLauncher.launch(arrayOf("image/*"))
-                    }) { Text("自定义图标") }
-                    TextButton(onClick = {
-                        longPressGame = null
-                        RomStore.toggleFavorite(ctx, game.id)
-                        reloadGames()
-                    }) { Text(if (game.isFavorite) "取消收藏" else "收藏") }
-                    TextButton(onClick = {
-                        longPressGame = null
-                        pendingDeleteGame = game
-                    }) { Text("删除游戏") }
+                        MenuOption("游戏设置") {
+                            longPressGame = null
+                            if (game.platform == GamePlatform.JAVA) {
+                                JavaGameStore.openSettings(ctx, game)
+                            } else {
+                                openGame(game)
+                            }
+                        }
+                        MenuOption("自定义图标") {
+                            longPressGame = null
+                            pendingIconGame = game
+                            iconPickerLauncher.launch(arrayOf("image/*"))
+                        }
+                        MenuOption(if (game.isFavorite) "取消收藏" else "收藏") {
+                            longPressGame = null
+                            RomStore.toggleFavorite(ctx, game.id)
+                            reloadGames()
+                        }
+                        MenuOption("删除游戏", danger = true) {
+                            longPressGame = null
+                            pendingDeleteGame = game
+                        }
+                    }
+
+                    // 关闭按钮 — 始终固定在底部
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        TextButton(onClick = { longPressGame = null }) { Text("关闭") }
+                    }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { longPressGame = null }) { Text("关闭") }
             }
-        )
+        }
     }
 
     // 删除游戏确认弹窗
@@ -341,6 +385,23 @@ private fun PhoneNavHost(
             dismissButton = {
                 TextButton(onClick = { pendingDeleteGame = null }) { Text("取消") }
             }
+        )
+    }
+}
+
+@Composable
+private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp)
+    ) {
+        Text(
+            text = text,
+            color = if (danger) Color(0xFFE74C3C) else Color(0xFF1E2A3A),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }

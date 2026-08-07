@@ -828,6 +828,8 @@ public abstract class Canvas extends Displayable {
                 private boolean isStarted;
                 /** Last filter mode compiled into the GLSL shader (to detect mode changes). */
                 private int lastFilterMode = -1;
+                /** Whether the GL texture has been allocated (for texSubImage2D optimization). */
+                private boolean texUploaded = false;
 
                 @Override
                 public void onSurfaceCreated(GL10 gl, EGLConfig config) {
@@ -903,13 +905,24 @@ public abstract class Canvas extends Displayable {
                                 glUseProgram(program.programId);
                         }
 
-                        glClear(GL_COLOR_BUFFER_BIT);
-                        // Always upload the original game bitmap as the GL texture;
+                        // Upload the original game bitmap as the GL texture;
                         // the GLSL shader performs all filtering on the GPU.
+                        // Optimization: use glTexSubImage2D after initial allocation
+                        // to avoid reallocating GPU memory every frame.
                         synchronized (bufferLock) {
-                                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0,
-                                                offscreenCopy.getBitmap(), 0);
+                                Bitmap bmp = offscreenCopy.getBitmap();
+                                if (bmp != null) {
+                                        if (texUploaded) {
+                                                GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0,
+                                                                0, 0, bmp);
+                                        } else {
+                                                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0,
+                                                                bmp, 0);
+                                                texUploaded = true;
+                                        }
+                                }
                         }
+                        // No glClear — the fullscreen quad covers every pixel
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
@@ -933,6 +946,7 @@ public abstract class Canvas extends Displayable {
                  * @param filterMode the new filter mode (0-9)
                  */
                 private void switchProgram(int filterMode) {
+                        texUploaded = false; // texture needs re-allocation after program switch
                         try {
                                 if (filterMode == 0) {
                                         // No filter: use custom shader filter if available, otherwise passthrough

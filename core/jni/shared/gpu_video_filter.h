@@ -28,6 +28,8 @@
 #include <cstdlib>
 #include <vector>
 #include <mutex>
+#include <atomic>
+#include <pthread.h>
 
 #define GPU_LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "gpu-filter", __VA_ARGS__)
 #define GPU_LOGW(...) __android_log_print(ANDROID_LOG_WARN,  "gpu-filter", __VA_ARGS__)
@@ -69,7 +71,7 @@ static const char* XBR_VERTEX_SHADER =
     "}\n";
 
 // Fragment shader: Hyllian's xBR-lv2 with configurable scale.
-// Adapated from mGBA's xbr-lv2.shader/xbr.fs for OpenGL ES 2.0.
+// Adapted from mGBA's xbr-lv2.shader/xbr.fs for OpenGL ES 2.0.
 static const char* XBR_FRAGMENT_SHADER =
     "precision highp float;\n"
     "uniform sampler2D u_texture;\n"
@@ -214,13 +216,22 @@ static const char* PASSTHROUGH_FRAGMENT =
 
 // ---------------------------------------------------------------------------
 // GpuVideoFilter — manages EGL context + GLES2 shader pipeline
+//
+// Performance optimizations vs. original:
+//  1. No per-frame eglMakeCurrent — tracks owning thread ID
+//  2. Cached uniforms — only set when texSize/filter changes
+//  3. No glClear — fullscreen quad covers every pixel
+//  4. Atomic flag for fast-path (avoid mutex in renderFrame)
+//  5. FBO resize only when source size changes
 // ---------------------------------------------------------------------------
 
 struct GpuVideoFilter {
     // Thread safety: init/setFilter/cleanup are called from UI thread,
     // renderFrame is called from emulation thread. The mutex serializes
     // state changes with rendering to prevent use-after-cleanup races.
+    // renderFrame uses an atomic check for the fast path (no contention).
     std::mutex mtx;
+    std::atomic<bool> atomInit{false};
 
     // EGL state
     EGLDisplay eglDisplay  = EGL_NO_DISPLAY;
@@ -263,14 +274,42 @@ struct GpuVideoFilter {
     unsigned lastTexW      = 0;
     unsigned lastTexH      = 0;
 
+    // Cached uniform values — avoid redundant glUniform calls per frame.
+    // These are set once in init/setFilter and only updated on size change.
+    unsigned cachedTexW    = 0;
+    unsigned cachedTexH    = 0;
+    float   cachedScale    = 0.0f;
+
+    // Thread that currently owns the EGL context.
+    // We only call eglMakeCurrent when the thread changes (e.g., after init
+    // or when the emulation thread renders the first frame).
+    pthread_t contextOwner = 0;
+    bool     hasContext    = false;
+
     // ARGB→RGBA conversion buffer (reused across frames to avoid allocation)
-    // Only used when stride != w; otherwise we upload directly with channel swap.
     std::vector<uint32_t> convertBuf;
 
     // Fast-forward state
     bool   fastForward     = false;
     int    ffFrameSkip     = 0;
     static constexpr int FF_MAX_SKIP = 4;
+
+    // -----------------------------------------------------------------------
+    // Make EGL context current on the calling thread (only if needed)
+    // -----------------------------------------------------------------------
+    bool ensureContext() {
+        pthread_t self = pthread_self();
+        if (hasContext && pthread_equal(contextOwner, self)) {
+            return true; // already current on this thread
+        }
+        if (eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext) != EGL_TRUE) {
+            GPU_LOGE("eglMakeCurrent failed: 0x%x", eglGetError());
+            return false;
+        }
+        contextOwner = self;
+        hasContext = true;
+        return true;
+    }
 
     // -----------------------------------------------------------------------
     // Initialize EGL + GLES2 from the ANativeWindow surface
@@ -285,6 +324,7 @@ struct GpuVideoFilter {
         srcH = h;
         currentFilter = filter;
         scaleFactor = (filter == 8 || filter == 9) ? 4 : 2;
+        cachedScale = (float)scaleFactor;
 
         ANativeWindow_acquire(window);
 
@@ -302,7 +342,7 @@ struct GpuVideoFilter {
             return false;
         }
 
-        // Choose EGL config — RGBA8888 with 8-bit depth
+        // Choose EGL config — RGBA8888
         const EGLint configAttribs[] = {
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
             EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
@@ -340,12 +380,14 @@ struct GpuVideoFilter {
             return false;
         }
 
-        // Make context current
+        // Make context current on this (UI) thread for shader compilation
         if (!eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
             GPU_LOGE("eglMakeCurrent failed: 0x%x", eglGetError());
             cleanupEgl();
             return false;
         }
+        contextOwner = pthread_self();
+        hasContext = true;
 
         GPU_LOGI("EGL initialized: v%d.%d, surface %dx%d",
                  major, minor, ANativeWindow_getWidth(window), ANativeWindow_getHeight(window));
@@ -380,19 +422,15 @@ struct GpuVideoFilter {
         pass_aTexCoord = glGetAttribLocation(passProgram,  "a_texcoord");
         pass_uTexture  = glGetUniformLocation(passProgram, "u_texture");
 
-        // --- Create VBO: fullscreen quad (2 triangles = TRIANGLE_STRIP) ---
+        // --- Create VBO: fullscreen quad (TRIANGLE_STRIP) ---
         // Position (x,y) + TexCoord (s,t) per vertex, 4 vertices
-        //   Vertex 0: bottom-left  (-1,-1)  tex (0,1)
-        //   Vertex 1: bottom-right ( 1,-1)  tex (1,1)
-        //   Vertex 2: top-left     (-1, 1)  tex (0,0)
-        //   Vertex 3: top-right    ( 1, 1)  tex (1,0)
-        // Note: tex Y is flipped because OpenGL origin is bottom-left
-        // but the emulator framebuffer origin is top-left.
+        //   v0: (-1,-1) tex (0,1)   v1: (1,-1) tex (1,1)
+        //   v2: (-1, 1) tex (0,0)   v3: (1, 1) tex (1,0)
         const float vboData[] = {
-            -1.f, -1.f,  0.f, 1.f,   // v0
-             1.f, -1.f,  1.f, 1.f,   // v1
-            -1.f,  1.f,  0.f, 0.f,   // v2
-             1.f,  1.f,  1.f, 0.f,   // v3
+            -1.f, -1.f,  0.f, 1.f,
+             1.f, -1.f,  1.f, 1.f,
+            -1.f,  1.f,  0.f, 0.f,
+             1.f,  1.f,  1.f, 0.f,
         };
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -408,7 +446,7 @@ struct GpuVideoFilter {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        // --- Create FBO for 4xBR multi-pass (two 2x passes) ---
+        // --- Create FBO for 4xBR multi-pass ---
         glGenFramebuffers(1, &fbo);
         glGenTextures(1, &fboTexture);
         glBindTexture(GL_TEXTURE_2D, fboTexture);
@@ -438,6 +476,20 @@ struct GpuVideoFilter {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
         initialized = true;
+        atomInit.store(true, std::memory_order_release);
+
+        // Set static XBR uniforms once (they never change)
+        // texSize and scale will be set per-frame when they change
+        glUseProgram(xbrProgram);
+        glUniform1f(xbr_uYWeight, 48.0f);
+        glUniform1f(xbr_uEqThreshold, 25.0f);
+        glUniform1f(xbr_uLv2Coeff, 2.0f);
+        glUseProgram(0);
+
+        // Initialize cached texSize to force first-frame update
+        cachedTexW = 0;
+        cachedTexH = 0;
+
         GPU_LOGI("GPU filter initialized: filter=%d, scale=%dx, src=%dx%d",
                  filter, scaleFactor, w, h);
         return true;
@@ -447,30 +499,22 @@ struct GpuVideoFilter {
     // Render one frame through the GPU XBR shader pipeline
     // -----------------------------------------------------------------------
     void renderFrame(const uint32_t* frame, unsigned w, unsigned h, size_t stride) {
-        std::lock_guard<std::mutex> lk(mtx);
-        if (!initialized || !frame) return;
+        // Fast path: atomic check without mutex (hot path — every frame)
+        if (!atomInit.load(std::memory_order_acquire) || !frame) return;
 
         // Fast-forward: skip some frames
         if (fastForward) {
             if (ffFrameSkip++ % FF_MAX_SKIP != 0) return;
         }
 
-        // Make EGL context current (in case another thread stole it)
-        if (eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext) != EGL_TRUE) {
-            GPU_LOGE("renderFrame: eglMakeCurrent failed");
-            return;
-        }
+        // Make EGL context current on the emulation thread (only on first
+        // call or if thread changed — much cheaper than calling every frame)
+        if (!ensureContext()) return;
 
         // Upload emulator framebuffer as GL texture.
         // Input is ARGB 0xAARRGGBB. On little-endian ARM, bytes in memory
         // are [BB] [GG] [RR] [AA]. GL_BGRA_EXT+UNSIGNED_BYTE reads as
         // [B] [G] [R] [A] which matches our layout perfectly — zero-copy.
-        // All Android GLES2 implementations support GL_BGRA_EXT.
-        //
-        // IMPORTANT: We swap R↔B in the vertex shader's texCoord Y to
-        // flip the image vertically (OpenGL bottom-left origin vs emulator
-        // top-left origin), and the VBO already accounts for this.
-
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
 
         bool sizeChanged = (w != lastTexW || h != lastTexH);
@@ -497,10 +541,8 @@ struct GpuVideoFilter {
 
         // Render through the XBR shader
         if (scaleFactor == 4 && fbo != 0) {
-            // 4xBR: two-pass rendering
             render4xBR(w, h);
         } else {
-            // 2xBR: single-pass rendering
             render2xBR(w, h);
         }
 
@@ -518,6 +560,14 @@ struct GpuVideoFilter {
         int newScale = (filter == 8 || filter == 9) ? 4 : 2;
         currentFilter = filter;
         scaleFactor = newScale;
+        cachedScale = (float)newScale;
+
+        // Update scale uniform if context is current
+        if (hasContext) {
+            glUseProgram(xbrProgram);
+            glUniform1f(xbr_uScale, cachedScale);
+            glUseProgram(0);
+        }
 
         GPU_LOGI("GPU filter changed: filter=%d, scale=%dx", filter, newScale);
         return true;
@@ -533,6 +583,8 @@ struct GpuVideoFilter {
 
     void cleanupLocked() {
         if (!initialized && eglDisplay == EGL_NO_DISPLAY) return;
+
+        atomInit.store(false, std::memory_order_release);
 
         // Make context current for resource cleanup
         if (eglDisplay != EGL_NO_DISPLAY && eglContext != EGL_NO_CONTEXT) {
@@ -554,21 +606,37 @@ struct GpuVideoFilter {
         }
 
         initialized = false;
+        hasContext = false;
         currentFilter = 0;
         scaleFactor = 2;
         lastTexW = 0;
         lastTexH = 0;
+        cachedTexW = 0;
+        cachedTexH = 0;
         GPU_LOGI("GPU filter cleanup complete");
     }
 
     // -----------------------------------------------------------------------
-    // Check if the filter is a GPU-acceleratable one
+    // Check if the filter is a GPU-accelerable one
     // -----------------------------------------------------------------------
     static bool isGpuFilter(int filter) {
         return filter == 4 || filter == 7 || filter == 8 || filter == 9;
     }
 
 private:
+    // -----------------------------------------------------------------------
+    // Set texSize and scale uniforms only when they change
+    // -----------------------------------------------------------------------
+    void updateUniforms(unsigned w, unsigned h, float scale) {
+        if (w != cachedTexW || h != cachedTexH || scale != cachedScale) {
+            glUniform2f(xbr_uTexSize, (float)w, (float)h);
+            glUniform1f(xbr_uScale, scale);
+            cachedTexW = w;
+            cachedTexH = h;
+            cachedScale = scale;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Render 2xBR: single-pass shader rendering to screen
     // -----------------------------------------------------------------------
@@ -579,7 +647,7 @@ private:
         // Render directly to screen (default framebuffer = 0)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, outW, outH);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // No glClear — the fullscreen quad covers every pixel
 
         glUseProgram(xbrProgram);
 
@@ -595,12 +663,8 @@ private:
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
         glUniform1i(xbr_uTexture, 0);
 
-        // Set uniforms
-        glUniform2f(xbr_uTexSize, (float)w, (float)h);
-        glUniform1f(xbr_uYWeight, 48.0f);
-        glUniform1f(xbr_uEqThreshold, 25.0f);
-        glUniform1f(xbr_uScale, 2.0f);
-        glUniform1f(xbr_uLv2Coeff, 2.0f);
+        // Set uniforms (only if changed)
+        updateUniforms(w, h, 2.0f);
 
         // Draw fullscreen quad
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -622,10 +686,18 @@ private:
         const unsigned outW = w * 4;
         const unsigned outH = h * 4;
 
+        // Resize FBO texture if source size changed
+        if (w != cachedTexW || h != cachedTexH) {
+            glBindTexture(GL_TEXTURE_2D, fboTexture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, midW, midH, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+
         // --- Pass 1: Render to FBO at 2x intermediate size ---
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0, 0, midW, midH);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // No glClear — fullscreen quad covers all pixels
 
         glUseProgram(xbrProgram);
 
@@ -638,11 +710,9 @@ private:
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
         glUniform1i(xbr_uTexture, 0);
-        glUniform2f(xbr_uTexSize, (float)w, (float)h);
-        glUniform1f(xbr_uYWeight, 48.0f);
-        glUniform1f(xbr_uEqThreshold, 25.0f);
-        glUniform1f(xbr_uScale, 2.0f);
-        glUniform1f(xbr_uLv2Coeff, 2.0f);
+
+        // Set uniforms for pass 1 (source → 2x)
+        updateUniforms(w, h, 2.0f);
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -652,12 +722,9 @@ private:
         // --- Pass 2: Render FBO texture to screen at 2x ---
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, outW, outH);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // No glClear — fullscreen quad covers all pixels
 
         // Re-use XBR shader with FBO texture as input
-        glUseProgram(xbrProgram);
-
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glEnableVertexAttribArray(xbr_aPosition);
         glVertexAttribPointer(xbr_aPosition, 2, GL_FLOAT, GL_FALSE, 16, (void*)0);
         glEnableVertexAttribArray(xbr_aTexCoord);
@@ -666,11 +733,14 @@ private:
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, fboTexture);
         glUniform1i(xbr_uTexture, 0);
-        glUniform2f(xbr_uTexSize, (float)midW, (float)midH);
-        glUniform1f(xbr_uYWeight, 48.0f);
-        glUniform1f(xbr_uEqThreshold, 25.0f);
-        glUniform1f(xbr_uScale, 2.0f);
-        glUniform1f(xbr_uLv2Coeff, 2.0f);
+
+        // Set uniforms for pass 2 (2x intermediate → 4x output)
+        // texSize is the intermediate size (midW, midH)
+        if (midW != cachedTexW || midH != cachedTexH) {
+            glUniform2f(xbr_uTexSize, (float)midW, (float)midH);
+            cachedTexW = midW;
+            cachedTexH = midH;
+        }
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -747,6 +817,7 @@ private:
 
         // Make no context current (releases GPU resources)
         eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        hasContext = false;
 
         if (eglSurface != EGL_NO_SURFACE) {
             eglDestroySurface(eglDisplay, eglSurface);
