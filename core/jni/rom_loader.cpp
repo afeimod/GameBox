@@ -14,6 +14,7 @@
 // threads read them concurrently.
 
 #include "rom_loader.h"
+#include "shared/core_shared.h"
 #include "hqx/hqx.h"
 
 #include <libretro.h>
@@ -386,225 +387,26 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
     ANativeWindow_unlockAndPost(s_window);
 }
 
+
 // ---------------------------------------------------------------------------
-// 2xBR — Hyllian's 2xBR v3.3a (CPU port based on RetroArch's 2xbr.c)
+// 2xBR-lv2 / 4xBR-lv2 — delegates to the shared xBR-lv2 implementation in
+// core_shared.h (Hyllian's xBR-lv2, adapted from mGBA Android GLSL shader).
 //
-// Copyright (C) 2011, 2014 Hyllian/Jararaca - sergiogdb@gmail.com
-// Adapted for ARGB (0xAARRGGBB) pixel format.
-//
-// The algorithm uses a 5x5 neighborhood with weighted-distance edge detection.
-// For each source pixel, the FILTRO macro is called 4 times, each time with
-// a rotated neighborhood, to compute the 4 output pixels of the 2x2 block.
-// Each call can apply one of four blend modes:
-//   LEFT_UP: 224/64 blend (corner)
-//   LEFT:    192/64 blend (left edge)
-//   UP:      192/64 blend (top edge)
-//   DIA:     128 blend (diagonal)
+// Replaces the old 2xBR v3.3a which produced scattered dot artifacts.
+// The lv2 algorithm uses multi-level edge detection (lv0/lv1/lv2_left/lv2_up),
+// continuous interpolation, and minimum-distance candidate selection to
+// produce clean, artifact-free upscaled output.
 // ---------------------------------------------------------------------------
 
-// ARGB pixel masks (0xAARRGGBB format, little-endian)
-static constexpr uint32_t XBR_RED_MASK   = 0x00FF0000;
-static constexpr uint32_t XBR_GREEN_MASK = 0x0000FF00;
-static constexpr uint32_t XBR_BLUE_MASK  = 0x000000FF;
-static constexpr uint32_t XBR_LBMASK     = 0xFEFEFEFE;
-static constexpr uint32_t XBR_ALPHA_MASK = 0xFF000000;
-
-// YUV color distance (computes on-the-fly, no lookup table needed)
-static inline float xbrDf8(uint32_t A, uint32_t B) {
-    int r = abs((int)((A & XBR_RED_MASK)   >> 16) - (int)((B & XBR_RED_MASK)   >> 16));
-    int g = abs((int)((A & XBR_GREEN_MASK) >>  8) - (int)((B & XBR_GREEN_MASK) >>  8));
-    int b = abs((int)((A & XBR_BLUE_MASK)        ) - (int)((B & XBR_BLUE_MASK)       ));
-    float y = fabsf(0.299f*r + 0.587f*g + 0.114f*b);
-    float u = fabsf(-0.169f*r - 0.331f*g + 0.500f*b);
-    float v = fabsf(0.500f*r - 0.419f*g - 0.081f*b);
-    return 48.0f*y + 7.0f*u + 6.0f*v;
-}
-
-static inline int xbrEq8(uint32_t A, uint32_t B) {
-    int r = abs((int)((A & XBR_RED_MASK)   >> 16) - (int)((B & XBR_RED_MASK)   >> 16));
-    int g = abs((int)((A & XBR_GREEN_MASK) >>  8) - (int)((B & XBR_GREEN_MASK) >>  8));
-    int b = abs((int)((A & XBR_BLUE_MASK)        ) - (int)((B & XBR_BLUE_MASK)       ));
-    float y = fabsf(0.299f*r + 0.587f*g + 0.114f*b);
-    float u = fabsf(-0.169f*r - 0.331f*g + 0.500f*b);
-    float v = fabsf(0.500f*r - 0.419f*g - 0.081f*b);
-    return (y <= 48.0f && u <= 7.0f && v <= 6.0f) ? 1 : 0;
-}
-
-// Blend macros adapted for ARGB format
-// CRITICAL: Cast to int32_t before subtraction to avoid unsigned wraparound
-// when src < dst, which causes corrupted pixels (scattered dots).
-#define XBR_BLEND_128(dst, src) \
-    dst = (((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)) | XBR_ALPHA_MASK
-
-#define XBR_BLEND_32(dst, src) \
-    dst = ( \
-        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
-            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) >> 3))) | \
-        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
-            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) >> 3))) | \
-        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
-            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) >> 3))) ) + \
-            XBR_ALPHA_MASK
-
-#define XBR_BLEND_64(dst, src) \
-    dst = ( \
-        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
-            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) >> 2))) | \
-        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
-            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) >> 2))) | \
-        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
-            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) >> 2))) ) + \
-            XBR_ALPHA_MASK
-
-#define XBR_BLEND_192(dst, src) \
-    dst = ( \
-        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
-            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) * 192 >> 8))) | \
-        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
-            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) * 192 >> 8))) | \
-        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
-            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) * 192 >> 8))) ) + \
-            XBR_ALPHA_MASK
-
-#define XBR_BLEND_224(dst, src) \
-    dst = ( \
-        (XBR_RED_MASK & (uint32_t)((int32_t)(dst & XBR_RED_MASK) + \
-            (((int32_t)(src & XBR_RED_MASK) - (int32_t)(dst & XBR_RED_MASK)) * 224 >> 8))) | \
-        (XBR_GREEN_MASK & (uint32_t)((int32_t)(dst & XBR_GREEN_MASK) + \
-            (((int32_t)(src & XBR_GREEN_MASK) - (int32_t)(dst & XBR_GREEN_MASK)) * 224 >> 8))) | \
-        (XBR_BLUE_MASK & (uint32_t)((int32_t)(dst & XBR_BLUE_MASK) + \
-            (((int32_t)(src & XBR_BLUE_MASK) - (int32_t)(dst & XBR_BLUE_MASK)) * 224 >> 8))) ) + \
-            XBR_ALPHA_MASK
-
-// Four interpolation modes from 2xBR reference
-#define XBR_LEFT_UP(N3, N2, N1, px) \
-    XBR_BLEND_224(E[N3], px); \
-    XBR_BLEND_64(E[N2], px);  \
-    E[N1] = E[N2];
-
-#define XBR_LEFT(N3, N2, px) \
-    XBR_BLEND_192(E[N3], px); \
-    XBR_BLEND_64(E[N2], px);
-
-#define XBR_UP(N3, N1, px) \
-    XBR_BLEND_192(E[N3], px); \
-    XBR_BLEND_64(E[N1], px);
-
-#define XBR_DIA(N3, px) \
-    XBR_BLEND_128(E[N3], px);
-
-// The core 2xBR filter macro — processes one output pixel of the 2x2 block.
-// Parameters follow Hyllian's reference: PE=center, _PI=DR, PH=down, PF=right,
-// PG=DL, PC=UR, PD=left, PB=up, PA=UL, plus extended neighbors.
-// N0-N3 are the 4 output pixel indices (TL, TR, BL, BR).
-#define XBR_FILTRO(PE, _PI, PH, PF, PG, PC, PD, PB, PA, \
-    G5, C4, G0, D0, C1, B1, F4, I4, H5, I5, A0, A1, N0, N1, N2, N3) \
-    ex = (PE != PH && PE != PF); \
-    if (ex) { \
-        e = (xbrDf8(PE,PC) + xbrDf8(PE,PG) + xbrDf8(_PI,H5) + xbrDf8(_PI,F4)) \
-             + (4.0f * xbrDf8(PH,PF)); \
-        i = (xbrDf8(PH,PD) + xbrDf8(PH,I5) + xbrDf8(PF,I4) + xbrDf8(PF,PB)) \
-             + (4.0f * xbrDf8(PE,_PI)); \
-        if ((e < i) && ( \
-            (!xbrEq8(PF,PB) && !xbrEq8(PF,PC)) || \
-            (!xbrEq8(PH,PD) && !xbrEq8(PH,PG)) || \
-            (xbrEq8(PE,_PI) && ((!xbrEq8(PF,F4) && !xbrEq8(PF,I4)) || \
-                                (!xbrEq8(PH,H5) && !xbrEq8(PH,I5)))) || \
-            xbrEq8(PE,PG) || xbrEq8(PE,PC))) \
-        { \
-            ke = xbrDf8(PF,PG); \
-            ki = xbrDf8(PH,PC); \
-            ex2 = (PE != PC && PB != PC); \
-            ex3 = (PE != PG && PD != PG); \
-            px = (xbrDf8(PE,PF) <= xbrDf8(PE,PH)) ? PF : PH; \
-            if ((ke*2 <= ki) && ex3 && (ke >= ki*2) && ex2) { \
-                XBR_LEFT_UP(N3, N2, N1, px) \
-            } else if ((ke*2 <= ki) && ex3) { \
-                XBR_LEFT(N3, N2, px); \
-            } else if ((ke >= ki*2) && ex2) { \
-                XBR_UP(N3, N1, px); \
-            } else { \
-                XBR_DIA(N3, px); \
-            } \
-        } else if (e <= i) { \
-            XBR_BLEND_128(E[N3], \
-                (xbrDf8(PE,PF) <= xbrDf8(PE,PH)) ? PF : PH); \
-        } \
-    }
-
-// 2xBR upscale: 256x240 -> 512x480
-// Based on RetroArch's twoxbr_generic_xrgb8888, adapted for ARGB format.
 static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
                           size_t srcStride, uint32_t* dst) {
-    const unsigned dw = sw * 2;
-    const unsigned dstStride = dw;  // contiguous output rows
-
-    // Border-clamped pixel fetch
-    auto getPx = [&](int x, int y) -> uint32_t {
-        if (x < 0) x = 0; else if (x >= (int)sw) x = sw - 1;
-        if (y < 0) y = 0; else if (y >= (int)sh) y = sh - 1;
-        return src[y * srcStride + x];
-    };
-
-    for (unsigned y = 0; y < sh; ++y) {
-        for (unsigned x = 0; x < sw; ++x) {
-            // 5x5 neighborhood (clamped at borders)
-            //        A1 B1 C1
-            //     A0  A  B  C  C4
-            //     D0  D  E  F  F4
-            //     G0  G  H  I  I4
-            //        G5 H5 I5
-            uint32_t A1=getPx(x-1,y-2), B1=getPx(x,y-2), C1=getPx(x+1,y-2);
-            uint32_t A0=getPx(x-2,y-1), PA=getPx(x-1,y-1), PB=getPx(x,y-1), PC=getPx(x+1,y-1), C4=getPx(x+2,y-1);
-            uint32_t D0=getPx(x-2,y),   PD=getPx(x-1,y),   PE=getPx(x,y),   PF=getPx(x+1,y),   F4=getPx(x+2,y);
-            uint32_t G0=getPx(x-2,y+1), PG=getPx(x-1,y+1), PH=getPx(x,y+1), _PI=getPx(x+1,y+1), I4=getPx(x+2,y+1);
-            uint32_t G5=getPx(x-1,y+2), H5=getPx(x,y+2), I5=getPx(x+1,y+2);
-
-            uint32_t E[4];
-            float e, i, ke, ki;
-            uint32_t ex, ex2, ex3, px;
-
-            // Initialize all 4 output pixels to center color
-            E[0] = E[1] = E[2] = E[3] = PE;
-
-            // Call FILTRO 4 times with rotated neighborhoods.
-            // Each call modifies E[N3] (and potentially E[N2], E[N1]).
-            // The rotation is achieved by reordering the parameters.
-            //
-            // Call 1: TL pixel (N3=0) — edge in I (DR) direction
-            XBR_FILTRO(PE, _PI, PH, PF, PG, PC, PD, PB, PA,
-                G5, C4, G0, D0, C1, B1, F4, I4, H5, I5, A0, A1, 0, 1, 2, 3);
-            // Call 2: BL pixel (N3=2) — edge in C (UR) direction
-            XBR_FILTRO(PE, PC, PF, PB, _PI, PA, PH, PD, PG,
-                I4, A1, I5, H5, A0, D0, B1, C1, F4, C4, G5, G0, 2, 0, 3, 1);
-            // Call 3: BR pixel (N3=3) — edge in A (UL) direction
-            XBR_FILTRO(PE, PA, PB, PD, PC, PG, PF, PH, _PI,
-                C1, G0, C4, F4, G5, H5, D0, A0, B1, A1, I4, I5, 3, 2, 1, 0);
-            // Call 4: TR pixel (N3=1) — edge in G (DL) direction
-            XBR_FILTRO(PE, PG, PD, PH, PA, _PI, PB, PF, PC,
-                A0, I5, A1, B1, I4, F4, H5, G5, D0, G0, C1, C4, 1, 3, 0, 2);
-
-            const unsigned x2 = x * 2;
-            const unsigned y2 = y * 2;
-            dst[y2 * dstStride + x2]       = E[0];
-            dst[y2 * dstStride + x2 + 1]  = E[1];
-            dst[(y2+1) * dstStride + x2]   = E[2];
-            dst[(y2+1) * dstStride + x2+1] = E[3];
-        }
-    }
+    coreshared::xbr2xUpscale(src, sw, sh, srcStride, dst);
 }
 
-// 4xBR cascade: two passes of 2xBR (256x240 → 512x480 → 1024x960)
-// RetroArch has no native 4xBR filter; cascading two 2xBR passes is the
-// standard approach used by many emulator frontends.
 static void xbr4xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
                           size_t srcStride, uint32_t* dst) {
-    // Pass 1: 256x240 → 512x480
-    xbr2xUpscale(src, sw, sh, srcStride, s_xbrMidBuffer);
-    // Pass 2: 512x480 → 1024x960
-    xbr2xUpscale(s_xbrMidBuffer, sw * 2, sh * 2, sw * 2, dst);
+    coreshared::xbr4xUpscale(src, sw, sh, srcStride, dst, s_xbrMidBuffer);
 }
-
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return; // duplicate frame / no data this frame
 
