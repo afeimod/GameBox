@@ -76,7 +76,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="unspecified"
             android:theme="@style/Theme.NesStation"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

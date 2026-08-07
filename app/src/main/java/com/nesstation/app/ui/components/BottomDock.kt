@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 fun BottomDock(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
+    isPortrait: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
@@ -58,31 +60,63 @@ fun BottomDock(
 
     var selected by rememberSaveable { mutableIntStateOf(selectedIndex) }
 
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.55f),
-                        Color.White.copy(alpha = 0.30f)
+    if (isPortrait) {
+        // Portrait mode: vertical column on left side
+        Column(
+            modifier = modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.55f),
+                            Color.White.copy(alpha = 0.30f)
+                        )
                     )
                 )
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 6.dp, vertical = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(1.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items.forEachIndexed { idx, item ->
-            DockItemView(
-                item = item,
-                selected = idx == selected,
-                onClick = {
-                    selected = idx
-                    onSelect(idx)
-                }
-            )
+                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 5.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            items.forEachIndexed { idx, item ->
+                DockItemView(
+                    item = item,
+                    selected = idx == selected,
+                    onClick = {
+                        selected = idx
+                        onSelect(idx)
+                    }
+                )
+            }
+        }
+    } else {
+        // Landscape mode: horizontal row at bottom (original)
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.55f),
+                            Color.White.copy(alpha = 0.30f)
+                        )
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEachIndexed { idx, item ->
+                DockItemView(
+                    item = item,
+                    selected = idx == selected,
+                    onClick = {
+                        selected = idx
+                        onSelect(idx)
+                    }
+                )
+            }
         }
     }
 }

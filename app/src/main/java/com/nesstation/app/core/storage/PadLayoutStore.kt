@@ -95,7 +95,9 @@ data class PadLayout(
     // --- Additional GB/GBA (mGBA) options ---
     val gbModel: String = "Autodetect",               // Autodetect | Game Boy | Super Game Boy | Game Boy Color | Game Boy Advance
     val gbSgbBorders: String = "ON",                  // ON | OFF
-    val gbaFrameskipThreshold: String = "33"          // 0-100 (audio buffer threshold for auto frameskip)
+    val gbaFrameskipThreshold: String = "33",          // 0-100 (audio buffer threshold for auto frameskip)
+    // Screen orientation preference — unspecified (follow system), landscape, portrait
+    val orientation: String = "unspecified"            // unspecified | landscape | portrait
 )
 
 /**
@@ -265,7 +267,8 @@ object PadLayoutStore {
             gbaAllowOpposite = p.getString("gba_allow_opposite", "OFF") ?: "OFF",
             gbModel = p.getString("gb_model", "Autodetect") ?: "Autodetect",
             gbSgbBorders = p.getString("gb_sgb_borders", "ON") ?: "ON",
-            gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33"
+            gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33",
+            orientation = p.getString("orientation", "unspecified") ?: "unspecified"
         )
     }
 
@@ -365,6 +368,7 @@ object PadLayoutStore {
             putString("gb_model", layout.gbModel)
             putString("gb_sgb_borders", layout.gbSgbBorders)
             putString("gba_frameskip_threshold", layout.gbaFrameskipThreshold)
+            putString("orientation", layout.orientation)
         }.apply()
     }
 }

@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Save
@@ -35,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -167,6 +172,8 @@ fun HomeScreen(
                     }
                 }
             }
+            val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+
             if (recents.isEmpty()) {
                 // Empty state — prompt user to import games
                 Box(
@@ -187,6 +194,27 @@ fun HomeScreen(
                             text = "点击下方「游戏库」导入 ROM 文件",
                             color = Color(0xFF4A5568),
                             fontSize = 11.sp
+                        )
+                    }
+                }
+            } else if (isPortrait) {
+                // Portrait mode: two-column vertical grid instead of horizontal LazyRow
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                ) {
+                    gridItems(recents) { g ->
+                        GameCard(
+                            title = g.title,
+                            accent = g.accent,
+                            onClick = { onOpenGame(g) },
+                            onLongClick = { onLongClickGame(g) },
+                            coverPath = g.customIconPath ?: g.coverPath,
+                            platform = g.platform,
+                            modifier = Modifier.height(100.dp)
                         )
                     }
                 }
@@ -214,14 +242,16 @@ fun HomeScreen(
             Spacer(modifier = Modifier.weight(1f))
         }
 
-        // Bottom dock — centered, small, doesn't block content
+        // Bottom dock — in portrait mode, placed on the left side; otherwise at bottom center
+        val dockAlignment = if (isPortrait) Alignment.CenterStart else Alignment.BottomCenter
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 6.dp)
+                .align(dockAlignment)
+                .padding(bottom = if (isPortrait) 0.dp else 6.dp, start = if (isPortrait) 4.dp else 0.dp)
         ) {
             BottomDock(
                 selectedIndex = 0,
+                isPortrait = isPortrait,
                 onSelect = { idx ->
                     when (idx) {
                         0 -> onOpenLibrary()         // 游戏库

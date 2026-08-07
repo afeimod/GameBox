@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -60,6 +61,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -468,13 +471,15 @@ fun LibraryScreen(
             }
 
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(120.dp),
+                columns = if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT)
+                    GridCells.Fixed(2) else GridCells.Adaptive(120.dp),
                 contentPadding = PaddingValues(20.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(displayGames) { g ->
+                    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
                     GameCard(
                         title = g.title,
                         accent = g.accent,
@@ -482,7 +487,7 @@ fun LibraryScreen(
                         onLongClick = { longPressGame = g },
                         coverPath = g.customIconPath ?: g.coverPath,
                         platform = g.platform,
-                        modifier = Modifier.height(130.dp)
+                        modifier = Modifier.height(if (isPortrait) 100.dp else 130.dp)
                     )
                 }
             }

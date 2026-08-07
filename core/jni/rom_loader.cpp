@@ -102,9 +102,6 @@ static std::mutex s_audioMtx;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
-// GPU-accelerated video filter for XBR (hardware acceleration)
-static gpufilter::GpuVideoFilter s_gpuFilter;
-
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
@@ -447,8 +444,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame, width, height, kNesW,
         filter,
         s_xbrBuffer, s_hq4xBuffer, s_xbrMidBuffer,
-        kNesW, kNesH,
-        &s_gpuFilter);
+        kNesW, kNesH);
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -786,11 +782,6 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_setBuffersGeometry(s_window, 0, 0,
                                          WINDOW_FORMAT_RGBA_8888);
         LOGI("Surface attached (buffer geometry = window default)");
-
-        // Initialize GPU filter if XBR is active
-        if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
-            s_gpuFilter.init(s_window, s_videoFilter.load(), kNesW, kNesH);
-        }
     } else {
         LOGI("Surface detached");
     }
@@ -836,22 +827,6 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
-
-    // Initialize or update GPU filter
-    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
-        if (!s_gpuFilter.initialized && s_window) {
-            s_gpuFilter.init(s_window, filter, kNesW, kNesH);
-        } else if (s_gpuFilter.initialized) {
-            s_gpuFilter.setFilter(filter);
-        }
-    } else if (s_gpuFilter.initialized) {
-        // Non-GPU filter selected: cleanup GPU filter and restore ANativeWindow path
-        s_gpuFilter.cleanup();
-        // Re-set buffer geometry since EGL may have changed it
-        if (s_window) {
-            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-        }
-    }
 
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
 }

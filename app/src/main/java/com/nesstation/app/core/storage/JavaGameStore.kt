@@ -8,6 +8,7 @@ import com.nesstation.app.core.model.GamePlatform
 import androidx.compose.ui.graphics.Color
 import java.io.File
 import java.util.jar.JarFile
+import android.content.SharedPreferences
 
 /**
  * Manages J2ME/Java ME game installation and listing.
@@ -178,6 +179,18 @@ object JavaGameStore {
         try {
             val path = game.romPath ?: return
             val title = game.title
+
+            // Sync video filter setting to J2ME SharedPreferences so MicroActivity picks it up
+            val padLayout = PadLayoutStore.load(ctx)
+            val j2meMode = when (padLayout.videoFilter) {
+                "scanline" -> 1; "crt" -> 2; "dot" -> 3
+                "xbr" -> 4; "4xbr" -> 5; "xbr_dot" -> 6; "4xbr_dot" -> 7
+                "hq4x" -> 8; "hq4x_dot" -> 9
+                else -> 0
+            }
+            ctx.getSharedPreferences("j2me_prefs", Context.MODE_PRIVATE)
+                .edit().putInt("j2me_video_filter", j2meMode).apply()
+
             ru.playsoftware.j2meloader.config.Config.startApp(ctx, title, path, false)
             // Update last played
             RomStore.updateLastPlayed(ctx, game.id)

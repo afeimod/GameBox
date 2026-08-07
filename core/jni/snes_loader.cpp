@@ -117,9 +117,6 @@ static coreshared::AudioRingBuffer s_audio;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
-// GPU-accelerated video filter for XBR (hardware acceleration)
-static gpufilter::GpuVideoFilter s_gpuFilter;
-
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
@@ -459,8 +456,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame.data(), width, height, width,
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
-        (unsigned)kSnesMaxW, (unsigned)kSnesMaxH,
-        &s_gpuFilter);
+        (unsigned)kSnesMaxW, (unsigned)kSnesMaxH);
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -726,19 +722,8 @@ void setSurface(void* nativeWindow) {
     coreshared::setSurface(s_window, s_windowMtx, nativeWindow);
     if (nativeWindow) {
         LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888)", s_pixelFormat);
-        // Initialize GPU filter if an XBR filter is currently active
-        const int filter = s_videoFilter.load(std::memory_order_relaxed);
-        if (gpufilter::GpuVideoFilter::isGpuFilter(filter) && !s_gpuFilter.initialized) {
-            s_gpuFilter.init(s_window, filter, (unsigned)kSnesW, (unsigned)kSnesH);
-            LOGI("GPU filter initialized on surface attach (filter=%d)", filter);
-        }
     } else {
         LOGI("Surface detached");
-        // Clean up GPU filter when surface is removed
-        if (s_gpuFilter.initialized) {
-            s_gpuFilter.cleanup();
-            LOGI("GPU filter cleaned up on surface detach");
-        }
     }
 }
 
@@ -770,27 +755,6 @@ void videoAspectRatio(int& num, int& den) {
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
-
-    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
-        // New filter is GPU-accelerated (XBR variant)
-        if (s_gpuFilter.initialized) {
-            // GPU already initialized — update filter type (re-init with new filter)
-            std::lock_guard<std::mutex> lk(s_windowMtx);
-            s_gpuFilter.init(s_window, filter, (unsigned)kSnesW, (unsigned)kSnesH);
-            LOGI("GPU filter updated (filter=%d)", filter);
-        } else if (s_window) {
-            // GPU not initialized but surface is available — init now
-            std::lock_guard<std::mutex> lk(s_windowMtx);
-            s_gpuFilter.init(s_window, filter, (unsigned)kSnesW, (unsigned)kSnesH);
-            LOGI("GPU filter initialized (filter=%d)", filter);
-        }
-    } else {
-        // New filter is NOT GPU-accelerated — cleanup GPU if it was active
-        if (s_gpuFilter.initialized) {
-            s_gpuFilter.cleanup();
-            LOGI("GPU filter cleaned up (switched to non-GPU filter %d)", filter);
-        }
-    }
 }
 
 } // namespace snescore::rom
