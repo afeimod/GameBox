@@ -54,6 +54,14 @@ namespace gbacore::rom {
 static constexpr int kMaxW = 240;
 static constexpr int kMaxH = 160;
 
+// Android's native audio sample rate. All emulator cores should resample
+// their output to this rate before sending to AudioTrack. This matches the
+// mGBA Android reference project which uses 48000 Hz for Oboe output.
+// Using the core's native rate (e.g. 32768 Hz for GBA) directly with
+// AudioTrack causes poor-quality resampling in AudioFlinger, leading to
+// pitch errors, crackling, and muffled audio.
+static constexpr int TARGET_SAMPLE_RATE = 48000;
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -105,6 +113,121 @@ static uint32_t s_xbrBuffer4x[kMaxW * 4 * kMaxH * 4];
 static coreshared::AudioRingBuffer s_audio;
 
 // ---------------------------------------------------------------------------
+// Streaming audio resampler: converts from the core's native sample rate
+// (e.g. 32768 Hz for GBA, 32768 Hz for GB/GBC) to Android's 48000 Hz.
+//
+// Uses linear interpolation, which is sufficient for GBA's 8-bit/4-bit audio
+// source material. The resampler maintains state between calls so it can
+// process partial frames and maintain continuity.
+//
+// Without this resampler, AudioTrack is created at 32768 Hz and Android's
+// AudioFlinger performs low-quality resampling to 48000 Hz internally,
+// causing pitch errors and audio artifacts.
+// ---------------------------------------------------------------------------
+static constexpr int RESAMPLER_SRC_BUF_SIZE = 4096; // Max source frames per resample pass
+
+struct AudioResampler {
+    double ratio;           // srcRate / dstRate (e.g. 32768/48000 ≈ 0.68267)
+    double pos;            // Fractional position in source buffer
+    int    srcRate;        // Source sample rate
+    int    dstRate;        // Destination sample rate (TARGET_SAMPLE_RATE)
+    int16_t prevL, prevR;  // Previous output sample for continuity at buffer edges
+    bool   active;         // true if resampling is needed (srcRate != dstRate)
+
+    // Internal source sample buffer - stores unconsumed samples between calls
+    int    srcBufCount;                       // Number of valid frames in srcBuf
+    double srcBufPos;                         // Fractional read position in srcBuf
+    int16_t srcBuf[RESAMPLER_SRC_BUF_SIZE * 2]; // Interleaved stereo
+
+    void init(int sourceRate, int destRate = TARGET_SAMPLE_RATE) {
+        srcRate = sourceRate > 0 ? sourceRate : 32768;
+        dstRate = destRate;
+        ratio = (double)srcRate / dstRate;
+        active = (srcRate != dstRate);
+        reset();
+    }
+
+    void reset() {
+        pos = 0.0;
+        prevL = 0;
+        prevR = 0;
+        srcBufCount = 0;
+        srcBufPos = 0.0;
+    }
+
+    // Produce up to maxFrames output frames at dstRate by pulling source
+    // frames from the AudioRingBuffer and resampling.
+    int readResampled(coreshared::AudioRingBuffer& audio, int16_t* out, int maxFrames) {
+        if (!active) {
+            // No resampling needed - pass through directly
+            return audio.read(out, maxFrames);
+        }
+
+        int produced = 0;
+
+        while (produced < maxFrames) {
+            // Refill internal source buffer when we've consumed most of it
+            // Keep at least 2 frames for interpolation
+            int remaining = srcBufCount - (int)srcBufPos;
+            if (remaining < 2) {
+                // Shift unconsumed samples to the beginning
+                if (remaining > 0 && (int)srcBufPos > 0) {
+                    memmove(srcBuf, srcBuf + (int)srcBufPos * 2,
+                            remaining * 2 * sizeof(int16_t));
+                }
+
+                // Read more source frames from the ring buffer
+                int toRead = RESAMPLER_SRC_BUF_SIZE - remaining;
+                int got = audio.read(srcBuf + remaining * 2, toRead);
+                srcBufCount = remaining + got;
+                srcBufPos = 0.0;
+
+                if (srcBufCount < 2) {
+                    // Not enough source samples for interpolation
+                    // Fill remaining output with zeros (underrun)
+                    for (int i = produced; i < maxFrames; i++) {
+                        out[i * 2]     = 0;
+                        out[i * 2 + 1] = 0;
+                    }
+                    return produced;
+                }
+            }
+
+            // Linear interpolation at fractional position
+            int idx = (int)srcBufPos;
+            double frac = srcBufPos - idx;
+
+            // Clamp to prevent out-of-bounds access
+            if (idx + 1 >= srcBufCount) {
+                // Use previous samples for edge case
+                out[produced * 2]     = prevL;
+                out[produced * 2 + 1] = prevR;
+            } else {
+                int16_t l0 = srcBuf[idx * 2];
+                int16_t r0 = srcBuf[idx * 2 + 1];
+                int16_t l1 = srcBuf[(idx + 1) * 2];
+                int16_t r1 = srcBuf[(idx + 1) * 2 + 1];
+
+                out[produced * 2]     = (int16_t)(l0 + (l1 - l0) * frac);
+                out[produced * 2 + 1] = (int16_t)(r0 + (r1 - r0) * frac);
+            }
+
+            prevL = out[produced * 2];
+            prevR = out[produced * 2 + 1];
+            produced++;
+
+            // Advance source position by ratio
+            // Each output sample at dstRate corresponds to ratio source samples
+            srcBufPos += ratio;
+        }
+
+        return produced;
+    }
+};
+
+static AudioResampler s_resampler;
+
+// ---------------------------------------------------------------------------
 // ANativeWindow — hardware-accelerated direct surface rendering
 // ---------------------------------------------------------------------------
 static ANativeWindow* s_window = nullptr;
@@ -152,11 +275,14 @@ static void initDefaultOptions() {
     s_options["mgba_frameskip_threshold"]       = "33";
 
     // --- Audio ---
-    // Explicitly disable the low-pass filter — it muffles GBA audio by cutting
-    // high frequencies. mGBA's default is disabled, but we set it explicitly
-    // to ensure it's always off regardless of any persisted config file.
-    s_options["mgba_audio_low_pass_filter"]          = "disabled";
-    s_options["mgba_audio_low_pass_range"]            = "60";
+    // Enable the low-pass filter to smooth high-frequency aliasing artifacts
+    // in GBA audio. The GBA's 8-bit/4-bit audio sources produce harsh
+    // high-frequency content that benefits from gentle low-pass filtering.
+    // This matches the mGBA Android reference project behavior.
+    // The low-pass range of 40-60 is a good balance between clarity and
+    // smoothness for GBA audio.
+    s_options["mgba_audio_low_pass_filter"]          = "enabled";
+    s_options["mgba_audio_low_pass_range"]            = "50";
 
     // --- GBA RTC ---
     s_options["mgba_gba_forceRTC"]              = "disabled";
@@ -259,13 +385,15 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
             // mGBA may call this to change the sample rate mid-game.
-            // Update our stored sample rate so the Kotlin side can react.
+            // Update our stored sample rate and reinitialize the resampler.
             if (data) {
                 auto* av = static_cast<const retro_system_av_info*>(data);
                 int newRate = (int)av->timing.sample_rate;
                 if (newRate > 0 && newRate != s_sampleRate) {
-                    LOGI("Sample rate changed: %d -> %d", s_sampleRate, newRate);
+                    LOGI("Sample rate changed: %d -> %d, reinitializing resampler",
+                         s_sampleRate, newRate);
                     s_sampleRate = newRate;
+                    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
                 }
             }
             return true;
@@ -564,6 +692,13 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_newFrame.store(false);
 
+    // Initialize the resampler from the core's native rate to Android's 48000 Hz.
+    // This replaces the previous approach of passing 32768 Hz directly to
+    // AudioTrack, which caused poor-quality resampling in AudioFlinger.
+    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+    LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f)",
+         s_sampleRate, TARGET_SAMPLE_RATE, s_resampler.ratio);
+
     LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
          av.geometry.base_width, av.geometry.base_height,
@@ -579,6 +714,7 @@ void unload() {
     }
     s_sampleRate = 0;
     s_audio.reset();
+    s_resampler.reset();
     s_newFrame.store(false);
     s_videoW = 0;
     s_videoH = 0;
@@ -619,10 +755,12 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
 }
 
 int readAudio(int16_t* out, int maxFrames) {
-    return s_audio.read(out, maxFrames);
+    return s_resampler.readResampled(s_audio, out, maxFrames);
 }
 
 int audioSampleRate() { return s_sampleRate; }
+
+int audioTargetSampleRate() { return TARGET_SAMPLE_RATE; }
 
 void setControllerInput(int port, uint16_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);

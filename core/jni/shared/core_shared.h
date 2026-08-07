@@ -409,7 +409,12 @@ static inline void applyFilterAndBlit(
 
 class AudioRingBuffer {
 public:
-    static constexpr size_t kDefaultCap = 1u << 15; // 32768 samples
+    // Increased from 32768 to 65536 to accommodate resampled audio.
+    // When resampling from 32768 Hz to 48000 Hz, the ring buffer needs more
+    // capacity since the core produces samples at 32768 Hz but the consumer
+    // reads at a higher effective rate after resampling. 65536 provides
+    // ~136ms of buffering at 48000 Hz stereo, preventing underruns.
+    static constexpr size_t kDefaultCap = 1u << 16; // 65536 samples
 
     AudioRingBuffer(size_t cap = kDefaultCap) : kCap(cap) {
         ring = new int16_t[cap];

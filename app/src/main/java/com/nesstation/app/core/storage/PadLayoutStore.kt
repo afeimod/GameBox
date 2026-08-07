@@ -85,7 +85,7 @@ data class PadLayout(
     val gbaFrameBlending: String = "OFF",             // OFF | ON | fast
     val gbaAudioResampler: String = "sinc",         // sinc | nearest | cosine | cubic
     val gbaAudioLowPass: String = "enabled",          // disabled | enabled
-    val gbaAudioLowPassRange: String = "60",          // 0-100
+    val gbaAudioLowPassRange: String = "50",          // 0-100 (50 = balanced for GBA)
     val gbaFrameskipType: String = "disabled",        // disabled | auto | fixed
     val gbaFrameskipCount: String = "0",              // 0-10
     val gbaSolarSensor: String = "0",                 // 0-10
@@ -256,7 +256,7 @@ object PadLayoutStore {
             gbaFrameBlending = p.getString("gba_frame_blending", "OFF") ?: "OFF",
             gbaAudioResampler = p.getString("gba_audio_resampler", "sinc") ?: "sinc",
             gbaAudioLowPass = p.getString("gba_audio_low_pass", "enabled") ?: "enabled",
-            gbaAudioLowPassRange = p.getString("gba_audio_low_pass_range", "60") ?: "60",
+            gbaAudioLowPassRange = p.getString("gba_audio_low_pass_range", "50") ?: "50",
             gbaFrameskipType = p.getString("gba_frameskip_type", "disabled") ?: "disabled",
             gbaFrameskipCount = p.getString("gba_frameskip_count", "0") ?: "0",
             gbaSolarSensor = p.getString("gba_solar_sensor", "0") ?: "0",

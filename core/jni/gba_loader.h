@@ -50,6 +50,11 @@ int readAudio(int16_t* out, int maxFrames);
 // 0 before load.
 int audioSampleRate();
 
+// Target output sample rate for Android AudioTrack (48000 Hz).
+// Audio is resampled from the core's native rate to this rate in readAudio().
+// This matches the mGBA Android reference project which uses 48000 Hz for Oboe.
+int audioTargetSampleRate();
+
 // Push controller state. `bits` layout:
 //   bit0 A, bit1 B, bit2 Select, bit3 Start,
 //   bit4 Up, bit5 Down, bit6 Left, bit7 Right,

@@ -86,6 +86,10 @@ int Engine::audioSampleRate() {
     return rom::audioSampleRate();
 }
 
+int Engine::audioTargetSampleRate() {
+    return rom::audioTargetSampleRate();
+}
+
 void Engine::setPaths(const std::string& systemDir, const std::string& saveDir) {
     rom::setPaths(systemDir, saveDir);
 }
@@ -220,6 +224,11 @@ Java_com_nesstation_app_core_jni_GbaNative_readAudio(JNIEnv* env, jclass, jshort
 JNIEXPORT jint JNICALL
 Java_com_nesstation_app_core_jni_GbaNative_audioSampleRate(JNIEnv*, jclass) {
     return gbacore::Engine::instance().audioSampleRate();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_audioTargetSampleRate(JNIEnv*, jclass) {
+    return gbacore::Engine::instance().audioTargetSampleRate();
 }
 
 JNIEXPORT void JNICALL
