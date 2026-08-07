@@ -332,7 +332,7 @@ struct GpuVideoFilter {
         // This ensures the EGL surface buffers are large enough for 2x/4x output.
         ANativeWindow_setBuffersGeometry(window,
             srcW * scaleFactor, srcH * scaleFactor,
-            WINDOW_FORMAT_RGBAX_8888);
+            WINDOW_FORMAT_RGBA_8888);
 
         // --- EGL initialization ---
         eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
