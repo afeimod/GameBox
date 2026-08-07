@@ -117,6 +117,11 @@ static coreshared::AudioRingBuffer s_audio;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
+// Fast-forward: when true, skip most surface blits to prevent
+// ANativeWindow_lock from blocking the emulation thread.
+static std::atomic<bool> s_fastForward{false};
+static std::atomic<int>  s_ffFrameSkip{0};
+
 // ---------------------------------------------------------------------------
 // Core options — key/value map served to the core via GET_VARIABLE
 // ---------------------------------------------------------------------------
@@ -426,6 +431,17 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_newFrame.store(true, std::memory_order_release);
     }
 
+    // During fast-forward, skip most blits to prevent ANativeWindow_lock
+    // from blocking the emulation thread. Only blit every 6th frame so the
+    // user can still see the game. ARGB conversion above still runs every
+    // frame (for screenshots).
+    if (s_fastForward.load(std::memory_order_relaxed)) {
+        if (s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % 6 != 0)
+            return;
+    } else {
+        s_ffFrameSkip.store(0, std::memory_order_relaxed);
+    }
+
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
 
     // Always use the ARGB blit path. The cb_video function above already
@@ -654,7 +670,13 @@ void setPaths(const std::string& systemDir, const std::string& saveDir) {
 
 void applyRegion(int /*region*/) { /* region is auto-detected at load */ }
 void applySampleRate(int /*hz*/) { /* fixed by the core */ }
-void applySpeed(float /*multiplier*/) { /* fast-forward is handled by the Kotlin loop */ }
+void applySpeed(float multiplier) {
+    // Set the fast-forward flag so cb_video skips most surface blits.
+    // This prevents ANativeWindow_lock from blocking the emulation thread
+    // when frames are produced faster than the display can consume them.
+    s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
+    s_ffFrameSkip.store(0, std::memory_order_relaxed);
+}
 
 void saveStateToPath(int /*slot*/, const std::string& path) {
     if (!s_loaded) return;

@@ -152,7 +152,6 @@ fun EmulatorScreen(
                    padLayout.sfcLayer1, padLayout.sfcLayer2, padLayout.sfcLayer3,
                    padLayout.sfcLayer4, padLayout.sfcLayer5,
                    padLayout.gbcColorPreset, padLayout.gbaColorPreset,
-                   padLayout.gbaAudioResampler, padLayout.gbaAudioLowPass,
                    padLayout.gbaFrameskipType, padLayout.gbaForceRTC,
                    padLayout.gbaAllowOpposite) {
         applyCoreOptions(engine, padLayout, platform)
@@ -455,9 +454,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("mgba_frameskip", layout.gbaFrameskipCount)
             engine.setCoreOption("mgba_frameskip_type", layout.gbaFrameskipType)
             engine.setCoreOption("mgba_frameskip_threshold", layout.gbaFrameskipThreshold)
-            engine.setCoreOption("mgba_audio_resampler", layout.gbaAudioResampler)
-            engine.setCoreOption("mgba_audio_low_pass_filter", layout.gbaAudioLowPass)
-            engine.setCoreOption("mgba_audio_low_pass_range", layout.gbaAudioLowPassRange)
+            // Audio: do NOT set any audio options. Let mGBA use its built-in defaults.
             engine.setCoreOption("mgba_sgb_borders", layout.gbSgbBorders)
             engine.setCoreOption("mgba_gba_forceRTC", layout.gbaForceRTC)
             engine.setCoreOption("mgba_allow_opposite_directions", layout.gbaAllowOpposite)

@@ -101,6 +101,11 @@ static std::mutex s_audioMtx;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
+// Fast-forward: when true, skip most surface blits to prevent
+// ANativeWindow_lock from blocking the emulation thread.
+static std::atomic<bool> s_fastForward{false};
+static std::atomic<int>  s_ffFrameSkip{0};
+
 // ---------------------------------------------------------------------------
 // Core options — key/value map served to the core via GET_VARIABLE
 // ---------------------------------------------------------------------------
@@ -302,6 +307,15 @@ static inline uint32_t xrgbToRgba(uint32_t px) {
 }
 
 static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t srcStride) {
+    // During fast-forward, skip most blits to prevent ANativeWindow_lock
+    // from blocking the emulation thread. Only blit every 6th frame.
+    if (s_fastForward.load(std::memory_order_relaxed)) {
+        if (s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % 6 != 0)
+            return;
+    } else {
+        s_ffFrameSkip.store(0, std::memory_order_relaxed);
+    }
+
     std::lock_guard<std::mutex> lk(s_windowMtx);
     if (!s_window) return;
 
@@ -915,7 +929,13 @@ void setPaths(const std::string& systemDir, const std::string& saveDir) {
 
 void applyRegion(int /*region*/) { /* region is auto-detected at load */ }
 void applySampleRate(int /*hz*/) { /* fixed by the core */ }
-void applySpeed(float /*multiplier*/) { /* fast-forward is handled by the Kotlin loop */ }
+void applySpeed(float multiplier) {
+    // Set the fast-forward flag so blitToSurface skips most surface blits.
+    // This prevents ANativeWindow_lock from blocking the emulation thread
+    // when frames are produced faster than the display can consume them.
+    s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
+    s_ffFrameSkip.store(0, std::memory_order_relaxed);
+}
 
 void saveStateToPath(int /*slot*/, const std::string& path) {
     if (!s_loaded) return;
