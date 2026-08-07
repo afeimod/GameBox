@@ -152,7 +152,8 @@ target_compile_options(nescore PRIVATE
 # Android log + native_window (ANativeWindow) for hardware-accelerated surface
 # rendering. Video frames are blitted directly to the SurfaceView's surface
 # buffer, bypassing the JNI frame copy + Compose Canvas redraw overhead.
-target_link_libraries(nescore log android)
+# EGL + GLESv2 for GPU-accelerated XBR video filters (hardware shader pipeline).
+target_link_libraries(nescore log android EGL GLESv2)
 
 # AGP's externalNativeBuild automatically picks up the .so from CMake's
 # build output — no manual LIBRARY_OUTPUT_DIRECTORY needed.
@@ -266,7 +267,8 @@ if(EXISTS "${SNES9X_SRC}/libretro/libretro.cpp")
         -Wno-deprecated-declarations
     )
 
-    target_link_libraries(snescore log android)
+    # EGL + GLESv2 for GPU-accelerated XBR video filters
+    target_link_libraries(snescore log android EGL GLESv2)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -340,7 +342,8 @@ if(EXISTS "${MGBA_DIR}/CMakeLists.txt")
         -Wno-deprecated-declarations
     )
 
-    target_link_libraries(gbacore mgba log android)
+    # EGL + GLESv2 for GPU-accelerated XBR video filters
+    target_link_libraries(gbacore mgba log android EGL GLESv2)
 endif()
 
 # ---------------------------------------------------------------------------

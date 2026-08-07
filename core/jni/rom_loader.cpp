@@ -102,6 +102,9 @@ static std::mutex s_audioMtx;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
+// GPU-accelerated video filter for XBR (hardware acceleration)
+static gpufilter::GpuVideoFilter s_gpuFilter;
+
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
@@ -433,32 +436,19 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_newFrame.store(true, std::memory_order_release);
     }
 
-    // Blit directly to ANativeWindow if a surface is attached (hardware accel)
+    // Apply filter and blit directly to ANativeWindow if a surface is attached
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
-    const bool canUpscale = (width <= kNesW && height <= kNesH);
 
     // Use s_frame (converted ARGB 0xFFRRGGBB) as source for all filters,
     // not the raw core data. This ensures consistent pixel format (alpha=0xFF)
     // across all three cores, preventing XBR edge detection artifacts.
-    if ((filter == 4 || filter == 7) && canUpscale) {
-        xbr2xUpscale(s_frame, width, height, kNesW, s_xbrBuffer);
-        blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
-    } else if ((filter == 8 || filter == 9) && canUpscale) {
-        xbr4xUpscale(s_frame, width, height, kNesW, s_hq4xBuffer);
-        blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
-    } else if (filter == 5 && canUpscale) {
-        hq2x_32_rb(s_frame, (uint32_t)(kNesW * sizeof(uint32_t)),
-                   s_xbrBuffer, (uint32_t)(width * 2 * sizeof(uint32_t)),
-                   (int)width, (int)height);
-        blitToSurface(s_xbrBuffer, width * 2, height * 2, width * 2);
-    } else if ((filter == 6 || filter == 10) && canUpscale) {
-        hq4x_32_rb(s_frame, (uint32_t)(kNesW * sizeof(uint32_t)),
-                   s_hq4xBuffer, (uint32_t)(width * 4 * sizeof(uint32_t)),
-                   (int)width, (int)height);
-        blitToSurface(s_hq4xBuffer, width * 4, height * 4, width * 4);
-    } else {
-        blitToSurface(src, width, height, srcStride);
-    }
+    coreshared::applyFilterAndBlit(
+        s_window, s_windowMtx,
+        s_frame, width, height, kNesW,
+        filter,
+        s_xbrBuffer, s_hq4xBuffer, s_xbrMidBuffer,
+        kNesW, kNesH,
+        &s_gpuFilter);
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -796,6 +786,11 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_setBuffersGeometry(s_window, 0, 0,
                                          WINDOW_FORMAT_RGBA_8888);
         LOGI("Surface attached (buffer geometry = window default)");
+
+        // Initialize GPU filter if XBR is active
+        if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
+            s_gpuFilter.init(s_window, s_videoFilter.load(), kNesW, kNesH);
+        }
     } else {
         LOGI("Surface detached");
     }
@@ -841,16 +836,24 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
+
+    // Initialize or update GPU filter
+    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
+        if (!s_gpuFilter.initialized && s_window) {
+            s_gpuFilter.init(s_window, filter, kNesW, kNesH);
+        } else if (s_gpuFilter.initialized) {
+            s_gpuFilter.setFilter(filter);
+        }
+    } else if (s_gpuFilter.initialized) {
+        // Non-GPU filter selected: cleanup GPU filter and restore ANativeWindow path
+        s_gpuFilter.cleanup();
+        // Re-set buffer geometry since EGL may have changed it
+        if (s_window) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
-    // No buffer geometry changes needed. The buffer is always at 0x0 (window
-    // default). For XBR (filter 4/7), the 2xBR-lv1 upscale happens in cb_video
-    // before blitting — it uses a full 5×5 neighborhood with weighted-distance
-    // edge detection to produce smooth, artifact-free pixel art upscaling.
-    // For HQ2X (5) and HQ4X (6), the HQX scaler runs in cb_video with YUV
-    // pattern detection and cross-diagonal interpolation rules.
-    // For scanline/CRT/dot, the visual effect is a GPU-accelerated Compose
-    // overlay drawn on top of the SurfaceView. XBR+dot (7) combines the C++
-    // XBR upscale with the Compose dot overlay.
 }
 
 } // namespace nescore::rom

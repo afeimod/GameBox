@@ -24,6 +24,9 @@
 // Include HQX library for HQ2X/HQ4X filters
 #include "hqx/hqx.h"
 
+// Include GPU video filter for hardware-accelerated XBR rendering
+#include "gpu_video_filter.h"
+
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "core-shared", __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  "core-shared", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "core-shared", __VA_ARGS__)
@@ -510,10 +513,19 @@ static inline void applyFilterAndBlit(
     uint32_t* xbrBuffer2x,    // at least width*2 * height*2
     uint32_t* xbrBuffer4x,    // at least width*4 * height*4
     uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade)
-    unsigned maxSrcW, unsigned maxSrcH)
+    unsigned maxSrcW, unsigned maxSrcH,
+    gpufilter::GpuVideoFilter* gpuFilter = nullptr)  // GPU filter (optional)
 {
     const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
 
+    // GPU-accelerated path for XBR filters (massive performance improvement)
+    if (gpufilter::GpuVideoFilter::isGpuFilter(filter) && gpuFilter
+        && gpuFilter->initialized && canUpscale) {
+        gpuFilter->renderFrame(src, width, height, srcStride);
+        return;
+    }
+
+    // CPU fallback path
     if ((filter == 4 || filter == 7) && canUpscale) {
         xbr2xUpscale(src, width, height, srcStride, xbrBuffer2x);
         blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2);
@@ -640,9 +652,17 @@ static inline void applyFilterAndBlit565(
     const uint32_t* srcArgb,  // pre-converted ARGB buffer (for filters)
     int filter,
     uint32_t* xbrBuffer2x, uint32_t* xbrBuffer4x, uint32_t* xbrMidBuffer,
-    unsigned maxSrcW, unsigned maxSrcH)
+    unsigned maxSrcW, unsigned maxSrcH,
+    gpufilter::GpuVideoFilter* gpuFilter = nullptr)  // GPU filter (optional)
 {
     const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
+
+    // GPU-accelerated path for XBR filters
+    if (gpufilter::GpuVideoFilter::isGpuFilter(filter) && gpuFilter
+        && gpuFilter->initialized && canUpscale && srcArgb) {
+        gpuFilter->renderFrame(srcArgb, width, height, width);
+        return;
+    }
 
     if (filter == 0 || !canUpscale || !srcArgb) {
         // No filter: direct RGB565 blit — zero conversion loss
