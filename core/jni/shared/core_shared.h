@@ -210,7 +210,7 @@ static inline int xbrEq8(uint32_t A, uint32_t B) {
 }
 
 #define XBR_BLEND_128(dst, src) \
-    dst = ((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)
+    dst = (((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)) | XBR_ALPHA_MASK
 
 // CRITICAL: All blend macros cast to int32_t before subtraction.
 // Without this, (src & MASK) - (dst & MASK) is unsigned and wraps to a

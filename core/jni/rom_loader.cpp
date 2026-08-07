@@ -434,7 +434,7 @@ static inline int xbrEq8(uint32_t A, uint32_t B) {
 // CRITICAL: Cast to int32_t before subtraction to avoid unsigned wraparound
 // when src < dst, which causes corrupted pixels (scattered dots).
 #define XBR_BLEND_128(dst, src) \
-    dst = ((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)
+    dst = (((src & XBR_LBMASK) >> 1) + ((dst & XBR_LBMASK) >> 1)) | XBR_ALPHA_MASK
 
 #define XBR_BLEND_32(dst, src) \
     dst = ( \
