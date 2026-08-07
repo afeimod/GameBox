@@ -152,9 +152,11 @@ static void initDefaultOptions() {
     s_options["mgba_frameskip_threshold"]       = "33";
 
     // --- Audio ---
-    // Do NOT set any audio options here. Let mGBA use its own built-in
-    // defaults. When GET_VARIABLE returns false for these keys, mGBA
-    // uses its compiled-in defaults (sinc resampler, no low-pass filter).
+    // Explicitly disable the low-pass filter — it muffles GBA audio by cutting
+    // high frequencies. mGBA's default is disabled, but we set it explicitly
+    // to ensure it's always off regardless of any persisted config file.
+    s_options["mgba_audio_low_pass_filter"]          = "disabled";
+    s_options["mgba_audio_low_pass_range"]            = "60";
 
     // --- GBA RTC ---
     s_options["mgba_gba_forceRTC"]              = "disabled";
@@ -253,8 +255,21 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         // Geometry / AV info changes
         case RETRO_ENVIRONMENT_SET_GEOMETRY:
-        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
             return true;
+
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
+            // mGBA may call this to change the sample rate mid-game.
+            // Update our stored sample rate so the Kotlin side can react.
+            if (data) {
+                auto* av = static_cast<const retro_system_av_info*>(data);
+                int newRate = (int)av->timing.sample_rate;
+                if (newRate > 0 && newRate != s_sampleRate) {
+                    LOGI("Sample rate changed: %d -> %d", s_sampleRate, newRate);
+                    s_sampleRate = newRate;
+                }
+            }
+            return true;
+        }
 
         // Tell the core we want both audio and video enabled.
         case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:

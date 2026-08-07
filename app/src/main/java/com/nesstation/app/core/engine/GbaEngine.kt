@@ -17,11 +17,10 @@ import kotlin.concurrent.thread
  *   - Audio thread: reads from native ring buffer, writes to AudioTrack with
  *     BLOCKING mode (prevents sample drops / crackling)
  *
- * Separating audio into its own thread eliminates the tradeoff between
- * BLOCKING (causes lag when buffer full) and NON_BLOCKING (drops samples,
- * causing "滋滋" crackling). The audio thread blocks on AudioTrack.write,
- * which naturally throttles to the playback rate, while the emulation
- * thread runs independently at full speed.
+ * The audio path is identical to NesEngine/SnesEngine: create AudioTrack at
+ * the core's native sample rate (32768 Hz for GBA) and let Android's
+ * AudioFlinger handle any device-side resampling with its high-quality
+ * resampler. No frontend-side resampling — that was the cause of muffled audio.
  *
  * GBA button bit layout (10 buttons):
  *   bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down, bit6=Left, bit7=Right
@@ -35,10 +34,6 @@ class GbaEngine private constructor() : EmulatorEngine {
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
     private var audioTrack: AudioTrack? = null
-    private var audioSampleRate = 44100
-    private var audioSrcRate = 32768
-    private var audioDstRate = 48000
-
     // Audio thread state
     private val audioRunning = AtomicBoolean(false)
     private var audioThread: Thread? = null
@@ -72,7 +67,6 @@ class GbaEngine private constructor() : EmulatorEngine {
         GbaNative.setFastForward(_ffSpeed)
 
         val rate = GbaNative.audioSampleRate().takeIf { it > 0 } ?: 32768
-        audioSampleRate = rate
         startAudio(rate)
 
         running.set(true)
@@ -145,34 +139,12 @@ class GbaEngine private constructor() : EmulatorEngine {
 
     private fun startAudio(sampleRate: Int) {
         stopAudio()
-        audioSrcRate = sampleRate
         try {
-            // Use the core's native sample rate directly (e.g., 32768 Hz for GBA).
-            // Android's AudioFlinger handles resampling to the device's output
-            // rate internally with far higher quality than a hand-rolled linear
-            // interpolation. This also eliminates the resampler bugs that caused
-            // audio distortion (lost samples, incorrect position tracking).
-            var rate = sampleRate
-            var minBuf = AudioTrack.getMinBufferSize(
-                rate,
+            val minBuf = AudioTrack.getMinBufferSize(
+                sampleRate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            // If the native rate isn't supported, fall back to 44100 then 48000.
-            if (minBuf <= 0) {
-                rate = 44100
-                minBuf = AudioTrack.getMinBufferSize(
-                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
-                )
-            }
-            if (minBuf <= 0) {
-                rate = 48000
-                minBuf = AudioTrack.getMinBufferSize(
-                    rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
-                )
-            }
-            if (minBuf <= 0) return
-            audioDstRate = rate
             val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
@@ -180,7 +152,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
                 AudioFormat.Builder()
-                    .setSampleRate(rate)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build(),
@@ -193,54 +165,17 @@ class GbaEngine private constructor() : EmulatorEngine {
             audioTrack = null
         }
 
+        // Dedicated audio thread with BLOCKING writes — identical to NES/SNES.
+        // Android's AudioFlinger handles any sample-rate conversion internally
+        // with high-quality resampling. No frontend-side resampler needed.
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
-            val srcBuf = ShortArray(4096)
-
-            // Only needed if the device couldn't use the core's native rate.
-            val needResample = audioSrcRate != audioDstRate
-            val dstBuf = if (needResample) ShortArray(8192) else null
-            val ratio = if (needResample) audioSrcRate.toDouble() / audioDstRate.toDouble() else 0.0
-            var srcPos = 0.0
-            var lastL: Short = 0
-            var lastR: Short = 0
-
+            val buf = ShortArray(4096)
             while (audioRunning.get()) {
                 try {
-                    val n = GbaNative.readAudio(srcBuf)
+                    val n = GbaNative.readAudio(buf)
                     if (n > 0) {
-                        if (!needResample || dstBuf == null) {
-                            // Native rate — write directly, no resampling
-                            audioTrack?.write(srcBuf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
-                        } else {
-                            // Fallback resampling (rare — most devices support 32768 Hz)
-                            var dstIdx = 0
-                            val maxDst = dstBuf.size / 2
-                            var i = 0
-                            while (i < n && dstIdx < maxDst) {
-                                val curL = srcBuf[i * 2]
-                                val curR = srcBuf[i * 2 + 1]
-                                while (srcPos < (i + 1).toDouble() && dstIdx < maxDst) {
-                                    val frac = (srcPos - i.toDouble()).toFloat()
-                                    val l = (lastL + (curL - lastL) * frac).toInt()
-                                    val r = (lastR + (curR - lastR) * frac).toInt()
-                                    dstBuf[dstIdx * 2] = l.toShort()
-                                    dstBuf[dstIdx * 2 + 1] = r.toShort()
-                                    dstIdx++
-                                    srcPos += ratio
-                                }
-                                if (dstIdx < maxDst) {
-                                    lastL = curL
-                                    lastR = curR
-                                }
-                                i++
-                            }
-                            // Carry over fractional position for next call
-                            srcPos -= n
-                            if (dstIdx > 0) {
-                                audioTrack?.write(dstBuf, 0, dstIdx * 2, AudioTrack.WRITE_BLOCKING)
-                            }
-                        }
+                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                     } else {
                         Thread.sleep(2)
                     }
