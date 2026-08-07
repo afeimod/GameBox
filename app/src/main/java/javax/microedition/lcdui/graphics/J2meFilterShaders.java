@@ -3,22 +3,6 @@ package javax.microedition.lcdui.graphics;
 /**
  * GLSL vertex + fragment shader sources for J2ME video filters.
  *
- * <p>The shader algorithms are taken <b>exactly</b> from the reference PPSSPP-style
- * shader files (Hyllian's 2xBR / 4xBR, guest(r)'s 4xGLSLHqFilter, Themaister's
- * scanline / dot shaders and the PPSSPP CRT shader) and only adapted for OpenGL ES
- * 2.0:
- * <ul>
- *   <li>{@code attribute vec4 a_position} is replaced by {@code attribute vec2 a_position}
- *       together with {@code gl_Position = vec4(a_position, 0.0, 1.0)} (the VBO only
- *       feeds 2 floats per position anyway).</li>
- *   <li>{@code attribute vec2 a_texcoord0} and all {@code varying} declarations are
- *       kept verbatim (GL ES 2.0 uses {@code varying}, not {@code in}/{@code out}).</li>
- *   <li>Fragment shaders keep the precision qualifiers from the reference files.</li>
- *   <li>Uniforms {@code sampler0}, {@code u_texelDelta} and {@code u_pixelDelta} are
- *       provided by {@link ShaderProgram} (u_texelDelta = 1/textureSize,
- *       u_pixelDelta = 1/screenSize).</li>
- * </ul>
- *
  * <p>Filter modes (must match {@code J2meBitmapFilter} constants):
  * <pre>
  *   0 = None         (passthrough)
@@ -30,12 +14,16 @@ package javax.microedition.lcdui.graphics;
  *   6 = 2xBR + Dot
  *   7 = 4xBR + Dot
  *   8 = HQ4x          (4xGLSLHqFilter)
- *   9 = HQ4x + Dot    (NEW)
+ *   9 = HQ4x + Dot
  * </pre>
+ *
+ * <p><b>CRITICAL:</b> Array varyings ({@code varying vec2 v[3]}) are NOT reliably
+ * supported across Android GPU drivers (Adreno 3xx, Mali-T6xx, PowerVR SGX all fail).
+ * All shaders use individual varyings instead ({@code v_tc0, v_tc1, v_tc2}).
  */
 public final class J2meFilterShaders {
 
-    // ─── Mode constants (mirror J2meBitmapFilter, plus the new HQ4x+Dot) ──────
+    // ─── Mode constants ──────────────────────────────────────────────────────
     public static final int MODE_NONE      = 0;
     public static final int MODE_SCANLINE  = 1;
     public static final int MODE_CRT       = 2;
@@ -49,16 +37,13 @@ public final class J2meFilterShaders {
 
     // ─── Default passthrough shaders (mode 0) ────────────────────────────────
 
-    /**
-     * Standard passthrough vertex shader (vec4 a_position). Used for mode 0 and as
-     * the fallback when a mode does not need a custom vertex shader.
-     */
+    /** Passthrough vertex shader — uses vec2 a_position (consistent with all filter shaders). */
     public static final String VERTEX_SHADER =
-            "attribute vec4 a_position;\n" +
+            "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
             "varying vec2 v_texcoord0;\n" +
             "void main() {\n" +
-            "    gl_Position = a_position;\n" +
+            "    gl_Position = vec4(a_position, 0.0, 1.0);\n" +
             "    v_texcoord0 = a_texcoord0;\n" +
             "}\n";
 
@@ -73,7 +58,7 @@ public final class J2meFilterShaders {
 
     // ─── Vertex shaders ──────────────────────────────────────────────────────
 
-    /** Scanline vertex shader (scanlines-emu.vsh). Computes the {@code omega} varying. */
+    /** Scanline vertex shader. */
     public static final String VERTEX_SCANLINE =
             "uniform vec2 u_texelDelta;\n" +
             "uniform vec2 u_pixelDelta;\n" +
@@ -88,11 +73,7 @@ public final class J2meFilterShaders {
             "    omega = vec2(3.1415 / u_pixelDelta.x / u_texelDelta.x * u_texelDelta.x, 2.0 * 3.1415 / u_texelDelta.y);\n" +
             "}\n";
 
-    /**
-     * CRT vertex shader. The reference crt.fsh only needs {@code v_texcoord0} (no
-     * custom .vsh exists), so this is the GL ES 2.0 vec2 passthrough used to keep
-     * {@code a_position} consistent across all non-zero filter modes.
-     */
+    /** CRT vertex shader. */
     public static final String VERTEX_CRT =
             "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
@@ -103,18 +84,18 @@ public final class J2meFilterShaders {
             "    v_texcoord0 = a_texcoord0;\n" +
             "}\n";
 
-    /** Dot vertex shader (dot.vsh). Pre-computes the 3x3 neighborhood texcoords. */
+    /** Dot vertex shader. Pre-computes the 3x3 neighborhood texcoords. */
     public static final String VERTEX_DOT =
             "uniform vec2 u_texelDelta;\n" +
             "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
             "varying vec2 v_texcoord0;\n" +
-            "varying vec4 v_texcoord1; // c00_10\n" +
-            "varying vec4 v_texcoord2; // c20_01\n" +
-            "varying vec4 v_texcoord3; // c21_02\n" +
-            "varying vec4 v_texcoord4; // c12_22\n" +
-            "varying vec2 v_texcoord5; // c11\n" +
-            "varying vec2 v_texcoord6; // pixel_no\n" +
+            "varying vec4 v_texcoord1;\n" +
+            "varying vec4 v_texcoord2;\n" +
+            "varying vec4 v_texcoord3;\n" +
+            "varying vec4 v_texcoord4;\n" +
+            "varying vec2 v_texcoord5;\n" +
+            "varying vec2 v_texcoord6;\n" +
             "\n" +
             "void main()\n" +
             "{\n" +
@@ -124,61 +105,53 @@ public final class J2meFilterShaders {
             "    float dx = u_texelDelta.x;\n" +
             "    float dy = u_texelDelta.y;\n" +
             "\n" +
-            "    // c00_10\n" +
             "    v_texcoord1 = vec4(v_texcoord0 + vec2(-dx, -dy), v_texcoord0 + vec2(0.0, -dy));\n" +
-            "\n" +
-            "    // c20_01\n" +
             "    v_texcoord2 = vec4(v_texcoord0 + vec2(dx, -dy), v_texcoord0 + vec2(-dx, 0.0));\n" +
-            "\n" +
-            "    // c21_02\n" +
             "    v_texcoord3 = vec4(v_texcoord0 + vec2(dx, 0.0), v_texcoord0 + vec2(-dx, dy));\n" +
-            "\n" +
-            "    // c12_22\n" +
             "    v_texcoord4 = vec4(v_texcoord0 + vec2(0.0, dy), v_texcoord0 + vec2(dx, dy));\n" +
-            "\n" +
-            "    // c11\n" +
             "    v_texcoord5 = v_texcoord0;\n" +
-            "\n" +
-            "    // pixel_no\n" +
             "    v_texcoord6 = v_texcoord0 * (1.0 / u_texelDelta.xy);\n" +
             "}\n";
 
     /**
-     * 2xBR vertex shader — reference 2xbr.vsh (verbatim).
-     * Provides {@code varying vec2 v_texcoord0[3]} where:
-     * <ul>
-     *   <li>[0] = base texcoord</li>
-     *   <li>[1] = vec2(0, -texelDelta.y) — up-direction gradient (B)</li>
-     *   <li>[2] = vec2(-texelDelta.x, 0) — left-direction gradient (D)</li>
-     * </ul>
-     * Used by both 2xBR and 4xBR modes (and their +Dot variants), since the
-     * reference 4xbr.vsh is identical to 2xbr.vsh.
+     * 2xBR vertex shader — Hyllian's 2xBR (adapted from reference 2xbr.vsh).
+     * Uses INDIVIDUAL varyings (v_tc0, v_tc1, v_tc2) instead of array
+     * varying vec2 v_texcoord0[3] for universal GPU driver compatibility.
      */
     public static final String VERTEX_2XBR =
             "uniform mediump vec2 u_texelDelta;\n" +
             "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
-            "varying vec2 v_texcoord0[3];\n" +
+            "varying vec2 v_tc0;\n" +
+            "varying vec2 v_tc1;\n" +
+            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
             "    vec2 ps = u_texelDelta;\n" +
-            "    v_texcoord0[0] = a_texcoord0;\n" +
-            "    v_texcoord0[1] = vec2(0.0, -ps.y);\n" +
-            "    v_texcoord0[2] = vec2(-ps.x, 0.0);\n" +
+            "    v_tc0 = a_texcoord0;\n" +
+            "    v_tc1 = vec2(0.0, -ps.y);\n" +
+            "    v_tc2 = vec2(-ps.x, 0.0);\n" +
             "    gl_Position = vec4(a_position, 0.0, 1.0);\n" +
             "}\n";
 
-    /**
-     * 4xBR vertex shader — identical to 2xBR (reference 4xbr.vsh is the same).
-     */
+    /** 4xBR vertex shader — identical to 2xBR. */
     public static final String VERTEX_4XBR = VERTEX_2XBR;
 
-    /** HQ4x vertex shader (hq4x.vsh). Provides {@code varying vec4 v_texcoord0[7]}. */
+    /**
+     * HQ4x vertex shader (hq4x.vsh) — Uses INDIVIDUAL vec4 varyings
+     * (v_tc0..v_tc6) instead of array varying vec4 v_texcoord0[7].
+     */
     public static final String VERTEX_HQ4X =
             "uniform vec2 u_texelDelta;\n" +
             "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
-            "varying vec4 v_texcoord0[7];\n" +
+            "varying vec4 v_tc0;\n" +
+            "varying vec4 v_tc1;\n" +
+            "varying vec4 v_tc2;\n" +
+            "varying vec4 v_tc3;\n" +
+            "varying vec4 v_tc4;\n" +
+            "varying vec4 v_tc5;\n" +
+            "varying vec4 v_tc6;\n" +
             "\n" +
             "void main()\n" +
             "{\n" +
@@ -190,24 +163,24 @@ public final class J2meFilterShaders {
             "    vec2 ddy = vec2(0.0, dg1.y);\n" +
             "\n" +
             "    gl_Position = vec4(a_position, 0.0, 1.0);\n" +
-            "    v_texcoord0[0].xy = a_texcoord0;\n" +
-            "    v_texcoord0[1].xy = a_texcoord0 - sd1;\n" +
-            "    v_texcoord0[2].xy = a_texcoord0 - sd2;\n" +
-            "    v_texcoord0[3].xy = a_texcoord0 + sd1;\n" +
-            "    v_texcoord0[4].xy = a_texcoord0 + sd2;\n" +
-            "    v_texcoord0[5].xy = a_texcoord0 - dg1;\n" +
-            "    v_texcoord0[6].xy = a_texcoord0 + dg1;\n" +
-            "    v_texcoord0[5].zw = a_texcoord0 - dg2;\n" +
-            "    v_texcoord0[6].zw = a_texcoord0 + dg2;\n" +
-            "    v_texcoord0[1].zw = a_texcoord0 - ddy;\n" +
-            "    v_texcoord0[2].zw = a_texcoord0 + ddx;\n" +
-            "    v_texcoord0[3].zw = a_texcoord0 + ddy;\n" +
-            "    v_texcoord0[4].zw = a_texcoord0 - ddx;\n" +
+            "    v_tc0.xy = a_texcoord0;\n" +
+            "    v_tc1.xy = a_texcoord0 - sd1;\n" +
+            "    v_tc2.xy = a_texcoord0 - sd2;\n" +
+            "    v_tc3.xy = a_texcoord0 + sd1;\n" +
+            "    v_tc4.xy = a_texcoord0 + sd2;\n" +
+            "    v_tc5.xy = a_texcoord0 - dg1;\n" +
+            "    v_tc6.xy = a_texcoord0 + dg1;\n" +
+            "    v_tc5.zw = a_texcoord0 - dg2;\n" +
+            "    v_tc6.zw = a_texcoord0 + dg2;\n" +
+            "    v_tc1.zw = a_texcoord0 - ddy;\n" +
+            "    v_tc2.zw = a_texcoord0 + ddx;\n" +
+            "    v_tc3.zw = a_texcoord0 + ddy;\n" +
+            "    v_tc4.zw = a_texcoord0 - ddx;\n" +
             "}\n";
 
     // ─── Fragment shaders ────────────────────────────────────────────────────
 
-    /** Scanline fragment shader (scanlines-emu.fsh). Uses the {@code omega} varying. */
+    /** Scanline fragment shader. */
     public static final String FRAGMENT_SCANLINE =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -224,15 +197,11 @@ public final class J2meFilterShaders {
             "\n" +
             "void main () {\n" +
             "    vec4 c11 = texture2D(sampler0, v_texcoord0);\n" +
-            "\n" +
             "    vec4 scanline = c11 * (base_brightness + dot(sine_comp * sin(v_texcoord0 * omega), vec2(1.0)));\n" +
             "    gl_FragColor = clamp(scanline, 0.0, 1.0);\n" +
             "}\n";
 
-    /**
-     * CRT fragment shader (crt.fsh) with the {@code u_time} uniform removed (time
-     * frozen at 0). Keeps the scanline + NTSC color-bleed shift + rollbar effect.
-     */
+    /** CRT fragment shader. */
     public static final String FRAGMENT_CRT =
             "#ifdef GL_ES\n" +
             "precision mediump float;\n" +
@@ -244,35 +213,26 @@ public final class J2meFilterShaders {
             "\n" +
             "void main()\n" +
             "{\n" +
-            "    // scanlines (u_time.x == 0)\n" +
             "    int vPos = int( v_texcoord0.y * 272.0 );\n" +
             "    float line_intensity = mod( float(vPos), 2.0 );\n" +
-            "\n" +
-            "    // color shift\n" +
             "    float off = line_intensity * 0.0005;\n" +
             "    vec2 shift = vec2( off, 0 );\n" +
-            "\n" +
-            "    // shift R and G channels to simulate NTSC color bleed\n" +
             "    vec2 colorShift = vec2( 0.001, 0 );\n" +
             "    float r = texture2D( sampler0, v_texcoord0 + colorShift + shift ).x;\n" +
             "    float g = texture2D( sampler0, v_texcoord0 - colorShift + shift ).y;\n" +
             "    float b = texture2D( sampler0, v_texcoord0 ).z;\n" +
-            "\n" +
             "    vec4 c = vec4( r, g * 0.99, b, 1.0 ) * clamp( line_intensity, 0.85, 1.0 );\n" +
-            "\n" +
             "    float rollbar = sin( v_texcoord0.y * 4.0 );\n" +
-            "\n" +
             "    gl_FragColor.rgba = c + (rollbar * 0.02);\n" +
             "}\n";
 
-    /** Dot fragment shader (dot.fsh, full version). LCD dot effect with bloom. */
+    /** Dot fragment shader. */
     public static final String FRAGMENT_DOT =
             "#ifdef GL_ES\n" +
             "precision mediump float;\n" +
             "precision mediump int;\n" +
             "#endif\n" +
             "\n" +
-            "//=== Config\n" +
             "#define gamma 2.4\n" +
             "#define shine 0.05\n" +
             "#define blend 0.65\n" +
@@ -280,12 +240,12 @@ public final class J2meFilterShaders {
             "uniform sampler2D sampler0;\n" +
             "uniform vec2 u_texelDelta;\n" +
             "varying vec2 v_texcoord0;\n" +
-            "varying vec4 v_texcoord1; // c00_10\n" +
-            "varying vec4 v_texcoord2; // c20_01\n" +
-            "varying vec4 v_texcoord3; // c21_02\n" +
-            "varying vec4 v_texcoord4; // c12_22\n" +
-            "varying vec2 v_texcoord5; // c11\n" +
-            "varying vec2 v_texcoord6; // pixel_no\n" +
+            "varying vec4 v_texcoord1;\n" +
+            "varying vec4 v_texcoord2;\n" +
+            "varying vec4 v_texcoord3;\n" +
+            "varying vec4 v_texcoord4;\n" +
+            "varying vec2 v_texcoord5;\n" +
+            "varying vec2 v_texcoord6;\n" +
             "\n" +
             "float dist(vec2 coord, vec2 source)\n" +
             "{\n" +
@@ -310,9 +270,7 @@ public final class J2meFilterShaders {
             "void main()\n" +
             "{\n" +
             "    vec3 mid_color = lookup(v_texcoord6, 0.0, 0.0, texture2D(sampler0, v_texcoord5).rgb);\n" +
-            "\n" +
             "    vec3 color = vec3(0.0, 0.0, 0.0);\n" +
-            "\n" +
             "    color += lookup(v_texcoord6, -1.0, -1.0, texture2D(sampler0, v_texcoord1.xy).rgb);\n" +
             "    color += lookup(v_texcoord6,  0.0, -1.0, texture2D(sampler0, v_texcoord1.zw).rgb);\n" +
             "    color += lookup(v_texcoord6,  1.0, -1.0, texture2D(sampler0, v_texcoord2.xy).rgb);\n" +
@@ -322,33 +280,13 @@ public final class J2meFilterShaders {
             "    color += lookup(v_texcoord6, -1.0,  1.0, texture2D(sampler0, v_texcoord3.zw).rgb);\n" +
             "    color += lookup(v_texcoord6,  0.0,  1.0, texture2D(sampler0, v_texcoord4.xy).rgb);\n" +
             "    color += lookup(v_texcoord6,  1.0,  1.0, texture2D(sampler0, v_texcoord4.zw).rgb);\n" +
-            "\n" +
             "    vec3 out_color = mix(1.2 * mid_color, color, blend);\n" +
-            "\n" +
             "    gl_FragColor = vec4(out_color, 1.0);\n" +
             "}\n";
 
     /**
-     * 2xBR fragment shader — Hyllian's 2xBR (based on reference 2xbr.fsh).
-     *
-     * <p>Uses {@code varying vec2 v_texcoord0[3]} exactly as the reference file.
-     * Only requires {@code u_texelDelta} (no {@code u_pixelDelta}).
-     *
-     * <p><b>Color comparison:</b> The reference shader uses {@code reduce()} with
-     * {@code dtt = vec3(65536.0, 255.0, 1.0)} to pack RGB into a scalar for exact
-     * equality comparison. However, {@code 65536.0} exceeds the {@code mediump}
-     * float maximum (65504), which causes a <b>compilation error</b> on GPUs
-     * without {@code highp} fragment shader support — the shader silently falls
-     * back to the default passthrough, producing "no effect."
-     *
-     * <p>Instead, we use <b>scalar component-wise comparison</b> ({@code a.x == b.x
-     * && a.y == b.y && a.z == b.z}) which is universally supported on ALL GLSL ES
-     * 1.00 implementations. This avoids:
-     * <ul>
-     *   <li>{@code const} overflow on {@code mediump} (compilation error)</li>
-     *   <li>Vector {@code ==}/{@code !=} operator bugs on some GPU drivers</li>
-     *   <li>{@code all()}/{@code equal()} function compatibility issues</li>
-     * </ul>
+     * 2xBR fragment shader — Uses individual varyings (v_tc0, v_tc1, v_tc2)
+     * instead of array varying for universal GPU driver compatibility.
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -358,28 +296,29 @@ public final class J2meFilterShaders {
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "varying vec2 v_texcoord0[3];\n" +
+            "varying vec2 v_tc0;\n" +
+            "varying vec2 v_tc1;\n" +
+            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
+            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
             "\n" +
-            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
+            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
             "\n" +
             "    gl_FragColor.rgb = E;\n" +
             "\n" +
-            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
             "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
             "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
             "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
@@ -395,17 +334,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
-    /**
-     * 4xBR fragment shader — Hyllian's 4xBR (based on reference 4xbr.fsh).
-     *
-     * <p>Uses the same {@code varying vec2 v_texcoord0[3]} and edge-detection
-     * logic as {@link #FRAGMENT_2XBR}, but outputs a 4×4 sub-pixel pattern
-     * based on the fractional position within the texel. Only requires
-     * {@code u_texelDelta}.
-     *
-     * <p>Color comparison uses scalar component-wise comparison (see
-     * {@link #FRAGMENT_2XBR} for details).
-     */
+    /** 4xBR fragment shader — individual varyings, 4x4 sub-pixel pattern. */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -414,29 +343,30 @@ public final class J2meFilterShaders {
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "varying vec2 v_texcoord0[3];\n" +
+            "varying vec2 v_tc0;\n" +
+            "varying vec2 v_tc1;\n" +
+            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
+            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
             "\n" +
-            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
+            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
             "\n" +
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
             "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
             "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
             "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
@@ -454,7 +384,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
-    /** HQ4x fragment shader (hq4x.fsh / 4xGLSLHqFilter). guest(r)'s high-quality 4x filter. */
+    /** HQ4x fragment shader — individual vec4 varyings (v_tc0..v_tc6). */
     public static final String FRAGMENT_HQ4X =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -462,29 +392,35 @@ public final class J2meFilterShaders {
             "precision mediump float;\n" +
             "#endif\n" +
             "uniform sampler2D sampler0;\n" +
-            "varying vec4 v_texcoord0[7];\n" +
+            "varying vec4 v_tc0;\n" +
+            "varying vec4 v_tc1;\n" +
+            "varying vec4 v_tc2;\n" +
+            "varying vec4 v_tc3;\n" +
+            "varying vec4 v_tc4;\n" +
+            "varying vec4 v_tc5;\n" +
+            "varying vec4 v_tc6;\n" +
             "\n" +
-            "const float mx = 1.00;      // start smoothing wt.\n" +
-            "const float k = -1.10;      // wt. decrease factor\n" +
-            "const float max_w = 0.75;   // max filter weight\n" +
-            "const float min_w = 0.03;   // min filter weight\n" +
-            "const float lum_add = 0.33; // effects smoothing\n" +
+            "const float mx = 1.00;\n" +
+            "const float k = -1.10;\n" +
+            "const float max_w = 0.75;\n" +
+            "const float min_w = 0.03;\n" +
+            "const float lum_add = 0.33;\n" +
             "\n" +
             "void main()\n" +
             "{\n" +
-            "    vec3 c  = texture2D(sampler0, v_texcoord0[0].xy).xyz;\n" +
-            "    vec3 i1 = texture2D(sampler0, v_texcoord0[1].xy).xyz;\n" +
-            "    vec3 i2 = texture2D(sampler0, v_texcoord0[2].xy).xyz;\n" +
-            "    vec3 i3 = texture2D(sampler0, v_texcoord0[3].xy).xyz;\n" +
-            "    vec3 i4 = texture2D(sampler0, v_texcoord0[4].xy).xyz;\n" +
-            "    vec3 o1 = texture2D(sampler0, v_texcoord0[5].xy).xyz;\n" +
-            "    vec3 o3 = texture2D(sampler0, v_texcoord0[6].xy).xyz;\n" +
-            "    vec3 o2 = texture2D(sampler0, v_texcoord0[5].zw).xyz;\n" +
-            "    vec3 o4 = texture2D(sampler0, v_texcoord0[6].zw).xyz;\n" +
-            "    vec3 s1 = texture2D(sampler0, v_texcoord0[1].zw).xyz;\n" +
-            "    vec3 s2 = texture2D(sampler0, v_texcoord0[2].zw).xyz;\n" +
-            "    vec3 s3 = texture2D(sampler0, v_texcoord0[3].zw).xyz;\n" +
-            "    vec3 s4 = texture2D(sampler0, v_texcoord0[4].zw).xyz;\n" +
+            "    vec3 c  = texture2D(sampler0, v_tc0.xy).xyz;\n" +
+            "    vec3 i1 = texture2D(sampler0, v_tc1.xy).xyz;\n" +
+            "    vec3 i2 = texture2D(sampler0, v_tc2.xy).xyz;\n" +
+            "    vec3 i3 = texture2D(sampler0, v_tc3.xy).xyz;\n" +
+            "    vec3 i4 = texture2D(sampler0, v_tc4.xy).xyz;\n" +
+            "    vec3 o1 = texture2D(sampler0, v_tc5.xy).xyz;\n" +
+            "    vec3 o3 = texture2D(sampler0, v_tc6.xy).xyz;\n" +
+            "    vec3 o2 = texture2D(sampler0, v_tc5.zw).xyz;\n" +
+            "    vec3 o4 = texture2D(sampler0, v_tc6.zw).xyz;\n" +
+            "    vec3 s1 = texture2D(sampler0, v_tc1.zw).xyz;\n" +
+            "    vec3 s2 = texture2D(sampler0, v_tc2.zw).xyz;\n" +
+            "    vec3 s3 = texture2D(sampler0, v_tc3.zw).xyz;\n" +
+            "    vec3 s4 = texture2D(sampler0, v_tc4.zw).xyz;\n" +
             "    vec3 dt = vec3(1.0, 1.0, 1.0);\n" +
             "\n" +
             "    float ko1 = dot(abs(o1-c), dt);\n" +
@@ -513,20 +449,10 @@ public final class J2meFilterShaders {
             "    w4 = clamp(w4 + mx, min_w, max_w);\n" +
             "\n" +
             "    vec3 result = (w1*(i1+i3) + w2*(i2+i4) + w3*(s1+s3) + w4*(s2+s4) + c) / (2.0*(w1+w2+w3+w4) + 1.0);\n" +
-            "\n" +
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    /**
-     * 2xBR + Dot fragment shader — reference 2xBR followed by the same
-     * simplified dot-mask used in {@link #FRAGMENT_HQ4X_DOT} (which the
-     * user confirmed works correctly).
-     *
-     * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_2XBR}).
-     * Color comparison uses scalar component-wise comparison (see
-     * {@link #FRAGMENT_2XBR} for details). The dot mask uses the same
-     * formula as HQ4x+Dot.
-     */
+    /** 2xBR + Dot fragment shader. */
     public static final String FRAGMENT_2XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -535,28 +461,29 @@ public final class J2meFilterShaders {
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "varying vec2 v_texcoord0[3];\n" +
+            "varying vec2 v_tc0;\n" +
+            "varying vec2 v_tc1;\n" +
+            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
+            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
             "\n" +
-            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
+            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
             "\n" +
             "    vec3 res = E;\n" +
             "\n" +
-            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
             "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
             "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
             "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
@@ -570,8 +497,7 @@ public final class J2meFilterShaders {
             "        res = mix(E, F, 0.5);\n" +
             "    }\n" +
             "\n" +
-            "    // Dot mask (same as FRAGMENT_HQ4X_DOT)\n" +
-            "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
+            "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
             "    vec2 fp_dot = fract(pixel_no);\n" +
             "    float delta = length(fp_dot - vec2(0.5));\n" +
             "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
@@ -583,16 +509,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
-    /**
-     * 4xBR + Dot fragment shader — reference 4xBR followed by the same
-     * simplified dot-mask used in {@link #FRAGMENT_HQ4X_DOT} (which the
-     * user confirmed works correctly).
-     *
-     * <p>Uses {@code varying vec2 v_texcoord0[3]} (matching {@link #VERTEX_4XBR}).
-     * Color comparison uses scalar component-wise comparison (see
-     * {@link #FRAGMENT_2XBR} for details). The dot mask uses the same
-     * formula as HQ4x+Dot.
-     */
+    /** 4xBR + Dot fragment shader. */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -601,29 +518,30 @@ public final class J2meFilterShaders {
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
-            "varying vec2 v_texcoord0[3];\n" +
+            "varying vec2 v_tc0;\n" +
+            "varying vec2 v_tc1;\n" +
+            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_texcoord0[0] / u_texelDelta);\n" +
+            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
             "\n" +
-            "    vec2 g1 = v_texcoord0[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_texcoord0[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_texcoord0[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_texcoord0[0] + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_texcoord0[0] + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_texcoord0[0]      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_texcoord0[0]          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_texcoord0[0]      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_texcoord0[0] - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_texcoord0[0] - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_texcoord0[0] - g1 - g2).xyz;\n" +
+            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
+            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
+            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
+            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
+            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
+            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
+            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
+            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
             "\n" +
             "    vec3 E11 = E;\n" +
             "    vec3 E15 = E;\n" +
             "\n" +
-            // Scalar component-wise comparison — works on ALL GLSL ES 1.00 GPUs
             "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
             "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
             "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
@@ -639,8 +557,7 @@ public final class J2meFilterShaders {
             "\n" +
             "    vec3 res = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
             "\n" +
-            "    // Dot mask (same as FRAGMENT_HQ4X_DOT)\n" +
-            "    vec2 pixel_no = v_texcoord0[0] / u_texelDelta;\n" +
+            "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
             "    vec2 fp_dot = fract(pixel_no);\n" +
             "    float delta = length(fp_dot - vec2(0.5));\n" +
             "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
@@ -661,29 +578,35 @@ public final class J2meFilterShaders {
             "#endif\n" +
             "uniform sampler2D sampler0;\n" +
             "uniform vec2 u_texelDelta;\n" +
-            "varying vec4 v_texcoord0[7];\n" +
+            "varying vec4 v_tc0;\n" +
+            "varying vec4 v_tc1;\n" +
+            "varying vec4 v_tc2;\n" +
+            "varying vec4 v_tc3;\n" +
+            "varying vec4 v_tc4;\n" +
+            "varying vec4 v_tc5;\n" +
+            "varying vec4 v_tc6;\n" +
             "\n" +
-            "const float mx = 1.00;      // start smoothing wt.\n" +
-            "const float k = -1.10;      // wt. decrease factor\n" +
-            "const float max_w = 0.75;   // max filter weight\n" +
-            "const float min_w = 0.03;   // min filter weight\n" +
-            "const float lum_add = 0.33; // effects smoothing\n" +
+            "const float mx = 1.00;\n" +
+            "const float k = -1.10;\n" +
+            "const float max_w = 0.75;\n" +
+            "const float min_w = 0.03;\n" +
+            "const float lum_add = 0.33;\n" +
             "\n" +
             "void main()\n" +
             "{\n" +
-            "    vec3 c  = texture2D(sampler0, v_texcoord0[0].xy).xyz;\n" +
-            "    vec3 i1 = texture2D(sampler0, v_texcoord0[1].xy).xyz;\n" +
-            "    vec3 i2 = texture2D(sampler0, v_texcoord0[2].xy).xyz;\n" +
-            "    vec3 i3 = texture2D(sampler0, v_texcoord0[3].xy).xyz;\n" +
-            "    vec3 i4 = texture2D(sampler0, v_texcoord0[4].xy).xyz;\n" +
-            "    vec3 o1 = texture2D(sampler0, v_texcoord0[5].xy).xyz;\n" +
-            "    vec3 o3 = texture2D(sampler0, v_texcoord0[6].xy).xyz;\n" +
-            "    vec3 o2 = texture2D(sampler0, v_texcoord0[5].zw).xyz;\n" +
-            "    vec3 o4 = texture2D(sampler0, v_texcoord0[6].zw).xyz;\n" +
-            "    vec3 s1 = texture2D(sampler0, v_texcoord0[1].zw).xyz;\n" +
-            "    vec3 s2 = texture2D(sampler0, v_texcoord0[2].zw).xyz;\n" +
-            "    vec3 s3 = texture2D(sampler0, v_texcoord0[3].zw).xyz;\n" +
-            "    vec3 s4 = texture2D(sampler0, v_texcoord0[4].zw).xyz;\n" +
+            "    vec3 c  = texture2D(sampler0, v_tc0.xy).xyz;\n" +
+            "    vec3 i1 = texture2D(sampler0, v_tc1.xy).xyz;\n" +
+            "    vec3 i2 = texture2D(sampler0, v_tc2.xy).xyz;\n" +
+            "    vec3 i3 = texture2D(sampler0, v_tc3.xy).xyz;\n" +
+            "    vec3 i4 = texture2D(sampler0, v_tc4.xy).xyz;\n" +
+            "    vec3 o1 = texture2D(sampler0, v_tc5.xy).xyz;\n" +
+            "    vec3 o3 = texture2D(sampler0, v_tc6.xy).xyz;\n" +
+            "    vec3 o2 = texture2D(sampler0, v_tc5.zw).xyz;\n" +
+            "    vec3 o4 = texture2D(sampler0, v_tc6.zw).xyz;\n" +
+            "    vec3 s1 = texture2D(sampler0, v_tc1.zw).xyz;\n" +
+            "    vec3 s2 = texture2D(sampler0, v_tc2.zw).xyz;\n" +
+            "    vec3 s3 = texture2D(sampler0, v_tc3.zw).xyz;\n" +
+            "    vec3 s4 = texture2D(sampler0, v_tc4.zw).xyz;\n" +
             "    vec3 dt = vec3(1.0, 1.0, 1.0);\n" +
             "\n" +
             "    float ko1 = dot(abs(o1-c), dt);\n" +
@@ -713,8 +636,7 @@ public final class J2meFilterShaders {
             "\n" +
             "    vec3 result = (w1*(i1+i3) + w2*(i2+i4) + w3*(s1+s3) + w4*(s2+s4) + c) / (2.0*(w1+w2+w3+w4) + 1.0);\n" +
             "\n" +
-            "    // Dot mask post-processing (center texcoord is v_texcoord0[0].xy)\n" +
-            "    vec2 pixel_no = v_texcoord0[0].xy / u_texelDelta;\n" +
+            "    vec2 pixel_no = v_tc0.xy / u_texelDelta;\n" +
             "    vec2 fp = fract(pixel_no);\n" +
             "    float delta = length(fp - vec2(0.5));\n" +
             "    float bright = dot(result, vec3(0.30, 0.59, 0.11));\n" +
@@ -727,22 +649,10 @@ public final class J2meFilterShaders {
 
     // ─── Public API ──────────────────────────────────────────────────────────
 
-    /**
-     * Returns both the vertex and fragment shader source for the given filter mode.
-     *
-     * @param mode filter mode (0-9)
-     * @return a two-element array: {@code [vertexShader, fragmentShader]}
-     */
     public static String[] getShader(int mode) {
         return new String[] { getVertexShader(mode), getFragmentShader(mode) };
     }
 
-    /**
-     * Returns the vertex shader source for the given filter mode.
-     *
-     * @param mode filter mode (0-9)
-     * @return GLSL vertex shader source code
-     */
     public static String getVertexShader(int mode) {
         switch (mode) {
             case MODE_SCANLINE: return VERTEX_SCANLINE;
@@ -759,12 +669,6 @@ public final class J2meFilterShaders {
         }
     }
 
-    /**
-     * Returns the fragment shader source for the given filter mode.
-     *
-     * @param mode filter mode (0-9)
-     * @return GLSL fragment shader source code
-     */
     public static String getFragmentShader(int mode) {
         switch (mode) {
             case MODE_SCANLINE:  return FRAGMENT_SCANLINE;
@@ -781,50 +685,20 @@ public final class J2meFilterShaders {
         }
     }
 
-    /**
-     * Returns whether the given mode uses a custom (vec2-based) vertex shader
-     * rather than the default {@link #VERTEX_SHADER} passthrough.
-     *
-     * @param mode filter mode (0-9)
-     * @return {@code true} for all modes except {@link #MODE_NONE}
-     */
     public static boolean isCustomVertexShader(int mode) {
         return mode != MODE_NONE;
     }
 
-    /**
-     * Returns whether the given mode performs real pixel processing
-     * (XBR / 4xBR / HQ4x and their +Dot variants). These shaders need the
-     * source texture sampled with NEAREST filtering.
-     *
-     * @param mode filter mode (0-9)
-     * @return {@code true} for modes 4, 5, 6, 7, 8, 9
-     */
     public static boolean isPixelProcessingMode(int mode) {
         return mode == MODE_2XBR || mode == MODE_4XBR ||
                mode == MODE_2XBR_DOT || mode == MODE_4XBR_DOT ||
                mode == MODE_HQ4X || mode == MODE_HQ4X_DOT;
     }
 
-    /**
-     * Returns whether the given mode is a screen-space mask effect
-     * (scanline / CRT / dot) rather than a pixel-processing upscaler.
-     *
-     * @param mode filter mode (0-9)
-     * @return {@code true} for modes 1, 2, 3
-     */
     public static boolean isMaskMode(int mode) {
         return mode == MODE_SCANLINE || mode == MODE_CRT || mode == MODE_DOT;
     }
 
-    /**
-     * Returns whether the source texture should be sampled with NEAREST
-     * filtering for the given mode. XBR / HQ4x algorithms read exact texel
-     * values, so they require NEAREST input.
-     *
-     * @param mode filter mode (0-9)
-     * @return {@code true} for modes 4, 5, 6, 7, 8, 9
-     */
     public static boolean usesNearestFiltering(int mode) {
         return isPixelProcessingMode(mode);
     }
