@@ -1,0 +1,43 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context="ru.playsoftware.j2meloader.MainActivity">
+
+    <item
+        android:id="@+id/action_search"
+        android:title="@string/search"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_sort"
+        android:title="@string/pref_app_sort_title"
+        android:icon="@drawable/ic_setting_sort"
+        app:showAsAction="ifRoom"
+        android:orderInCategory="0">
+    </item>
+    <item
+        android:id="@+id/action_about"
+        android:title="@string/about"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_settings"
+        android:title="@string/action_settings"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_profiles"
+        android:title="@string/profiles"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_help"
+        android:title="@string/help"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_save_log"
+        android:title="@string/save_log"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_exit_app"
+        android:title="@string/exit"
+        app:showAsAction="never" />
+
+</menu>

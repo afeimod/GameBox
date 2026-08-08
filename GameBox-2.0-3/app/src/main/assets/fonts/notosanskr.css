@@ -1,0 +1,30 @@
+/* 字体回退配置：确保中韩文字符正常渲染 */
+@font-face {
+  font-family: 'noto sans kr';
+  src: local('Noto Sans CJK SC'),
+       local('Noto Sans CJK'),
+       local('Source Han Sans SC'),
+       local('Microsoft YaHei'),
+       local('微软雅黑'),
+       local('PingFang SC'),
+       local('Heiti SC'),
+       local('SimHei'),
+       local('WenQuanYi Micro Hei'),
+       local('sans-serif');
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'noto sans kr';
+  src: local('Noto Sans CJK SC Bold'),
+       local('Noto Sans CJK Bold'),
+       local('Source Han Sans SC Bold'),
+       local('Microsoft YaHei Bold'),
+       local('PingFang SC Bold'),
+       local('Heiti SC Bold'),
+       local('SimHei'),
+       local('WenQuanYi Micro Hei'),
+       local('sans-serif');
+  font-weight: bold;
+  font-style: normal;
+}

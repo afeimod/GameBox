@@ -15,7 +15,6 @@
 
 #include "rom_loader.h"
 #include "shared/core_shared.h"
-#include "shared/gpu_video_filter.h"
 #include "hqx/hqx.h"
 
 #include <libretro.h>
@@ -102,9 +101,6 @@ static std::mutex s_audioMtx;
 // ---------------------------------------------------------------------------
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
-
-// GPU-accelerated video filter for XBR (hardware acceleration)
-static gpufilter::GpuVideoFilter s_gpuFilter;
 
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
@@ -393,13 +389,10 @@ static void blitToSurface(const uint32_t* src, unsigned w, unsigned h, size_t sr
 
 
 // ---------------------------------------------------------------------------
-// 2xBR-lv2 / 4xBR-lv2 — delegates to the shared xBR-lv2 implementation in
-// core_shared.h (Hyllian's xBR-lv2, adapted from mGBA Android GLSL shader).
-//
-// Replaces the old 2xBR v3.3a which produced scattered dot artifacts.
-// The lv2 algorithm uses multi-level edge detection (lv0/lv1/lv2_left/lv2_up),
-// continuous interpolation, and minimum-distance candidate selection to
-// produce clean, artifact-free upscaled output.
+// 2xBR / 4xBR — delegates to the shared 2xBR v3.3a implementation in
+// core_shared.h (Hyllian's 2xBR v3.3a, adapted from RetroArch).
+// The blend macros cast to int32_t before subtraction, preventing unsigned
+// wraparound that caused scattered dot artifacts.
 // ---------------------------------------------------------------------------
 
 static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
@@ -448,8 +441,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame, width, height, kNesW,
         filter,
         s_xbrBuffer, s_hq4xBuffer, s_xbrMidBuffer,
-        kNesW, kNesH,
-        &s_gpuFilter);
+        kNesW, kNesH);
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -666,10 +658,6 @@ void unload() {
     resetAudioRing();
     s_newFrame.store(false);
     s_isFdsGame.store(false, std::memory_order_relaxed);
-    // Clean up GPU filter to prevent stale EGL state on next launch
-    if (s_gpuFilter.initialized) {
-        s_gpuFilter.cleanup();
-    }
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -791,18 +779,6 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_setBuffersGeometry(s_window, 0, 0,
                                          WINDOW_FORMAT_RGBA_8888);
         LOGI("Surface attached (buffer geometry = window default)");
-
-        // Initialize GPU filter if XBR is active.
-        // CRITICAL: Always cleanup and re-init when the surface changes,
-        // because the old EGL surface is bound to the old ANativeWindow.
-        // Without this, restarting a game with XBR enabled produces a
-        // black screen (the GPU filter renders to a destroyed surface).
-        if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
-            if (s_gpuFilter.initialized) {
-                s_gpuFilter.cleanup();
-            }
-            s_gpuFilter.init(s_window, s_videoFilter.load(), kNesW, kNesH);
-        }
     } else {
         LOGI("Surface detached");
     }
@@ -848,23 +824,6 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
-
-    // Initialize or update GPU filter
-    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
-        if (!s_gpuFilter.initialized && s_window) {
-            s_gpuFilter.init(s_window, filter, kNesW, kNesH);
-        } else if (s_gpuFilter.initialized) {
-            s_gpuFilter.setFilter(filter);
-        }
-    } else if (s_gpuFilter.initialized) {
-        // Non-GPU filter selected: cleanup GPU filter and restore ANativeWindow path
-        s_gpuFilter.cleanup();
-        // Re-set buffer geometry since EGL may have changed it
-        if (s_window) {
-            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-        }
-    }
-
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
 }
 

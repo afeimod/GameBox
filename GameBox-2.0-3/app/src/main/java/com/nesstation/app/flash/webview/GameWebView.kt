@@ -1,0 +1,797 @@
+package com.nesstation.app.flash.webview
+
+import android.content.Context
+import android.text.InputType
+import android.util.AttributeSet
+import android.util.Log
+import android.view.GestureDetector
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.InputMethodManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebSettings
+import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import java.util.Collections
+import kotlin.math.abs
+
+/**
+ * 游戏专用 WebView：
+ * 1. 预置适配 Flash/H5 游戏的 WebSettings（DOM 存储、自动播放、跨域、硬件加速）
+ * 2. 触屏手势：长按 → 屏蔽系统选择菜单；滑动 → 方向键
+ * 3. 物理键盘：dispatchKeyEvent 透传方向键 / WASD / 空格 / 回车给网页
+ * 4. 原生 IME 接口（NativeIme）供 WAFlash 等网页唤起 Android 软键盘
+ *    并实现自定义 InputConnection 把输入法提交的文本回灌到 JS 键盘事件
+ *
+ * 注：当前 WebView 默认仅消费 BACK 键，其余按键必须重写 dispatchKeyEvent
+ *     才能让网页 keydown/keyup 监听器收到。这是触屏 + 键盘双控的关键。
+ *
+ * 1:1 移植自 3.3-fix2 GameWebView，包名/imports 改为 com.nesstation.app.flash。
+ */
+open class GameWebView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : WebView(context, attrs, defStyleAttr) {
+
+    /** 是否拦截并屏蔽长按系统菜单（选中文字/复制） */
+    var blockLongPressMenu: Boolean = true
+
+    /**
+     * 3D 视角旋转模式：开启后页面会注入触摸→鼠标事件脚本，此时
+     * 滑动手势不再注入方向键，避免拖动旋转视角时误触移动。
+     */
+    var cameraRotationEnabled: Boolean = false
+
+    /** 保存原始移动版 UA，供切换时恢复 */
+    private var mobileUa: String = ""
+
+    // ---- 3D 视角旋转触摸追踪 ----
+    /** 上一次触摸 X 坐标（用于计算移动增量） */
+    private var cameraLastX = 0f
+    /** 上一次触摸 Y 坐标（用于计算移动增量） */
+    private var cameraLastY = 0f
+    /** 是否正在拖动旋转视角 */
+    private var cameraDragging = false
+
+    /**
+     * IME 是否被请求（仅 WAFlash 等需要文本输入的场景开启）。
+     * 开启时 onCheckIsTextEditor() 返回 true，系统认定本 View 为文本编辑器并弹软键盘。
+     */
+    private var imeRequested = false
+
+    /**
+     * 当前通过虚拟手柄按下的按键集合（Android KeyCode）。
+     * 用于在页面导航、Activity 暂停、手柄隐藏时统一释放，
+     * 防止 Ruffle/Flash 引擎因漏收 keyup 导致角色持续移动。
+     */
+    private val pressedKeys = Collections.synchronizedSet(HashSet<Int>())
+
+    private val gestureDetector = GestureDetector(context, GestureListener())
+
+    init {
+        configureSettings()
+        // 横竖滚动条隐藏，让游戏画面铺满
+        isHorizontalScrollBarEnabled = false
+        isVerticalScrollBarEnabled = false
+        // 确保 WebView 可获取焦点（网页 input 点击时触发软键盘必需）
+        isFocusable = true
+        isFocusableInTouchMode = true
+        // 屏蔽长按系统菜单
+        setOnLongClickListener { blockLongPressMenu }
+        // 添加原生 IME 接口，供 WAFlash 等网页调用唤起输入法（双通道：无 NativeIme 时回落到隐藏 input）
+        addJavascriptInterface(object {
+            @JavascriptInterface
+            fun showIme() {
+                imeRequested = true
+                post {
+                    requestFocus()
+                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.showSoftInput(this@GameWebView, 0)
+                }
+            }
+            @JavascriptInterface
+            fun hideIme() {
+                imeRequested = false
+                post {
+                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(this@GameWebView.windowToken, 0)
+                }
+            }
+        }, "NativeIme")
+    }
+
+    private fun configureSettings() = settings.apply {
+        javaScriptEnabled = true
+        domStorageEnabled = true                       // H5 游戏依赖 localStorage
+        databaseEnabled = true
+        allowFileAccess = true
+        allowContentAccess = true
+        allowFileAccessFromFileURLs = true             // 本地 SWF 播放需要
+        allowUniversalAccessFromFileURLs = true        // 自托管 wasm 跨域
+        mediaPlaybackRequiresUserGesture = false       // Flash 游戏 BGM 自动播放
+        javaScriptCanOpenWindowsAutomatically = true
+        loadWithOverviewMode = true
+        useWideViewPort = true
+        cacheMode = WebSettings.LOAD_DEFAULT
+        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        // 双指缩放：PC 网页内容通常较宽，需要缩放查看
+        setSupportZoom(true)
+        builtInZoomControls = true
+        displayZoomControls = false                  // 不显示+/-按钮，仅手势缩放
+        // PC 网页缩放：强制启用 viewport 缩放，让宽页面适配屏幕
+        setSupportMultipleWindows(false)
+        // 保存默认移动版 UA，追加客户端标识
+        mobileUa = userAgentString
+        userAgentString = "$mobileUa 4399App/1.0 (Android)"
+        // 硬件加速渲染（已在 Manifest 开启，这里再确保 LayerType）
+        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // 启用 Safe Browsing（AndroidX WebKit，minSdk 23+）
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
+            WebSettingsCompat.setSafeBrowsingEnabled(this, true)
+        }
+    }
+
+    /**
+     * 注入 Document Start 脚本：在页面任何 JS 之前执行（AndroidX WebKit 1.6.0+）。
+     * 必须在 WebView 创建后、首次加载前调用。
+     * 解决 evaluateJavascript(onPageStarted) 时序问题——异步注入可能晚于页面自身脚本。
+     */
+    fun injectDocumentStartScripts() {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(this, DOCUMENT_START_SCRIPT, setOf("*"))
+        }
+    }
+
+    /**
+     * 切换桌面/移动 UA。
+     * - 桌面模式：使用 Windows Chrome UA，不含 "Mobile"/"Android"，4399 服务器据此返回 PC 版页面
+     * - 移动模式：恢复默认移动版 UA + 客户端标识
+     */
+    fun useDesktopMode(enabled: Boolean) {
+        settings.userAgentString = if (enabled) DESKTOP_UA else "$mobileUa 4399App/1.0 (Android)"
+    }
+
+    /**
+     * 设置 UA 模式：
+     * - "desktop": Windows Chrome UA
+     * - "ie_compat": IE11 兼容模式 UA（Trident/7.0）
+     * - 其他: 默认移动版 UA
+     */
+    fun useUaMode(mode: String) {
+        settings.userAgentString = when (mode) {
+            "desktop" -> DESKTOP_UA
+            "ie_compat" -> IE_COMPAT_UA
+            else -> "$mobileUa 4399App/1.0 (Android)"
+        }
+    }
+
+    /**
+     * 应用页面缩放(整页,包括布局/图片/文字)。
+     * @param percent 25..200 的百分比值。100=不变,>100 放大,<100 缩小。
+     *
+     * 实现:
+     * 1. WebView.setInitialScale:整页 CSS 缩放(对应 viewport meta initial-scale)。
+     *    对 4399 这种有 viewport meta 的页面也生效:因为 initial-scale 由 WebView 控制,
+     *    会覆盖页面自己的 viewport 值(Android 端 WebView 行为)。
+     * 2. JS 注入 document.body.style.zoom:WebKit 私有 API,整页 layout 缩放(终极方案),
+     *    解决 setInitialScale 对某些 PC 页面不响应的问题。
+     *
+     * 不使用 WebSettings.textZoom:它只缩放文字而不缩放布局/图片,
+     * 导致放大时文字溢出容器、缩小时文字与布局比例失调。
+     * setInitialScale + body.zoom 是整页等比缩放,字体跟随布局自然变化。
+     * 必须 reload() 才完整生效(Chromium 限制:运行时改 setInitialScale 需重载文档)。
+     */
+    fun applyPageZoom(percent: Int) {
+        val p = percent.coerceIn(25, 200)
+        settings.textZoom = 100  // 重置 textZoom,避免之前的设置残留影响字体
+        setInitialScale(p)
+        // 额外注入 body.zoom(WebKit 私有 API,Chromium WebView 支持),
+        // 整页 layout 缩放,即使页面有 viewport meta 也能生效。
+        val js = "try{document.body.style.zoom='${p}%';}catch(e){}"
+        post { evaluateJavascript(js, null) }
+    }
+
+    // ---------------- 触屏 ----------------
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(event)
+        if (event.action == MotionEvent.ACTION_DOWN) performClick()
+
+        // 3D 视角旋转模式：追踪拖动并分发 mousemove 事件
+        if (cameraRotationEnabled) {
+            handleCameraRotationTouch(event)
+        }
+
+        return super.onTouchEvent(event)
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
+
+    /**
+     * 3D 视角旋转触摸处理：
+     * 追踪拖动距离，通过 JS 分发带 movementX/movementY 的 mousemove 事件。
+     * 不拦截事件（返回 void），让网页仍能接收 tap/click。
+     */
+    private fun handleCameraRotationTouch(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                cameraLastX = event.x
+                cameraLastY = event.y
+                cameraDragging = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - cameraLastX
+                val dy = event.y - cameraLastY
+                // 移动超过 2px 才算拖动旋转（避免误触）
+                if (abs(dx) > 2f || abs(dy) > 2f) {
+                    cameraDragging = true
+                    // 通过 JS 分发 mousemove 事件
+                    evaluateJavascript(
+                        "if(window.__cameraRotate){window.__cameraRotate($dx, $dy);}", null
+                    )
+                    cameraLastX = event.x
+                    cameraLastY = event.y
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                cameraDragging = false
+            }
+        }
+    }
+
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        // 双击放大已移除，只保留双指缩放
+        override fun onLongPress(e: MotionEvent) { /* 屏蔽系统长按菜单 */ }
+        override fun onFling(
+            e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float
+        ): Boolean {
+            // 视角旋转模式下不注入方向键，避免拖动旋转时误触滚屏/移动
+            if (cameraRotationEnabled) return false
+            // 滑动手势映射为方向键（部分页游用方向键滚屏）
+            if (abs(vx) > abs(vy)) {
+                injectKey(if (vx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
+            }
+            return true
+        }
+    }
+
+    // ---------------- IME 输入法支持 ----------------
+    /**
+     * 当网页调用 NativeIme.showIme() 时，imeRequested 设为 true，
+     * 系统据此认定本 View 为文本编辑器，从而弹出软键盘。
+     * 正常游戏时 imeRequested=false，不影响 WebView 默认行为。
+     */
+    override fun onCheckIsTextEditor(): Boolean {
+        if (imeRequested) return true
+        return super.onCheckIsTextEditor()
+    }
+
+    /**
+     * 自定义 InputConnection：捕获输入法提交的文本，
+     * 通过 JavaScript KeyboardEvent 转发给网页（供 WAFlash 接收）。
+     * 仅在 imeRequested=true 时启用。
+     *
+     * 注意：WebView 的 onCreateInputConnection() 不能返回 null（系统会 NPE 崩溃），
+     * 因此 imeRequested=false 时必须委托给 super，不能 new BaseInputConnection(this, false) 顶替。
+     */
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val base = super.onCreateInputConnection(outAttrs) ?: return null
+        if (!imeRequested) {
+            return base
+        }
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_NONE
+        return object : InputConnectionWrapper(base, true) {
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+                val textStr = text.toString()
+                if (textStr.isNotEmpty()) {
+                    // 转义特殊字符后通过 JS 注入到网页
+                    val escaped = textStr
+                        .replace("\\", "\\\\")
+                        .replace("'", "\\'")
+                        .replace("\n", "\\n")
+                        .replace("\r", "")
+                    evaluateJavascript("""
+                        (function(){
+                          var text = '$escaped';
+                          for (var i = 0; i < text.length; i++) {
+                            var ch = text.charCodeAt(i);
+                            var target = document.activeElement || document;
+                            target.dispatchEvent(new KeyboardEvent('keydown', {key: text[i], keyCode: ch, which: ch, bubbles: true}));
+                            target.dispatchEvent(new KeyboardEvent('keypress', {key: text[i], keyCode: ch, which: ch, charCode: ch, bubbles: true}));
+                            target.dispatchEvent(new KeyboardEvent('keyup', {key: text[i], keyCode: ch, which: ch, bubbles: true}));
+                          }
+                        })();
+                    """.trimIndent(), null)
+                }
+                return super.commitText(text, newCursorPosition)
+            }
+
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                // 删除键：注入 Backspace 键事件
+                evaluateJavascript("""
+                    (function(){
+                      var target = document.activeElement || document;
+                      target.dispatchEvent(new KeyboardEvent('keydown', {key: 'Backspace', keyCode: 8, which: 8, bubbles: true}));
+                      target.dispatchEvent(new KeyboardEvent('keyup', {key: 'Backspace', keyCode: 8, which: 8, bubbles: true}));
+                    })();
+                """.trimIndent(), null)
+                return super.deleteSurroundingText(beforeLength, afterLength)
+            }
+        }
+    }
+
+    // ---------------- 键盘 ----------------
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // BACK：交给 Activity 的 OnBackPressedDispatcher 处理（这里不消费）
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            return super.dispatchKeyEvent(event)
+        }
+        // 游戏常用按键白名单透传给网页（其余交给系统）
+        if (event.keyCode in GAME_KEYS) {
+            return super.dispatchKeyEvent(event)
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * 注入一次按键 down+up（供虚拟手柄调用）。
+     * 使用 JavaScript KeyboardEvent 直接分发，比 Android dispatchKeyEvent 更可靠，
+     * 避免 WebView 失焦时 keyup 丢失导致 Ruffle 角色持续移动。
+     */
+    fun injectKey(keyCode: Int, repeat: Int = 0) {
+        injectKeyDown(keyCode)
+        injectKeyUp(keyCode)
+    }
+
+    /**
+     * 按住状态：只发 keydown（不自动 keyup）。
+     * 通过 JS 按键状态管理器在 window/document/activeElement 三个目标上分发，
+     * 确保 Ruffle（监听在 window 上）必定收到事件。
+     */
+    fun injectKeyDown(keyCode: Int) {
+        pressedKeys.add(keyCode)
+        val info = androidKeyToJsInfo(keyCode)
+        val js = """
+            $KEY_MANAGER_INIT
+            window.__gameKeys.down(${info.keyCode},"${info.key}","${info.code}");
+        """.trimIndent()
+        evaluateJavascript(js, null)
+    }
+
+    /**
+     * 松开：发 keyup。
+     * 通过 JS 按键状态管理器分发，并在 50ms/150ms 后冗余重发 keyup，
+     * 确保即使第一次分发丢失，Ruffle 也能收到释放事件。
+     */
+    fun injectKeyUp(keyCode: Int) {
+        pressedKeys.remove(keyCode)
+        val info = androidKeyToJsInfo(keyCode)
+        val js = """
+            $KEY_MANAGER_INIT
+            window.__gameKeys.up(${info.keyCode},"${info.key}","${info.code}");
+        """.trimIndent()
+        evaluateJavascript(js, null)
+    }
+
+    /**
+     * 释放所有当前按下的按键。
+     * 在页面导航、Activity 暂停、手柄隐藏时调用，
+     * 防止 Ruffle/Flash 引擎因漏收 keyup 导致角色持续移动。
+     */
+    fun releaseAllKeys() {
+        val keys = synchronized(pressedKeys) {
+            val copy = pressedKeys.toSet()
+            pressedKeys.clear()
+            copy
+        }
+        Log.d("GameWebView", "releaseAllKeys: ${keys.size} keys")
+        // 调用 JS 管理器释放所有按键（即使 keys 为空也要调用，清理 JS 端残留状态）
+        val js = """
+            $KEY_MANAGER_INIT
+            window.__gameKeys.releaseAll();
+        """.trimIndent()
+        evaluateJavascript(js, null)
+    }
+
+    // ---------------- 按键状态心跳同步 ----------------
+    /** 心跳 Handler：定期同步 Android 与 JS 的按键状态，释放"卡住"的按键 */
+    private val heartbeatHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            syncPressedKeys()
+            heartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL)
+        }
+    }
+
+    /**
+     * 同步 Android 按下的按键状态到 JS。
+     * JS 端会释放所有"Android 认为未按下但 JS 认为已按下"的按键，
+     * 并对最近释放的按键冗余重发 keyup，彻底防止方向键卡住。
+     *
+     * 注意：必须把 Android KeyCode 转成 JS keyCode 再传，
+     * 因为 JS 端 pressed 字典的 key 是 JS keyCode（如 39），
+     * 而 pressedKeys 存的是 Android KeyCode（如 22），两者不匹配会导致
+     * 心跳同步误判为"按键已松开"从而错误释放正在长按的按键。
+     */
+    private fun syncPressedKeys() {
+        val jsKeyCodes = synchronized(pressedKeys) {
+            pressedKeys.map { androidKeyToJsInfo(it).keyCode }.toIntArray()
+        }
+        val keysStr = jsKeyCodes.joinToString(",")
+        evaluateJavascript("""
+            $KEY_MANAGER_INIT
+            window.__gameKeys.sync([$keysStr]);
+        """.trimIndent(), null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        heartbeatHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        heartbeatHandler.removeCallbacks(heartbeatRunnable)
+    }
+
+    // ---- Android KeyCode → JavaScript KeyboardEvent 映射 ----
+
+    private data class JsKeyInfo(val key: String, val code: String, val keyCode: Int)
+
+    /** 将 Android KeyEvent.KEYCODE_* 映射为 JavaScript KeyboardEvent 所需的 key/code/keyCode */
+    private fun androidKeyToJsInfo(keyCode: Int): JsKeyInfo = when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP    -> JsKeyInfo("ArrowUp",    "ArrowUp",    38)
+        KeyEvent.KEYCODE_DPAD_DOWN  -> JsKeyInfo("ArrowDown",  "ArrowDown",  40)
+        KeyEvent.KEYCODE_DPAD_LEFT  -> JsKeyInfo("ArrowLeft",  "ArrowLeft",  37)
+        KeyEvent.KEYCODE_DPAD_RIGHT -> JsKeyInfo("ArrowRight", "ArrowRight", 39)
+        KeyEvent.KEYCODE_DPAD_CENTER-> JsKeyInfo("Enter",      "Enter",      13)
+        KeyEvent.KEYCODE_SPACE      -> JsKeyInfo(" ",          "Space",      32)
+        KeyEvent.KEYCODE_ENTER      -> JsKeyInfo("Enter",      "Enter",      13)
+        KeyEvent.KEYCODE_TAB        -> JsKeyInfo("Tab",        "Tab",         9)
+        KeyEvent.KEYCODE_ESCAPE     -> JsKeyInfo("Escape",     "Escape",     27)
+        KeyEvent.KEYCODE_CTRL_LEFT  -> JsKeyInfo("Control",    "ControlLeft",17)
+        KeyEvent.KEYCODE_CTRL_RIGHT -> JsKeyInfo("Control",    "ControlRight",17)
+        KeyEvent.KEYCODE_SHIFT_LEFT -> JsKeyInfo("Shift",      "ShiftLeft",  16)
+        KeyEvent.KEYCODE_SHIFT_RIGHT-> JsKeyInfo("Shift",      "ShiftRight", 16)
+        KeyEvent.KEYCODE_ALT_LEFT   -> JsKeyInfo("Alt",        "AltLeft",    18)
+        KeyEvent.KEYCODE_ALT_RIGHT  -> JsKeyInfo("Alt",        "AltRight",   18)
+        // WASD + 功能字母
+        KeyEvent.KEYCODE_A -> JsKeyInfo("a","KeyA",65)
+        KeyEvent.KEYCODE_B -> JsKeyInfo("b","KeyB",66)
+        KeyEvent.KEYCODE_C -> JsKeyInfo("c","KeyC",67)
+        KeyEvent.KEYCODE_D -> JsKeyInfo("d","KeyD",68)
+        KeyEvent.KEYCODE_E -> JsKeyInfo("e","KeyE",69)
+        KeyEvent.KEYCODE_F -> JsKeyInfo("f","KeyF",70)
+        KeyEvent.KEYCODE_G -> JsKeyInfo("g","KeyG",71)
+        KeyEvent.KEYCODE_H -> JsKeyInfo("h","KeyH",72)
+        KeyEvent.KEYCODE_I -> JsKeyInfo("i","KeyI",73)
+        KeyEvent.KEYCODE_J -> JsKeyInfo("j","KeyJ",74)
+        KeyEvent.KEYCODE_K -> JsKeyInfo("k","KeyK",75)
+        KeyEvent.KEYCODE_L -> JsKeyInfo("l","KeyL",76)
+        KeyEvent.KEYCODE_M -> JsKeyInfo("m","KeyM",77)
+        KeyEvent.KEYCODE_N -> JsKeyInfo("n","KeyN",78)
+        KeyEvent.KEYCODE_O -> JsKeyInfo("o","KeyO",79)
+        KeyEvent.KEYCODE_P -> JsKeyInfo("p","KeyP",80)
+        KeyEvent.KEYCODE_Q -> JsKeyInfo("q","KeyQ",81)
+        KeyEvent.KEYCODE_R -> JsKeyInfo("r","KeyR",82)
+        KeyEvent.KEYCODE_S -> JsKeyInfo("s","KeyS",83)
+        KeyEvent.KEYCODE_T -> JsKeyInfo("t","KeyT",84)
+        KeyEvent.KEYCODE_U -> JsKeyInfo("u","KeyU",85)
+        KeyEvent.KEYCODE_V -> JsKeyInfo("v","KeyV",86)
+        KeyEvent.KEYCODE_W -> JsKeyInfo("w","KeyW",87)
+        KeyEvent.KEYCODE_X -> JsKeyInfo("x","KeyX",88)
+        KeyEvent.KEYCODE_Y -> JsKeyInfo("y","KeyY",89)
+        KeyEvent.KEYCODE_Z -> JsKeyInfo("z","KeyZ",90)
+        // 数字
+        KeyEvent.KEYCODE_0 -> JsKeyInfo("0","Digit0",48)
+        KeyEvent.KEYCODE_1 -> JsKeyInfo("1","Digit1",49)
+        KeyEvent.KEYCODE_2 -> JsKeyInfo("2","Digit2",50)
+        KeyEvent.KEYCODE_3 -> JsKeyInfo("3","Digit3",51)
+        KeyEvent.KEYCODE_4 -> JsKeyInfo("4","Digit4",52)
+        KeyEvent.KEYCODE_5 -> JsKeyInfo("5","Digit5",53)
+        KeyEvent.KEYCODE_6 -> JsKeyInfo("6","Digit6",54)
+        KeyEvent.KEYCODE_7 -> JsKeyInfo("7","Digit7",55)
+        KeyEvent.KEYCODE_8 -> JsKeyInfo("8","Digit8",56)
+        KeyEvent.KEYCODE_9 -> JsKeyInfo("9","Digit9",57)
+        else -> JsKeyInfo("", "Unidentified", keyCode)
+    }
+
+    // ---------------- 鼠标事件注入 ----------------
+
+    /** 在 WebView 中心坐标注入鼠标移动事件（用于旋转视角） */
+    fun injectMouseMove(dx: Float, dy: Float) {
+        // 通过 JS 注入 mousemove 事件，模拟鼠标在页面中心移动
+        val cx = width / 2f
+        val cy = height / 2f
+        val newX = cx + dx
+        val newY = cy + dy
+        evaluateJavascript(
+            """
+            (function(){
+              var el = document.elementFromPoint($cx, $cy);
+              if (!el) return;
+              var evt = new MouseEvent('mousemove', {
+                bubbles: true, cancelable: true, view: window,
+                clientX: $newX, clientY: $newY,
+                movementX: $dx, movementY: $dy
+              });
+              el.dispatchEvent(evt);
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    /** 注入鼠标左键点击（mousedown + mouseup + click） */
+    fun injectMouseLeftClick(x: Float = width / 2f, y: Float = height / 2f) {
+        evaluateJavascript(
+            """
+            (function(){
+              var el = document.elementFromPoint($x, $y);
+              if (!el) return;
+              var opt = {bubbles: true, cancelable: true, view: window, clientX: $x, clientY: $y, button: 0};
+              el.dispatchEvent(new MouseEvent('mousedown', opt));
+              el.dispatchEvent(new MouseEvent('mouseup', opt));
+              el.dispatchEvent(new MouseEvent('click', opt));
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    /** 注入鼠标右键点击（contextmenu） */
+    fun injectMouseRightClick(x: Float = width / 2f, y: Float = height / 2f) {
+        evaluateJavascript(
+            """
+            (function(){
+              var el = document.elementFromPoint($x, $y);
+              if (!el) return;
+              var opt = {bubbles: true, cancelable: true, view: window, clientX: $x, clientY: $y, button: 2};
+              el.dispatchEvent(new MouseEvent('mousedown', opt));
+              el.dispatchEvent(new MouseEvent('mouseup', opt));
+              el.dispatchEvent(new MouseEvent('contextmenu', opt));
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    /** 注入鼠标左键按下（持续按住状态） */
+    fun injectMouseLeftDown(x: Float = width / 2f, y: Float = height / 2f) {
+        evaluateJavascript(
+            """
+            (function(){
+              var el = document.elementFromPoint($x, $y);
+              if (!el) return;
+              el.dispatchEvent(new MouseEvent('mousedown', {
+                bubbles: true, cancelable: true, view: window, clientX: $x, clientY: $y, button: 0
+              }));
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    /** 注入鼠标左键松开 */
+    fun injectMouseLeftUp(x: Float = width / 2f, y: Float = height / 2f) {
+        evaluateJavascript(
+            """
+            (function(){
+              var el = document.elementFromPoint($x, $y);
+              if (!el) return;
+              el.dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true, cancelable: true, view: window, clientX: $x, clientY: $y, button: 0
+              }));
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    companion object {
+        /** 心跳同步间隔（ms）：定期检查并释放"卡住"的按键 */
+        private const val HEARTBEAT_INTERVAL = 300L
+
+        /**
+         * Document Start 脚本：通过 addDocumentStartJavaScript 在页面任何 JS 之前执行。
+         *
+         * 核心功能：
+         * 1. View Transitions API polyfill — 替换 document.startViewTransition，
+         *    确保 SPA 导航回调始终执行，避免 "Transition was skipped" 导致页面无法跳转。
+         *    必须在页面 JS 之前注入，否则网站框架可能已捕获原始引用。
+         * 2. navigator.plugins 兜底 — 确保任何页面（含 iframe）的 navigator.plugins
+         *    都有 namedItem/item 方法，避免 Ruffle 引擎崩溃。
+         */
+        private const val DOCUMENT_START_SCRIPT = """
+            (function(){
+              // === 1. View Transitions API polyfill ===
+              // 问题：Android WebView 的 startViewTransition 可能直接跳过过渡
+              // （Transition was skipped），导致回调不执行、页面无法跳转。
+              // 方案：彻底替换 startViewTransition，确保回调始终同步执行。
+              // 关键：必须覆盖 Document.prototype（而非仅 document 实例），
+              //       因为 WebView 可能通过原型 getter 返回原生实现，覆盖实例无效。
+              if (!window.__vtPatched) {
+                window.__vtPatched = true;
+                var vtPolyfill = function(callback) {
+                  var result;
+                  try {
+                    result = callback ? callback() : undefined;
+                  } catch(e) {
+                    result = Promise.reject(e);
+                  }
+                  var p = (result && typeof result.then === 'function') ? result : Promise.resolve();
+                  // 强制触发重绘：原生 startViewTransition 会触发渲染帧，
+                  // polyfill 仅同步执行回调，WebView 不知道 DOM 已更新需要重绘。
+                  // 不触发重绘 → 页面"卡住"，切后台再回来 onResume 强制重绘才恢复。
+                  requestAnimationFrame(function() {
+                    try {
+                      void document.body && document.body.offsetHeight;
+                    } catch(e) {}
+                  });
+                  var finished = p.then(undefined, function(err) {
+                    if (err && err.name === 'AbortError') return;
+                    throw err;
+                  });
+                  return {
+                    finished: finished,
+                    ready: Promise.resolve(),
+                    updateCallbackDone: p,
+                    skipTransition: function() {},
+                    types: []
+                  };
+                };
+                // 覆盖 Document.prototype（最优先：阻止原生 getter 返回原始实现）
+                try {
+                  Object.defineProperty(Document.prototype, 'startViewTransition', {
+                    value: vtPolyfill,
+                    writable: true,
+                    configurable: true
+                  });
+                } catch(e) {}
+                // 同时覆盖 document 实例（双重保险）
+                try { document.startViewTransition = vtPolyfill; } catch(e) {}
+              }
+              // === 2. 捕获 unhandledrejection：抑制 View Transitions 的 AbortError ===
+              if (!window.__vtRejectionHook) {
+                window.__vtRejectionHook = true;
+                window.addEventListener('unhandledrejection', function(event) {
+                  if (event.reason && event.reason.name === 'AbortError') {
+                    var msg = event.reason.message || String(event.reason);
+                    if (msg.indexOf('Transition') >= 0 || msg.indexOf('skipped') >= 0 || msg === 'AbortError') {
+                      event.preventDefault();
+                    }
+                  }
+                });
+              }
+              // === 3. navigator.plugins 兜底：确保 namedItem/item 方法存在 ===
+              try {
+                var np = navigator.plugins;
+                if (np && typeof np.namedItem !== 'function') {
+                  np.namedItem = function(name) {
+                    return (name === 'Shockwave Flash') ? { name: name, length: 1, 0: { type: 'application/x-shockwave-flash' } } : null;
+                  };
+                }
+                if (np && typeof np.item !== 'function') {
+                  np.item = function(i) { return i === 0 ? { name: 'Shockwave Flash' } : null; };
+                }
+              } catch(e) {}
+            })();
+        """
+
+        /**
+         * JavaScript 按键状态管理器初始化脚本（自初始化：仅在 window.__gameKeys 不存在时创建）。
+         *
+         * 核心机制：
+         * 1. 在 window / document / activeElement 三个目标上分发 KeyboardEvent，
+         *    确保 Ruffle（监听在 window 上）必定收到 keydown/keyup
+         * 2. 维护 pressed 字典（keyCode → {key, code}），跟踪已按下按键
+         * 3. up() 时在 0ms / 50ms / 150ms 冗余重发 keyup，防止首次分发丢失
+         * 4. sync(androidKeys) 与 Android 端对账：释放 Android 认为未按下但 JS 认为已按下的按键，
+         *    并对最近 500ms 内释放的按键冗余重发 keyup
+         * 5. 页面 blur / visibilitychange 时自动释放所有按键
+         */
+        private val KEY_MANAGER_INIT = """
+            if(!window.__gameKeys){
+              window.__gameKeys=(function(){
+                var pressed={};
+                var recentlyReleased={};
+                function mkEv(type,kc,kv,cv){
+                  var e=new KeyboardEvent(type,{key:kv,code:cv,bubbles:true,cancelable:true,composed:true});
+                  Object.defineProperty(e,'keyCode',{get:function(){return kc;}});
+                  Object.defineProperty(e,'which',{get:function(){return kc;}});
+                  Object.defineProperty(e,'charCode',{get:function(){return 0;}});
+                  return e;
+                }
+                function dispatch(type,kc,kv,cv){
+                  var ae=document.activeElement||document.body||document.documentElement;
+                  try{ae.dispatchEvent(mkEv(type,kc,kv,cv));}catch(e){}
+                  try{if(ae!==document)document.dispatchEvent(mkEv(type,kc,kv,cv));}catch(e){}
+                  try{window.dispatchEvent(mkEv(type,kc,kv,cv));}catch(e){}
+                }
+                function down(kc,kv,cv){
+                  pressed[kc]={key:kv,code:cv};
+                  delete recentlyReleased[kc];
+                  dispatch('keydown',kc,kv,cv);
+                }
+                function up(kc,kv,cv){
+                  var info=pressed[kc];
+                  var akv=kv||(info?info.key:'');
+                  var acv=cv||(info?info.code:'Unidentified');
+                  delete pressed[kc];
+                  recentlyReleased[kc]={key:akv,code:acv,time:Date.now()};
+                  dispatch('keyup',kc,akv,acv);
+                  setTimeout(function(){if(!pressed[kc])dispatch('keyup',kc,akv,acv);},50);
+                  setTimeout(function(){if(!pressed[kc])dispatch('keyup',kc,akv,acv);},150);
+                }
+                function releaseAll(){
+                  for(var kc in pressed){
+                    var info=pressed[kc];
+                    dispatch('keyup',parseInt(kc),info.key,info.code);
+                    recentlyReleased[kc]={key:info.key,code:info.code,time:Date.now()};
+                  }
+                  pressed={};
+                }
+                function sync(androidKeys){
+                  var aSet={};
+                  if(androidKeys){for(var i=0;i<androidKeys.length;i++)aSet[androidKeys[i]]=true;}
+                  var now=Date.now();
+                  for(var kc in pressed){
+                    if(!aSet[kc]){
+                      var info=pressed[kc];
+                      dispatch('keyup',parseInt(kc),info.key,info.code);
+                      recentlyReleased[kc]={key:info.key,code:info.code,time:now};
+                      delete pressed[kc];
+                    }
+                  }
+                  for(var kc in recentlyReleased){
+                    if(!aSet[kc]&&!pressed[kc]){
+                      var info=recentlyReleased[kc];
+                      if(now-info.time<500){dispatch('keyup',parseInt(kc),info.key,info.code);}
+                      else{delete recentlyReleased[kc];}
+                    }else{delete recentlyReleased[kc];}
+                  }
+                }
+                window.addEventListener('blur',function(){releaseAll();});
+                document.addEventListener('visibilitychange',function(){if(document.hidden)releaseAll();});
+                return{down:down,up:up,releaseAll:releaseAll,sync:sync};
+              })();
+            }
+        """.trimIndent()
+
+        /** 桌面版 Chrome UA（Windows），不含 Mobile/Android，4399 据此返回 PC 版页面 */
+        const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        /** IE11 兼容模式 UA（Trident/7.0），4399 部分页面需要此 UA 才能正常加载 */
+        const val IE_COMPAT_UA = "Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko"
+
+        /** 游戏常用按键白名单 */
+        val GAME_KEYS = intArrayOf(
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_ESCAPE,
+            KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT,
+            KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT,
+            KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT,
+            // WASD
+            KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D,
+            // 功能字母
+            KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_R, KeyEvent.KEYCODE_F,
+            KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V,
+            // 动作按键常用字母（J/K/L/U/I/O/H/G/B/N/P/M/T/Y）
+            KeyEvent.KEYCODE_J, KeyEvent.KEYCODE_K, KeyEvent.KEYCODE_L,
+            KeyEvent.KEYCODE_U, KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_O,
+            KeyEvent.KEYCODE_H, KeyEvent.KEYCODE_G, KeyEvent.KEYCODE_B,
+            KeyEvent.KEYCODE_N, KeyEvent.KEYCODE_P, KeyEvent.KEYCODE_M,
+            KeyEvent.KEYCODE_T, KeyEvent.KEYCODE_Y,
+            // 数字
+            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_3,
+            KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7,
+            KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_9
+        )
+    }
+}

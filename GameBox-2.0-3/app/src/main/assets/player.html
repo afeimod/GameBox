@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>4399 Flash 播放器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; background: #000; overflow: hidden;
+    font-family: "Microsoft YaHei", "微软雅黑", "Noto Sans CJK SC", "Source Han Sans SC",
+                 "PingFang SC", "Heiti SC", "SimHei", "WenQuanYi Micro Hei",
+                 Arial, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; }
+  /* 自定义四角布局:由 JS 根据 box query param 动态设置 left/top/right/bottom */
+  #stage.box-custom { background: #000; }
+  #stage canvas, #stage ruffle-player {
+    font-family: "Microsoft YaHei", "微软雅黑", "Noto Sans CJK SC", "Source Han Sans SC",
+                 "PingFang SC", "Heiti SC", "SimHei", "WenQuanYi Micro Hei",
+                 Arial, Helvetica, sans-serif !important;
+  }
+  #loading {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; color: #FFC107; font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    z-index: 10; background: #000;
+  }
+  .spinner {
+    width: 48px; height: 48px; border: 4px solid rgba(255,193,7,.25);
+    border-top-color: #FFC107; border-radius: 50%; animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading .text { margin-top: 16px; font-size: 15px; letter-spacing: 1px; }
+  #hint {
+    position: fixed; bottom: 16px; left: 0; right: 0; text-align: center;
+    color: rgba(255,255,255,.5); font-size: 12px; z-index: 10;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="text" id="loadText">正在加载 Flash 引擎…</div>
+  </div>
+  <div id="hint">提示：可在右上角开启虚拟手柄，或连接实体键盘游玩</div>
+
+  <script>
+    // 解析查询参数
+    function param(name, def) {
+      return new URLSearchParams(location.search).get(name) || def || '';
+    }
+    var SWF_URL    = param('swf');
+    var BASE_URL   = param('base');
+    var TITLE      = param('title') || 'Flash 游戏';
+    var ENGINE     = param('engine', 'ruffle');  // ruffle
+    var CDN_URL    = param('cdn', '');
+    var CDN_PATH   = param('path', '');
+    var AUTOPLAY   = param('autoplay', 'on');
+    // 新增：scale/letterbox/quality/aspect 由 NavHelper 透传过来。
+    // 合法值参考 ruffle core/src/config.rs:42-50 (letterbox: off/fullscreen/on) +
+    //                 ruffle core/src/display_object/stage.rs:1020-1023 (scale: showAll/noBorder/exactFit/noScale)
+    var SCALE_RAW      = param('scale', 'showAll');
+    var LETTERBOX_RAW  = param('letterbox', 'fullscreen');
+    var QUALITY_RAW    = param('quality', 'high');
+    var ASPECT_RAW     = param('aspect', 'auto');
+    // 自定义四角布局(0..1 归一化)。空表示不启用,使用默认全屏。
+    var BOX_RAW        = param('box', '');
+
+    function normalizeScale(v) {
+      return ['showAll', 'noBorder', 'exactFit', 'noScale'].indexOf(v) >= 0 ? v : 'showAll';
+    }
+    function normalizeLetterbox(v) {
+      return ['off', 'fullscreen', 'on'].indexOf(v) >= 0 ? v : 'fullscreen';
+    }
+    function normalizeQuality(v) {
+      return ['low', 'medium', 'high', 'best'].indexOf(v) >= 0 ? v : 'high';
+    }
+    var SCALE      = normalizeScale(SCALE_RAW);
+    var LETTERBOX  = normalizeLetterbox(LETTERBOX_RAW);
+    var QUALITY    = normalizeQuality(QUALITY_RAW);
+
+    // 解析 box="l,t,r,b" 归一化值
+    function parseBox(s) {
+      if (!s) return null;
+      var parts = s.split(',');
+      if (parts.length !== 4) return null;
+      var v = [parseFloat(parts[0]), parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])];
+      if (v.some(function(x){ return isNaN(x); })) return null;
+      // 边界保护
+      v[0] = Math.max(0, Math.min(1, v[0]));
+      v[1] = Math.max(0, Math.min(1, v[1]));
+      v[2] = Math.max(0, Math.min(1, v[2]));
+      v[3] = Math.max(0, Math.min(1, v[3]));
+      if (v[2] <= v[0] + 0.01 || v[3] <= v[1] + 0.01) return null;
+      return v;
+    }
+    var BOX = parseBox(BOX_RAW);
+
+    document.title = TITLE;
+    var loadText = document.getElementById('loadText');
+    var stage = document.getElementById('stage');
+
+    // ===== Ruffle 引擎 =====
+    loadText.textContent = '正在加载 Ruffle 引擎…';
+
+    var ruffleUrl = CDN_URL || 'https://flash.local/ruffle/ruffle.js';
+    var rufflePath = CDN_PATH || 'https://flash.local/ruffle/';
+
+    // 1) 预置 Ruffle 配置（必须早于 ruffle.js）
+    window.RufflePlayer = window.RufflePlayer || {};
+    var ruffleConfig = {
+      "publicPath": rufflePath,
+      "polyfills": true,
+      "autoplay": AUTOPLAY,
+      "unmuteOverlay": "visible",
+      "letterbox": LETTERBOX,
+      "upgradeToHttps": true,
+      "allowScriptAccess": true,
+      "scale": SCALE,
+      // 当用户指定具体画面比例时，强制锁定 scale + align，避免 SWF 内部
+      // Stage.scaleMode / Stage.align 把外框 letterbox 抵消掉。
+      // Ruffle should_letterbox() 要求 scale_mode=ShowAll + align=空（参考
+      // ruffle core/src/display_object/stage.rs:469-478），SWF 改任一项都会让黑边消失。
+      "forceScale": ASPECT_RAW !== 'auto',
+      "forceAlign": ASPECT_RAW !== 'auto',
+      "quality": QUALITY,
+      // Ruffle 0.4.x:allowFullscreen=true 会让右键菜单出现 "Enter Fullscreen" 选项。
+      // 设置 false 隐藏该菜单项,避免遮挡虚拟按键和悬浮按钮。
+      // 全屏需求:通过 Android 端 onShowCustomView + 自定义 customView addView 到 mainBoxRef 实现,
+      // 不依赖 Ruffle 内置全屏按钮。Ruffle 内部 fullscreenEnabled 仍为 true 时菜单项会显示。
+      "allowFullscreen": false,
+      "splashScreen": true,
+      "preloader": true,
+      "logLevel": "warn",
+      "maxExecutionDuration": {"secs": 15, "nanos": 0}
+    };
+    // 本地引擎模式：加载 simhei.ttf 字体解决中文显示问题
+    // CDN 模式下无本地字体文件，跳过
+    if (rufflePath.indexOf('flash.local') >= 0) {
+      ruffleConfig.fontSources = [rufflePath + 'simhei.ttf'];
+      ruffleConfig.defaultFonts = {
+        "sans": ["SimHei"],
+        "serif": ["SimHei"],
+        "typewriter": ["SimHei"],
+        "japaneseGothic": ["SimHei"],
+        "japaneseGothicMono": ["SimHei"],
+        "japaneseMincho": ["SimHei"]
+      };
+    }
+    window.RufflePlayer.config = ruffleConfig;
+
+    // 2) 动态加载 Ruffle
+    var s = document.createElement('script');
+    s.src = ruffleUrl;
+    s.async = true;
+    s.onload = function () {
+      loadText.textContent = '正在加载游戏: ' + TITLE;
+      try {
+        var ruffle = window.RufflePlayer.newest();
+        var player = ruffle.createPlayer();
+        stage.appendChild(player);
+        player.style.width = '100%';
+        player.style.height = '100%';
+        player.style.display = 'block';
+        var opt = { url: SWF_URL, allowScriptAccess: true };
+        if (BASE_URL) opt.base = BASE_URL;
+        player.ruffle().load(opt);
+        document.getElementById('loading').style.display = 'none';
+
+        // 应用自定义四角布局 (box="l,t,r,b" 0..1 归一化)。
+        // 这让 Ruffle 把 ruffle-player 元素的 clientWidth/Height 视为新 viewport,
+        // 内部按 showAll 自动计算 scale,把 SWF 缩放到自定义矩形内并按 viewport 加黑边。
+        if (BOX) {
+          stage.classList.add('box-custom');
+          // 临时解除 #stage 默认的 fixed inset:0,改用 left/top/right/bottom 归一化
+          var s = stage.style;
+          s.position = 'fixed';
+          s.left = (BOX[0] * 100) + '%';
+          s.top = (BOX[1] * 100) + '%';
+          s.right = ((1 - BOX[2]) * 100) + '%';
+          s.bottom = ((1 - BOX[3]) * 100) + '%';
+          s.width = 'auto';
+          s.height = 'auto';
+        }
+
+        // Ruffle 内核初始化完后，外层 CSS 接管外框。
+        // ASPECT_RAW 由 GameWebViewClient.buildRuffleAspectRatioScript 处理。
+        // 这里只需要确保 stage 不会一直 100% 100%，给外层脚本操作空间。
+        if (ASPECT_RAW && ASPECT_RAW !== 'auto') {
+          // 触发一个尺寸刷新，让 GameWebViewClient 注入的 setTimeout 一定能拿到
+          // ruffle-player 的实际尺寸。
+          window.dispatchEvent(new Event('resize'));
+        }
+      } catch (e) {
+        loadText.textContent = '加载失败: ' + e.message;
+        console.error(e);
+      }
+    };
+    s.onerror = function () {
+      loadText.textContent = 'Ruffle 引擎加载失败，请检查网络';
+    };
+    document.head.appendChild(s);
+
+    // 暴露给 Android 调用的播放接口
+    window.__playSwf = function(url, base) {
+      try {
+        var ruffle = window.RufflePlayer.newest();
+        var player = ruffle.createPlayer();
+        stage.innerHTML = '';
+        stage.appendChild(player);
+        player.style.width = '100%';
+        player.style.height = '100%';
+        var opt = { url: url, allowScriptAccess: true };
+        if (base) opt.base = base;
+        player.ruffle().load(opt);
+      } catch(e) { console.error(e); }
+    };
+
+    // 禁用长按选择 / 上下文菜单 / 缩放
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    document.addEventListener('selectstart', function (e) { e.preventDefault(); });
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  </script>
+</body>
+</html>

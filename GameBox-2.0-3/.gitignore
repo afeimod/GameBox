@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+gradle-app.setting
+.gradletasknamecache
+.kotlin/
+
+# IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Android
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+hs_err_pid*
+replay_pid*
+
+# NDK
+obj/

@@ -19,7 +19,6 @@
 
 #include "gba_loader.h"
 #include "shared/core_shared.h"
-#include "shared/gpu_video_filter.h"
 
 #include <libretro.h>
 #include <android/log.h>
@@ -233,9 +232,6 @@ static AudioResampler s_resampler;
 // ---------------------------------------------------------------------------
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
-
-// GPU-accelerated video filter for XBR (hardware acceleration)
-static gpufilter::GpuVideoFilter s_gpuFilter;
 
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
@@ -568,8 +564,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame.data(), width, height, width,
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
-        (unsigned)kMaxW, (unsigned)kMaxH,
-        &s_gpuFilter);
+        (unsigned)kMaxW, (unsigned)kMaxH);
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -726,10 +721,6 @@ void unload() {
     s_frameW = 0;
     s_frameH = 0;
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
-    // Clean up GPU filter to prevent stale EGL state on next launch
-    if (s_gpuFilter.initialized) {
-        s_gpuFilter.cleanup();
-    }
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -829,10 +820,6 @@ void setSurface(void* nativeWindow) {
     std::lock_guard<std::mutex> lk(s_windowMtx);
 
     if (s_window) {
-        // Clean up GPU filter before releasing old window
-        if (s_gpuFilter.initialized) {
-            s_gpuFilter.cleanup();
-        }
         ANativeWindow_release(s_window);
         s_window = nullptr;
     }
@@ -840,13 +827,6 @@ void setSurface(void* nativeWindow) {
         s_window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(s_window);
         ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-
-        // Initialize GPU filter if XBR is active.
-        // CRITICAL: Always re-init when the surface changes, because the
-        // old EGL surface is bound to the old ANativeWindow.
-        if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
-            s_gpuFilter.init(s_window, s_videoFilter.load(), kMaxW, kMaxH);
-        }
 
         LOGI("Surface attached (buffer geometry = window default)");
     } else {
@@ -890,22 +870,6 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
-
-    // Initialize or update GPU filter
-    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
-        if (!s_gpuFilter.initialized && s_window) {
-            s_gpuFilter.init(s_window, filter, kMaxW, kMaxH);
-        } else if (s_gpuFilter.initialized) {
-            s_gpuFilter.setFilter(filter);
-        }
-    } else if (s_gpuFilter.initialized) {
-        // Non-GPU filter selected: cleanup GPU filter
-        s_gpuFilter.cleanup();
-        if (s_window) {
-            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-        }
-    }
-
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
 }
 

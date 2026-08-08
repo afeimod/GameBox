@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -1138,7 +1139,11 @@ private fun MenuOverlay(
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0x88000000))
             .pointerInput(Unit) {
-                awaitEachGesture { awaitFirstDown(); /* consume */ }
+                awaitEachGesture {
+                    awaitFirstDown()
+                    // Don't consume — let horizontal drags reach the scrollable
+                    // menu row below; only block clicks/taps on the backdrop.
+                }
             }
     )
     // In landscape: menu bar at bottom; in portrait: at top
@@ -1149,7 +1154,8 @@ private fun MenuOverlay(
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
             .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
