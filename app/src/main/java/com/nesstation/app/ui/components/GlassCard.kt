@@ -202,7 +202,10 @@ fun GameCard(
                 // GBA, GB, Java) at the top-left corner of the card, ON TOP of
                 // the custom icon so it's always visible. Each engine has its
                 // own colour for quick visual identification.
-                PlatformBadge(platform)
+                PlatformBadge(
+                    platform,
+                    modifier = Modifier.align(Alignment.TopStart)
+                )
             }
             Text(
                 text = title,
@@ -226,7 +229,7 @@ fun GameCard(
  * Drawn ON TOP of the custom icon so it's always visible.
  */
 @Composable
-private fun PlatformBadge(platform: GamePlatform) {
+private fun PlatformBadge(platform: GamePlatform, modifier: Modifier = Modifier) {
     val (label, bgColor) = when (platform) {
         GamePlatform.NES  -> "FC"  to Color(0xFFD32F2F)   // red — Famicom
         GamePlatform.SFC  -> "SFC" to Color(0xFF1565C0)   // blue — Super Famicom
@@ -235,8 +238,7 @@ private fun PlatformBadge(platform: GamePlatform) {
         GamePlatform.JAVA -> "Java" to Color(0xFF4E342E)  // brown — J2ME
     }
     Box(
-        modifier = Modifier
-            .align(Alignment.TopStart)
+        modifier = modifier
             .padding(4.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(bgColor.copy(alpha = 0.88f))
