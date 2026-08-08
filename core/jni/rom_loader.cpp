@@ -15,6 +15,7 @@
 
 #include "rom_loader.h"
 #include "shared/core_shared.h"
+#include "shared/gpu_video_filter.h"
 #include "hqx/hqx.h"
 
 #include <libretro.h>
@@ -408,7 +409,7 @@ static void xbr2xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
 
 static void xbr4xUpscale(const uint32_t* src, unsigned sw, unsigned sh,
                           size_t srcStride, uint32_t* dst) {
-    coreshared::xbr4xUpscale(src, sw, sh, srcStride, dst, s_xbrMidBuffer);
+    coreshared::xbr4xUpscale(src, sw, sh, srcStride, dst);
 }
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return; // duplicate frame / no data this frame
