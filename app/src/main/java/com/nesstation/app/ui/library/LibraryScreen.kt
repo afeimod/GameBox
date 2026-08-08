@@ -118,10 +118,32 @@ fun LibraryScreen(
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
 
     fun refreshList() {
-        // 同时加载 NES 与 Java 游戏，按 id 去重
+        // 1. Load all persisted games
         val nes = RomStore.loadAll(context)
         val java = JavaGameStore.loadAll(context)
-        val merged = (nes + java).distinctBy { it.id }
+        // 2. Remove games whose ROM files no longer exist on disk
+        val validNes = nes.filter { entry ->
+            val path = entry.romPath
+            if (path.isNullOrEmpty()) true  // keep entries without path (shouldn't happen)
+            else if (path.startsWith("content://")) true  // SAF URIs — assume valid
+            else java.io.File(path).exists()  // local file — check existence
+        }
+        // If some were removed, persist the cleaned list
+        if (validNes.size < nes.size) {
+            RomStore.saveAll(context, validNes)
+        }
+        // 3. Scan default ROM directories for new files and add them
+        try {
+            val newEntries = scanForRoms(context)
+            for ((name, path) in newEntries) {
+                val ext = name.substringAfterLast('.', "").lowercase()
+                val platform = detectPlatformFromFile(File(path))
+                RomStore.add(context, name.substringBeforeLast('.'), path, platform)
+            }
+        } catch (_: Exception) { }
+        // 4. Merge and deduplicate
+        val finalNes = RomStore.loadAll(context)
+        val merged = (finalNes + java).distinctBy { it.id }
         importedGames.clear()
         importedGames.addAll(merged)
     }

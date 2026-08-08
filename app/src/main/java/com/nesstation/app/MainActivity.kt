@@ -28,20 +28,9 @@ class MainActivity : ComponentActivity() {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
+        // Apply saved screen orientation
+        applyScreenOrientation()
         setContent { Root() }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            // Immersive mode: hide status bar + navigation bar.
-            // User can swipe to reveal them temporarily; they auto-hide.
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        }
     }
 
     override fun onResume() {
@@ -53,6 +42,18 @@ class MainActivity : ComponentActivity() {
                 systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
+        }
+        // Re-apply orientation in case it changed in settings
+        applyScreenOrientation()
+    }
+
+    private fun applyScreenOrientation() {
+        val prefs = getSharedPreferences("pad_layout_v2", MODE_PRIVATE)
+        val orientation = prefs.getString("screen_orientation", "auto") ?: "auto"
+        requestedOrientation = when (orientation) {
+            "portrait"  -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else        -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 }

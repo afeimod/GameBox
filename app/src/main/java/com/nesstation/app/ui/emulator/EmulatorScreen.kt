@@ -1,5 +1,6 @@
 package com.nesstation.app.ui.emulator
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Shader
@@ -529,7 +530,11 @@ private fun GameSurfaceView(
     videoFilter: String,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    // Portrait: align to top so game screen doesn't get pushed down
+    // Landscape: center the game screen
+    val contentAlignment = if (isPortrait) Alignment.TopCenter else Alignment.Center
+    Box(modifier = modifier, contentAlignment = contentAlignment) {
         // For aspect-ratio modes, constrain the SurfaceView to the correct ratio
         // and center it within the available space. This ensures the game screen
         // is vertically centered in portrait mode instead of stuck at the top.
@@ -1129,13 +1134,23 @@ private fun MenuOverlay(
     onClose: () -> Unit,
     onExit: () -> Unit
 ) {
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    // Full-screen dim background
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0x88000000))
             .pointerInput(Unit) {
                 awaitEachGesture { awaitFirstDown(); /* consume */ }
             }
     )
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    // Wrap in Box for alignment control: landscape puts menu at bottom,
+    // portrait keeps it at top (default).
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .then(if (!isPortrait) Modifier.align(Alignment.BottomStart) else Modifier.align(Alignment.TopStart))
+        ) {
         // Title row
         Text(
             gameTitle, color = Color.White, fontSize = 14.sp,
@@ -1171,6 +1186,7 @@ private fun MenuOverlay(
             IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
             IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
+        }
         }
     }
 }

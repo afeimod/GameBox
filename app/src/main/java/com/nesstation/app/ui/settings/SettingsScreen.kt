@@ -198,6 +198,11 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
+
+                        DropdownRow("屏幕方向",
+                            listOf("auto" to "跟随系统", "portrait" to "竖屏", "landscape" to "横屏"),
+                            padLayout.screenOrientation
+                        ) { updateLayout(padLayout.copy(screenOrientation = it)) }
                     }
                 }
 
