@@ -896,8 +896,14 @@ public abstract class Canvas extends Displayable {
 
                         // Switch shader program if the filter mode changed.
                         // All modes (0-9) are handled by GLSL shaders — no CPU pixel-processing.
-                        if (fm != lastFilterMode && isStarted) {
-                                switchProgram(fm);
+                        // Always check for changes (not gated on isStarted) so that
+                        // setJ2meFilterMode() calls from outside are reliably picked up.
+                        if (fm != lastFilterMode) {
+                                if (isStarted) {
+                                        switchProgram(fm);
+                                } else {
+                                        lastFilterMode = fm; // remember for onSurfaceCreated
+                                }
                         }
 
                         // Ensure the correct shader program is active
