@@ -628,6 +628,10 @@ void unload() {
     }
     s_videoW = kSnesW;
     s_videoH = kSnesH;
+    // Clean up GPU filter to prevent stale EGL state on next launch
+    if (s_gpuFilter.initialized) {
+        s_gpuFilter.cleanup();
+    }
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -729,7 +733,13 @@ void setSurface(void* nativeWindow) {
         LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888)", s_pixelFormat);
         // Initialize GPU filter if an XBR filter is currently active
         const int filter = s_videoFilter.load(std::memory_order_relaxed);
-        if (gpufilter::GpuVideoFilter::isGpuFilter(filter) && !s_gpuFilter.initialized) {
+        if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
+            // CRITICAL: Always cleanup and re-init when the surface changes,
+            // because the old EGL surface is bound to the old ANativeWindow.
+            // Without this, restarting a game with XBR produces a black screen.
+            if (s_gpuFilter.initialized) {
+                s_gpuFilter.cleanup();
+            }
             s_gpuFilter.init(s_window, filter, (unsigned)kSnesW, (unsigned)kSnesH);
             LOGI("GPU filter initialized on surface attach (filter=%d)", filter);
         }

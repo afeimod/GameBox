@@ -726,6 +726,10 @@ void unload() {
     s_frameW = 0;
     s_frameH = 0;
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+    // Clean up GPU filter to prevent stale EGL state on next launch
+    if (s_gpuFilter.initialized) {
+        s_gpuFilter.cleanup();
+    }
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -825,7 +829,10 @@ void setSurface(void* nativeWindow) {
     std::lock_guard<std::mutex> lk(s_windowMtx);
 
     if (s_window) {
-        s_gpuFilter.cleanup();
+        // Clean up GPU filter before releasing old window
+        if (s_gpuFilter.initialized) {
+            s_gpuFilter.cleanup();
+        }
         ANativeWindow_release(s_window);
         s_window = nullptr;
     }
@@ -834,7 +841,9 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_acquire(s_window);
         ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
 
-        // Initialize GPU filter if XBR is active
+        // Initialize GPU filter if XBR is active.
+        // CRITICAL: Always re-init when the surface changes, because the
+        // old EGL surface is bound to the old ANativeWindow.
         if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
             s_gpuFilter.init(s_window, s_videoFilter.load(), kMaxW, kMaxH);
         }

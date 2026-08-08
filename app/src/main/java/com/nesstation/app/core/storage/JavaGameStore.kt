@@ -173,16 +173,62 @@ object JavaGameStore {
 
     /**
      * Launch a Java game using J2ME-Loader's Config.startApp().
+     * Before launching, synchronizes the video filter setting from PadLayoutStore
+     * to the J2ME preferences so MicroActivity reads the correct filter mode.
      */
     fun launchGame(ctx: Context, game: GameEntry) {
         try {
             val path = game.romPath ?: return
             val title = game.title
+
+            // Synchronize video filter setting to J2ME prefs.
+            // PadLayoutStore stores filter as string ("xbr", "4xbr", etc.)
+            // MicroActivity reads from j2me_prefs as integer.
+            syncVideoFilter(ctx)
+
             ru.playsoftware.j2meloader.config.Config.startApp(ctx, title, path, false)
             // Update last played
             RomStore.updateLastPlayed(ctx, game.id)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch Java game: ${game.title}", e)
+        }
+    }
+
+    /**
+     * Map video filter string from PadLayoutStore to J2ME integer mode.
+     * Mode mapping: 0=none, 1=scanline, 2=CRT, 3=dot, 4=2XBR, 5=4XBR,
+     *   6=2XBR+dot, 7=4XBR+dot, 8=HQ4x, 9=HQ4x+dot
+     */
+    private fun videoFilterToJ2meMode(filter: String): Int = when (filter) {
+        "scanline" -> 1
+        "crt"      -> 2
+        "dot"      -> 3
+        "xbr"      -> 4
+        "4xbr"     -> 5
+        "xbr_dot"  -> 6
+        "4xbr_dot" -> 7
+        "hq4x"     -> 8
+        "hq4x_dot" -> 9
+        else -> 0
+    }
+
+    /**
+     * Synchronize the video filter from PadLayoutStore to j2me_prefs
+     * SharedPreferences, so MicroActivity reads the correct filter mode.
+     * Also applies the mode directly via Canvas.setJ2meFilterMode() for
+     * immediate effect if the game is already running.
+     */
+    fun syncVideoFilter(ctx: Context) {
+        try {
+            val padLayout = PadLayoutStore.load(ctx)
+            val j2meMode = videoFilterToJ2meMode(padLayout.videoFilter)
+            // Persist to j2me_prefs for MicroActivity to read on startup
+            val j2mePrefs = ctx.getSharedPreferences("j2me_prefs", Context.MODE_PRIVATE)
+            j2mePrefs.edit().putInt("j2me_video_filter", j2meMode).apply()
+            // Also set directly in case MicroActivity is already active
+            javax.microedition.lcdui.Canvas.setJ2meFilterMode(j2meMode)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to sync J2ME video filter", e)
         }
     }
 

@@ -666,6 +666,10 @@ void unload() {
     resetAudioRing();
     s_newFrame.store(false);
     s_isFdsGame.store(false, std::memory_order_relaxed);
+    // Clean up GPU filter to prevent stale EGL state on next launch
+    if (s_gpuFilter.initialized) {
+        s_gpuFilter.cleanup();
+    }
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -788,8 +792,15 @@ void setSurface(void* nativeWindow) {
                                          WINDOW_FORMAT_RGBA_8888);
         LOGI("Surface attached (buffer geometry = window default)");
 
-        // Initialize GPU filter if XBR is active
+        // Initialize GPU filter if XBR is active.
+        // CRITICAL: Always cleanup and re-init when the surface changes,
+        // because the old EGL surface is bound to the old ANativeWindow.
+        // Without this, restarting a game with XBR enabled produces a
+        // black screen (the GPU filter renders to a destroyed surface).
         if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
+            if (s_gpuFilter.initialized) {
+                s_gpuFilter.cleanup();
+            }
             s_gpuFilter.init(s_window, s_videoFilter.load(), kNesW, kNesH);
         }
     } else {

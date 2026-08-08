@@ -198,24 +198,11 @@ fun GameCard(
                         modifier = Modifier.size(40.dp)
                     )
                 }
-                // Small "Java" badge for J2ME games
-                if (platform == GamePlatform.JAVA) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF6A1B9A).copy(alpha = 0.85f))
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "Java",
-                            color = Color.White,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                // Engine watermark badge — shows platform identifier (FC, SFC,
+                // GBA, GB, Java) at the top-left corner of the card, ON TOP of
+                // the custom icon so it's always visible. Each engine has its
+                // own colour for quick visual identification.
+                PlatformBadge(platform)
             }
             Text(
                 text = title,
@@ -229,5 +216,37 @@ fun GameCard(
                     .padding(top = 6.dp, start = 2.dp, end = 2.dp)
             )
         }
+    }
+}
+
+/**
+ * Engine watermark badge for a game platform.
+ * Shows a short label (FC, SFC, GBA, GB, Java) with a distinctive
+ * background colour, positioned at the top-left of the card cover.
+ * Drawn ON TOP of the custom icon so it's always visible.
+ */
+@Composable
+private fun PlatformBadge(platform: GamePlatform) {
+    val (label, bgColor) = when (platform) {
+        GamePlatform.NES  -> "FC"  to Color(0xFFD32F2F)   // red — Famicom
+        GamePlatform.SFC  -> "SFC" to Color(0xFF1565C0)   // blue — Super Famicom
+        GamePlatform.GB   -> "GB"  to Color(0xFF558B2F)   // green — Game Boy/GBC
+        GamePlatform.GBA  -> "GBA" to Color(0xFF6A1B9A)   // purple — GBA
+        GamePlatform.JAVA -> "Java" to Color(0xFF4E342E)  // brown — J2ME
+    }
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(4.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(bgColor.copy(alpha = 0.88f))
+            .padding(horizontal = 5.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
