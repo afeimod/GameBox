@@ -1,3 +1,0 @@
-TARGET_NAME=snes9x
-CORE_DIR=$(TUP_CWD)/..
-include_rules
