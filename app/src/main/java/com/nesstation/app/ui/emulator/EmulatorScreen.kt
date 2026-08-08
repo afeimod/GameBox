@@ -272,7 +272,7 @@ fun EmulatorScreen(
     LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         if (loaded) {
             GameSurfaceView(
                 engine = engine,
@@ -530,10 +530,13 @@ private fun GameSurfaceView(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        // For aspect-ratio modes, constrain the SurfaceView to the correct ratio
+        // and center it within the available space. This ensures the game screen
+        // is vertically centered in portrait mode instead of stuck at the top.
         val surfaceModifier = when (videoScale) {
-            "4:3" -> Modifier.aspectRatio(4f / 3f)
-            "8:7" -> Modifier.aspectRatio(8f / 7f)
-            "16:9" -> Modifier.aspectRatio(16f / 9f)
+            "4:3" -> Modifier.aspectRatio(4f / 3f).fillMaxSize()
+            "8:7" -> Modifier.aspectRatio(8f / 7f).fillMaxSize()
+            "16:9" -> Modifier.aspectRatio(16f / 9f).fillMaxSize()
             else -> Modifier.fillMaxSize() // stretch (default)
         }
         AndroidView(

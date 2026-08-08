@@ -47,8 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.ui.components.PixelBackdrop
@@ -200,20 +198,6 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
-
-                        DropdownRow("横竖屏",
-                            listOf("unspecified" to "跟随系统", "landscape" to "横屏", "portrait" to "竖屏"),
-                            padLayout.orientation
-                        ) {
-                            updateLayout(padLayout.copy(orientation = it))
-                            // Apply orientation immediately
-                            val activity = context as? Activity
-                            activity?.requestedOrientation = when (it) {
-                                "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            }
-                        }
                     }
                 }
 
