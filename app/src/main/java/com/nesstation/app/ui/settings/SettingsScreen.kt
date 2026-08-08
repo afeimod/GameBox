@@ -35,6 +35,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.ui.components.PixelBackdrop
@@ -59,6 +62,19 @@ fun SettingsScreen(
     val context = LocalContext.current
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
     var dialogText by remember { mutableStateOf<String?>(null) }
+
+    // Apply orientation setting immediately
+    fun applyOrientation(orientation: String) {
+        val activity = context as? Activity ?: return
+        activity.requestedOrientation = when (orientation) {
+            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR  // auto (sensor)
+        }
+    }
+
+    // Apply orientation on first load
+    LaunchedEffect(Unit) { applyOrientation(padLayout.screenOrientation) }
 
     fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
         padLayout = new
@@ -191,6 +207,19 @@ fun SettingsScreen(
                     }
                 }
 
+                // === 显示 ===
+                item {
+                    SettingsSection("显示") {
+                        DropdownRow("横竖屏",
+                            listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
+                            padLayout.screenOrientation
+                        ) {
+                            updateLayout(padLayout.copy(screenOrientation = it))
+                            applyOrientation(it)
+                        }
+                    }
+                }
+
                 // === 区域 ===
                 item {
                     SettingsSection("系统") {
@@ -198,11 +227,6 @@ fun SettingsScreen(
                             listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                             padLayout.region
                         ) { updateLayout(padLayout.copy(region = it)) }
-
-                        DropdownRow("屏幕方向",
-                            listOf("auto" to "跟随系统", "portrait" to "竖屏", "landscape" to "横屏"),
-                            padLayout.screenOrientation
-                        ) { updateLayout(padLayout.copy(screenOrientation = it)) }
                     }
                 }
 

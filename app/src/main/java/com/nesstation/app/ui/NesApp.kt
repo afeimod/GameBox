@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.navigation.navArgument
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.JavaGameStore
+import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.emulator.EmulatorScreen
 import com.nesstation.app.ui.home.HomeScreen
@@ -122,6 +124,17 @@ private fun PhoneNavHost(
     reloadGames: () -> Unit
 ) {
     val ctx = LocalContext.current
+
+    // Apply saved orientation setting on startup
+    LaunchedEffect(Unit) {
+        val padLayout = PadLayoutStore.load(ctx)
+        val activity = ctx as? android.app.Activity ?: return@LaunchedEffect
+        activity.requestedOrientation = when (padLayout.screenOrientation) {
+            "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        }
+    }
 
     // 平台感知的打开游戏：Java 直接启动 J2ME 引擎，NES 进入模拟器
     val openGame: (GameEntry) -> Unit = { game ->

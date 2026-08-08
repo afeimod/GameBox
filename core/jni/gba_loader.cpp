@@ -569,7 +569,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
         (unsigned)kMaxW, (unsigned)kMaxH,
-        nullptr);  // GPU filter disabled — CPU XBR path is used instead (avoids EGL black-screen bug)
+        &s_gpuFilter);
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -825,7 +825,7 @@ void setSurface(void* nativeWindow) {
     std::lock_guard<std::mutex> lk(s_windowMtx);
 
     if (s_window) {
-        // GPU filter disabled — no cleanup needed
+        s_gpuFilter.cleanup();
         ANativeWindow_release(s_window);
         s_window = nullptr;
     }
@@ -834,10 +834,12 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_acquire(s_window);
         ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
 
+        // Initialize GPU filter if XBR is active
+        if (gpufilter::GpuVideoFilter::isGpuFilter(s_videoFilter.load())) {
+            s_gpuFilter.init(s_window, s_videoFilter.load(), kMaxW, kMaxH);
+        }
+
         LOGI("Surface attached (buffer geometry = window default)");
-        // GPU filter disabled — CPU XBR path is used instead of GPU EGL pipeline.
-        // The GPU filter causes black screen on game restart because the EGL surface
-        // becomes stale when the ANativeWindow is recreated.
     } else {
         LOGI("Surface detached");
     }
@@ -879,8 +881,22 @@ void videoAspectRatio(int& num, int& den) {
 
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
-    // GPU filter disabled — CPU XBR path handles all XBR/HQX filters.
-    // The GPU EGL pipeline causes black screen on game restart.
+
+    // Initialize or update GPU filter
+    if (gpufilter::GpuVideoFilter::isGpuFilter(filter)) {
+        if (!s_gpuFilter.initialized && s_window) {
+            s_gpuFilter.init(s_window, filter, kMaxW, kMaxH);
+        } else if (s_gpuFilter.initialized) {
+            s_gpuFilter.setFilter(filter);
+        }
+    } else if (s_gpuFilter.initialized) {
+        // Non-GPU filter selected: cleanup GPU filter
+        s_gpuFilter.cleanup();
+        if (s_window) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
 }
 

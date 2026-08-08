@@ -1,6 +1,5 @@
 package com.nesstation.app.ui.emulator
 
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Shader
@@ -30,7 +29,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -78,6 +76,8 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -273,12 +273,15 @@ fun EmulatorScreen(
     LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (loaded) {
             GameSurfaceView(
                 engine = engine,
                 videoScale = padLayout.videoScale,
                 videoFilter = padLayout.videoFilter,
+                isPortrait = isPortrait,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -309,6 +312,7 @@ fun EmulatorScreen(
                 running = running,
                 fastForwardSpeed = fastForwardSpeed,
                 currentSlot = saveLoadSlot,
+                isPortrait = isPortrait,
                 onTogglePause = { running = !running },
                 onToggleFastForward = { fastForwardSpeed = if (fastForwardSpeed > 0) 0 else 6 },
                 onCycleFFSpeed = { showFFSpeedPicker = true },
@@ -528,20 +532,16 @@ private fun GameSurfaceView(
     engine: EmulatorEngine,
     videoScale: String,
     videoFilter: String,
+    isPortrait: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    // Portrait: align to top so game screen doesn't get pushed down
-    // Landscape: center the game screen
+    // In portrait mode, align game to top; in landscape, center it
     val contentAlignment = if (isPortrait) Alignment.TopCenter else Alignment.Center
     Box(modifier = modifier, contentAlignment = contentAlignment) {
-        // For aspect-ratio modes, constrain the SurfaceView to the correct ratio
-        // and center it within the available space. This ensures the game screen
-        // is vertically centered in portrait mode instead of stuck at the top.
         val surfaceModifier = when (videoScale) {
-            "4:3" -> Modifier.aspectRatio(4f / 3f).fillMaxSize()
-            "8:7" -> Modifier.aspectRatio(8f / 7f).fillMaxSize()
-            "16:9" -> Modifier.aspectRatio(16f / 9f).fillMaxSize()
+            "4:3" -> Modifier.aspectRatio(4f / 3f)
+            "8:7" -> Modifier.aspectRatio(8f / 7f)
+            "16:9" -> Modifier.aspectRatio(16f / 9f)
             else -> Modifier.fillMaxSize() // stretch (default)
         }
         AndroidView(
@@ -1122,6 +1122,7 @@ private fun MenuOverlay(
     running: Boolean,
     fastForwardSpeed: Int,
     currentSlot: Int = 0,
+    isPortrait: Boolean = false,
     onTogglePause: () -> Unit,
     onToggleFastForward: () -> Unit,
     onCycleFFSpeed: () -> Unit,
@@ -1134,60 +1135,42 @@ private fun MenuOverlay(
     onClose: () -> Unit,
     onExit: () -> Unit
 ) {
-    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    // Full-screen dim background
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0x88000000))
             .pointerInput(Unit) {
                 awaitEachGesture { awaitFirstDown(); /* consume */ }
             }
     )
-    // Wrap in Box for alignment control: landscape puts menu at bottom,
-    // portrait keeps it at top (default).
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .then(if (!isPortrait) Modifier.align(Alignment.BottomStart) else Modifier.align(Alignment.TopStart))
-        ) {
-        // Title row
+    // In landscape: menu bar at bottom; in portrait: at top
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = if (isPortrait) Alignment.TopCenter else Alignment.BottomCenter
+    ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+            .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Spacer(Modifier.width(4.dp))
+        IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
+        IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
         Text(
-            gameTitle, color = Color.White, fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+            if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
+            color = Color(0xFFFFD66B),
+            fontSize = 12.sp,
+            modifier = Modifier.clickable { onCycleFFSpeed() }
         )
-        // Scrollable button row — supports horizontal swipe in portrait mode
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
-            IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
-            Text(
-                if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
-                color = Color(0xFFFFD66B),
-                fontSize = 12.sp,
-                modifier = Modifier.clickable { onCycleFFSpeed() }
-            )
-            IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
-            IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
-            IconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }
-            IconButton(onClick = onReset) { Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B)) }
-            IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
-            IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
-            IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
-            IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
-        }
-        }
+        IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
+        IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
+        IconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }
+        IconButton(onClick = onReset) { Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B)) }
+        IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
+        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
+        IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
+    }
     }
 }
 
@@ -1704,6 +1687,20 @@ private fun SettingsPanel(
                    "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
             padLayout.videoFilter
         ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
+
+        DropdownSetting("横竖屏",
+            listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
+            padLayout.screenOrientation
+        ) {
+            onLayoutChange(padLayout.copy(screenOrientation = it))
+            // Apply orientation change immediately
+            val activity = context as? android.app.Activity
+            activity?.requestedOrientation = when (it) {
+                "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            }
+        }
 
         Spacer(Modifier.size(8.dp))
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))

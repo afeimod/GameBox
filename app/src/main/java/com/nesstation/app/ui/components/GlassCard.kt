@@ -198,30 +198,23 @@ fun GameCard(
                         modifier = Modifier.size(40.dp)
                     )
                 }
-                // Platform watermark badge — always shown for all platforms.
-                // Displayed in front of the custom icon so the user can identify
-                // the game engine (FC, SFC, GBA, GB/GBC, Java) at a glance.
-                val (badgeLabel, badgeColor) = when (platform) {
-                    GamePlatform.NES  -> "FC" to Color(0xFFD32F2F)   // red
-                    GamePlatform.SFC  -> "SFC" to Color(0xFF1565C0)  // blue
-                    GamePlatform.GB   -> "GB" to Color(0xFF2E7D32)   // green
-                    GamePlatform.GBA  -> "GBA" to Color(0xFF6A1B9A)  // purple
-                    GamePlatform.JAVA -> "Java" to Color(0xFFEF6C00) // orange
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(badgeColor.copy(alpha = 0.88f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = badgeLabel,
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                // Small "Java" badge for J2ME games
+                if (platform == GamePlatform.JAVA) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF6A1B9A).copy(alpha = 0.85f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Java",
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
             Text(

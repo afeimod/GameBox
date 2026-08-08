@@ -474,7 +474,16 @@ public abstract class Canvas extends Displayable {
                 onWidth = onWidth * scaleRatio / 100;
                 onHeight = onHeight * scaleRatio / 100;
 
-                switch (Canvas.screenGravity) {
+                // Make screenGravity orientation-aware:
+                // In landscape, "top" gravity should become "center" for a balanced look.
+                // In portrait, "top" is correct (leaves room for virtual keyboard at bottom).
+                int effectiveGravity = Canvas.screenGravity;
+                boolean isLandscape = displayWidth > displayHeight;
+                if (isLandscape && effectiveGravity == 1) {
+                        effectiveGravity = 2; // landscape: top → center
+                }
+
+                switch (effectiveGravity) {
                         case 0: // left
                                 onX = 0;
                                 onY = (scaledDisplayHeight - onHeight) / 2;
@@ -588,7 +597,9 @@ public abstract class Canvas extends Displayable {
                         innerView.setOnTouchListener(callback);
                         innerView.setOnKeyListener(callback);
                         innerView.setFocusableInTouchMode(true);
-                        layout.addView(innerView);
+                        layout.addView(innerView, new android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT));
                         innerView.requestFocus();
                 }
                 return layout;
@@ -831,26 +842,10 @@ public abstract class Canvas extends Displayable {
                 /** Whether the GL texture has been allocated (for texSubImage2D optimization). */
                 private boolean texUploaded = false;
 
-                // --- FBO for XBR two-pass rendering ---
-                // XBR shaders must render at 2x/4x the texture size, then blit to screen.
-                // Without FBO, the shader runs at screen resolution and fract() gives
-                // wrong sub-pixel positions, making XBR have no visible effect.
-                private int fboId = 0;
-                private int fboTextureId = 0;
-                private int fboW = 0;
-                private int fboH = 0;
-                /** Passthrough blit program for FBO→screen (simple textured quad). */
-                private ShaderProgram blitProgram;
-
                 @Override
                 public void onSurfaceCreated(GL10 gl, EGLConfig config) {
                         // Create the passthrough (no-filter) shader program
                         passthroughProgram = new ShaderProgram(J2meFilterShaders.VERTEX_SHADER,
-                                        J2meFilterShaders.FRAGMENT_NONE);
-
-                        // Create a simple blit program for FBO→screen rendering.
-                        // This just draws a textured quad with no filtering.
-                        blitProgram = new ShaderProgram(J2meFilterShaders.VERTEX_SHADER,
                                         J2meFilterShaders.FRAGMENT_NONE);
 
                         // Determine initial program based on filter mode.
@@ -912,14 +907,8 @@ public abstract class Canvas extends Displayable {
 
                         // Switch shader program if the filter mode changed.
                         // All modes (0-9) are handled by GLSL shaders — no CPU pixel-processing.
-                        // Always check for changes (not gated on isStarted) so that
-                        // setJ2meFilterMode() calls from outside are reliably picked up.
-                        if (fm != lastFilterMode) {
-                                if (isStarted) {
-                                        switchProgram(fm);
-                                } else {
-                                        lastFilterMode = fm; // remember for onSurfaceCreated
-                                }
+                        if (fm != lastFilterMode && isStarted) {
+                                switchProgram(fm);
                         }
 
                         // Ensure the correct shader program is active
@@ -931,12 +920,9 @@ public abstract class Canvas extends Displayable {
                         // the GLSL shader performs all filtering on the GPU.
                         // Optimization: use glTexSubImage2D after initial allocation
                         // to avoid reallocating GPU memory every frame.
-                        int texW = 0, texH = 0;
                         synchronized (bufferLock) {
                                 Bitmap bmp = offscreenCopy.getBitmap();
                                 if (bmp != null) {
-                                        texW = bmp.getWidth();
-                                        texH = bmp.getHeight();
                                         if (texUploaded) {
                                                 GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0,
                                                                 0, 0, bmp);
@@ -947,110 +933,8 @@ public abstract class Canvas extends Displayable {
                                         }
                                 }
                         }
-
-                        // For XBR/HQ4x pixel-processing modes (4-9), use two-pass FBO rendering:
-                        //   Pass 1: Render XBR shader to FBO at 2x/4x texture size
-                        //   Pass 2: Blit FBO to screen with bilinear filtering
-                        // This is necessary because XBR shaders use fract(texcoord/texelDelta)
-                        // to compute sub-pixel positions, which only produces correct results
-                        // when the viewport is exactly 2x/4x the texture size.
-                        boolean isPixelProcessing = J2meFilterShaders.isPixelProcessingMode(fm);
-                        if (isPixelProcessing && texW > 0 && texH > 0 && blitProgram != null) {
-                                int scale = (fm == J2meFilterShaders.MODE_4XBR || fm == J2meFilterShaders.MODE_4XBR_DOT) ? 4 : 2;
-                                int neededW = texW * scale;
-                                int neededH = texH * scale;
-
-                                // (Re)create FBO if size changed
-                                if (fboId == 0 || neededW != fboW || neededH != fboH) {
-                                        if (fboId != 0) {
-                                                glDeleteFramebuffers(1, new int[]{fboId}, 0);
-                                                glDeleteTextures(1, new int[]{fboTextureId}, 0);
-                                        }
-                                        fboW = neededW;
-                                        fboH = neededH;
-
-                                        // Create FBO texture
-                                        int[] tex = new int[1];
-                                        glGenTextures(1, tex, 0);
-                                        fboTextureId = tex[0];
-                                        glBindTexture(GL_TEXTURE_2D, fboTextureId);
-                                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fboW, fboH, 0,
-                                                        GL_RGBA, GL_UNSIGNED_BYTE, null);
-                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                                        glBindTexture(GL_TEXTURE_2D, 0);
-
-                                        // Create FBO
-                                        int[] fbos = new int[1];
-                                        glGenFramebuffers(1, fbos, 0);
-                                        fboId = fbos[0];
-                                        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
-                                        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                        GL_TEXTURE_2D, fboTextureId, 0);
-                                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                                }
-
-                                // --- Pass 1: Render XBR shader to FBO ---
-                                glBindFramebuffer(GL_FRAMEBUFFER, fboId);
-                                glViewport(0, 0, fboW, fboH);
-
-                                // Use the XBR filter program
-                                glUseProgram(program.programId);
-                                glBindTexture(GL_TEXTURE_2D, bgTextureId[0]);
-                                if (program.uTextureUnit != -1) {
-                                        glUniform1i(program.uTextureUnit, 0);
-                                }
-
-                                // Bind VBO with texture-size texelDelta for the filter shader
-                                synchronized (vbo) {
-                                        program.loadVbo(vbo, texW, texH);
-                                }
-                                if (program.uPixelDelta != -1 && mView != null) {
-                                        glUniform2f(program.uPixelDelta,
-                                                        1.0f / mView.getWidth(), 1.0f / mView.getHeight());
-                                }
-
-                                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-                                // --- Pass 2: Blit FBO to screen ---
-                                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                                if (mView != null) {
-                                        glViewport(0, 0, mView.getWidth(), mView.getHeight());
-                                }
-
-                                // Use the blit program (simple passthrough)
-                                glUseProgram(blitProgram.programId);
-
-                                // Bind FBO texture
-                                glActiveTexture(GL_TEXTURE0);
-                                glBindTexture(GL_TEXTURE_2D, fboTextureId);
-                                if (blitProgram.uTextureUnit != -1) {
-                                        glUniform1i(blitProgram.uTextureUnit, 0);
-                                }
-
-                                // For the blit, texelDelta = 1/FBOsize and the VBO maps
-                                // the fullscreen quad to the entire FBO texture.
-                                synchronized (vbo) {
-                                        blitProgram.loadVbo(vbo, fboW, fboH);
-                                }
-                                if (blitProgram.uPixelDelta != -1 && mView != null) {
-                                        glUniform2f(blitProgram.uPixelDelta,
-                                                        1.0f / mView.getWidth(), 1.0f / mView.getHeight());
-                                }
-
-                                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-                                // Restore the source texture for next frame
-                                glBindTexture(GL_TEXTURE_2D, bgTextureId[0]);
-                                glUseProgram(program.programId);
-                        } else {
-                                // Non-XBR modes (0-3): render directly to screen
-                                // No glClear — the fullscreen quad covers every pixel
-                                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                        }
-
+                        // No glClear — the fullscreen quad covers every pixel
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
                         }

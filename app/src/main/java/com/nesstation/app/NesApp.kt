@@ -68,15 +68,12 @@ class NesApp : Application() {
         val dest = File(filesDir, "disksys.rom")
 
         // If a valid BIOS already exists, keep it
-        // FDS BIOS is 8192 bytes; the first 64 bytes are typically zeros
-        // (RAM init area), so we check deeper in the file for non-zero data.
         if (dest.exists() && dest.length() == 8192L) {
             try {
                 dest.inputStream().use { input ->
-                    val data = ByteArray(8192)
-                    input.read(data)
-                    // Check that not ALL bytes are zero (true corruption check)
-                    if (data.any { it != 0.toByte() }) {
+                    val header = ByteArray(64)
+                    input.read(header)
+                    if (!header.all { it == 0.toByte() }) {
                         // Valid BIOS already present
                         return
                     }
@@ -97,9 +94,9 @@ class NesApp : Application() {
             }
             // Verify it's not all zeros (corrupted)
             dest.inputStream().use { input ->
-                val data = ByteArray(8192)
-                input.read(data)
-                if (data.none { it != 0.toByte() }) {
+                val header = ByteArray(64)
+                input.read(header)
+                if (header.all { it == 0.toByte() }) {
                     dest.delete()
                     Log.w("NesApp", "FDS BIOS in assets is corrupted (all zeros), deleted")
                     return
