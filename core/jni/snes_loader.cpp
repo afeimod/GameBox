@@ -766,6 +766,5 @@ void setVideoFilter(int filter) {
     // The GPU EGL pipeline causes black screen on game restart.
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
 }
-}
 
 } // namespace snescore::rom
