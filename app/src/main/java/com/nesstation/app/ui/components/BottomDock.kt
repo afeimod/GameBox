@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Compact bottom dock — small centered pill, matches reference design.
@@ -46,7 +48,6 @@ import androidx.compose.ui.unit.dp
 fun BottomDock(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    isPortrait: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
@@ -60,63 +61,81 @@ fun BottomDock(
 
     var selected by rememberSaveable { mutableIntStateOf(selectedIndex) }
 
-    if (isPortrait) {
-        // Portrait mode: vertical column on left side
-        Column(
-            modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.55f),
-                            Color.White.copy(alpha = 0.30f)
-                        )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        Color.White.copy(alpha = 0.30f)
                     )
                 )
-                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                .padding(horizontal = 5.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            items.forEachIndexed { idx, item ->
-                DockItemView(
-                    item = item,
-                    selected = idx == selected,
-                    onClick = {
-                        selected = idx
-                        onSelect(idx)
-                    }
-                )
-            }
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEachIndexed { idx, item ->
+            DockItemView(
+                item = item,
+                selected = idx == selected,
+                onClick = {
+                    selected = idx
+                    onSelect(idx)
+                }
+            )
         }
-    } else {
-        // Landscape mode: horizontal row at bottom (original)
-        Row(
-            modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.55f),
-                            Color.White.copy(alpha = 0.30f)
-                        )
+    }
+}
+
+/**
+ * Vertical dock for portrait mode — displays dock items vertically on the left side.
+ * Same items as BottomDock but arranged in a Column.
+ */
+@Composable
+fun VerticalDock(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val items = listOf(
+        DockItem("游戏库", Icons.Rounded.GridView),
+        DockItem("浏览器", Icons.Rounded.Public),
+        DockItem("SWF", Icons.Rounded.PlayArrow),
+        DockItem("设置", Icons.Rounded.Settings),
+        DockItem("说明", Icons.Rounded.HelpOutline),
+        DockItem("退出", Icons.Rounded.Logout)
+    )
+
+    var selected by rememberSaveable { mutableIntStateOf(selectedIndex) }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        Color.White.copy(alpha = 0.30f)
                     )
                 )
-                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEachIndexed { idx, item ->
-                DockItemView(
-                    item = item,
-                    selected = idx == selected,
-                    onClick = {
-                        selected = idx
-                        onSelect(idx)
-                    }
-                )
-            }
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items.forEachIndexed { idx, item ->
+            VerticalDockItemView(
+                item = item,
+                selected = idx == selected,
+                onClick = {
+                    selected = idx
+                    onSelect(idx)
+                }
+            )
         }
     }
 }
@@ -163,5 +182,54 @@ private fun DockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit)
                 modifier = Modifier.size(16.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun VerticalDockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val active = selected || pressed
+    val scale by animateFloatAsState(if (active) 1.08f else 1f, label = "vdock-scale")
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 3.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(
+                    if (active) Brush.radialGradient(
+                        listOf(Color(0xFF8A7BFF), Color(0xFF4F8AC4))
+                    ) else Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
+                    )
+                )
+                .border(
+                    width = if (active) 1.5.dp else 0.dp,
+                    color = if (active) Color(0xFF8A7BFF).copy(alpha = 0.7f) else Color.Transparent,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.label,
+                tint = if (active) Color.White else Color(0xFF3A4A5C),
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        Text(
+            text = item.label,
+            color = if (active) Color(0xFF8A7BFF) else Color(0xFF3A4A5C),
+            fontSize = 8.sp,
+            maxLines = 1
+        )
     }
 }

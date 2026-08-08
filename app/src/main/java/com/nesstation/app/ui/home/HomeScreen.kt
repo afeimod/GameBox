@@ -1,5 +1,6 @@
 package com.nesstation.app.ui.home
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,11 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Save
@@ -36,10 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalConfiguration
-import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +51,7 @@ import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.BottomDock
+import com.nesstation.app.ui.components.VerticalDock
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
 import kotlinx.coroutines.delay
@@ -59,6 +61,8 @@ import kotlinx.coroutines.delay
  * Compact header, content moved up, small centered dock at bottom.
  *
  * Dock buttons (left to right): 游戏库 / 文件 / SWF / 设置 / 关于 / 退出
+ *
+ * Portrait mode: two-column grid for game cards, dock on left side vertically.
  */
 @Composable
 fun HomeScreen(
@@ -73,6 +77,8 @@ fun HomeScreen(
     onLongClickGame: (GameEntry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+
     var time by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) { time = System.currentTimeMillis(); delay(33) }
@@ -108,161 +114,253 @@ fun HomeScreen(
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop(timeMs = time)
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 8.dp)
-        ) {
-            // Compact header — title + quick actions
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "NesStation",
-                        color = Color(0xFF1E2A3A),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "为复古而生",
-                        color = Color(0xFF4A5568),
-                        fontSize = 11.sp
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenLibrary)
-                    HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenLibrary)
-                }
-            }
-
-            // Section: 最近游玩 (only section on home) — 标题旁附加平台标识
-            Row(
-                modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = "最近游玩",
-                    color = Color(0xFF1E2A3A),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+        if (isPortrait) {
+            // ===== Portrait layout: 2-column grid + vertical dock on left =====
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Left: vertical dock
+                VerticalDock(
+                    selectedIndex = 0,
+                    onSelect = { idx ->
+                        when (idx) {
+                            0 -> onOpenLibrary()         // 游戏库
+                            1 -> onOpenOnlineGames()     // 在线游戏
+                            2 -> onOpenSwf()             // SWF
+                            3 -> onOpenSettings()        // 设置
+                            4 -> onOpenAbout()           // 关于
+                            5 -> onExit()                // 退出
+                        }
+                    },
+                    modifier = Modifier.padding(start = 4.dp, top = 60.dp)
                 )
-                recents.map { it.platform }.distinct().forEach { p ->
-                    Box(
+
+                // Right: content area
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .padding(top = 8.dp)
+                ) {
+                    // Compact header
+                    Row(
                         modifier = Modifier
-                            .background(
-                                color = if (p == GamePlatform.JAVA)
-                                    Color(0xFF6A1B9A).copy(alpha = 0.85f)
-                                else Color(0xFF1E2A3A).copy(alpha = 0.85f),
-                                shape = RoundedCornerShape(6.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "NesStation",
+                                color = Color(0xFF1E2A3A),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold
                             )
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            Text(
+                                text = "为复古而生",
+                                color = Color(0xFF4A5568),
+                                fontSize = 10.sp
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenLibrary)
+                            HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenLibrary)
+                        }
+                    }
+
+                    // Section title
+                    Row(
+                        modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = p.displayName,
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "最近游玩",
+                            color = Color(0xFF1E2A3A),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
+                        recents.map { it.platform }.distinct().forEach { p ->
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (p == GamePlatform.JAVA)
+                                            Color(0xFF6A1B9A).copy(alpha = 0.85f)
+                                        else Color(0xFF1E2A3A).copy(alpha = 0.85f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = p.displayName,
+                                    color = Color.White,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    if (recents.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("还没有导入游戏", color = Color(0xFF8899AA), fontSize = 13.sp)
+                                Spacer(Modifier.size(4.dp))
+                                Text("点击左侧「游戏库」导入 ROM 文件", color = Color(0xFF4A5568), fontSize = 11.sp)
+                            }
+                        }
+                    } else {
+                        // Two-column vertical grid
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(recents) { g ->
+                                GameCard(
+                                    title = g.title,
+                                    accent = g.accent,
+                                    onClick = { onOpenGame(g) },
+                                    onLongClick = { onLongClickGame(g) },
+                                    coverPath = g.customIconPath ?: g.coverPath,
+                                    platform = g.platform,
+                                    modifier = Modifier.height(140.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
-            val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-
-            if (recents.isEmpty()) {
-                // Empty state — prompt user to import games
-                Box(
+        } else {
+            // ===== Landscape layout: horizontal scroll + bottom dock (original) =====
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 8.dp)
+            ) {
+                // Compact header — title + quick actions
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(150.dp)
-                        .padding(horizontal = 20.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 20.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column {
                         Text(
-                            text = "还没有导入游戏",
-                            color = Color(0xFF8899AA),
-                            fontSize = 13.sp
+                            text = "NesStation",
+                            color = Color(0xFF1E2A3A),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.ExtraBold
                         )
-                        Spacer(Modifier.size(4.dp))
                         Text(
-                            text = "点击下方「游戏库」导入 ROM 文件",
+                            text = "为复古而生",
                             color = Color(0xFF4A5568),
                             fontSize = 11.sp
                         )
                     }
-                }
-            } else if (isPortrait) {
-                // Portrait mode: two-column vertical grid instead of horizontal LazyRow
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                ) {
-                    gridItems(recents) { g ->
-                        GameCard(
-                            title = g.title,
-                            accent = g.accent,
-                            onClick = { onOpenGame(g) },
-                            onLongClick = { onLongClickGame(g) },
-                            coverPath = g.customIconPath ?: g.coverPath,
-                            platform = g.platform,
-                            modifier = Modifier.height(100.dp)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HeaderPill(Icons.Rounded.Search, "搜索", onClick = onOpenLibrary)
+                        HeaderPill(Icons.Rounded.Save, "存档", onClick = onOpenLibrary)
                     }
                 }
-            } else {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.height(150.dp).fillMaxWidth()
+
+                // Section: 最近游玩
+                Row(
+                    modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(recents) { g ->
-                        GameCard(
-                            title = g.title,
-                            accent = g.accent,
-                            onClick = { onOpenGame(g) },
-                            onLongClick = { onLongClickGame(g) },
-                            coverPath = g.customIconPath ?: g.coverPath,
-                            platform = g.platform,
-                            modifier = Modifier.size(width = 120.dp, height = 145.dp)
-                        )
+                    Text(
+                        text = "最近游玩",
+                        color = Color(0xFF1E2A3A),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    recents.map { it.platform }.distinct().forEach { p ->
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (p == GamePlatform.JAVA)
+                                        Color(0xFF6A1B9A).copy(alpha = 0.85f)
+                                    else Color(0xFF1E2A3A).copy(alpha = 0.85f),
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = p.displayName,
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
+                if (recents.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("还没有导入游戏", color = Color(0xFF8899AA), fontSize = 13.sp)
+                            Spacer(Modifier.size(4.dp))
+                            Text("点击下方「游戏库」导入 ROM 文件", color = Color(0xFF4A5568), fontSize = 11.sp)
+                        }
+                    }
+                } else {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.height(150.dp).fillMaxWidth()
+                    ) {
+                        items(recents) { g ->
+                            GameCard(
+                                title = g.title,
+                                accent = g.accent,
+                                onClick = { onOpenGame(g) },
+                                onLongClick = { onLongClickGame(g) },
+                                coverPath = g.customIconPath ?: g.coverPath,
+                                platform = g.platform,
+                                modifier = Modifier.size(width = 120.dp, height = 145.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Spacer to push dock to bottom
+                Spacer(modifier = Modifier.weight(1f))
             }
 
-            // Spacer to push dock to bottom
-            Spacer(modifier = Modifier.weight(1f))
-        }
-
-        // Bottom dock — in portrait mode, placed on the left side; otherwise at bottom center
-        val dockAlignment = if (isPortrait) Alignment.CenterStart else Alignment.BottomCenter
-        Box(
-            modifier = Modifier
-                .align(dockAlignment)
-                .padding(bottom = if (isPortrait) 0.dp else 6.dp, start = if (isPortrait) 4.dp else 0.dp)
-        ) {
-            BottomDock(
-                selectedIndex = 0,
-                isPortrait = isPortrait,
-                onSelect = { idx ->
-                    when (idx) {
-                        0 -> onOpenLibrary()         // 游戏库
-                        1 -> onOpenOnlineGames()     // 在线游戏
-                        2 -> onOpenSwf()             // SWF
-                        3 -> onOpenSettings()        // 设置
-                        4 -> onOpenAbout()           // 关于
-                        5 -> onExit()                // 退出
+            // Bottom dock — centered, small, doesn't block content
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 6.dp)
+            ) {
+                BottomDock(
+                    selectedIndex = 0,
+                    onSelect = { idx ->
+                        when (idx) {
+                            0 -> onOpenLibrary()
+                            1 -> onOpenOnlineGames()
+                            2 -> onOpenSwf()
+                            3 -> onOpenSettings()
+                            4 -> onOpenAbout()
+                            5 -> onExit()
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
