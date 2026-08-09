@@ -421,6 +421,17 @@ private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Uni
 
 @Composable
 private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<GameEntry>) {
+    val ctx = LocalContext.current
+
+    // Platform-aware openGame: Java games launch via J2ME engine, NES via emulator
+    val openGame: (GameEntry) -> Unit = { game ->
+        if (game.platform == GamePlatform.JAVA) {
+            JavaGameStore.launchGame(ctx, game)
+        } else {
+            nav.navigate(Routes.emulator(game.id))
+        }
+    }
+
     NavHost(
         navController = nav,
         startDestination = Routes.HOME,
@@ -430,18 +441,59 @@ private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<Ga
             TvHomeScreen(
                 featured = games.filter { it.isFavorite },
                 recents = games,
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
-                onOpenSettings = { nav.navigate(Routes.SETTINGS) }
+                onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
+                onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } }
             )
         }
         composable(Routes.LIBRARY) {
             LibraryScreen(
                 games = games,
-                onOpenGame = { nav.navigate(Routes.emulator(it.id)) },
+                onOpenGame = openGame,
+                onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
                 onSearch = { }
             )
+        }
+        composable(Routes.SWF_LIST) {
+            SwfListScreen(
+                onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
+                onOpenSwf = { path -> nav.navigate(Routes.swfPlayer(path)) }
+            )
+        }
+        composable(Routes.ONLINE_GAMES) {
+            OnlineGamesScreen(
+                onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
+                onOpenGame = { game ->
+                    nav.navigate(Routes.webGame(game.url, game.uaMode))
+                }
+            )
+        }
+        composable(
+            Routes.WEB_GAME,
+            arguments = listOf(
+                navArgument("url") { type = NavType.StringType },
+                navArgument("uaMode") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val encodedUrl = entry.arguments?.getString("url") ?: ""
+            val url = java.net.URLDecoder.decode(encodedUrl, "UTF-8")
+            val uaMode = entry.arguments?.getString("uaMode") ?: "desktop"
+            WebGameScreen(
+                url = url,
+                uaMode = uaMode,
+                onExit = { nav.popBackStack() }
+            )
+        }
+        composable(Routes.ABOUT) {
+            AboutScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(
@@ -457,11 +509,18 @@ private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<Ga
             arguments = listOf(navArgument("gameId") { type = NavType.StringType })
         ) { entry ->
             val id = entry.arguments?.getString("gameId") ?: ""
-            val ctx = LocalContext.current
             val game = games.firstOrNull { it.id == id }
                 ?: RomStore.loadAll(ctx).firstOrNull { it.id == id }
                 ?: GameEntry(id, "未知游戏")
             EmulatorScreen(game = game, onExit = { nav.popBackStack() })
+        }
+        composable(
+            Routes.SWF_PLAYER,
+            arguments = listOf(navArgument("swfPath") { type = NavType.StringType })
+        ) { entry ->
+            val encodedPath = entry.arguments?.getString("swfPath") ?: ""
+            val swfPath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
+            SwfPlayerScreen(swfPath = swfPath, onExit = { nav.popBackStack() })
         }
     }
 }

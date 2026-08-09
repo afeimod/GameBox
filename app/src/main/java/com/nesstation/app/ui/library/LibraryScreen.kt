@@ -199,26 +199,43 @@ fun LibraryScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        // Wrap the whole callback in a try-catch: on TV (and some phone ROMs)
+        // the persistable URI permission can fail silently and the subsequent
+        // contentResolver queries may throw SecurityException. We must not
+        // crash — show a friendly message instead.
         try {
-            context.contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        } catch (_: Exception) { }
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { }
+            catch (_: Exception) { }
 
-        // Recursively scan the selected folder for ROM files
-        val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
-        if (romFiles.isEmpty()) {
-            dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip）"
-        } else {
-            var count = 0
-            romFiles.forEach { (name, fileUri) ->
-                val ext = name.substringAfterLast('.', "").lowercase()
-                val platform = detectPlatformFromUri(context, fileUri, name)
-                RomStore.add(context, name.substringBeforeLast('.'), fileUri.toString(), platform)
-                count++
+            // Recursively scan the selected folder for ROM files
+            val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
+            if (romFiles.isEmpty()) {
+                dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip）"
+            } else {
+                var count = 0
+                var failed = 0
+                romFiles.forEach { (name, fileUri) ->
+                    try {
+                        val ext = name.substringAfterLast('.', "").lowercase()
+                        val platform = detectPlatformFromUri(context, fileUri, name)
+                        RomStore.add(context, name.substringBeforeLast('.'), fileUri.toString(), platform)
+                        count++
+                    } catch (_: Exception) {
+                        failed++
+                    }
+                }
+                refreshList()
+                dialogMsg = if (failed > 0) "从文件夹导入 $count 个ROM文件（$failed 个失败）"
+                else "从文件夹导入 $count 个ROM文件"
             }
-            refreshList()
-            dialogMsg = "从文件夹导入 $count 个ROM文件"
+        } catch (e: SecurityException) {
+            dialogMsg = "没有权限访问所选文件夹，请重试或选择其他文件夹"
+        } catch (e: Exception) {
+            dialogMsg = "导入文件夹失败：${e.message}"
         }
     }
 
@@ -292,11 +309,27 @@ fun LibraryScreen(
     fun importFiles() {
         // SAF file picker works without storage permission on all Android versions.
         // Just open the picker — no directory scanning.
-        filePickerLauncher.launch(arrayOf("*/*"))
+        // Wrap in try-catch: on some TV devices the DocumentsUI activity may
+        // not be available, which would otherwise crash the app.
+        try {
+            filePickerLauncher.launch(arrayOf("*/*"))
+        } catch (_: android.content.ActivityNotFoundException) {
+            dialogMsg = "系统文件选择器不可用，请尝试「扫描本地ROM」或手动复制ROM到应用目录"
+        } catch (e: Exception) {
+            dialogMsg = "无法打开文件选择器：${e.message}"
+        }
     }
 
     fun importFolder() {
-        folderPickerLauncher.launch(null)
+        // Same defensive wrapping as importFiles() — TV devices may not have
+        // a DocumentsUI that handles ACTION_OPEN_DOCUMENT_TREE.
+        try {
+            folderPickerLauncher.launch(null)
+        } catch (_: android.content.ActivityNotFoundException) {
+            dialogMsg = "系统文件夹选择器不可用，请尝试「扫描本地ROM」或手动复制ROM到应用目录"
+        } catch (e: Exception) {
+            dialogMsg = "无法打开文件夹选择器：${e.message}"
+        }
     }
 
     fun requestManageStorage() {
@@ -393,9 +426,15 @@ fun LibraryScreen(
                             // Java 平台：加号按钮用于安装 .jar 文件
                             ExtendedFloatingActionButton(
                                 onClick = {
-                                    jarPickerLauncher.launch(
-                                        arrayOf("application/java-archive", "application/java", "*/*")
-                                    )
+                                    try {
+                                        jarPickerLauncher.launch(
+                                            arrayOf("application/java-archive", "application/java", "*/*")
+                                        )
+                                    } catch (_: android.content.ActivityNotFoundException) {
+                                        dialogMsg = "系统文件选择器不可用"
+                                    } catch (e: Exception) {
+                                        dialogMsg = "无法打开文件选择器：${e.message}"
+                                    }
                                 },
                                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                                 text = { Text("安装 JAR") },

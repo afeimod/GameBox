@@ -950,6 +950,9 @@ public abstract class Canvas extends Displayable {
                         synchronized (bufferLock) {
                                 Bitmap bmp = offscreenCopy.getBitmap();
                                 if (bmp != null) {
+                                        // Ensure the game texture is bound — the binding can be
+                                        // lost after switchProgram() constructs a new ShaderProgram.
+                                        glBindTexture(GL_TEXTURE_2D, bgTextureId[0]);
                                         if (texUploaded) {
                                                 GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0,
                                                                 0, 0, bmp);
@@ -957,10 +960,21 @@ public abstract class Canvas extends Displayable {
                                                 GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0,
                                                                 bmp, 0);
                                                 texUploaded = true;
+                                                // Re-apply CLAMP_TO_EDGE after texImage2D — some
+                                                // drivers reset wrap mode when the texture image
+                                                // is (re)allocated. Without this, XBR's multi-tap
+                                                // kernel can wrap around and sample the opposite
+                                                // edge of the game scene.
+                                                glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                                                glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                                         }
                                 }
                         }
-                        // No glClear — the fullscreen quad covers every pixel
+                        // Clear the framebuffer to the background color so the area
+                        // outside the game quad (e.g. the black band below the game
+                        // scene on portrait phones) is filled with the correct color
+                        // instead of stale frame data.
+                        glClear(GL_COLOR_BUFFER_BIT);
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
@@ -986,6 +1000,10 @@ public abstract class Canvas extends Displayable {
                 private void switchProgram(int filterMode) {
                         texUploaded = false; // texture needs re-allocation after program switch
                         try {
+                                // Ensure the game texture is bound before changing its parameters.
+                                // The binding from initTex() can be lost on some GPU drivers after
+                                // ShaderProgram construction; re-bind defensively here.
+                                glBindTexture(GL_TEXTURE_2D, bgTextureId[0]);
                                 if (filterMode == 0) {
                                         // No filter: use custom shader filter if available, otherwise passthrough
                                         if (shaderFilter != null) {
@@ -1009,6 +1027,14 @@ public abstract class Canvas extends Displayable {
                                         glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterParam);
                                         glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterParam);
                                 }
+                                // Re-apply CLAMP_TO_EDGE wrap mode defensively. Some GPU drivers
+                                // reset wrap mode to REPEAT (the GL default) when texImage2D is
+                                // called with a new size; combined with multi-tap shaders (XBR/
+                                // HQ4x) that sample beyond the texture border, REPEAT wrap causes
+                                // recognizable duplicate scene content to bleed into the area that
+                                // should be solid black below the game.
+                                glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                                glTexParameteri(GLES20.GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
                                 // Re-bind VBO and uniforms for the new program.
                                 // loadVbo sets u_texelDelta = 1/textureWidth, 1/textureHeight.
