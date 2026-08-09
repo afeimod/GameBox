@@ -72,6 +72,7 @@ static std::string s_systemDir;
 static std::string s_saveDir;
 static std::string s_coreMessage;
 static std::string s_lastRomPath;  // last successfully loaded ROM path (for SRAM save)
+static std::string s_saveName;     // explicit .srm basename (set by frontend for content:// URI games)
 
 // Dynamic frame buffer (ARGB, 0xAARRGGBB). Written by cb_video, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
@@ -690,7 +691,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     {
         void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
         size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-        coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, path);
+        coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, path, s_saveName);
     }
 
     retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
@@ -728,7 +729,7 @@ void unload() {
         if (!s_lastRomPath.empty()) {
             void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
             size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-            coreshared::saveSramToDisk(sram, sramSize, s_saveDir, s_lastRomPath);
+            coreshared::saveSramToDisk(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
         }
         retro_unload_game();
         retro_deinit();
@@ -744,6 +745,7 @@ void unload() {
     s_frameH = 0;
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
     s_lastRomPath.clear();
+    s_saveName.clear();
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -793,6 +795,11 @@ void setControllerInput(int port, uint16_t bits) {
 void setPaths(const std::string& systemDir, const std::string& saveDir) {
     s_systemDir = systemDir;
     s_saveDir = saveDir;
+}
+
+void setSaveName(const std::string& name) {
+    s_saveName = name;
+    LOGI("SRAM save name set: '%s'", name.c_str());
 }
 
 void applyRegion(int /*region*/) { /* region is auto-detected at load */ }

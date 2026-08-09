@@ -77,6 +77,10 @@ void Engine::setPaths(const std::string& systemDir, const std::string& saveDir) 
     rom::setPaths(systemDir, saveDir);
 }
 
+void Engine::setSaveName(const std::string& name) {
+    rom::setSaveName(name);
+}
+
 void Engine::setSurface(jobject surface) {
     if (!surface) {
         rom::setSurface(nullptr);
@@ -218,6 +222,13 @@ Java_com_nesstation_app_core_jni_SnesNative_setPaths(JNIEnv* env, jclass, jstrin
     snescore::Engine::instance().setPaths(sys ? sys : "", sav ? sav : "");
     if (sys) env->ReleaseStringUTFChars(systemDir, sys);
     if (sav) env->ReleaseStringUTFChars(saveDir, sav);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_SnesNative_setSaveName(JNIEnv* env, jclass, jstring name) {
+    const char* n = name ? env->GetStringUTFChars(name, nullptr) : nullptr;
+    snescore::Engine::instance().setSaveName(n ? n : "");
+    if (n) env->ReleaseStringUTFChars(name, n);
 }
 
 JNIEXPORT jstring JNICALL

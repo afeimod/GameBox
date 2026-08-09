@@ -113,6 +113,10 @@ class SnesEngine private constructor() : EmulatorEngine {
         SnesNative.setSurface(surface)
     }
 
+    override fun setSaveName(name: String) {
+        SnesNative.setSaveName(name)
+    }
+
     override fun setCoreOption(key: String, value: String) {
         SnesNative.setCoreOption(key, value)
     }

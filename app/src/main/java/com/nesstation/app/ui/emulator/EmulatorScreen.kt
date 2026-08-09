@@ -210,12 +210,32 @@ fun EmulatorScreen(
             errorMsg = "该游戏未关联 ROM 文件"
             return@LaunchedEffect
         }
+
+        // Compute a stable per-game save name so that battery-backed SRAM
+        // (.srm) files are unique per game even when the ROM is loaded from
+        // a content:// URI and copied to a shared temp file (temp_rom.<ext>).
+        // We use the game's DB id, sanitized to be filesystem-safe.
+        val saveName = game.id.lowercase()
+            .replace(Regex("[^a-z0-9._-]"), "_")
+            .takeIf { it.isNotBlank() } ?: "game"
+
+        // Dedicated saves directory: <filesDir>/saves/
+        // Created here to guarantee it exists before the native core tries
+        // to write the .srm file.
+        val savesDir = java.io.File(context.filesDir, "saves").apply { mkdirs() }
+        val filesDir = context.filesDir.absolutePath
+        val savesDirPath = savesDir.absolutePath
+
+        // Tell the native core to use this stable name for the .srm file.
+        // Must be called BEFORE loadRom() so the name is in effect when
+        // retro_load_game() returns and we read the .srm into SAVE_RAM.
+        engine.setSaveName(saveName)
+
         val romFile = java.io.File(romPath)
         if (romFile.exists()) {
             // FDS BIOS is auto-extracted from assets by NesApp on startup.
             // If missing, the core will report the error; user can import via Settings.
-            val filesDir = context.filesDir.absolutePath
-            val ok = engine.loadRom(romFile, filesDir, filesDir) { }
+            val ok = engine.loadRom(romFile, filesDir, savesDirPath) { }
             if (!ok) {
                 val err = engine.lastError()
                 errorMsg = err.ifEmpty { "ROM 加载失败" }
@@ -250,8 +270,7 @@ fun EmulatorScreen(
                     val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
-                    val filesDir = context.filesDir.absolutePath
-                    val ok = engine.loadRom(tempFile, filesDir, filesDir) { }
+                    val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { }
                     if (!ok) {
                         val err = engine.lastError()
                         errorMsg = err.ifEmpty { "ROM 加载失败" }

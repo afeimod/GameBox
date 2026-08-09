@@ -38,6 +38,14 @@ interface EmulatorEngine {
     /** Attach/detach a Surface for hardware-accelerated direct rendering. */
     fun setSurface(surface: Surface?)
 
+    /**
+     * Set an explicit .srm basename for the next ROM load.
+     * Pass a stable per-game identifier (e.g. the game's DB id) so that
+     * content:// URI games (which share a temp ROM file) get per-game .srm
+     * files instead of clobbering each other. Must be called before loadRom().
+     */
+    fun setSaveName(name: String)
+
     /** Set a core option by key/value. */
     fun setCoreOption(key: String, value: String)
 

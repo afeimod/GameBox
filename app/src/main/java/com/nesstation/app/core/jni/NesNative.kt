@@ -73,6 +73,20 @@ object NesNative {
     /** Set system (FDS BIOS) and save (SRAM) directories. */
     @JvmStatic external fun setPaths(systemDir: String, saveDir: String)
 
+    /**
+     * Set an explicit .srm basename for the next ROM load.
+     *
+     * Pass a stable per-game identifier (e.g. the game's DB id, or a sanitized
+     * game title) so that each game gets its own `<name>.srm` file even when
+     * the ROM is loaded from a content:// URI and copied to a shared temp file
+     * (cacheDir/temp_rom.<ext>). Without this, all content:// URI games would
+     * share the same temp_rom.srm and clobber each other's saves.
+     *
+     * Must be called BEFORE [loadRom]. Pass an empty string to revert to
+     * deriving the .srm name from the ROM file path.
+     */
+    @JvmStatic external fun setSaveName(name: String)
+
     @JvmStatic external fun lastError(): String
 
     // --- Hardware-accelerated rendering ---

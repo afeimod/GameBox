@@ -130,6 +130,10 @@ class GbaEngine private constructor() : EmulatorEngine {
         GbaNative.setSurface(surface)
     }
 
+    override fun setSaveName(name: String) {
+        GbaNative.setSaveName(name)
+    }
+
     override fun setCoreOption(key: String, value: String) {
         GbaNative.setCoreOption(key, value)
     }

@@ -578,42 +578,68 @@ static inline void libretroLog(int level, const char* fmt, ...) {
 
 // Derive the .srm path for a given ROM path and save directory.
 // e.g. "/sdcard/roms/game.nes" + "/data/saves" -> "/data/saves/game.srm"
+//
+// If `explicitName` is non-empty, it is used as the basename verbatim
+// (no extension stripping). This lets the frontend pass a stable game
+// identifier (e.g. "pokemon_emerald") so that content:// URI ROMs that
+// are copied to a shared temp file (e.g. "temp_rom.gba") still get
+// per-game .srm files instead of clobbering each other.
 static inline std::string getSrmPath(const std::string& saveDir,
-                                      const std::string& romPath) {
-    // Extract basename (filename without directory)
-    size_t slash = romPath.find_last_of('/');
-    std::string basename = (slash != std::string::npos)
-                           ? romPath.substr(slash + 1)
-                           : romPath;
-    // Strip extension
-    size_t dot = basename.find_last_of('.');
-    if (dot != std::string::npos) {
-        basename = basename.substr(0, dot);
+                                      const std::string& romPath,
+                                      const std::string& explicitName = "") {
+    std::string basename;
+    if (!explicitName.empty()) {
+        // Use the frontend-provided stable name verbatim. We still strip
+        // a trailing ".srm"/".sav" if present to avoid double extensions.
+        basename = explicitName;
+        if (basename.size() >= 4) {
+            std::string tail = basename.substr(basename.size() - 4);
+            for (auto& c : tail) c = (char)tolower((unsigned char)c);
+            if (tail == ".srm" || tail == ".sav") {
+                basename = basename.substr(0, basename.size() - 4);
+            }
+        }
+    } else {
+        // Extract basename (filename without directory)
+        size_t slash = romPath.find_last_of('/');
+        basename = (slash != std::string::npos)
+                   ? romPath.substr(slash + 1)
+                   : romPath;
+        // Strip extension
+        size_t dot = basename.find_last_of('.');
+        if (dot != std::string::npos) {
+            basename = basename.substr(0, dot);
+        }
     }
     if (saveDir.empty()) {
         return basename + ".srm";
     }
     // Ensure saveDir doesn't end with '/'
     std::string dir = saveDir;
-    if (dir.back() == '/') dir.pop_back();
+    if (!dir.empty() && dir.back() == '/') dir.pop_back();
     return dir + "/" + basename + ".srm";
 }
 
 // Load cartridge SRAM from disk into the core's SAVE_RAM buffer.
 // Called AFTER retro_load_game() succeeds.
-// sram    — pointer from retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)
-// sramSize— size  from retro_get_memory_size(RETRO_MEMORY_SAVE_RAM)
-// saveDir — frontend save directory (RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY)
-// romPath — absolute path to the ROM file (used to derive the .srm filename)
+// sram        — pointer from retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)
+// sramSize    — size  from retro_get_memory_size(RETRO_MEMORY_SAVE_RAM)
+// saveDir     — frontend save directory (RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY)
+// romPath     — absolute path to the ROM file (used to derive the .srm filename
+//               if `explicitName` is empty)
+// explicitName— optional stable game identifier (e.g. "pokemon_emerald") used
+//               as the .srm basename. Required for content:// URI ROMs that are
+//               copied to a shared temp file.
 static inline void loadSramFromDisk(void* sram, size_t sramSize,
                                      const std::string& saveDir,
-                                     const std::string& romPath) {
+                                     const std::string& romPath,
+                                     const std::string& explicitName = "") {
     if (!sram || sramSize == 0) {
         LOGI("SRAM load: no SAVE_RAM region (sram=%p, size=%zu) — skipping",
              sram, sramSize);
         return;
     }
-    std::string srmPath = getSrmPath(saveDir, romPath);
+    std::string srmPath = getSrmPath(saveDir, romPath, explicitName);
     FILE* f = std::fopen(srmPath.c_str(), "rb");
     if (!f) {
         LOGI("SRAM load: no existing save at %s — starting fresh", srmPath.c_str());
@@ -644,13 +670,14 @@ static inline void loadSramFromDisk(void* sram, size_t sramSize,
 // Called BEFORE retro_unload_game() so the buffer is still valid.
 static inline void saveSramToDisk(void* sram, size_t sramSize,
                                    const std::string& saveDir,
-                                   const std::string& romPath) {
+                                   const std::string& romPath,
+                                   const std::string& explicitName = "") {
     if (!sram || sramSize == 0) {
         LOGI("SRAM save: no SAVE_RAM region (sram=%p, size=%zu) — skipping",
              sram, sramSize);
         return;
     }
-    std::string srmPath = getSrmPath(saveDir, romPath);
+    std::string srmPath = getSrmPath(saveDir, romPath, explicitName);
     FILE* f = std::fopen(srmPath.c_str(), "wb");
     if (!f) {
         LOGE("SRAM save: cannot open %s for write", srmPath.c_str());

@@ -61,6 +61,9 @@ public:
     // Set system (BIOS) and save (SRAM) directories.
     void setPaths(const std::string& systemDir, const std::string& saveDir);
 
+    // Set an explicit .srm basename (for content:// URI games that share a temp ROM file).
+    void setSaveName(const std::string& name);
+
     // --- Hardware-accelerated rendering ---
     // Attach/detach an ANativeWindow for direct surface blitting.
     void setSurface(jobject surface);

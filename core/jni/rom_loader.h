@@ -50,6 +50,13 @@ void setControllerInput(int port, uint8_t bits);
 // Filesystem directories the core uses for FDS BIOS (system) and SRAM (save).
 void setPaths(const std::string& systemDir, const std::string& saveDir);
 
+// Set an explicit .srm basename for the next ROM load.
+// Pass a stable game identifier (e.g. "pokemon_emerald", or the game's DB id)
+// when the ROM is loaded from a content:// URI and copied to a shared temp
+// file — this prevents different games from sharing the same temp_rom.srm.
+// Pass an empty string to revert to deriving the .srm name from the ROM path.
+void setSaveName(const std::string& name);
+
 // Region / sample-rate / speed hints. Region is auto-detected at load; the
 // core fixes the audio sample rate, so these are best-effort and mostly no-ops
 // kept for ABI compatibility with the bridge.

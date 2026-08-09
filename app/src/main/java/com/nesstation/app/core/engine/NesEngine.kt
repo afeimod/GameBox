@@ -117,6 +117,10 @@ class NesEngine private constructor() : EmulatorEngine {
         NesNative.setSurface(surface)
     }
 
+    override fun setSaveName(name: String) {
+        NesNative.setSaveName(name)
+    }
+
     override fun setCoreOption(key: String, value: String) {
         NesNative.setCoreOption(key, value)
     }
