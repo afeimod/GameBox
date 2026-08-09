@@ -392,6 +392,15 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
+            "\n" +
+            "        // Anti-color-bleeding clamp: limit per-channel deviation from E\n" +
+            "        // to prevent isolated color dots (red/purple/yellow) at hard edges.\n" +
+            "        if (res != E) {\n" +
+            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
+            "            vec3 diff = res - E;\n" +
+            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
+            "            res = clamped;\n" +
+            "        }\n" +
             "    }\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -502,6 +511,15 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
+            "\n" +
+            "        // Anti-color-bleeding clamp: limit per-channel deviation from E\n" +
+            "        // to prevent isolated color dots (red/purple/yellow) at hard edges.\n" +
+            "        if (res != E) {\n" +
+            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
+            "            vec3 diff = res - E;\n" +
+            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
+            "            res = clamped;\n" +
+            "        }\n" +
             "    }\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -680,6 +698,14 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
+            "\n" +
+            "        // Anti-color-bleeding clamp\n" +
+            "        if (res != E) {\n" +
+            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
+            "            vec3 diff = res - E;\n" +
+            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
+            "            res = clamped;\n" +
+            "        }\n" +
             "    }\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
@@ -800,6 +826,14 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
+            "\n" +
+            "        // Anti-color-bleeding clamp\n" +
+            "        if (res != E) {\n" +
+            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
+            "            vec3 diff = res - E;\n" +
+            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
+            "            res = clamped;\n" +
+            "        }\n" +
             "    }\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +

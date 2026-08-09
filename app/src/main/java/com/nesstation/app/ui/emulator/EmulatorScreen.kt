@@ -163,16 +163,29 @@ fun EmulatorScreen(
                    padLayout.gbaAllowOpposite) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
+        //
+        // WORKAROUND for native XBR color bleeding:
+        // The native C XBR implementation (Hyllian 5xBR v3.5a in libnescore/
+        // libsnescore/libgbacore) produces color bleeding artifacts at hard
+        // edges — red/purple/yellow dots appear exposed at font and sprite
+        // edges in SFC/GBA games. This is a known issue with the 5xBR
+        // algorithm when pixels with high color channel contrast are adjacent.
+        //
+        // Since we cannot modify the native C code, we map XBR requests to
+        // HQ2X (filter=5) for native engine games. HQ2X provides similar
+        // edge-smoothing without the color bleeding artifact. J2ME games
+        // use the Java-side XBR implementation (J2meBitmapFilter) which has
+        // been patched with additional color clamping to suppress bleeding.
         val filterInt = when (padLayout.videoFilter) {
             "scanline" -> 1
             "crt" -> 2
             "dot" -> 3
-            "xbr" -> 4
+            "xbr" -> 5      // native XBR(4) → HQ2X(5) to avoid color bleeding
             "hq2x" -> 5
             "hq4x" -> 6
-            "xbr_dot" -> 7
-            "4xbr" -> 8
-            "4xbr_dot" -> 9
+            "xbr_dot" -> 5  // native XBR+dot(7) → HQ2X(5), dot added by FilterOverlay
+            "4xbr" -> 6     // native 4XBR(8) → HQ4X(6) to avoid color bleeding
+            "4xbr_dot" -> 6 // native 4XBR+dot(9) → HQ4X(6), dot added by FilterOverlay
             "hq4x_dot" -> 10
             else -> 0
         }
