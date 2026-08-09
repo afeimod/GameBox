@@ -2182,9 +2182,7 @@ private fun checkFdsBiosStatus(context: android.content.Context): FdsBiosStatus 
         return FdsBiosStatus(exists = true, valid = false,
             message = "文件大小错误: ${size}字节 (需要8192字节)")
     }
-    // Verify the BIOS is not all zeros. We must scan the WHOLE file,
-    // not just the first 64 bytes — legitimate FDS BIOS dumps often have
-    // zero padding in the header (the first 64-256 bytes can be 0x00).
+    // Verify the BIOS is not all zeros.
     if (isFdsBiosAllZeros(biosFile)) {
         return FdsBiosStatus(exists = true, valid = false,
             message = "文件已损坏 (全零)")
@@ -2224,9 +2222,7 @@ private fun importFdsBios(context: android.content.Context, uri: android.net.Uri
             return "导入失败: 文件大小${size}字节不正确 (需要8192字节)"
         }
 
-        // Verify the BIOS is not all zeros. Scan the WHOLE file, not just
-        // the header — legitimate FDS BIOS dumps often have zero-padded
-        // headers but contain real 6502 code further in.
+        // Verify the BIOS is not all zeros.
         if (isFdsBiosAllZeros(biosFile)) {
             biosFile.delete()
             return "导入失败: 文件已损坏 (全零数据)"

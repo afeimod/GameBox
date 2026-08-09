@@ -61,19 +61,18 @@ class NesApp : Application() {
      * automatically copied to filesDir on first launch, enabling FDS games
      * to run without manual BIOS import.
      *
-     * If the file is not in assets, or is invalid, this is a no-op and the
-     * user can still manually import via Settings.
-     *
-     * Validation: a real FDS BIOS is exactly 8192 bytes and contains at
-     * least some non-zero data. Many legitimate FDS BIOS dumps have zero
-     * padding in the first 64 bytes (or even the first 256 bytes), so we
-     * must NOT reject a BIOS just because its header is zero-filled — we
-     * scan the entire file for any non-zero byte instead.
+     * Validation: a real FDS BIOS is exactly 8192 bytes and is not entirely
+     * zeros. We intentionally do NOT do deeper content validation (NOP
+     * counting, hash checking) because:
+     *   1. Real FDS BIOS dumps contain legitimate NOP (0xEA) idle-loop code
+     *   2. The FCEUmm core itself validates the BIOS during retro_load_game
+     *      and will report a clear error if the BIOS is bad
+     *   3. Overly strict frontend validation risks rejecting valid BIOS dumps
      */
     private fun ensureFdsBios() {
         val dest = File(filesDir, "disksys.rom")
 
-        // If a valid BIOS already exists, keep it
+        // If a valid BIOS already exists (correct size, not all zeros), keep it
         if (dest.exists() && dest.length() == 8192L && !isAllZeros(dest)) {
             return
         }
@@ -89,9 +88,6 @@ class NesApp : Application() {
                 Log.w("NesApp", "FDS BIOS in assets has wrong size, deleted")
                 return
             }
-            // Verify it's not all zeros (corrupted) — scan the WHOLE file,
-            // not just the header, because legitimate FDS BIOS dumps often
-            // have zero padding in the first 64-256 bytes.
             if (isAllZeros(dest)) {
                 dest.delete()
                 Log.w("NesApp", "FDS BIOS in assets is corrupted (all zeros), deleted")
@@ -99,8 +95,7 @@ class NesApp : Application() {
             }
             Log.i("NesApp", "FDS BIOS extracted from assets to ${dest.absolutePath}")
         } catch (e: java.io.FileNotFoundException) {
-            // No disksys.rom in assets — user must import manually
-            // Also clean up any leftover corrupted file
+            // No disksys.rom in assets — user must import manually via Settings
             if (dest.exists() && dest.length() != 8192L) {
                 dest.delete()
             }

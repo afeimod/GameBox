@@ -559,10 +559,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_isFdsGame.store(false, std::memory_order_relaxed);
 
     // --- FDS BIOS pre-check ---
-    // If this is an FDS game, log the BIOS status but DON'T block loading.
-    // The BIOS is auto-extracted from APK assets by NesApp.ensureFdsBios()
-    // on startup. If it's still missing, let the core attempt the load and
-    // report its own error (which is more accurate than our pre-check).
+    // If this is an FDS game, verify the BIOS is present. The BIOS is
+    // auto-extracted from APK assets by NesApp.ensureFdsBios() on startup.
+    // We only check existence and size here — the FCEUmm core itself
+    // validates the BIOS content during retro_load_game and will report
+    // a clear error if the BIOS is bad.
     {
         std::string ext;
         size_t dot = path.find_last_of('.');

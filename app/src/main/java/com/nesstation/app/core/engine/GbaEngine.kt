@@ -82,44 +82,57 @@ class GbaEngine private constructor() : EmulatorEngine {
 
         running.set(true)
         thread = thread(name = "gbacore-loop", isDaemon = true) {
-            while (running.get()) {
-                if (_paused) {
-                    try { Thread.sleep(16) } catch (_: InterruptedException) { break }
-                    continue
-                }
-
-                val t0 = System.nanoTime()
-
-                GbaNative.runFrame()
-
-                if (!hasSurface) {
-                    GbaNative.getFrameBuffer(frameBuffer)
-                }
-
-                onFrame()
-
-                if (_ffSpeed > 0) {
-                    // Fast-forward: pace to target speed
-                    val targetNs = 1_000_000_000L / (60 * _ffSpeed)
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
-                        catch (_: InterruptedException) { break }
+            try {
+                while (running.get()) {
+                    if (_paused) {
+                        try { Thread.sleep(16) } catch (_: InterruptedException) { break }
+                        continue
                     }
-                } else {
-                    // Normal: pace to ~60fps
-                    val targetNs = 1_000_000_000L / 60
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                        } catch (_: InterruptedException) {
-                            break
+
+                    val t0 = System.nanoTime()
+
+                    // Re-check running right before the native call — unload()
+                    // may have set it to false while we were sleeping.
+                    if (!running.get()) break
+
+                    GbaNative.runFrame()
+
+                    // Re-check running right after the native call — if
+                    // unload() ran during runFrame(), the core is now freed
+                    // and we must NOT touch it any further.
+                    if (!running.get()) break
+
+                    if (!hasSurface) {
+                        GbaNative.getFrameBuffer(frameBuffer)
+                    }
+
+                    onFrame()
+
+                    if (_ffSpeed > 0) {
+                        // Fast-forward: pace to target speed
+                        val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                            catch (_: InterruptedException) { break }
+                        }
+                    } else {
+                        // Normal: pace to ~60fps
+                        val targetNs = 1_000_000_000L / 60
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
                         }
                     }
                 }
+            } catch (t: Throwable) {
+                android.util.Log.e("GbaEngine", "Emulation thread crashed", t)
             }
         }
         return true
@@ -193,17 +206,21 @@ class GbaEngine private constructor() : EmulatorEngine {
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
             val buf = ShortArray(6144)
-            while (audioRunning.get()) {
-                try {
-                    val n = GbaNative.readAudio(buf)
-                    if (n > 0) {
-                        audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
-                    } else {
-                        Thread.sleep(2)
+            try {
+                while (audioRunning.get()) {
+                    try {
+                        val n = GbaNative.readAudio(buf)
+                        if (n > 0) {
+                            audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                        } else {
+                            Thread.sleep(2)
+                        }
+                    } catch (_: InterruptedException) {
+                        break
                     }
-                } catch (_: InterruptedException) {
-                    break
                 }
+            } catch (t: Throwable) {
+                android.util.Log.e("GbaEngine", "Audio thread crashed", t)
             }
         }
     }
@@ -257,13 +274,19 @@ class GbaEngine private constructor() : EmulatorEngine {
     override fun lastError(): String = GbaNative.lastError()
 
     private fun stop() {
-        if (running.getAndSet(false)) {
-            thread?.let {
-                it.interrupt()
-                try { it.join(300) } catch (_: InterruptedException) {}
+        running.set(false)
+        thread?.let { t ->
+            t.interrupt()
+            // Join with retries — the emulation thread may be inside a
+            // long retro_run() call. Without this, unload() could call
+            // GbaNative.unload() while the thread is still inside
+            // retro_run(), causing a crash.
+            for (attempt in 0 until 3) {
+                try { t.join(500) } catch (_: InterruptedException) { break }
+                if (!t.isAlive) break
             }
-            thread = null
         }
+        thread = null
     }
 
     companion object {
