@@ -1250,7 +1250,7 @@ private fun SlotPickerDialog(
                     fontSize = 12.sp,
                     color = Color.Gray,
                     maxLines = 1,
-                    ellipsis = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
