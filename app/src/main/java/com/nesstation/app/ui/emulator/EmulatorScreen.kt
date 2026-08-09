@@ -26,10 +26,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -378,13 +381,15 @@ fun EmulatorScreen(
 
         // State slot picker dialog
         if (showSlotPicker != null) {
+            val savesDir = java.io.File(context.filesDir, "saves").apply { mkdirs() }
             SlotPickerDialog(
                 mode = showSlotPicker!!,
                 currentSlot = saveLoadSlot,
+                gameId = game.id,
+                savesDir = savesDir,
+                gameTitle = game.title,
                 onSlotSelected = { slot ->
-                    val saveDir = java.io.File(context.filesDir, "saves")
-                    saveDir.mkdirs()
-                    val stateFile = java.io.File(saveDir, "${game.id}_slot${slot}.state")
+                    val stateFile = java.io.File(savesDir, "${game.id}_slot${slot}.state")
                     if (showSlotPicker == "save") {
                         try {
                             engine.saveState(slot, stateFile)
@@ -1201,47 +1206,83 @@ private fun MenuOverlay(
 
 // ---------------------------------------------------------------------------
 // State slot picker dialog — choose a save slot (0-9) for save/load state
+//
+// Shows a list of 10 slots (one per row) with:
+//   - Slot number (0-9)
+//   - Whether a savestate file exists for THIS game in this slot
+//   - The file's last-modified timestamp (formatted as yyyy-MM-dd HH:mm)
+//   - File size (KB)
+// Empty slots are dimmed and show "空槽位" in load mode.
+//
+// Savestate files are per-game: <savesDir>/<gameId>_slot<N>.state
+// Each game has its own 10 slots, independent of other games.
 // ---------------------------------------------------------------------------
 @Composable
 private fun SlotPickerDialog(
     mode: String, // "save" | "load"
     currentSlot: Int,
+    gameId: String,
+    savesDir: java.io.File,
+    gameTitle: String,
     onSlotSelected: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Re-scan the saves directory every time the dialog opens so the
+    // slot status is fresh (a savestate written this session shows up).
+    val slotStates = remember(gameId, savesDir, mode) {
+        (0..9).map { slot ->
+            val file = java.io.File(savesDir, "${gameId}_slot${slot}.state")
+            if (file.exists()) {
+                SlotState(slot, exists = true, lastModified = file.lastModified(), sizeBytes = file.length())
+            } else {
+                SlotState(slot, exists = false, lastModified = 0L, sizeBytes = 0L)
+            }
+        }
+    }
+
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (mode == "save") "保存存档" else "读取存档") },
-        text = {
+        title = {
             Column {
+                Text(if (mode == "save") "保存即时存档" else "读取即时存档")
                 Text(
-                    if (mode == "save") "选择一个存档槽位（覆盖已有存档）" else "选择一个存档槽位读取",
-                    fontSize = 13.sp,
+                    text = gameTitle,
+                    fontSize = 12.sp,
                     color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    maxLines = 1,
+                    ellipsis = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (mode == "save")
+                        "选择槽位覆盖存档（每个游戏独立 10 槽）"
+                    else
+                        "选择槽位读取（每个游戏独立 10 槽）",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                // Scrollable list of 10 slot rows — each row shows slot number,
+                // timestamp, and file size. Far more readable than the old
+                // 2×5 grid of tiny 40dp buttons.
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    for (slot in 0..4) {
-                        SlotButton(
-                            slot = slot,
-                            isCurrent = slot == currentSlot,
-                            onClick = { onSlotSelected(slot) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (slot in 5..9) {
-                        SlotButton(
-                            slot = slot,
-                            isCurrent = slot == currentSlot,
-                            onClick = { onSlotSelected(slot) }
+                    items(slotStates, key = { it.slot }) { state ->
+                        SlotRow(
+                            state = state,
+                            isCurrent = state.slot == currentSlot,
+                            mode = mode,
+                            onClick = { onSlotSelected(state.slot) }
                         )
                     }
                 }
@@ -1254,22 +1295,113 @@ private fun SlotPickerDialog(
     )
 }
 
+/** Per-slot state: whether a savestate file exists, and its metadata. */
+private data class SlotState(
+    val slot: Int,
+    val exists: Boolean,
+    val lastModified: Long,  // epoch millis
+    val sizeBytes: Long
+)
+
+/** Format epoch millis as "yyyy-MM-dd HH:mm". */
+private fun formatSlotTime(epochMillis: Long): String {
+    if (epochMillis <= 0L) return ""
+    val cal = java.util.Calendar.getInstance().apply { timeInMillis = epochMillis }
+    val y = cal.get(java.util.Calendar.YEAR)
+    val mo = cal.get(java.util.Calendar.MONTH) + 1
+    val d = cal.get(java.util.Calendar.DAY_OF_MONTH)
+    val h = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val mi = cal.get(java.util.Calendar.MINUTE)
+    return "%04d-%02d-%02d %02d:%02d".format(y, mo, d, h, mi)
+}
+
+/** Format file size as "N.N KB" or "N bytes". */
+private fun formatSlotSize(bytes: Long): String {
+    return if (bytes >= 1024) {
+        "%.1f KB".format(bytes / 1024.0)
+    } else {
+        "$bytes B"
+    }
+}
+
 @Composable
-private fun SlotButton(slot: Int, isCurrent: Boolean, onClick: () -> Unit) {
-    Box(
+private fun SlotRow(
+    state: SlotState,
+    isCurrent: Boolean,
+    mode: String,
+    onClick: () -> Unit
+) {
+    val hasSave = state.exists
+    // In load mode, empty slots are not clickable
+    val clickable = mode == "save" || hasSave
+    val bg = when {
+        isCurrent -> Color(0xFF4F8AC4)
+        hasSave -> Color(0xFF2A3B52)
+        else -> Color(0xFF1A1A2E)
+    }
+    val fg = if (isCurrent) Color.White else if (hasSave) Color(0xFFE0E0E0) else Color(0xFF707080)
+
+    Row(
         modifier = Modifier
-            .size(40.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isCurrent) Color(0xFF4F8AC4) else Color(0xFFE0E0E0))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+            .background(bg)
+            .then(if (clickable) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            "$slot",
-            color = if (isCurrent) Color.White else Color(0xFF1E2A3A),
-            fontSize = 16.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-        )
+        // Slot number badge
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isCurrent) Color.White.copy(alpha = 0.25f) else Color(0xFF0D1421)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "${state.slot}",
+                color = fg,
+                fontSize = 15.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        // Slot info: timestamp + size, or "empty"
+        Column(modifier = Modifier.weight(1f)) {
+            if (hasSave) {
+                Text(
+                    formatSlotTime(state.lastModified),
+                    color = fg,
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                )
+                Text(
+                    formatSlotSize(state.sizeBytes),
+                    color = fg.copy(alpha = 0.7f),
+                    fontSize = 11.sp
+                )
+            } else {
+                Text(
+                    if (mode == "save") "空槽位 — 点击保存" else "空槽位",
+                    color = fg,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        // Status indicator on the right
+        if (hasSave) {
+            Text(
+                "●",
+                color = if (isCurrent) Color.White else Color(0xFF4ADE80),
+                fontSize = 14.sp
+            )
+        } else if (mode == "load") {
+            Text(
+                "—",
+                color = fg.copy(alpha = 0.5f),
+                fontSize = 14.sp
+            )
+        }
     }
 }
 
@@ -2050,20 +2182,33 @@ private fun checkFdsBiosStatus(context: android.content.Context): FdsBiosStatus 
         return FdsBiosStatus(exists = true, valid = false,
             message = "文件大小错误: ${size}字节 (需要8192字节)")
     }
-    // Quick check: first byte should not be 0x00 (corrupted BIOS has all zeros)
-    biosFile.inputStream().use { input ->
-        val firstByte = input.read()
-        if (firstByte == 0) {
-            // Check if first 64 bytes are all zeros
-            val header = ByteArray(64)
-            input.read(header)
-            if (header.all { it == 0.toByte() }) {
-                return FdsBiosStatus(exists = true, valid = false,
-                    message = "文件已损坏 (全零)")
-            }
-        }
+    // Verify the BIOS is not all zeros. We must scan the WHOLE file,
+    // not just the first 64 bytes — legitimate FDS BIOS dumps often have
+    // zero padding in the header (the first 64-256 bytes can be 0x00).
+    if (isFdsBiosAllZeros(biosFile)) {
+        return FdsBiosStatus(exists = true, valid = false,
+            message = "文件已损坏 (全零)")
     }
     return FdsBiosStatus(exists = true, valid = true, message = "已导入 ✓")
+}
+
+// Returns true if the entire file is zero bytes.
+private fun isFdsBiosAllZeros(file: java.io.File): Boolean {
+    try {
+        file.inputStream().use { input ->
+            val buf = ByteArray(4096)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                for (i in 0 until n) {
+                    if (buf[i] != 0.toByte()) return false
+                }
+            }
+        }
+    } catch (_: Exception) {
+        return true
+    }
+    return true
 }
 
 // Import FDS BIOS from a content URI to filesDir/disksys.rom
@@ -2079,17 +2224,12 @@ private fun importFdsBios(context: android.content.Context, uri: android.net.Uri
             return "导入失败: 文件大小${size}字节不正确 (需要8192字节)"
         }
 
-        // Verify first byte is not zero (corruption check)
-        biosFile.inputStream().use { input ->
-            val firstByte = input.read()
-            if (firstByte == 0) {
-                val header = ByteArray(64)
-                input.read(header)
-                if (header.all { it == 0.toByte() }) {
-                    biosFile.delete()
-                    return "导入失败: 文件已损坏 (全零数据)"
-                }
-            }
+        // Verify the BIOS is not all zeros. Scan the WHOLE file, not just
+        // the header — legitimate FDS BIOS dumps often have zero-padded
+        // headers but contain real 6502 code further in.
+        if (isFdsBiosAllZeros(biosFile)) {
+            biosFile.delete()
+            return "导入失败: 文件已损坏 (全零数据)"
         }
         "导入成功! 请重新加载FDS游戏"
     } catch (e: Exception) {

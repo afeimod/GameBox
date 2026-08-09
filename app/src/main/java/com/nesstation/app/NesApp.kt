@@ -63,22 +63,19 @@ class NesApp : Application() {
      *
      * If the file is not in assets, or is invalid, this is a no-op and the
      * user can still manually import via Settings.
+     *
+     * Validation: a real FDS BIOS is exactly 8192 bytes and contains at
+     * least some non-zero data. Many legitimate FDS BIOS dumps have zero
+     * padding in the first 64 bytes (or even the first 256 bytes), so we
+     * must NOT reject a BIOS just because its header is zero-filled — we
+     * scan the entire file for any non-zero byte instead.
      */
     private fun ensureFdsBios() {
         val dest = File(filesDir, "disksys.rom")
 
         // If a valid BIOS already exists, keep it
-        if (dest.exists() && dest.length() == 8192L) {
-            try {
-                dest.inputStream().use { input ->
-                    val header = ByteArray(64)
-                    input.read(header)
-                    if (!header.all { it == 0.toByte() }) {
-                        // Valid BIOS already present
-                        return
-                    }
-                }
-            } catch (_: Exception) { }
+        if (dest.exists() && dest.length() == 8192L && !isAllZeros(dest)) {
+            return
         }
 
         // Try to extract from assets
@@ -92,15 +89,13 @@ class NesApp : Application() {
                 Log.w("NesApp", "FDS BIOS in assets has wrong size, deleted")
                 return
             }
-            // Verify it's not all zeros (corrupted)
-            dest.inputStream().use { input ->
-                val header = ByteArray(64)
-                input.read(header)
-                if (header.all { it == 0.toByte() }) {
-                    dest.delete()
-                    Log.w("NesApp", "FDS BIOS in assets is corrupted (all zeros), deleted")
-                    return
-                }
+            // Verify it's not all zeros (corrupted) — scan the WHOLE file,
+            // not just the header, because legitimate FDS BIOS dumps often
+            // have zero padding in the first 64-256 bytes.
+            if (isAllZeros(dest)) {
+                dest.delete()
+                Log.w("NesApp", "FDS BIOS in assets is corrupted (all zeros), deleted")
+                return
             }
             Log.i("NesApp", "FDS BIOS extracted from assets to ${dest.absolutePath}")
         } catch (e: java.io.FileNotFoundException) {
@@ -115,6 +110,29 @@ class NesApp : Application() {
                 dest.delete()
             }
         }
+    }
+
+    /**
+     * Returns true if the entire file is zero bytes.
+     * Used to detect corrupted/placeholder BIOS dumps.
+     * Reads in 4KB chunks to avoid loading 8KB+ into memory at once.
+     */
+    private fun isAllZeros(file: File): Boolean {
+        try {
+            file.inputStream().use { input ->
+                val buf = ByteArray(4096)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n <= 0) break
+                    for (i in 0 until n) {
+                        if (buf[i] != 0.toByte()) return false
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            return true  // treat unreadable as corrupt
+        }
+        return true
     }
 
     /** Container is lazy-nullable: null if init failed, created on first successful init. */
