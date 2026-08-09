@@ -17,9 +17,9 @@ package javax.microedition.lcdui.graphics;
  *   9 = HQ4x + Dot
  * </pre>
  *
- * <p><b>CRITICAL:</b> Array varyings ({@code varying vec2 v[3]}) are NOT reliably
- * supported across Android GPU drivers (Adreno 3xx, Mali-T6xx, PowerVR SGX all fail).
- * All shaders use individual varyings instead ({@code v_tc0, v_tc1, v_tc2}).
+ * <p>XBR shaders implement Hyllian's 5xBR v3.5a algorithm with weighted RGB luminance
+ * edge detection, 21-pixel sampling, interpolation restriction, and line-inequality
+ * edge positioning. Scale-independent (2xBR and 4xBR share the same fragment shader).
  */
 public final class J2meFilterShaders {
 
@@ -114,23 +114,19 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR vertex shader — Hyllian's 2xBR (adapted from reference 2xbr.vsh).
-     * Uses INDIVIDUAL varyings (v_tc0, v_tc1, v_tc2) instead of array
-     * varying vec2 v_texcoord0[3] for universal GPU driver compatibility.
+     * 2xBR vertex shader — passthrough for Hyllian's 5xBR v3.5a.
+     * Fragment shader computes all texture coordinates internally
+     * via u_texelDelta and u_pixelDelta uniforms.
      */
     public static final String VERTEX_2XBR =
             "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform mediump vec2 u_pixelDelta;\n" +
             "attribute vec2 a_position;\n" +
             "attribute vec2 a_texcoord0;\n" +
             "varying vec2 v_tc0;\n" +
-            "varying vec2 v_tc1;\n" +
-            "varying vec2 v_tc2;\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 ps = u_texelDelta;\n" +
             "    v_tc0 = a_texcoord0;\n" +
-            "    v_tc1 = vec2(0.0, -ps.y);\n" +
-            "    v_tc2 = vec2(-ps.x, 0.0);\n" +
             "    gl_Position = vec4(a_position, 0.0, 1.0);\n" +
             "}\n";
 
@@ -285,8 +281,11 @@ public final class J2meFilterShaders {
             "}\n";
 
     /**
-     * 2xBR fragment shader — Uses individual varyings (v_tc0, v_tc1, v_tc2)
-     * instead of array varying for universal GPU driver compatibility.
+     * 2xBR fragment shader — Hyllian's 5xBR v3.5a algorithm.
+     * Uses weighted RGB luminance for edge detection, samples 21 pixels
+     * (3x3 core + 12 extended), and implements interpolation restriction
+     * with line-inequality edge positioning. Skips processing when upscale
+     * ratio is below 1.6x (falls back to nearest-neighbour).
      */
     public static final String FRAGMENT_2XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -295,46 +294,109 @@ public final class J2meFilterShaders {
             "precision mediump float;\n" +
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "varying vec2 v_tc1;\n" +
-            "varying vec2 v_tc2;\n" +
+            "\n" +
+            "const float coef = 2.0;\n" +
+            "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
+            "\n" +
+            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0);\n" +
+            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5);\n" +
+            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0);\n" +
+            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0);\n" +
+            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5);\n" +
+            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5);\n" +
+            "\n" +
+            "vec4 df(vec4 A, vec4 B) { return abs(A - B); }\n" +
+            "\n" +
+            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d,\n" +
+            "                       vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
+            "    return df(a,b) + df(c,d) + df(e,f) + df(g,h);\n" +
+            "}\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
+            "    bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
+            "    vec3 res = texture2D(sampler0, v_tc0).xyz;\n" +
             "\n" +
-            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    if (upscale) {\n" +
+            "        bvec4 edr, edr_left, edr_up, px;\n" +
+            "        bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
+            "        bvec4 nc;\n" +
+            "        bvec4 fx, fx_left, fx_up;\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
+            "        vec2 pS  = 1.0 / u_texelDelta;\n" +
+            "        vec2 fp  = fract(v_tc0 * pS);\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
+            "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
+            "        vec2 y2  = dy + dy;\n" +
+            "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "    gl_FragColor.rgb = E;\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
-            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
-            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
-            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
-            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
-            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
-            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
-            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
+            "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
+            "        vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
+            "        vec4 e  = vec4(dot(E,rgbw));\n" +
+            "        vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
+            "        vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
+            "        vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
+            "        vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
+            "        vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
+            "        vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
+            "        vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
+            "        vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
             "\n" +
-            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb)))\n" +
-            "    {\n" +
-            "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
+            "        fx        = greaterThan(Ao*fp.y+Bo*fp.x, Co);\n" +
+            "        fx_left   = greaterThan(Ax*fp.y+Bx*fp.x, Cx);\n" +
+            "        fx_up     = greaterThan(Ay*fp.y+By*fp.x, Cy);\n" +
+            "\n" +
+            "        interp_restriction_lv1      = bvec4(vec4(notEqual(e,f)) * vec4(notEqual(e,h)));\n" +
+            "        interp_restriction_lv2_left  = bvec4(vec4(notEqual(e,g)) * vec4(notEqual(d,g)));\n" +
+            "        interp_restriction_lv2_up    = bvec4(vec4(notEqual(e,c)) * vec4(notEqual(b,c)));\n" +
+            "\n" +
+            "        edr      = bvec4(vec4(lessThan(weighted_distance(e,c,g,i,h5,f4,h,f), weighted_distance(h,d,i5,f,i4,b,e,i))) * vec4(interp_restriction_lv1));\n" +
+            "        edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g), df(h,c))) * vec4(interp_restriction_lv2_left));\n" +
+            "        edr_up   = bvec4(vec4(greaterThanEqual(df(f,g), coef*df(h,c))) * vec4(interp_restriction_lv2_up));\n" +
+            "\n" +
+            "        nc.x = (edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x));\n" +
+            "        nc.y = (edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y));\n" +
+            "        nc.z = (edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z));\n" +
+            "        nc.w = (edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w));\n" +
+            "\n" +
+            "        px = lessThanEqual(df(e,f), df(e,h));\n" +
+            "\n" +
+            "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
             "    }\n" +
+            "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
-    /** 4xBR fragment shader — individual varyings, 4x4 sub-pixel pattern. */
+    /** 4xBR fragment shader — same Hyllian 5xBR v3.5a algorithm as 2xBR (scale-independent). */
     public static final String FRAGMENT_4XBR =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -342,45 +404,105 @@ public final class J2meFilterShaders {
             "precision mediump float;\n" +
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "varying vec2 v_tc1;\n" +
-            "varying vec2 v_tc2;\n" +
+            "\n" +
+            "const float coef = 2.0;\n" +
+            "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
+            "\n" +
+            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0);\n" +
+            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5);\n" +
+            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0);\n" +
+            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0);\n" +
+            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5);\n" +
+            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5);\n" +
+            "\n" +
+            "vec4 df(vec4 A, vec4 B) { return abs(A - B); }\n" +
+            "\n" +
+            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d,\n" +
+            "                       vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
+            "    return df(a,b) + df(c,d) + df(e,f) + df(g,h);\n" +
+            "}\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
+            "    bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
+            "    vec3 res = texture2D(sampler0, v_tc0).xyz;\n" +
             "\n" +
-            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    if (upscale) {\n" +
+            "        bvec4 edr, edr_left, edr_up, px;\n" +
+            "        bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
+            "        bvec4 nc;\n" +
+            "        bvec4 fx, fx_left, fx_up;\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
+            "        vec2 pS  = 1.0 / u_texelDelta;\n" +
+            "        vec2 fp  = fract(v_tc0 * pS);\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
+            "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
+            "        vec2 y2  = dy + dy;\n" +
+            "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "    vec3 E11 = E;\n" +
-            "    vec3 E15 = E;\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
-            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
-            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
-            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
-            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
-            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
-            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
-            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
+            "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
+            "        vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
+            "        vec4 e  = vec4(dot(E,rgbw));\n" +
+            "        vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
+            "        vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
+            "        vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
+            "        vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
+            "        vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
+            "        vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
+            "        vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
+            "        vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
             "\n" +
-            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb))) {\n" +
-            "        E11 = E11 * 0.5 + F * 0.5;\n" +
-            "        E15 = F;\n" +
+            "        fx        = greaterThan(Ao*fp.y+Bo*fp.x, Co);\n" +
+            "        fx_left   = greaterThan(Ax*fp.y+Bx*fp.x, Cx);\n" +
+            "        fx_up     = greaterThan(Ay*fp.y+By*fp.x, Cy);\n" +
+            "\n" +
+            "        interp_restriction_lv1      = bvec4(vec4(notEqual(e,f)) * vec4(notEqual(e,h)));\n" +
+            "        interp_restriction_lv2_left  = bvec4(vec4(notEqual(e,g)) * vec4(notEqual(d,g)));\n" +
+            "        interp_restriction_lv2_up    = bvec4(vec4(notEqual(e,c)) * vec4(notEqual(b,c)));\n" +
+            "\n" +
+            "        edr      = bvec4(vec4(lessThan(weighted_distance(e,c,g,i,h5,f4,h,f), weighted_distance(h,d,i5,f,i4,b,e,i))) * vec4(interp_restriction_lv1));\n" +
+            "        edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g), df(h,c))) * vec4(interp_restriction_lv2_left));\n" +
+            "        edr_up   = bvec4(vec4(greaterThanEqual(df(f,g), coef*df(h,c))) * vec4(interp_restriction_lv2_up));\n" +
+            "\n" +
+            "        nc.x = (edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x));\n" +
+            "        nc.y = (edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y));\n" +
+            "        nc.z = (edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z));\n" +
+            "        nc.w = (edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w));\n" +
+            "\n" +
+            "        px = lessThanEqual(df(e,f), df(e,h));\n" +
+            "\n" +
+            "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
             "    }\n" +
-            "\n" +
-            "    gl_FragColor.rgb = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
+            "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
@@ -452,7 +574,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    /** 2xBR + Dot fragment shader. */
+    /** 2xBR + Dot fragment shader — 5xBR v3.5a with LCD dot-mask post-processing. */
     public static final String FRAGMENT_2XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -460,41 +582,103 @@ public final class J2meFilterShaders {
             "precision mediump float;\n" +
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "varying vec2 v_tc1;\n" +
-            "varying vec2 v_tc2;\n" +
+            "\n" +
+            "const float coef = 2.0;\n" +
+            "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
+            "\n" +
+            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0);\n" +
+            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5);\n" +
+            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0);\n" +
+            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0);\n" +
+            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5);\n" +
+            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5);\n" +
+            "\n" +
+            "vec4 df(vec4 A, vec4 B) { return abs(A - B); }\n" +
+            "\n" +
+            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d,\n" +
+            "                       vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
+            "    return df(a,b) + df(c,d) + df(e,f) + df(g,h);\n" +
+            "}\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
+            "    bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
+            "    vec3 res = texture2D(sampler0, v_tc0).xyz;\n" +
             "\n" +
-            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    if (upscale) {\n" +
+            "        bvec4 edr, edr_left, edr_up, px;\n" +
+            "        bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
+            "        bvec4 nc;\n" +
+            "        bvec4 fx, fx_left, fx_up;\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
+            "        vec2 pS  = 1.0 / u_texelDelta;\n" +
+            "        vec2 fp  = fract(v_tc0 * pS);\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
+            "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
+            "        vec2 y2  = dy + dy;\n" +
+            "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "    vec3 res = E;\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
-            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
-            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
-            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
-            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
-            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
-            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
-            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
+            "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
+            "        vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
+            "        vec4 e  = vec4(dot(E,rgbw));\n" +
+            "        vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
+            "        vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
+            "        vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
+            "        vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
+            "        vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
+            "        vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
+            "        vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
+            "        vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
             "\n" +
-            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb)))\n" +
-            "    {\n" +
-            "        res = mix(E, F, 0.5);\n" +
+            "        fx        = greaterThan(Ao*fp.y+Bo*fp.x, Co);\n" +
+            "        fx_left   = greaterThan(Ax*fp.y+Bx*fp.x, Cx);\n" +
+            "        fx_up     = greaterThan(Ay*fp.y+By*fp.x, Cy);\n" +
+            "\n" +
+            "        interp_restriction_lv1      = bvec4(vec4(notEqual(e,f)) * vec4(notEqual(e,h)));\n" +
+            "        interp_restriction_lv2_left  = bvec4(vec4(notEqual(e,g)) * vec4(notEqual(d,g)));\n" +
+            "        interp_restriction_lv2_up    = bvec4(vec4(notEqual(e,c)) * vec4(notEqual(b,c)));\n" +
+            "\n" +
+            "        edr      = bvec4(vec4(lessThan(weighted_distance(e,c,g,i,h5,f4,h,f), weighted_distance(h,d,i5,f,i4,b,e,i))) * vec4(interp_restriction_lv1));\n" +
+            "        edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g), df(h,c))) * vec4(interp_restriction_lv2_left));\n" +
+            "        edr_up   = bvec4(vec4(greaterThanEqual(df(f,g), coef*df(h,c))) * vec4(interp_restriction_lv2_up));\n" +
+            "\n" +
+            "        nc.x = (edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x));\n" +
+            "        nc.y = (edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y));\n" +
+            "        nc.z = (edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z));\n" +
+            "        nc.w = (edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w));\n" +
+            "\n" +
+            "        px = lessThanEqual(df(e,f), df(e,h));\n" +
+            "\n" +
+            "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
             "    }\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
@@ -509,7 +693,7 @@ public final class J2meFilterShaders {
             "    gl_FragColor.a = 1.0;\n" +
             "}\n";
 
-    /** 4xBR + Dot fragment shader. */
+    /** 4xBR + Dot fragment shader — 5xBR v3.5a with LCD dot-mask post-processing. */
     public static final String FRAGMENT_4XBR_DOT =
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
             "precision highp float;\n" +
@@ -517,45 +701,104 @@ public final class J2meFilterShaders {
             "precision mediump float;\n" +
             "#endif\n" +
             "uniform mediump vec2 u_texelDelta;\n" +
+            "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "varying vec2 v_tc1;\n" +
-            "varying vec2 v_tc2;\n" +
+            "\n" +
+            "const float coef = 2.0;\n" +
+            "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
+            "\n" +
+            "const vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0);\n" +
+            "const vec4 Co = vec4( 1.5,  0.5, -0.5, 0.5);\n" +
+            "const vec4 Ax = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 Bx = vec4( 0.5,  2.0, -0.5,-2.0);\n" +
+            "const vec4 Cx = vec4( 1.0,  1.0, -0.5, 0.0);\n" +
+            "const vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0);\n" +
+            "const vec4 By = vec4( 2.0,  0.5, -2.0,-0.5);\n" +
+            "const vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5);\n" +
+            "\n" +
+            "vec4 df(vec4 A, vec4 B) { return abs(A - B); }\n" +
+            "\n" +
+            "vec4 weighted_distance(vec4 a, vec4 b, vec4 c, vec4 d,\n" +
+            "                       vec4 e, vec4 f, vec4 g, vec4 h) {\n" +
+            "    return df(a,b) + df(c,d) + df(e,f) + df(g,h);\n" +
+            "}\n" +
             "\n" +
             "void main() {\n" +
-            "    vec2 fp = fract(v_tc0 / u_texelDelta);\n" +
+            "    bool upscale = u_texelDelta.x > (1.6 * u_pixelDelta.x);\n" +
+            "    vec3 res = texture2D(sampler0, v_tc0).xyz;\n" +
             "\n" +
-            "    vec2 g1 = v_tc1 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-            "    vec2 g2 = v_tc1 * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-            "            v_tc2 * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+            "    if (upscale) {\n" +
+            "        bvec4 edr, edr_left, edr_up, px;\n" +
+            "        bvec4 interp_restriction_lv1, interp_restriction_lv2_left, interp_restriction_lv2_up;\n" +
+            "        bvec4 nc;\n" +
+            "        bvec4 fx, fx_left, fx_up;\n" +
             "\n" +
-            "    vec3 B = texture2D(sampler0, v_tc0 + g1     ).xyz;\n" +
-            "    vec3 C = texture2D(sampler0, v_tc0 + g1 - g2).xyz;\n" +
-            "    vec3 D = texture2D(sampler0, v_tc0      + g2).xyz;\n" +
-            "    vec3 E = texture2D(sampler0, v_tc0          ).xyz;\n" +
-            "    vec3 F = texture2D(sampler0, v_tc0      - g2).xyz;\n" +
-            "    vec3 G = texture2D(sampler0, v_tc0 - g1 + g2).xyz;\n" +
-            "    vec3 H = texture2D(sampler0, v_tc0 - g1     ).xyz;\n" +
-            "    vec3 I = texture2D(sampler0, v_tc0 - g1 - g2).xyz;\n" +
+            "        vec2 pS  = 1.0 / u_texelDelta;\n" +
+            "        vec2 fp  = fract(v_tc0 * pS);\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
+            "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
+            "        vec2 y2  = dy + dy;\n" +
+            "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "    vec3 E11 = E;\n" +
-            "    vec3 E15 = E;\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
-            "    bool hf = (H.x == F.x && H.y == F.y && H.z == F.z);\n" +
-            "    bool he = (H.x != E.x || H.y != E.y || H.z != E.z);\n" +
-            "    bool eg = (E.x == G.x && E.y == G.y && E.z == G.z);\n" +
-            "    bool hi = (H.x == I.x && H.y == I.y && H.z == I.z);\n" +
-            "    bool ed = (E.x == D.x && E.y == D.y && E.z == D.z);\n" +
-            "    bool ec = (E.x == C.x && E.y == C.y && E.z == C.z);\n" +
-            "    bool eb = (E.x == B.x && E.y == B.y && E.z == B.z);\n" +
+            "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
+            "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
+            "        vec4 d  = vec4(b.y, b.z, b.w, b.x);\n" +
+            "        vec4 e  = vec4(dot(E,rgbw));\n" +
+            "        vec4 f  = vec4(b.w, b.x, b.y, b.z);\n" +
+            "        vec4 g  = vec4(c.z, c.w, c.x, c.y);\n" +
+            "        vec4 h  = vec4(b.z, b.w, b.x, b.y);\n" +
+            "        vec4 i  = vec4(c.w, c.x, c.y, c.z);\n" +
+            "        vec4 i4 = vec4(dot(I4,rgbw), dot(C1,rgbw), dot(A0,rgbw), dot(G5,rgbw));\n" +
+            "        vec4 i5 = vec4(dot(I5,rgbw), dot(C4,rgbw), dot(A1,rgbw), dot(G0,rgbw));\n" +
+            "        vec4 h5 = vec4(dot(H5,rgbw), dot(F4,rgbw), dot(B1,rgbw), dot(D0,rgbw));\n" +
+            "        vec4 f4 = vec4(h5.y, h5.z, h5.w, h5.x);\n" +
             "\n" +
-            "    if (hf && he && (eg && (hi || ed) || ec && (hi || eb))) {\n" +
-            "        E11 = E11 * 0.5 + F * 0.5;\n" +
-            "        E15 = F;\n" +
+            "        fx        = greaterThan(Ao*fp.y+Bo*fp.x, Co);\n" +
+            "        fx_left   = greaterThan(Ax*fp.y+Bx*fp.x, Cx);\n" +
+            "        fx_up     = greaterThan(Ay*fp.y+By*fp.x, Cy);\n" +
+            "\n" +
+            "        interp_restriction_lv1      = bvec4(vec4(notEqual(e,f)) * vec4(notEqual(e,h)));\n" +
+            "        interp_restriction_lv2_left  = bvec4(vec4(notEqual(e,g)) * vec4(notEqual(d,g)));\n" +
+            "        interp_restriction_lv2_up    = bvec4(vec4(notEqual(e,c)) * vec4(notEqual(b,c)));\n" +
+            "\n" +
+            "        edr      = bvec4(vec4(lessThan(weighted_distance(e,c,g,i,h5,f4,h,f), weighted_distance(h,d,i5,f,i4,b,e,i))) * vec4(interp_restriction_lv1));\n" +
+            "        edr_left = bvec4(vec4(lessThanEqual(coef*df(f,g), df(h,c))) * vec4(interp_restriction_lv2_left));\n" +
+            "        edr_up   = bvec4(vec4(greaterThanEqual(df(f,g), coef*df(h,c))) * vec4(interp_restriction_lv2_up));\n" +
+            "\n" +
+            "        nc.x = (edr.x && (fx.x || edr_left.x && fx_left.x || edr_up.x && fx_up.x));\n" +
+            "        nc.y = (edr.y && (fx.y || edr_left.y && fx_left.y || edr_up.y && fx_up.y));\n" +
+            "        nc.z = (edr.z && (fx.z || edr_left.z && fx_left.z || edr_up.z && fx_up.z));\n" +
+            "        nc.w = (edr.w && (fx.w || edr_left.w && fx_left.w || edr_up.w && fx_up.w));\n" +
+            "\n" +
+            "        px = lessThanEqual(df(e,f), df(e,h));\n" +
+            "\n" +
+            "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
             "    }\n" +
-            "\n" +
-            "    vec3 res = (fp.x < 0.50) ? ((fp.x < 0.25) ? ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11: E15) : ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E  : E11)) : ((fp.x < 0.75) ? ((fp.y < 0.25) ? E11: (fp.y < 0.50) ? E  : (fp.y < 0.75) ? E   : E11) : ((fp.y < 0.25) ? E15: (fp.y < 0.50) ? E11: (fp.y < 0.75) ? E11 : E15));\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
             "    vec2 fp_dot = fract(pixel_no);\n" +

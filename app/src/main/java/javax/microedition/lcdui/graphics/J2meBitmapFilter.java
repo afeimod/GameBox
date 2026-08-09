@@ -11,8 +11,10 @@ import android.graphics.RectF;
  *
  * <p>Uses the <b>exact same algorithms</b> as the reference GLSL shaders:
  * <ul>
- *   <li>2xBR / 4xBR: Hyllian's 2xBR / 4xBR with {@code reduce()} color
- *       packing (matches the GLSL shader in {@link J2meFilterShaders}).</li>
+ *   <li>2xBR / 4xBR: Hyllian's 5xBR v3.5a with weighted RGB luminance
+ *       edge detection, 21-pixel sampling, interpolation restriction, and
+ *       line-inequality edge positioning (matches the GLSL shader in
+ *       {@link J2meFilterShaders}).</li>
  *   <li>HQ4x: guest(r)'s 4xGLSLHqFilter weighted interpolation.</li>
  *   <li>Dot: Themaister's LCD dot effect with {@code exp(-gamma * delta * bloom)}.</li>
  *   <li>Scanline: sine-modulated brightness.</li>
@@ -155,8 +157,10 @@ public final class J2meBitmapFilter {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  XBR Algorithm (Hyllian's 2xBR / 4xBR — reference implementation)
+    //  XBR Algorithm (Hyllian's 5xBR v3.5a — reference implementation)
     //  Matches the GLSL FRAGMENT_2XBR / FRAGMENT_4XBR shaders exactly.
+    //  Uses weighted luminance, 21-pixel sampling, interpolation restriction,
+    //  and line-inequality edge positioning. Scale-independent.
     // ════════════════════════════════════════════════════════════════════
 
     /**
@@ -176,19 +180,25 @@ public final class J2meBitmapFilter {
     }
 
     /**
-     * 2xBR / 4xBR upscaling — reference Hyllian algorithm.
+     * 2xBR / 4xBR upscaling — Hyllian's 5xBR v3.5a reference algorithm.
      *
-     * <p>For each output pixel, computes the fractional position ({@code fp})
-     * within the source texel, determines the gradient vectors {@code g1}
-     * and {@code g2} (which select the 3×3 neighborhood orientation), then
-     * applies the exact edge-detection rule from the reference GLSL:
-     * <pre>
-     *   if (h==f && h!=e && ( e==g && (h==i || e==d)
-     *                      || e==c && (h==i || e==b) ))
-     * </pre>
+     * <p>Matches the GLSL FRAGMENT_2XBR / FRAGMENT_4XBR shaders exactly.
+     * Uses weighted RGB luminance edge detection with 21-pixel sampling,
+     * interpolation restriction (lv1, lv2_left, lv2_up), and line-inequality
+     * edge positioning. Scale-independent — the same algorithm runs for both
+     * 2xBR and 4xBR; the only difference is the fractional position {@code fp}
+     * which changes the line-inequality results per sub-pixel.
      *
-     * <p>For 2xBR: outputs {@code E} or {@code mix(E, F, 0.5)}.
-     * For 4xBR: uses the 4×4 sub-pixel pattern with {@code E11} and {@code E15}.
+     * <p>For each output pixel:
+     * <ol>
+     *   <li>Compute source texel (tx,ty) and fractional position fp within it</li>
+     *   <li>Sample 21-pixel neighborhood (3×3 core + 12 extended)</li>
+     *   <li>Compute weighted luminance vectors b,c,d,e,f,g,h,i,i4,i5,h5,f4</li>
+     *   <li>Evaluate line inequations fx, fx_left, fx_up</li>
+     *   <li>Evaluate interpolation restrictions and edge detection rules</li>
+     *   <li>Select output: nc[0]?(px[0]?F:H) : nc[1]?(px[1]?B:F)
+     *                       : nc[2]?(px[2]?D:B) : nc[3]?(px[3]?H:D) : E</li>
+     * </ol>
      */
     private static Bitmap xbrUpscale(Bitmap src, int scale) {
         int sw = src.getWidth();
@@ -200,6 +210,24 @@ public final class J2meBitmapFilter {
         src.getPixels(sp, 0, sw, 0, 0, sw, sh);
         int[] dp = new int[dw * dh];
 
+        // Hyllian's 5xBR v3.5a constants
+        final float COEF = 2.0f;
+        // rgbw = (16.163, 23.351, 8.4772) — weighted luminance for edge detection
+        final float RGBW_R = 16.163f;
+        final float RGBW_G = 23.351f;
+        final float RGBW_B = 8.4772f;
+
+        // Line inequation constants (Ao,Bo,Co / Ax,Bx,Cx / Ay,By,Cy)
+        final float AO0 =  1.0f, AO1 = -1.0f, AO2 = -1.0f, AO3 =  1.0f;
+        final float BO0 =  1.0f, BO1 =  1.0f, BO2 = -1.0f, BO3 = -1.0f;
+        final float CO0 =  1.5f, CO1 =  0.5f, CO2 = -0.5f, CO3 =  0.5f;
+        final float AX0 =  1.0f, AX1 = -1.0f, AX2 = -1.0f, AX3 =  1.0f;
+        final float BX0 =  0.5f, BX1 =  2.0f, BX2 = -0.5f, BX3 = -2.0f;
+        final float CX0 =  1.0f, CX1 =  1.0f, CX2 = -0.5f, CX3 =  0.0f;
+        final float AY0 =  1.0f, AY1 = -1.0f, AY2 = -1.0f, AY3 =  1.0f;
+        final float BY0 =  2.0f, BY1 =  0.5f, BY2 = -2.0f, BY3 = -0.5f;
+        final float CY0 =  2.0f, CY1 =  0.0f, CY2 = -1.0f, CY3 =  0.5f;
+
         for (int oy = 0; oy < dh; oy++) {
             for (int ox = 0; ox < dw; ox++) {
                 // Source texel coordinates
@@ -207,91 +235,182 @@ public final class J2meBitmapFilter {
                 int ty = oy / scale;
 
                 // Fractional position within source texel (pixel-center sampled
-                // to match GPU rasterisation: 0.125, 0.375, 0.625, 0.875 for 4x)
+                // to match GPU rasterisation: 0.25/0.75 for 2x, 0.125/0.375/0.625/0.875 for 4x)
                 float fpx = ((float) (ox - tx * scale) + 0.5f) / scale;
                 float fpy = ((float) (oy - ty * scale) + 0.5f) / scale;
 
-                // step(0.5, fp.x) / step(0.5, fp.y) — determines quadrant
-                float sx = (fpx >= 0.5f) ? 1.0f : 0.0f;
-                float sy = (fpy >= 0.5f) ? 1.0f : 0.0f;
+                // ── Sample 21-pixel neighborhood ─────────────────────────────
+                // Core 3×3
+                int pA = getPixelSafe(sp, sw, sh, tx - 1, ty - 1);
+                int pB = getPixelSafe(sp, sw, sh, tx,     ty - 1);
+                int pC = getPixelSafe(sp, sw, sh, tx + 1, ty - 1);
+                int pD = getPixelSafe(sp, sw, sh, tx - 1, ty);
+                int pE = getPixelSafe(sp, sw, sh, tx,     ty);
+                int pF = getPixelSafe(sp, sw, sh, tx + 1, ty);
+                int pG = getPixelSafe(sp, sw, sh, tx - 1, ty + 1);
+                int pH = getPixelSafe(sp, sw, sh, tx,     ty + 1);
+                int pI = getPixelSafe(sp, sw, sh, tx + 1, ty + 1);
+                // Extended neighborhood (12 pixels beyond 3×3)
+                int pA1 = getPixelSafe(sp, sw, sh, tx - 1, ty - 2);
+                int pC1 = getPixelSafe(sp, sw, sh, tx + 1, ty - 2);
+                int pA0 = getPixelSafe(sp, sw, sh, tx - 2, ty - 1);
+                int pG0 = getPixelSafe(sp, sw, sh, tx - 2, ty + 1);
+                int pC4 = getPixelSafe(sp, sw, sh, tx + 2, ty - 1);
+                int pI4 = getPixelSafe(sp, sw, sh, tx + 2, ty + 1);
+                int pG5 = getPixelSafe(sp, sw, sh, tx - 1, ty + 2);
+                int pI5 = getPixelSafe(sp, sw, sh, tx + 1, ty + 2);
+                int pB1 = getPixelSafe(sp, sw, sh, tx,     ty - 2);
+                int pD0 = getPixelSafe(sp, sw, sh, tx - 2, ty);
+                int pH5 = getPixelSafe(sp, sw, sh, tx,     ty + 2);
+                int pF4 = getPixelSafe(sp, sw, sh, tx + 2, ty);
 
-                // Gradient vectors as integer pixel offsets.
-                // v_texcoord0[1] = (0, -texelDelta.y) → up  = (0, -1)
-                // v_texcoord0[2] = (-texelDelta.x, 0) → left = (-1, 0)
-                // g1 = v[1]*(sx+sy-1) + v[2]*(sx-sy) → (sy-sx, 1-sx-sy)
-                // g2 = v[1]*(sy-sx) + v[2]*(sx+sy-1) → (1-sx-sy, sx-sy)
-                int g1x = (int) (sy - sx);
-                int g1y = (int) (1 - sx - sy);
-                int g2x = (int) (1 - sx - sy);
-                int g2y = (int) (sx - sy);
+                // ── Weighted luminance ───────────────────────────────────────
+                float lumB  = lum(pB,  RGBW_R, RGBW_G, RGBW_B);
+                float lumD  = lum(pD,  RGBW_R, RGBW_G, RGBW_B);
+                float lumF  = lum(pF,  RGBW_R, RGBW_G, RGBW_B);
+                float lumH  = lum(pH,  RGBW_R, RGBW_G, RGBW_B);
+                float lumA  = lum(pA,  RGBW_R, RGBW_G, RGBW_B);
+                float lumC  = lum(pC,  RGBW_R, RGBW_G, RGBW_B);
+                float lumG  = lum(pG,  RGBW_R, RGBW_G, RGBW_B);
+                float lumI  = lum(pI,  RGBW_R, RGBW_G, RGBW_B);
+                float lumE  = lum(pE,  RGBW_R, RGBW_G, RGBW_B);
+                float lumI4 = lum(pI4, RGBW_R, RGBW_G, RGBW_B);
+                float lumC1 = lum(pC1, RGBW_R, RGBW_G, RGBW_B);
+                float lumA0 = lum(pA0, RGBW_R, RGBW_G, RGBW_B);
+                float lumG5 = lum(pG5, RGBW_R, RGBW_G, RGBW_B);
+                float lumI5 = lum(pI5, RGBW_R, RGBW_G, RGBW_B);
+                float lumC4 = lum(pC4, RGBW_R, RGBW_G, RGBW_B);
+                float lumA1 = lum(pA1, RGBW_R, RGBW_G, RGBW_B);
+                float lumG0 = lum(pG0, RGBW_R, RGBW_G, RGBW_B);
+                float lumH5 = lum(pH5, RGBW_R, RGBW_G, RGBW_B);
+                float lumF4 = lum(pF4, RGBW_R, RGBW_G, RGBW_B);
+                float lumB1 = lum(pB1, RGBW_R, RGBW_G, RGBW_B);
+                float lumD0 = lum(pD0, RGBW_R, RGBW_G, RGBW_B);
 
-                // Sample 3×3 neighborhood (B,C,D,E,F,G,H,I) using g1,g2
-                int B = getPixelSafe(sp, sw, sh, tx + g1x,         ty + g1y);
-                int C = getPixelSafe(sp, sw, sh, tx + g1x - g2x,   ty + g1y - g2y);
-                int D = getPixelSafe(sp, sw, sh, tx + g2x,         ty + g2y);
-                int E = getPixelSafe(sp, sw, sh, tx,               ty);
-                int F = getPixelSafe(sp, sw, sh, tx - g2x,         ty - g2y);
-                int G = getPixelSafe(sp, sw, sh, tx - g1x + g2x,   ty - g1y + g2y);
-                int H = getPixelSafe(sp, sw, sh, tx - g1x,         ty - g1y);
-                int I = getPixelSafe(sp, sw, sh, tx - g1x - g2x,   ty - g1y - g2y);
+                // ── Build vec4 luminance vectors (float[4] stands in for GLSL vec4) ──
+                // b  = (lum(B), lum(D), lum(H), lum(F))
+                float b0 = lumB, b1 = lumD, b2 = lumH, b3 = lumF;
+                // c  = (lum(C), lum(A), lum(G), lum(I))
+                float c0 = lumC, c1 = lumA, c2 = lumG, c3 = lumI;
+                // d  = (b.y, b.z, b.w, b.x) = (b1, b2, b3, b0)
+                // e  = (lum(E), lum(E), lum(E), lum(E))
+                // f  = (b.w, b.x, b.y, b.z) = (b3, b0, b1, b2)
+                // g  = (c.z, c.w, c.x, c.y) = (c2, c3, c0, c1)
+                // h  = (b.z, b.w, b.x, b.y) = (b2, b3, b0, b1)
+                // i  = (c.w, c.x, c.y, c.z) = (c3, c0, c1, c2)
+                // i4 = (lum(I4), lum(C1), lum(A0), lum(G5))
+                // i5 = (lum(I5), lum(C4), lum(A1), lum(G0))
+                // h5 = (lum(H5), lum(F4), lum(B1), lum(D0))
+                // f4 = (h5.y, h5.z, h5.w, h5.x)
 
-                // reduce() for exact color comparison
-                long b = reduceColor(B);
-                long c = reduceColor(C);
-                long d = reduceColor(D);
-                long e = reduceColor(E);
-                long f = reduceColor(F);
-                long g = reduceColor(G);
-                long h = reduceColor(H);
-                long i = reduceColor(I);
+                // ── Line inequations (boolean[4] stands in for GLSL bvec4) ───
+                boolean fx0      = AO0*fpy + BO0*fpx > CO0;
+                boolean fx1      = AO1*fpy + BO1*fpx > CO1;
+                boolean fx2      = AO2*fpy + BO2*fpx > CO2;
+                boolean fx3      = AO3*fpy + BO3*fpx > CO3;
+                boolean fxL0     = AX0*fpy + BX0*fpx > CX0;
+                boolean fxL1     = AX1*fpy + BX1*fpx > CX1;
+                boolean fxL2     = AX2*fpy + BX2*fpx > CX2;
+                boolean fxL3     = AX3*fpy + BX3*fpx > CX3;
+                boolean fxU0     = AY0*fpy + BY0*fpx > CY0;
+                boolean fxU1     = AY1*fpy + BY1*fpx > CY1;
+                boolean fxU2     = AY2*fpy + BY2*fpx > CY2;
+                boolean fxU3     = AY3*fpy + BY3*fpx > CY3;
 
-                // Edge detection (verbatim from reference shader)
-                boolean edge = (h == f && h != e &&
-                        ((e == g && (h == i || e == d)) ||
-                         (e == c && (h == i || e == b))));
+                // ── Interpolation restrictions ──────────────────────────────
+                // interp_restriction_lv1: (e!=f) && (e!=h)
+                // e[k]=lumE, f[k]=b3/b0/b1/b2, h[k]=b2/b3/b0/b1
+                boolean ilv1_0 = (lumE != b3) && (lumE != b2);
+                boolean ilv1_1 = (lumE != b0) && (lumE != b3);
+                boolean ilv1_2 = (lumE != b1) && (lumE != b0);
+                boolean ilv1_3 = (lumE != b2) && (lumE != b1);
 
-                if (scale == 2) {
-                    // 2xBR: E or mix(E, F, 0.5)
-                    dp[oy * dw + ox] = edge ? blendColor(E, F, 0.5f) : E;
+                // interp_restriction_lv2_left: (e!=g) && (d!=g)
+                // d[k]=b1/b2/b3/b0, g[k]=c2/c3/c0/c1
+                boolean ilv2L_0 = (lumE != c2) && (b1 != c2);
+                boolean ilv2L_1 = (lumE != c3) && (b2 != c3);
+                boolean ilv2L_2 = (lumE != c0) && (b3 != c0);
+                boolean ilv2L_3 = (lumE != c1) && (b0 != c1);
+
+                // interp_restriction_lv2_up: (e!=c) && (b!=c)
+                boolean ilv2U_0 = (lumE != c0) && (b0 != c0);
+                boolean ilv2U_1 = (lumE != c1) && (b1 != c1);
+                boolean ilv2U_2 = (lumE != c2) && (b2 != c2);
+                boolean ilv2U_3 = (lumE != c3) && (b3 != c3);
+
+                // ── Edge detection rules ────────────────────────────────────
+                // weighted_distance(a,b,c,d,e,f,g,h) = |a-b|+|c-d|+|e-f|+|g-h|
+                // edr: interp_lv1 && (wd(e,c,g,i,h5,f4,h,f) < wd(h,d,i5,f,i4,b,e,i))
+
+                // k=0: e=lumE, c=c0, g=c2, i=c3, h5=lumH5, f4=lumF4, h=b2, f=b3
+                //      h=b2, d=b1, i5=lumI5, f=b3, i4=lumI4, b=b0, e=lumE, i=c3
+                float wd1_0 = Math.abs(lumE-c0) + Math.abs(c2-c3) + Math.abs(lumH5-lumF4) + Math.abs(b2-b3);
+                float wd2_0 = Math.abs(b2-b1) + Math.abs(lumI5-b3) + Math.abs(lumI4-b0) + Math.abs(lumE-c3);
+                boolean edr0 = ilv1_0 && (wd1_0 < wd2_0);
+
+                // k=1: e=lumE, c=c1, g=c3, i=c0, h5=lumF4, f4=lumB1, h=b3, f=b0
+                //      h=b3, d=b2, i5=lumC4, f=b0, i4=lumC1, b=b1, e=lumE, i=c0
+                float wd1_1 = Math.abs(lumE-c1) + Math.abs(c3-c0) + Math.abs(lumF4-lumB1) + Math.abs(b3-b0);
+                float wd2_1 = Math.abs(b3-b2) + Math.abs(lumC4-b0) + Math.abs(lumC1-b1) + Math.abs(lumE-c0);
+                boolean edr1 = ilv1_1 && (wd1_1 < wd2_1);
+
+                // k=2: e=lumE, c=c2, g=c0, i=c1, h5=lumB1, f4=lumD0, h=b0, f=b1
+                //      h=b0, d=b3, i5=lumA1, f=b1, i4=lumA0, b=b2, e=lumE, i=c1
+                float wd1_2 = Math.abs(lumE-c2) + Math.abs(c0-c1) + Math.abs(lumB1-lumD0) + Math.abs(b0-b1);
+                float wd2_2 = Math.abs(b0-b3) + Math.abs(lumA1-b1) + Math.abs(lumA0-b2) + Math.abs(lumE-c1);
+                boolean edr2 = ilv1_2 && (wd1_2 < wd2_2);
+
+                // k=3: e=lumE, c=c3, g=c1, i=c2, h5=lumD0, f4=lumH5, h=b1, f=b2
+                //      h=b1, d=b0, i5=lumG0, f=b2, i4=lumG5, b=b3, e=lumE, i=c2
+                float wd1_3 = Math.abs(lumE-c3) + Math.abs(c1-c2) + Math.abs(lumD0-lumH5) + Math.abs(b1-b2);
+                float wd2_3 = Math.abs(b1-b0) + Math.abs(lumG0-b2) + Math.abs(lumG5-b3) + Math.abs(lumE-c2);
+                boolean edr3 = ilv1_3 && (wd1_3 < wd2_3);
+
+                // edr_left: interp_lv2_left && (coef*|f-g| <= |h-c|)
+                // k=0: f=b3, g=c2, h=b2, c=c0
+                boolean edrL0 = ilv2L_0 && (COEF * Math.abs(b3-c2) <= Math.abs(b2-c0));
+                // k=1: f=b0, g=c3, h=b3, c=c1
+                boolean edrL1 = ilv2L_1 && (COEF * Math.abs(b0-c3) <= Math.abs(b3-c1));
+                // k=2: f=b1, g=c0, h=b0, c=c2
+                boolean edrL2 = ilv2L_2 && (COEF * Math.abs(b1-c0) <= Math.abs(b0-c2));
+                // k=3: f=b2, g=c1, h=b1, c=c3
+                boolean edrL3 = ilv2L_3 && (COEF * Math.abs(b2-c1) <= Math.abs(b1-c3));
+
+                // edr_up: interp_lv2_up && (|f-g| >= coef*|h-c|)
+                boolean edrU0 = ilv2U_0 && (Math.abs(b3-c2) >= COEF * Math.abs(b2-c0));
+                boolean edrU1 = ilv2U_1 && (Math.abs(b0-c3) >= COEF * Math.abs(b3-c1));
+                boolean edrU2 = ilv2U_2 && (Math.abs(b1-c0) >= COEF * Math.abs(b0-c2));
+                boolean edrU3 = ilv2U_3 && (Math.abs(b2-c1) >= COEF * Math.abs(b1-c3));
+
+                // ── New color flags: nc[k] = edr[k] && (fx[k] || (edrL[k]&&fxL[k]) || (edrU[k]&&fxU[k])) ──
+                boolean nc0 = edr0 && (fx0  || (edrL0 && fxL0) || (edrU0 && fxU0));
+                boolean nc1 = edr1 && (fx1  || (edrL1 && fxL1) || (edrU1 && fxU1));
+                boolean nc2 = edr2 && (fx2  || (edrL2 && fxL2) || (edrU2 && fxU2));
+                boolean nc3 = edr3 && (fx3  || (edrL3 && fxL3) || (edrU3 && fxU3));
+
+                // ── Pixel selection: px[k] = |e-f| <= |e-h| ─────────────────
+                boolean px0 = Math.abs(lumE - b3) <= Math.abs(lumE - b2);
+                boolean px1 = Math.abs(lumE - b0) <= Math.abs(lumE - b3);
+                boolean px2 = Math.abs(lumE - b1) <= Math.abs(lumE - b0);
+                boolean px3 = Math.abs(lumE - b2) <= Math.abs(lumE - b1);
+
+                // ── Final color selection ────────────────────────────────────
+                // nc[0] ? (px[0] ? F : H) : nc[1] ? (px[1] ? B : F)
+                //     : nc[2] ? (px[2] ? D : B) : nc[3] ? (px[3] ? H : D) : E
+                int result;
+                if (nc0) {
+                    result = px0 ? pF : pH;
+                } else if (nc1) {
+                    result = px1 ? pB : pF;
+                } else if (nc2) {
+                    result = px2 ? pD : pB;
+                } else if (nc3) {
+                    result = px3 ? pH : pD;
                 } else {
-                    // 4xBR: 4×4 sub-pixel pattern
-                    // E11 = E (default), E15 = E (default)
-                    // if (edge) { E11 = mix(E, F, 0.5); E15 = F; }
-                    int E11 = edge ? blendColor(E, F, 0.5f) : E;
-                    int E15 = edge ? F : E;
-
-                    int result;
-                    if (fpx < 0.50f) {
-                        if (fpx < 0.25f) {
-                            // Column 0: E15, E11, E11, E15
-                            if (fpy < 0.25f)      result = E15;
-                            else if (fpy < 0.50f)  result = E11;
-                            else if (fpy < 0.75f)  result = E11;
-                            else                   result = E15;
-                        } else {
-                            // Column 1: E11, E, E, E11
-                            if (fpy < 0.25f)      result = E11;
-                            else if (fpy < 0.50f)  result = E;
-                            else if (fpy < 0.75f)  result = E;
-                            else                   result = E11;
-                        }
-                    } else {
-                        if (fpx < 0.75f) {
-                            // Column 2: E11, E, E, E11
-                            if (fpy < 0.25f)      result = E11;
-                            else if (fpy < 0.50f)  result = E;
-                            else if (fpy < 0.75f)  result = E;
-                            else                   result = E11;
-                        } else {
-                            // Column 3: E15, E11, E11, E15
-                            if (fpy < 0.25f)      result = E15;
-                            else if (fpy < 0.50f)  result = E11;
-                            else if (fpy < 0.75f)  result = E11;
-                            else                   result = E15;
-                        }
-                    }
-                    dp[oy * dw + ox] = result;
+                    result = pE;
                 }
+
+                dp[oy * dw + ox] = result;
             }
         }
 
@@ -680,6 +799,18 @@ public final class J2meBitmapFilter {
         int b = Math.round(b1 * (1 - ratio) + b2 * ratio);
         int a = (c1 >> 24) & 0xFF;
         return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    /**
+     * Weighted luminance for XBR edge detection: {@code dot(color_rgb, rgbw)}.
+     * Uses integer 0-255 RGB channels directly (the rgbw weights are scaled
+     * appropriately so the result is a single scalar for comparison).
+     */
+    private static float lum(int color, float rw, float gw, float bw) {
+        float r = (color >> 16) & 0xFF;
+        float g = (color >> 8) & 0xFF;
+        float b = color & 0xFF;
+        return r * rw + g * gw + b * bw;
     }
 
     public static void release() {
