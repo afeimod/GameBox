@@ -193,26 +193,49 @@ public abstract class Canvas extends Displayable {
          * Sets the J2ME video filter mode. This is called by MicroActivity when the
          * user selects a filter from the floating menu.
          *
-         * For GL mode (mode 1): triggers shader recompilation on the GL thread.
-         * For non-GL modes (0/2/3): enables CPU bitmap filtering in repaintScreen/onDraw.
+         * Filter modes (must match {@link J2meFilterShaders} / {@link J2meBitmapFilter}):
+         *   0 = None, 1 = Scanline, 2 = CRT, 3 = Dot,
+         *   4 = 2xBR, 5 = 4xBR, 6 = 2xBR+Dot, 7 = 4xBR+Dot,
+         *   8 = HQ4x, 9 = HQ4x+Dot
          *
-         * When XBR/HQ4x filters (modes 4-9) are selected and the game is NOT in GL
-         * mode, this forces a switch to GL mode so the GPU shader pipeline handles
-         * the filtering — the CPU J2meBitmapFilter path is too slow for real-time
-         * pixel-processing filters.
+         * <p>All filter modes are handled by the active rendering pipeline:
+         * <ul>
+         *   <li><b>GL mode (graphicsMode == 1)</b>: {@link GLRenderer#switchProgram}
+         *       recompiles the GLSL shader on the GL thread on the next frame.
+         *       This is detected via {@code fm != lastFilterMode} in
+         *       {@link GLRenderer#onDrawFrame}.</li>
+         *   <li><b>Non-GL modes (graphicsMode == 0, 2, 3)</b>: {@link #repaintScreen}
+         *       and {@link #onDraw} dispatch to {@link J2meBitmapFilter#drawFiltered}
+         *       which implements all filter modes (XBR / HQ4x / scanline / CRT / dot)
+         *       on the CPU.</li>
+         * </ul>
          *
-         * @param mode 0=none, 1=scanline, 2=CRT, 3=dot, 4=XBR, 5=4XBR, 6=XBR+dot, 7=4XBR+dot, 8=HQ4x
+         * <p><b>NOTE:</b> Previously this method forced a switch to GL mode
+         * (graphicsMode=1) when an XBR/HQ4x filter (modes 4-9) was selected.
+         * That switch was broken — {@link #setGraphicsMode} only updates the
+         * static field, but the {@link Canvas} instance had already been
+         * constructed without a {@link GLRenderer} (because the initial
+         * graphicsMode was 0), and {@link #getDisplayableView} had already
+         * cached a {@link CanvasView} as {@code innerView}. The next repaint
+         * would then NPE in {@link #requestFlushToScreen} when calling
+         * {@code renderer.requestRender()} on a null renderer, silently
+         * breaking xBR rendering.
+         *
+         * <p>The CPU path ({@link J2meBitmapFilter}) implements the exact same
+         * Hyllian 2xBR/4xBR and guest(r) HQ4x algorithms as the GLSL shaders,
+         * so removing the GL mode switch restores xBR rendering without
+         * requiring a View hierarchy rebuild. Users who want GPU-accelerated
+         * xBR should select GL mode (graphicsMode=1) in their profile settings
+         * before launching the game.
+         *
+         * @param mode filter mode (0-9)
          */
         public static void setJ2meFilterMode(int mode) {
                 Canvas.j2meFilterMode = mode;
-
-                // XBR/HQ4x filters (4-9) need GPU acceleration.
-                // If we're not in GL mode, force switch to GL mode (graphicsMode=1)
-                // so GLRenderer + J2meFilterShaders handle the filtering on the GPU.
-                if (mode >= 4 && mode <= 9 && graphicsMode != 1) {
-                        // Switch to GL rendering mode for GPU-accelerated filtering
-                        setGraphicsMode(1, parallelRedraw);
-                }
+                // No graphicsMode switch — see method javadoc above.
+                // The CPU filter path (J2meBitmapFilter) handles all modes in
+                // repaintScreen()/onDraw(); the GL path (GLRenderer.switchProgram)
+                // handles all modes when graphicsMode is already 1.
         }
 
         /** Returns the current J2ME filter mode. */
@@ -1443,8 +1466,17 @@ public abstract class Canvas extends Displayable {
 
         private void requestFlushToScreen() {
                 if (graphicsMode == 1) {
-                        if (innerView != null) {
+                        // GL mode: only request a render if the GLRenderer was actually
+                        // created (i.e. the Canvas was constructed with graphicsMode==1).
+                        // If graphicsMode was switched to 1 after construction (e.g. via
+                        // setJ2meFilterMode in older code), renderer is null and we must
+                        // fall through to the CPU path to avoid a NullPointerException.
+                        if (renderer != null && innerView != null) {
                                 renderer.requestRender();
+                        } else {
+                                // Defensive fallback: use the CPU path (repaintScreen)
+                                // which handles all filter modes via J2meBitmapFilter.
+                                repaintScreen();
                         }
                 } else if (graphicsMode == 2) {
                         if (innerView != null) {

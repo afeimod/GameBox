@@ -69,6 +69,7 @@ static int  s_region = 0;
 static std::string s_systemDir;
 static std::string s_saveDir;
 static std::string s_coreMessage;  // last message from the core
+static std::string s_lastRomPath;  // last successfully loaded ROM path (for SRAM save)
 
 // Pixel format requested by the core via SET_PIXEL_FORMAT.
 // SNES9x typically requests XRGB8888, but we handle all formats for safety.
@@ -573,6 +574,18 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_loaded = true;
     LOGI("retro_load_game SUCCEEDED for: %s", path.c_str());
 
+    // Load battery-backed cartridge SRAM from disk into the core's SAVE_RAM
+    // region. The libretro API requires the frontend to do this — the SNES9x
+    // core's retro_unload_game() is empty (it does NOT auto-save SRAM).
+    // For SNES, RETRO_MEMORY_SAVE_RAM points to Memory.SRAM which holds the
+    // cartridge's battery-backed RAM (used for in-game saves).
+    s_lastRomPath = path;
+    {
+        void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+        size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+        coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, path);
+    }
+
     // Set up dual controller ports
     retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
@@ -607,6 +620,14 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 
 void unload() {
     if (s_loaded) {
+        // Persist battery-backed cartridge SRAM to disk BEFORE unloading the
+        // core — SNES9x's retro_unload_game() is empty, so without this call
+        // the SRAM would be lost when the game is closed.
+        if (!s_lastRomPath.empty()) {
+            void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+            size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            coreshared::saveSramToDisk(sram, sramSize, s_saveDir, s_lastRomPath);
+        }
         retro_unload_game();
         retro_deinit();
         s_loaded = false;
@@ -623,6 +644,7 @@ void unload() {
     }
     s_videoW = kSnesW;
     s_videoH = kSnesH;
+    s_lastRomPath.clear();
 }
 
 void resetEmulation(bool /*hard*/) {

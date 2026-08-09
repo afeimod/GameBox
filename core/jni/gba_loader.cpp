@@ -71,6 +71,7 @@ static int  s_region = 0;
 static std::string s_systemDir;
 static std::string s_saveDir;
 static std::string s_coreMessage;
+static std::string s_lastRomPath;  // last successfully loaded ROM path (for SRAM save)
 
 // Dynamic frame buffer (ARGB, 0xAARRGGBB). Written by cb_video, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
@@ -678,6 +679,20 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_loaded = true;
     LOGI("retro_load_game SUCCEEDED for: %s", path.c_str());
 
+    // Load battery-backed cartridge SRAM from disk into the core's SAVE_RAM
+    // region. The libretro API requires the frontend to do this — the core
+    // itself does not auto-load .sav/.srm files.
+    // For mGBA, RETRO_MEMORY_SAVE_RAM covers GB/GBC cartridge RAM (SRAM, Flash
+    // RTC-backed RAM) and GBA SRAM/Flash/EEPROM. RTC data is in a separate
+    // RETRO_MEMORY_RTC region which we don't persist here (libretro convention
+    // is to merge RTC into the .srm via frontend-specific encoding).
+    s_lastRomPath = path;
+    {
+        void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+        size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+        coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, path);
+    }
+
     retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
 
@@ -708,6 +723,13 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 
 void unload() {
     if (s_loaded) {
+        // Persist battery-backed cartridge SRAM to disk BEFORE unloading the
+        // core — after retro_unload_game() the SAVE_RAM pointer is invalid.
+        if (!s_lastRomPath.empty()) {
+            void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+            size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            coreshared::saveSramToDisk(sram, sramSize, s_saveDir, s_lastRomPath);
+        }
         retro_unload_game();
         retro_deinit();
         s_loaded = false;
@@ -721,6 +743,7 @@ void unload() {
     s_frameW = 0;
     s_frameH = 0;
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+    s_lastRomPath.clear();
 }
 
 void resetEmulation(bool /*hard*/) {

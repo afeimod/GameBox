@@ -15,6 +15,7 @@
 #include <atomic>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <mutex>
@@ -554,6 +555,110 @@ static inline void libretroLog(int level, const char* fmt, ...) {
     va_start(ap, fmt);
     __android_log_vprint(prio, "libretro", fmt, ap);
     va_end(ap);
+}
+
+// ---------------------------------------------------------------------------
+// Battery-backed SRAM (cartridge save RAM) persistence
+// ---------------------------------------------------------------------------
+//
+// libretro cores do NOT auto-persist cartridge SRAM to disk. The frontend is
+// responsible for:
+//   1. Loading the .srm file into the core's SAVE_RAM region after
+//      retro_load_game() succeeds.
+//   2. Writing the SAVE_RAM region back to the .srm file before
+//      retro_unload_game() is called.
+//
+// The .srm file is placed in the frontend's save directory, named after the
+// ROM's basename with a .srm extension (RetroArch convention).
+//
+// These helpers take the SRAM pointer and size (obtained via
+// retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) and
+// retro_get_memory_size(RETRO_MEMORY_SAVE_RAM)) so they don't need to
+// depend on libretro.h directly.
+
+// Derive the .srm path for a given ROM path and save directory.
+// e.g. "/sdcard/roms/game.nes" + "/data/saves" -> "/data/saves/game.srm"
+static inline std::string getSrmPath(const std::string& saveDir,
+                                      const std::string& romPath) {
+    // Extract basename (filename without directory)
+    size_t slash = romPath.find_last_of('/');
+    std::string basename = (slash != std::string::npos)
+                           ? romPath.substr(slash + 1)
+                           : romPath;
+    // Strip extension
+    size_t dot = basename.find_last_of('.');
+    if (dot != std::string::npos) {
+        basename = basename.substr(0, dot);
+    }
+    if (saveDir.empty()) {
+        return basename + ".srm";
+    }
+    // Ensure saveDir doesn't end with '/'
+    std::string dir = saveDir;
+    if (dir.back() == '/') dir.pop_back();
+    return dir + "/" + basename + ".srm";
+}
+
+// Load cartridge SRAM from disk into the core's SAVE_RAM buffer.
+// Called AFTER retro_load_game() succeeds.
+// sram    — pointer from retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)
+// sramSize— size  from retro_get_memory_size(RETRO_MEMORY_SAVE_RAM)
+// saveDir — frontend save directory (RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY)
+// romPath — absolute path to the ROM file (used to derive the .srm filename)
+static inline void loadSramFromDisk(void* sram, size_t sramSize,
+                                     const std::string& saveDir,
+                                     const std::string& romPath) {
+    if (!sram || sramSize == 0) {
+        LOGI("SRAM load: no SAVE_RAM region (sram=%p, size=%zu) — skipping",
+             sram, sramSize);
+        return;
+    }
+    std::string srmPath = getSrmPath(saveDir, romPath);
+    FILE* f = std::fopen(srmPath.c_str(), "rb");
+    if (!f) {
+        LOGI("SRAM load: no existing save at %s — starting fresh", srmPath.c_str());
+        return;
+    }
+    std::fseek(f, 0, SEEK_END);
+    long fileSize = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (fileSize <= 0) {
+        std::fclose(f);
+        LOGW("SRAM load: %s is empty — skipping", srmPath.c_str());
+        return;
+    }
+    // Read at most sramSize bytes (ignore trailing data if file is larger)
+    size_t toRead = ((size_t)fileSize < sramSize) ? (size_t)fileSize : sramSize;
+    size_t rd = std::fread(sram, 1, toRead, f);
+    std::fclose(f);
+    // If the file is smaller than the buffer, zero-fill the remainder so we
+    // don't leave stale data from a previous game in the buffer.
+    if (rd < sramSize) {
+        std::memset(static_cast<uint8_t*>(sram) + rd, 0, sramSize - rd);
+    }
+    LOGI("SRAM load: %zu bytes from %s (buffer=%zu, file=%ld)",
+         rd, srmPath.c_str(), sramSize, fileSize);
+}
+
+// Write the core's SAVE_RAM buffer back to disk as a .srm file.
+// Called BEFORE retro_unload_game() so the buffer is still valid.
+static inline void saveSramToDisk(void* sram, size_t sramSize,
+                                   const std::string& saveDir,
+                                   const std::string& romPath) {
+    if (!sram || sramSize == 0) {
+        LOGI("SRAM save: no SAVE_RAM region (sram=%p, size=%zu) — skipping",
+             sram, sramSize);
+        return;
+    }
+    std::string srmPath = getSrmPath(saveDir, romPath);
+    FILE* f = std::fopen(srmPath.c_str(), "wb");
+    if (!f) {
+        LOGE("SRAM save: cannot open %s for write", srmPath.c_str());
+        return;
+    }
+    size_t wr = std::fwrite(sram, 1, sramSize, f);
+    std::fclose(f);
+    LOGI("SRAM save: %zu bytes to %s", wr, srmPath.c_str());
 }
 
 } // namespace coreshared
