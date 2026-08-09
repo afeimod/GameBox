@@ -559,11 +559,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_isFdsGame.store(false, std::memory_order_relaxed);
 
     // --- FDS BIOS pre-check ---
-    // If this is an FDS game, verify the BIOS is present. The BIOS is
-    // auto-extracted from APK assets by NesApp.ensureFdsBios() on startup.
-    // We only check existence and size here — the FCEUmm core itself
-    // validates the BIOS content during retro_load_game and will report
-    // a clear error if the BIOS is bad.
+    // If this is an FDS game, verify the BIOS is present AND valid.
+    // FCEUmm does NOT validate BIOS content — it will happily load a
+    // corrupted/fake BIOS, map it at 0xE000, and the CPU will execute
+    // garbage, producing a permanent gray screen. We check the reset
+    // vector here to catch this and return a clear error instead.
     {
         std::string ext;
         size_t dot = path.find_last_of('.');
@@ -576,17 +576,47 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             std::string biosPath = s_systemDir + "/disksys.rom";
             FILE* biosF = std::fopen(biosPath.c_str(), "rb");
             if (!biosF) {
-                LOGW("FDS BIOS not found at: %s — will attempt load anyway", biosPath.c_str());
-            } else {
-                std::fseek(biosF, 0, SEEK_END);
-                long biosSize = std::ftell(biosF);
-                std::fclose(biosF);
-                LOGI("FDS BIOS found at: %s (%ld bytes)", biosPath.c_str(), biosSize);
-
-                if (biosSize != 8192) {
-                    LOGW("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
-                }
+                LOGE("FDS BIOS not found at: %s", biosPath.c_str());
+                retro_deinit();
+                return "FDS BIOS (disksys.rom) 未找到。"
+                       "请将真实的 disksys.rom 放入 app/src/main/assets/ 目录"
+                       "或在设置中手动导入。";
             }
+            std::fseek(biosF, 0, SEEK_END);
+            long biosSize = std::ftell(biosF);
+            std::fseek(biosF, 0, SEEK_SET);
+
+            if (biosSize != 8192) {
+                std::fclose(biosF);
+                LOGE("FDS BIOS size mismatch: expected 8192, got %ld", biosSize);
+                retro_deinit();
+                return "disksys.rom 大小错误 (" + std::to_string(biosSize) +
+                       " 字节，需要 8192 字节)。请使用真实的 FDS BIOS。";
+            }
+
+            // Read the reset vector at offset 0x1FFC-0x1FFD.
+            // A real FDS BIOS has its reset vector pointing into 0xE000-0xFFFF
+            // (the BIOS region). A corrupted/fake BIOS points to 0x00xx (RAM),
+            // causing the CPU to never boot → gray screen.
+            uint8_t vec[2];
+            std::fseek(biosF, 0x1FFC, SEEK_SET);
+            size_t rd = std::fread(vec, 1, 2, biosF);
+            std::fclose(biosF);
+            if (rd != 2) {
+                retro_deinit();
+                return "disksys.rom 读取失败。";
+            }
+            int resetVec = (vec[1] << 8) | vec[0];
+            if (resetVec < 0xE000 || resetVec > 0xFFFF) {
+                LOGE("FDS BIOS reset vector 0x%04X invalid (must be 0xE000-0xFFFF)", resetVec);
+                retro_deinit();
+                return "disksys.rom 是无效的 BIOS 文件 (复位向量 0x" +
+                       std::to_string(resetVec) + " 不在 0xE000-0xFFFF 范围)。"
+                       "请使用真实的 FDS BIOS (MD5: ca30b50f880eb660a4062209e9986140)。";
+            }
+
+            LOGI("FDS BIOS valid: %s (%ld bytes, reset vec 0x%04X)",
+                 biosPath.c_str(), biosSize, resetVec);
             LOGI("Loading FDS game: %s", path.c_str());
         }
     }

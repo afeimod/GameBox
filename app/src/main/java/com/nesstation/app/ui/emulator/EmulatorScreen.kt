@@ -2182,7 +2182,32 @@ private fun checkFdsBiosStatus(context: android.content.Context): FdsBiosStatus 
         return FdsBiosStatus(exists = true, valid = false,
             message = "文件大小错误: ${size}字节 (需要8192字节)")
     }
+    // Validate reset vector points into BIOS region 0xE000-0xFFFF.
+    // A corrupted/fake BIOS has a reset vector pointing to 0x00xx (RAM),
+    // causing a permanent gray screen.
+    if (!isValidFdsBiosContent(biosFile)) {
+        return FdsBiosStatus(exists = true, valid = false,
+            message = "BIOS无效 (复位向量错误)")
+    }
     return FdsBiosStatus(exists = true, valid = true, message = "已导入 ✓")
+}
+
+// Validate FDS BIOS content: reset vector (offset 0x1FFC-0x1FFD) must
+// point into 0xE000-0xFFFF (the BIOS region).
+private fun isValidFdsBiosContent(file: java.io.File): Boolean {
+    try {
+        file.inputStream().use { input ->
+            val bytes = input.readBytes()
+            if (bytes.size != 8192) return false
+            val resetLo = bytes[0x1FFC].toInt() and 0xFF
+            val resetHi = bytes[0x1FFD].toInt() and 0xFF
+            val resetVec = (resetHi shl 8) or resetLo
+            if (resetVec < 0xE000 || resetVec > 0xFFFF) return false
+        }
+    } catch (_: Exception) {
+        return false
+    }
+    return true
 }
 
 // Import FDS BIOS from a content URI to filesDir/disksys.rom
@@ -2196,6 +2221,11 @@ private fun importFdsBios(context: android.content.Context, uri: android.net.Uri
         val size = biosFile.length()
         if (size != 8192L) {
             return "导入失败: 文件大小${size}字节不正确 (需要8192字节)"
+        }
+
+        if (!isValidFdsBiosContent(biosFile)) {
+            biosFile.delete()
+            return "导入失败: BIOS无效 (复位向量不在0xE000-0xFFFF范围)"
         }
         "导入成功! 请重新加载FDS游戏"
     } catch (e: Exception) {
