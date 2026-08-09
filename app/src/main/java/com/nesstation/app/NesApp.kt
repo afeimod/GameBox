@@ -60,86 +60,41 @@ class NesApp : Application() {
      * Called on every app start. Always re-extracts from assets to pick up
      * any BIOS update the developer made to app/src/main/assets/disksys.rom.
      *
-     * Validation:
-     *   1. Size must be exactly 8192 bytes
-     *   2. Must not be all zeros
-     *   3. Reset vector (at offset 0x1FFC-0x1FFD) must point into the BIOS
-     *      region 0xE000-0xFFFF. A corrupted/stub BIOS has a reset vector
-     *      pointing to zero-page RAM (0x00xx), causing the CPU to never
-     *      boot the BIOS and producing a permanent gray screen.
+     * We intentionally do NOT validate BIOS content (reset vector, NOP
+     * counting, hash, etc.) because:
+     *   1. The FCEUmm core itself validates the BIOS during retro_load_game
+     *      and reports a clear error if the BIOS is bad
+     *   2. Overly strict frontend validation risks rejecting valid BIOS dumps
+     *      and causing "BIOS missing" errors
+     *   3. The developer bundles the BIOS in assets — we trust their file
      *
-     * If the extracted BIOS fails validation, it is deleted and the user
-     * must import a valid one manually via Settings.
+     * The only checks are: size == 8192 (sanity) and file is readable.
      */
     private fun ensureFdsBios() {
         val dest = File(filesDir, "disksys.rom")
 
         // Always try to extract from assets — this picks up BIOS updates
-        // (e.g. when the developer replaces a stub with a real BIOS).
+        // (e.g. when the developer replaces the file in assets/).
         try {
             assets.open("disksys.rom").use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
             }
-            if (!isValidFdsBios(dest)) {
+            // Basic sanity check: size must be 8192 bytes.
+            // If it's wrong, delete so the user can import manually.
+            if (dest.length() != 8192L) {
                 dest.delete()
-                Log.w("NesApp", "FDS BIOS in assets failed validation, deleted")
+                Log.w("NesApp", "FDS BIOS in assets has wrong size ${dest.length()}, deleted")
                 return
             }
-            Log.i("NesApp", "FDS BIOS extracted from assets to ${dest.absolutePath}")
+            Log.i("NesApp", "FDS BIOS extracted from assets to ${dest.absolutePath} (${dest.length()} bytes)")
             return
         } catch (e: java.io.FileNotFoundException) {
-            // No disksys.rom in assets — keep any existing valid BIOS
-            if (dest.exists() && !isValidFdsBios(dest)) {
-                dest.delete()
-                Log.w("NesApp", "Existing FDS BIOS failed validation, deleted")
-            }
+            // No disksys.rom in assets — keep any existing file (user may
+            // have imported one manually via Settings).
+            Log.i("NesApp", "No disksys.rom in assets; using existing file if present")
         } catch (e: Exception) {
             Log.w("NesApp", "Failed to extract FDS BIOS from assets", e)
-            if (dest.exists() && !isValidFdsBios(dest)) {
-                dest.delete()
-            }
         }
-    }
-
-    /**
-     * Validates an FDS BIOS file:
-     *   1. Size == 8192 bytes
-     *   2. Not all zeros
-     *   3. Reset vector (offset 0x1FFC-0x1FFD, little-endian) points into
-     *      0xE000-0xFFFF (the BIOS region where the BIOS is mapped by FDSInit)
-     *
-     * A corrupted/stub BIOS often has a reset vector pointing to 0x00xx (RAM),
-     * which causes the CPU to execute garbage instead of the BIOS boot code,
-     * producing a permanent gray screen.
-     */
-    private fun isValidFdsBios(file: File): Boolean {
-        if (file.length() != 8192L) return false
-        try {
-            file.inputStream().use { input ->
-                val bytes = input.readBytes()
-                if (bytes.size != 8192) return false
-
-                // Check not all zeros
-                var hasNonZero = false
-                for (b in bytes) {
-                    if (b != 0.toByte()) { hasNonZero = true; break }
-                }
-                if (!hasNonZero) return false
-
-                // Check reset vector points into BIOS region (0xE000-0xFFFF)
-                // Reset vector is at offset 0x1FFC-0x1FFD (CPU addr 0xFFFC-0xFFFD)
-                val resetLo = bytes[0x1FFC].toInt() and 0xFF
-                val resetHi = bytes[0x1FFD].toInt() and 0xFF
-                val resetVec = (resetHi shl 8) or resetLo
-                if (resetVec < 0xE000 || resetVec > 0xFFFF) {
-                    Log.w("NesApp", "FDS BIOS reset vector 0x%04X invalid (not in 0xE000-0xFFFF)".format(resetVec))
-                    return false
-                }
-            }
-        } catch (_: Exception) {
-            return false
-        }
-        return true
     }
 
     /** Container is lazy-nullable: null if init failed, created on first successful init. */

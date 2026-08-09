@@ -2182,43 +2182,7 @@ private fun checkFdsBiosStatus(context: android.content.Context): FdsBiosStatus 
         return FdsBiosStatus(exists = true, valid = false,
             message = "文件大小错误: ${size}字节 (需要8192字节)")
     }
-    // Validate BIOS content: not all zeros + reset vector in BIOS region
-    val valid = isValidFdsBiosContent(biosFile)
-    if (!valid) {
-        return FdsBiosStatus(exists = true, valid = false,
-            message = "BIOS无效 (复位向量错误或全零)")
-    }
     return FdsBiosStatus(exists = true, valid = true, message = "已导入 ✓")
-}
-
-// Validate FDS BIOS content:
-//   1. Not all zeros
-//   2. Reset vector (offset 0x1FFC-0x1FFD) points into 0xE000-0xFFFF
-// A corrupted/stub BIOS has a reset vector pointing to 0x00xx (RAM),
-// causing the CPU to never boot and producing a gray screen.
-private fun isValidFdsBiosContent(file: java.io.File): Boolean {
-    try {
-        file.inputStream().use { input ->
-            val bytes = input.readBytes()
-            if (bytes.size != 8192) return false
-
-            // Check not all zeros
-            var hasNonZero = false
-            for (b in bytes) {
-                if (b != 0.toByte()) { hasNonZero = true; break }
-            }
-            if (!hasNonZero) return false
-
-            // Check reset vector points into BIOS region (0xE000-0xFFFF)
-            val resetLo = bytes[0x1FFC].toInt() and 0xFF
-            val resetHi = bytes[0x1FFD].toInt() and 0xFF
-            val resetVec = (resetHi shl 8) or resetLo
-            if (resetVec < 0xE000 || resetVec > 0xFFFF) return false
-        }
-    } catch (_: Exception) {
-        return false
-    }
-    return true
 }
 
 // Import FDS BIOS from a content URI to filesDir/disksys.rom
@@ -2232,11 +2196,6 @@ private fun importFdsBios(context: android.content.Context, uri: android.net.Uri
         val size = biosFile.length()
         if (size != 8192L) {
             return "导入失败: 文件大小${size}字节不正确 (需要8192字节)"
-        }
-
-        if (!isValidFdsBiosContent(biosFile)) {
-            biosFile.delete()
-            return "导入失败: BIOS无效 (复位向量错误或全零)"
         }
         "导入成功! 请重新加载FDS游戏"
     } catch (e: Exception) {
