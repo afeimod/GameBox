@@ -365,7 +365,9 @@ public abstract class Canvas extends Displayable {
                         if (fm != 0) {
                                 // ALL filter modes go through J2meBitmapFilter — no FcFilterView overlay
                                 offscreenCopy.getBitmap().prepareToDraw();
-                                J2meBitmapFilter.drawFiltered(offscreenCopy.getBitmap(), canvas, virtualScreen, fm);
+                                J2meBitmapFilter.drawFiltered(offscreenCopy.getBitmap(),
+                                        offscreenCopy.getWidth(), offscreenCopy.getHeight(),
+                                        canvas, virtualScreen, fm);
                         } else {
                                 offscreenCopy.getBitmap().prepareToDraw();
                                 g.drawImage(offscreenCopy, virtualScreen);
@@ -568,8 +570,8 @@ public abstract class Canvas extends Displayable {
                         float gt = 1.0f - 2.0f * virtualScreen.top / displayHeight;
                         float gr = 2.0f * virtualScreen.right / displayWidth - 1.0f;
                         float gb = 1.0f - 2.0f * virtualScreen.bottom / displayHeight;
-                        float th = (float) height / offscreen.getBitmap().getHeight();
-                        float tw = (float) width / offscreen.getBitmap().getWidth();
+                        float th = (float) offscreen.getHeight() / offscreen.getBitmap().getHeight();
+                        float tw = (float) offscreen.getWidth() / offscreen.getBitmap().getWidth();
                         renderer.updateSize(gl, gt, gr, gb, th, tw);
                 }
                 repaintInternal();
@@ -756,7 +758,9 @@ public abstract class Canvas extends Displayable {
                                 int fm = j2meFilterMode;
                                 if (fm != 0) {
                                         // ALL filter modes go through J2meBitmapFilter — no FcFilterView overlay
-                                        J2meBitmapFilter.drawFiltered(offscreenCopy.getBitmap(), canvas, virtualScreen, fm);
+                                        J2meBitmapFilter.drawFiltered(offscreenCopy.getBitmap(),
+                                                offscreenCopy.getWidth(), offscreenCopy.getHeight(),
+                                                canvas, virtualScreen, fm);
                                 } else {
                                         g.drawImage(offscreenCopy, virtualScreen);
                                 }

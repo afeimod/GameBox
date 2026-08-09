@@ -97,8 +97,25 @@ public final class J2meBitmapFilter {
     // ─── Public API: applyFilter (returns upscaled filtered bitmap) ──────
 
     public static Bitmap applyFilter(Bitmap src, int mode) {
-        int sw = src.getWidth();
-        int sh = src.getHeight();
+        return applyFilter(src, src.getWidth(), src.getHeight(), mode);
+    }
+
+    /**
+     * Apply the specified filter to the {@code srcW × srcH} active area of
+     * the source bitmap. If the active area is smaller than the bitmap's
+     * physical size, a cropped view is used to avoid processing stale pixels
+     * beyond the active area (which would cause ghost images).
+     */
+    public static Bitmap applyFilter(Bitmap src, int srcW, int srcH, int mode) {
+        // If the active area is smaller than the full bitmap, extract a
+        // sub-bitmap view to avoid processing stale edge pixels.
+        Bitmap work = src;
+        if (srcW < src.getWidth() || srcH < src.getHeight()) {
+            work = Bitmap.createBitmap(src, 0, 0, srcW, srcH);
+        }
+
+        int sw = work.getWidth();
+        int sh = work.getHeight();
 
         if (sFilteredBitmap != null && (sCachedSrcW != sw || sCachedSrcH != sh || sCachedMode != mode)) {
             sFilteredBitmap.recycle();
@@ -110,19 +127,19 @@ public final class J2meBitmapFilter {
 
         switch (mode) {
             case MODE_2XBR:
-                return xbrUpscale(src, 2);
+                return xbrUpscale(work, 2);
             case MODE_4XBR:
-                return xbrUpscale(src, 4);
+                return xbrUpscale(work, 4);
             case MODE_2XBR_DOT:
-                return applyDotMask(xbrUpscale(src, 2));
+                return applyDotMask(xbrUpscale(work, 2));
             case MODE_4XBR_DOT:
-                return applyDotMask(xbrUpscale(src, 4));
+                return applyDotMask(xbrUpscale(work, 4));
             case MODE_HQ4X:
-                return hq4xUpscale(src);
+                return hq4xUpscale(work);
             case MODE_HQ4X_DOT:
-                return applyDotMask(hq4xUpscale(src));
+                return applyDotMask(hq4xUpscale(work));
             default:
-                return src;
+                return work;
         }
     }
 
@@ -130,27 +147,38 @@ public final class J2meBitmapFilter {
 
     public static void drawFiltered(Bitmap srcBitmap, Canvas dstCanvas,
                                     RectF dstRect, int mode) {
+        drawFiltered(srcBitmap, srcBitmap.getWidth(), srcBitmap.getHeight(),
+                dstCanvas, dstRect, mode);
+    }
+
+    /**
+     * Draw the source bitmap with the specified filter, using only the
+     * {@code srcW × srcH} active area (which may be smaller than the
+     * bitmap's physical size when the Image was resized via setSize).
+     */
+    public static void drawFiltered(Bitmap srcBitmap, int srcW, int srcH,
+                                    Canvas dstCanvas, RectF dstRect, int mode) {
         if (mode == MODE_NONE) {
             dstCanvas.drawBitmap(srcBitmap,
-                    new Rect(0, 0, srcBitmap.getWidth(), srcBitmap.getHeight()),
+                    new Rect(0, 0, srcW, srcH),
                     dstRect, sNearestPaint);
             return;
         }
 
         if (isPixelProcessingMode(mode)) {
-            Bitmap filtered = applyFilter(srcBitmap, mode);
+            Bitmap filtered = applyFilter(srcBitmap, srcW, srcH, mode);
             if (filtered != null && filtered != srcBitmap) {
                 dstCanvas.drawBitmap(filtered,
                         new Rect(0, 0, filtered.getWidth(), filtered.getHeight()),
                         dstRect, sNearestPaint);
             } else {
                 dstCanvas.drawBitmap(srcBitmap,
-                        new Rect(0, 0, srcBitmap.getWidth(), srcBitmap.getHeight()),
+                        new Rect(0, 0, srcW, srcH),
                         dstRect, sNearestPaint);
             }
         } else if (isMaskMode(mode)) {
             dstCanvas.drawBitmap(srcBitmap,
-                    new Rect(0, 0, srcBitmap.getWidth(), srcBitmap.getHeight()),
+                    new Rect(0, 0, srcW, srcH),
                     dstRect, sNearestPaint);
             applyCanvasMask(dstCanvas, dstRect, mode);
         }
@@ -552,7 +580,7 @@ public final class J2meBitmapFilter {
      * Applies the dot mask to an upscaled bitmap (for +dot modes).
      * Uses the reference dot shader's lookup function:
      * {@code color * exp(-gamma * delta * color_bloom(color))}
-     * with 9-tap sampling and {@code mix(1.2 * mid, color, 0.65)}.
+     * with 9-tap sampling and {@code mix(1.1 * mid, color, 0.65)}.
      */
     private static Bitmap applyDotMask(Bitmap bmp) {
         int w = bmp.getWidth();
@@ -584,10 +612,10 @@ public final class J2meBitmapFilter {
                 addLookup(sum, px, py,  0,  1, pixels, w, h, gamma, shine);
                 addLookup(sum, px, py,  1,  1, pixels, w, h, gamma, shine);
 
-                // mix(1.2 * mid_color, color, blend)
-                float r = mix(1.2f * mid[0], sum[0], blend);
-                float g = mix(1.2f * mid[1], sum[1], blend);
-                float b = mix(1.2f * mid[2], sum[2], blend);
+                // mix(1.1 * mid_color, color, blend) — 1.1 instead of 1.2 to avoid over-bright
+                float r = mix(1.1f * mid[0], sum[0], blend);
+                float g = mix(1.1f * mid[1], sum[1], blend);
+                float b = mix(1.1f * mid[2], sum[2], blend);
 
                 int idx = y * w + x;
                 int a = (pixels[idx] >> 24) & 0xFF;

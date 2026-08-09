@@ -276,7 +276,8 @@ public final class J2meFilterShaders {
             "    color += lookup(v_texcoord6, -1.0,  1.0, texture2D(sampler0, v_texcoord3.zw).rgb);\n" +
             "    color += lookup(v_texcoord6,  0.0,  1.0, texture2D(sampler0, v_texcoord4.xy).rgb);\n" +
             "    color += lookup(v_texcoord6,  1.0,  1.0, texture2D(sampler0, v_texcoord4.zw).rgb);\n" +
-            "    vec3 out_color = mix(1.2 * mid_color, color, blend);\n" +
+            "    vec3 out_color = mix(1.1 * mid_color, color, blend);\n" +
+            "    out_color = clamp(out_color, 0.0, 1.0);\n" +
             "    gl_FragColor = vec4(out_color, 1.0);\n" +
             "}\n";
 
@@ -330,7 +331,7 @@ public final class J2meFilterShaders {
             "\n" +
             "        vec2 pS  = 1.0 / u_texelDelta;\n" +
             "        vec2 fp  = fract(v_tc0 * pS);\n" +
-            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_texelDelta;\n" +
             "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
             "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
             "        vec2 y2  = dy + dy;\n" +
@@ -440,7 +441,7 @@ public final class J2meFilterShaders {
             "\n" +
             "        vec2 pS  = 1.0 / u_texelDelta;\n" +
             "        vec2 fp  = fract(v_tc0 * pS);\n" +
-            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_texelDelta;\n" +
             "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
             "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
             "        vec2 y2  = dy + dy;\n" +
@@ -618,7 +619,7 @@ public final class J2meFilterShaders {
             "\n" +
             "        vec2 pS  = 1.0 / u_texelDelta;\n" +
             "        vec2 fp  = fract(v_tc0 * pS);\n" +
-            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_texelDelta;\n" +
             "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
             "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
             "        vec2 y2  = dy + dy;\n" +
@@ -687,7 +688,8 @@ public final class J2meFilterShaders {
             "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
             "    float bloom = mix(1.05, 0.95, bright);\n" +
             "    float dotMask = exp(-2.4 * delta * bloom);\n" +
-            "    res = mix(1.2 * res, res * dotMask, 0.65);\n" +
+            "    res = mix(1.1 * res, res * dotMask, 0.65);\n" +
+            "    res = clamp(res, 0.0, 1.0);\n" +
             "\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -737,7 +739,7 @@ public final class J2meFilterShaders {
             "\n" +
             "        vec2 pS  = 1.0 / u_texelDelta;\n" +
             "        vec2 fp  = fract(v_tc0 * pS);\n" +
-            "        vec2 TexCoord_0 = v_tc0 - fp * u_pixelDelta;\n" +
+            "        vec2 TexCoord_0 = v_tc0 - fp * u_texelDelta;\n" +
             "        vec2 dx  = vec2(u_texelDelta.x, 0.0);\n" +
             "        vec2 dy  = vec2(0.0, u_texelDelta.y);\n" +
             "        vec2 y2  = dy + dy;\n" +
@@ -806,7 +808,8 @@ public final class J2meFilterShaders {
             "    float bright = dot(res, vec3(0.30, 0.59, 0.11));\n" +
             "    float bloom = mix(1.05, 0.95, bright);\n" +
             "    float dotMask = exp(-2.4 * delta * bloom);\n" +
-            "    res = mix(1.2 * res, res * dotMask, 0.65);\n" +
+            "    res = mix(1.1 * res, res * dotMask, 0.65);\n" +
+            "    res = clamp(res, 0.0, 1.0);\n" +
             "\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -885,7 +888,8 @@ public final class J2meFilterShaders {
             "    float bright = dot(result, vec3(0.30, 0.59, 0.11));\n" +
             "    float bloom = mix(1.05, 0.95, bright);\n" +
             "    float dotMask = exp(-2.4 * delta * bloom);\n" +
-            "    result = mix(1.2 * result, result * dotMask, 0.65);\n" +
+            "    result = mix(1.1 * result, result * dotMask, 0.65);\n" +
+            "    result = clamp(result, 0.0, 1.0);\n" +
             "\n" +
             "    gl_FragColor = vec4(result, 1.0);\n" +
             "}\n";
