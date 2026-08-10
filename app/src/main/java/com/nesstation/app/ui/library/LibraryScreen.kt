@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.AlertDialog
@@ -105,6 +106,10 @@ fun LibraryScreen(
     val importedGames = remember { mutableStateListOf<GameEntry>().apply { addAll(games) } }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var dialogMsg by remember { mutableStateOf<String?>(null) }
+    // Built-in file browser dialog state — shown as a fallback when the
+    // system SAF picker is unavailable (typical on Android TV boxes that
+    // ship without DocumentsUI).
+    var showFileBrowser by remember { mutableStateOf(false) }
 
     // 选中的平台分类标签（NES / Java）
     var selectedPlatform by remember { mutableStateOf(GamePlatform.NES) }
@@ -308,13 +313,12 @@ fun LibraryScreen(
 
     fun importFiles() {
         // SAF file picker works without storage permission on all Android versions.
-        // Just open the picker — no directory scanning.
         // Wrap in try-catch: on some TV devices the DocumentsUI activity may
-        // not be available, which would otherwise crash the app.
+        // not be available — in that case, fall back to the built-in browser.
         try {
             filePickerLauncher.launch(arrayOf("*/*"))
         } catch (_: android.content.ActivityNotFoundException) {
-            dialogMsg = "系统文件选择器不可用，请尝试「扫描本地ROM」或手动复制ROM到应用目录"
+            showFileBrowser = true
         } catch (e: Exception) {
             dialogMsg = "无法打开文件选择器：${e.message}"
         }
@@ -322,11 +326,15 @@ fun LibraryScreen(
 
     fun importFolder() {
         // Same defensive wrapping as importFiles() — TV devices may not have
-        // a DocumentsUI that handles ACTION_OPEN_DOCUMENT_TREE.
+        // a DocumentsUI that handles ACTION_OPEN_DOCUMENT_TREE. When SAF is
+        // unavailable, fall back to the built-in FileBrowserDialog which can
+        // walk the file system directly (requires READ_EXTERNAL_STORAGE on
+        // Android <= 10, or MANAGE_EXTERNAL_STORAGE on Android 11+).
         try {
             folderPickerLauncher.launch(null)
         } catch (_: android.content.ActivityNotFoundException) {
-            dialogMsg = "系统文件夹选择器不可用，请尝试「扫描本地ROM」或手动复制ROM到应用目录"
+            // No system folder picker — use the built-in browser instead.
+            showFileBrowser = true
         } catch (e: Exception) {
             dialogMsg = "无法打开文件夹选择器：${e.message}"
         }
@@ -420,6 +428,17 @@ fun LibraryScreen(
                                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                                 text = { Text("导入ROM") },
                                 containerColor = Color(0xFFE74C3C),
+                                contentColor = Color.White
+                            )
+                            // Built-in file browser — shown as a third button so it's
+                            // always reachable on TV devices where the system SAF
+                            // picker is unavailable. Also useful on phones when the
+                            // user prefers the in-app browser.
+                            ExtendedFloatingActionButton(
+                                onClick = { showFileBrowser = true },
+                                icon = { Icon(Icons.Rounded.Storage, contentDescription = null) },
+                                text = { Text("本地浏览") },
+                                containerColor = Color(0xFF2E7D32),
                                 contentColor = Color.White
                             )
                         } else {
@@ -590,6 +609,45 @@ fun LibraryScreen(
         )
     }
 
+    // Built-in file browser dialog — fallback when the system SAF picker is
+    // unavailable (TV devices, custom ROMs without DocumentsUI).
+    if (showFileBrowser) {
+        FileBrowserDialog(
+            onPicked = { folderPath ->
+                showFileBrowser = false
+                // Recursively scan the chosen folder for ROM files (same logic
+                // as the SAF folder picker callback above).
+                val folder = File(folderPath)
+                val romFiles = scanLocalFolderForRoms(folder, maxDepth = 5)
+                if (romFiles.isEmpty()) {
+                    dialogMsg = "所选文件夹未找到ROM文件（支持 ${ROM_EXTENSIONS.joinToString()}）"
+                } else {
+                    var count = 0
+                    var failed = 0
+                    romFiles.forEach { file ->
+                        try {
+                            val platform = detectPlatformFromFile(file)
+                            RomStore.add(
+                                context,
+                                file.nameWithoutExtension,
+                                file.absolutePath,
+                                platform
+                            )
+                            count++
+                        } catch (_: Exception) {
+                            failed++
+                        }
+                    }
+                    refreshList()
+                    dialogMsg = if (failed > 0)
+                        "从文件夹导入 $count 个ROM文件（$failed 个失败）"
+                    else "从文件夹导入 $count 个ROM文件"
+                }
+            },
+            onDismiss = { showFileBrowser = false }
+        )
+    }
+
     // 长按游戏卡片弹出的操作菜单 — 使用自定义 Dialog 确保
     // 即使游戏名过长，所有选项（包括删除）也始终可见/可滚动
     longPressGame?.let { game ->
@@ -743,6 +801,33 @@ private fun scanUriForRomsRecursive(
             }
         }
     } catch (_: Exception) { }
+    return results
+}
+
+/**
+ * Recursively scan [folder] for ROM files (matching [ROM_EXTENSIONS]) up to
+ * [maxDepth] levels deep. Returns a flat list of ROM File objects.
+ *
+ * Used by the built-in FileBrowserDialog when the system SAF picker is
+ * unavailable (TV devices without DocumentsUI).
+ */
+private fun scanLocalFolderForRoms(folder: File, maxDepth: Int): List<File> {
+    val results = mutableListOf<File>()
+    if (maxDepth <= 0) return results
+    val children = try {
+        folder.listFiles() ?: return results
+    } catch (_: Exception) {
+        return results
+    }
+    for (f in children) {
+        if (f.name.startsWith(".")) continue
+        if (f.isFile) {
+            val ext = f.extension.lowercase()
+            if (ext in ROM_EXTENSIONS) results.add(f)
+        } else if (f.isDirectory) {
+            results.addAll(scanLocalFolderForRoms(f, maxDepth - 1))
+        }
+    }
     return results
 }
 
