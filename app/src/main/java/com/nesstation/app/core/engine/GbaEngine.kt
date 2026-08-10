@@ -159,6 +159,7 @@ class GbaEngine private constructor() : EmulatorEngine {
     override fun videoHeight(): Int = if (isLoaded) GbaNative.videoHeight() else 160
 
     override fun setVideoFilter(filter: Int) = GbaNative.setVideoFilter(filter)
+    override fun setHighQualityScaling(enabled: Boolean) = GbaNative.setHighQualityScaling(enabled)
 
     override fun setFastForward(speed: Int) {
         _ffSpeed = speed
@@ -209,7 +210,8 @@ class GbaEngine private constructor() : EmulatorEngine {
         // to match the increased output rate.
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
-            val buf = ShortArray(6144)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            val buf = ShortArray(8192)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -217,7 +219,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(2)
+                            Thread.sleep(5)
                         }
                     } catch (_: InterruptedException) {
                         break

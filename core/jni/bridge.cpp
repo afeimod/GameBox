@@ -104,6 +104,7 @@ int Engine::videoWidth()  { return rom::videoWidth(); }
 int Engine::videoHeight() { return rom::videoHeight(); }
 
 void Engine::setVideoFilter(int filter) { rom::setVideoFilter(filter); }
+void Engine::setHighQualityScaling(bool enabled) { rom::setHighQualityScaling(enabled); }
 
 } // namespace nescore
 
@@ -276,6 +277,11 @@ Java_com_nesstation_app_core_jni_NesNative_videoHeight(JNIEnv*, jclass) {
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_NesNative_setVideoFilter(JNIEnv*, jclass, jint filter) {
     nescore::Engine::instance().setVideoFilter(filter);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NesNative_setHighQualityScaling(JNIEnv*, jclass, jboolean enabled) {
+    nescore::Engine::instance().setHighQualityScaling(enabled);
 }
 
 } // extern "C"

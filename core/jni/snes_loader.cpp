@@ -100,6 +100,10 @@ static std::atomic<uint16_t> s_pad2{0};
 //   8=4xbr, 9=4xbr+dot, 10=hq4x+dot
 static std::atomic<int> s_videoFilter{0};
 
+// When true, blitToSurface uses display-resolution buffer (sharp, heavy CPU).
+// When false, uses source-resolution buffer (fast, GPU upscales).
+static std::atomic<bool> s_highQualityScaling{false};
+
 // 2x upscale buffer for XBR/HQ2X (max 512x478 -> 1024x956)
 static uint32_t s_xbrBuffer2x[kSnesMaxW * kSnesMaxH * 2 * 2];
 
@@ -458,7 +462,8 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame.data(), width, height, width,
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
-        (unsigned)kSnesMaxW, (unsigned)kSnesMaxH);
+        (unsigned)kSnesMaxW, (unsigned)kSnesMaxH,
+        s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -750,10 +755,31 @@ void setSurface(void* nativeWindow) {
     // created with RGBX_8888 and changing it causes garbled output.
     coreshared::setSurface(s_window, s_windowMtx, nativeWindow);
     if (nativeWindow) {
-        LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888)", s_pixelFormat);
+        // Apply high-quality scaling flag: when false, blitToSurface will
+        // set the buffer geometry to the source resolution per-frame.
+        // When true, leave it at 0x0 (display resolution) for sharp C++ scaling.
+        if (s_highQualityScaling.load(std::memory_order_relaxed)) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        }
+        LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888, hqScaling=%d)",
+             s_pixelFormat, s_highQualityScaling.load() ? 1 : 0);
     } else {
         LOGI("Surface detached");
     }
+}
+
+void setHighQualityScaling(bool enabled) {
+    s_highQualityScaling.store(enabled, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+    if (s_window) {
+        if (enabled) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        } else {
+            // blitToSurface will set source-res geometry per-frame
+            ANativeWindow_setBuffersGeometry(s_window, s_videoW, s_videoH, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+    LOGI("High-quality scaling: %s", enabled ? "ON" : "OFF");
 }
 
 // --- Core options ----------------------------------------------------------

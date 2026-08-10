@@ -102,6 +102,10 @@ static std::atomic<uint16_t> s_pad2{0};
 //   8=4xbr, 9=4xbr+dot, 10=hq4x+dot
 static std::atomic<int> s_videoFilter{0};
 
+// When true, blitToSurface uses display-resolution buffer (sharp, heavy CPU).
+// When false, uses source-resolution buffer (fast, GPU upscales).
+static std::atomic<bool> s_highQualityScaling{false};
+
 // 2x upscale buffer for XBR/HQ2X (max 240x160 -> 480x320)
 static uint32_t s_xbrBuffer2x[kMaxW * 2 * kMaxH * 2];
 
@@ -566,7 +570,8 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame.data(), width, height, width,
         filter,
         s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
-        (unsigned)kMaxW, (unsigned)kMaxH);
+        (unsigned)kMaxW, (unsigned)kMaxH,
+        s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -856,18 +861,35 @@ void setSurface(void* nativeWindow) {
     if (nativeWindow) {
         s_window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(s_window);
-        // PERFORMANCE: set buffer geometry to GBA source resolution (240x160)
-        // instead of 0x0 (window default). With 0x0 the C++ blit must do
-        // per-pixel float scaling from 240x160 to the full display — very slow
-        // on low-power TV boxes. With 240x160, blitToSurface becomes a 1:1
-        // copy and the Android hardware compositor handles the GPU upscale.
-        // blitToSurface updates the geometry per-frame if the source size
-        // changes (e.g. GB 160x144 vs GBA 240x160).
-        ANativeWindow_setBuffersGeometry(s_window, 240, 160, WINDOW_FORMAT_RGBA_8888);
-        LOGI("Surface attached (buffer geometry = 240x160, hardware-scaled to display)");
+        // PERFORMANCE: set buffer geometry based on s_highQualityScaling.
+        // - false (default): buffer = GBA source resolution (240x160) → fast
+        //   1:1 blit + Android hardware compositor GPU upscale.
+        // - true: buffer = display resolution (0x0) → sharp C++ per-pixel
+        //   nearest-neighbor scale, but much heavier CPU.
+        if (s_highQualityScaling.load(std::memory_order_relaxed)) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+            LOGI("Surface attached (buffer geometry = display-res, high-quality scaling)");
+        } else {
+            ANativeWindow_setBuffersGeometry(s_window, 240, 160, WINDOW_FORMAT_RGBA_8888);
+            LOGI("Surface attached (buffer geometry = 240x160, hardware-scaled to display)");
+        }
     } else {
         LOGI("Surface detached");
     }
+}
+
+void setHighQualityScaling(bool enabled) {
+    s_highQualityScaling.store(enabled, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+    if (s_window) {
+        if (enabled) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        } else {
+            // blitToSurface will set source-res geometry per-frame
+            ANativeWindow_setBuffersGeometry(s_window, 240, 160, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+    LOGI("High-quality scaling: %s", enabled ? "ON (display-res, sharp)" : "OFF (source-res, fast)");
 }
 
 // --- Core options ----------------------------------------------------------

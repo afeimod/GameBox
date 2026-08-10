@@ -280,13 +280,27 @@ fun SettingsScreen(
                     }
                 }
 
-                // === 性能(超频) ===
+                // === 性能(超频 + 缩放) ===
                 item {
                     SettingsSection("性能") {
                         DropdownRow("超频(减少慢动作)",
                             listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
                             padLayout.overclocking
                         ) { updateLayout(padLayout.copy(overclocking = it)) }
+
+                        // High-quality scaling toggle — controls native surface buffer geometry.
+                        // false (default): source-res buffer + GPU upscale = fast (recommended for TV)
+                        // true: display-res buffer + CPU scale = sharp (recommended for phones)
+                        SettingsRow(
+                            "高质量缩放",
+                            if (padLayout.highQualityScaling) "清晰(手机推荐)" else "快速(TV推荐)",
+                            showSubtitle = true,
+                            trailing = {
+                                Switch(checked = padLayout.highQualityScaling, onCheckedChange = {
+                                    updateLayout(padLayout.copy(highQualityScaling = it))
+                                }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
+                            }
+                        )
                     }
                 }
 

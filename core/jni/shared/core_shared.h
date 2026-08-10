@@ -51,15 +51,18 @@ static inline uint32_t xrgbToRgba(uint32_t px) {
 // (GPU-accelerated), instead of the CPU doing per-pixel float scaling.
 static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
                                   const uint32_t* src, unsigned w, unsigned h,
-                                  size_t srcStride) {
+                                  size_t srcStride,
+                                  bool highQualityScaling = false) {
     std::lock_guard<std::mutex> lk(windowMtx);
     if (!window) return;
 
-    // If the buffer geometry doesn't match the source size, update it.
-    // This ensures XBR (512x480) and HQ4X (1024x960) buffers get their own
-    // geometry, and the base 256x240 path uses 256x240 geometry.
-    // setBuffersGeometry is cheap if the size is already correct.
-    ANativeWindow_setBuffersGeometry(window, w, h, WINDOW_FORMAT_RGBA_8888);
+    // When highQualityScaling is true, the buffer was set to display
+    // resolution (0x0) by setSurface() — DON'T override it here, so the
+    // C++ per-pixel scaler runs (sharper but heavier CPU).
+    // When false, set the buffer to source resolution for a fast 1:1 blit.
+    if (!highQualityScaling) {
+        ANativeWindow_setBuffersGeometry(window, w, h, WINDOW_FORMAT_RGBA_8888);
+    }
 
     ANativeWindow_Buffer buf;
     memset(&buf, 0, sizeof(buf));
@@ -418,29 +421,30 @@ static inline void applyFilterAndBlit(
     uint32_t* xbrBuffer2x,    // at least width*2 * height*2
     uint32_t* xbrBuffer4x,    // at least width*4 * height*4
     uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade)
-    unsigned maxSrcW, unsigned maxSrcH)
+    unsigned maxSrcW, unsigned maxSrcH,
+    bool highQualityScaling = false)
 {
     const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
 
     // CPU path — 2xBR v3.3a (from RetroArch) with int32 blend fixes
     if ((filter == 4 || filter == 7) && canUpscale) {
         xbr2xUpscale(src, width, height, srcStride, xbrBuffer2x);
-        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2);
+        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2, highQualityScaling);
     } else if ((filter == 8 || filter == 9) && canUpscale) {
         xbr4xUpscale(src, width, height, srcStride, xbrBuffer4x, xbrMidBuffer);
-        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4);
+        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4, highQualityScaling);
     } else if (filter == 5 && canUpscale) {
         hq2x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
                    xbrBuffer2x, (uint32_t)(width * 2 * sizeof(uint32_t)),
                    (int)width, (int)height);
-        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2);
+        blitToSurface(window, windowMtx, xbrBuffer2x, width * 2, height * 2, width * 2, highQualityScaling);
     } else if ((filter == 6 || filter == 10) && canUpscale) {
         hq4x_32_rb(src, (uint32_t)(srcStride * sizeof(uint32_t)),
                    xbrBuffer4x, (uint32_t)(width * 4 * sizeof(uint32_t)),
                    (int)width, (int)height);
-        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4);
+        blitToSurface(window, windowMtx, xbrBuffer4x, width * 4, height * 4, width * 4, highQualityScaling);
     } else {
-        blitToSurface(window, windowMtx, src, width, height, srcStride);
+        blitToSurface(window, windowMtx, src, width, height, srcStride, highQualityScaling);
     }
 }
 

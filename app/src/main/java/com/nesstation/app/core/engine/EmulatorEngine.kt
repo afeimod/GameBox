@@ -58,6 +58,15 @@ interface EmulatorEngine {
     /** Set the frontend video post-processing filter (0-10). */
     fun setVideoFilter(filter: Int)
 
+    /**
+     * Control the native surface buffer geometry for performance vs quality.
+     * - `false` (default): buffer = source resolution (256x240 / 240x160),
+     *   1:1 blit + hardware-compositor GPU upscale — fast, slightly softer.
+     * - `true`: buffer = display resolution, C++ per-pixel nearest-neighbor
+     *   scale — sharper, much heavier CPU (can lag on low-power devices).
+     */
+    fun setHighQualityScaling(enabled: Boolean)
+
     /** Set fast-forward speed (0 = off, 2/4/6/8 = speed multiplier). */
     fun setFastForward(speed: Int)
 

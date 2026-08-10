@@ -97,7 +97,15 @@ data class PadLayout(
     val gbSgbBorders: String = "ON",                  // ON | OFF
     val gbaFrameskipThreshold: String = "33",         // 0-100 (audio buffer threshold for auto frameskip)
     // --- Display orientation ---
-    val screenOrientation: String = "sensor"           // sensor | landscape | portrait
+    val screenOrientation: String = "sensor",          // sensor | landscape | portrait
+    // --- Performance ---
+    // When true, the native surface buffer matches the source resolution
+    // (256x240 / 240x160) and the Android hardware compositor does GPU
+    // upscaling — fast on TV/low-end devices but slightly softer image.
+    // When false, the native buffer matches the display resolution and
+    // the C++ blit does per-pixel nearest-neighbor scaling — sharper but
+    // much heavier on CPU (can cause lag on low-power devices).
+    val highQualityScaling: Boolean = false            // false = native-res buffer (fast), true = display-res buffer (sharp)
 )
 
 /**
@@ -149,6 +157,7 @@ object PadLayoutStore {
     // Global keys
     private const val KEY_OPACITY = "opacity"
     private const val KEY_SHOW_PAD = "show_pad"
+    private const val KEY_HIGH_QUALITY_SCALING = "high_quality_scaling"
 
     // Core option keys
     private const val KEY_NTSC_FILTER = "ntsc_filter"
@@ -224,6 +233,7 @@ object PadLayoutStore {
             ),
             opacity = p.getFloat(KEY_OPACITY, 0.7f),
             showPad = p.getBoolean(KEY_SHOW_PAD, true),
+            highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false),
             ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled",
             aspectRatio = p.getString(KEY_ASPECT_RATIO, "4:3") ?: "4:3",
             palette = p.getString(KEY_PALETTE, "default") ?: "default",
@@ -320,6 +330,7 @@ object PadLayoutStore {
 
             putFloat(KEY_OPACITY, layout.opacity)
             putBoolean(KEY_SHOW_PAD, layout.showPad)
+            putBoolean(KEY_HIGH_QUALITY_SCALING, layout.highQualityScaling)
 
             putString(KEY_NTSC_FILTER, layout.ntscFilter)
             putString(KEY_ASPECT_RATIO, layout.aspectRatio)

@@ -142,6 +142,7 @@ class SnesEngine private constructor() : EmulatorEngine {
     override fun videoHeight(): Int = if (isLoaded) SnesNative.videoHeight() else 224
 
     override fun setVideoFilter(filter: Int) = SnesNative.setVideoFilter(filter)
+    override fun setHighQualityScaling(enabled: Boolean) = SnesNative.setHighQualityScaling(enabled)
 
     override fun setFastForward(speed: Int) {
         _ffSpeed = speed
@@ -183,7 +184,8 @@ class SnesEngine private constructor() : EmulatorEngine {
         // Dedicated audio thread with BLOCKING writes — no crackling.
         audioRunning.set(true)
         audioThread = thread(name = "snes-audio-loop", isDaemon = true) {
-            val buf = ShortArray(4096)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            val buf = ShortArray(8192)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -191,7 +193,7 @@ class SnesEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(2)
+                            Thread.sleep(5)
                         }
                     } catch (_: InterruptedException) {
                         break

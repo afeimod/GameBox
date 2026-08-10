@@ -101,4 +101,11 @@ object GbaNative {
      *   7=xbr+dot, 8=4xbr, 9=4xbr+dot, 10=hq4x+dot
      */
     @JvmStatic external fun setVideoFilter(filter: Int)
+
+    /**
+     * Control the native surface buffer geometry.
+     * - `false`: buffer = source resolution (240x160) → fast 1:1 blit + GPU upscale
+     * - `true`:  buffer = display resolution → sharp C++ per-pixel scale (heavier CPU)
+     */
+    @JvmStatic external fun setHighQualityScaling(enabled: Boolean)
 }

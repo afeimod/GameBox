@@ -200,6 +200,13 @@ fun EmulatorScreen(
     // the touch overlay is useless without a touchscreen and only wastes GPU.
     val effectiveShowPad = padLayout.showPad && !isTv
 
+    // Apply high-quality scaling flag to the engine whenever it changes.
+    // This controls whether the native surface buffer uses source resolution
+    // (fast, GPU upscales) or display resolution (sharp, CPU scales).
+    LaunchedEffect(padLayout.highQualityScaling) {
+        engine.setHighQualityScaling(padLayout.highQualityScaling)
+    }
+
     // Apply core options on load and when they change
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
                    padLayout.region, padLayout.cropOverscan,
@@ -2096,6 +2103,15 @@ private fun SettingsPanel(
             }
         }
 
+        // High-quality scaling toggle — controls native surface buffer geometry.
+        // false (default): source-res buffer + GPU upscale = fast (recommended for TV)
+        // true: display-res buffer + CPU scale = sharp (recommended for phones)
+        SwitchSetting(
+            label = "高质量缩放",
+            description = "关闭=快速(推荐TV) · 开启=清晰(推荐手机)",
+            checked = padLayout.highQualityScaling
+        ) { onLayoutChange(padLayout.copy(highQualityScaling = it)) }
+
         Spacer(Modifier.size(8.dp))
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
         Spacer(Modifier.size(8.dp))
@@ -2524,9 +2540,18 @@ private fun DropdownSetting(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = options.find { it.first == selected }?.second ?: selected
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (focused) Color.White.copy(alpha = 0.15f) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null) { expanded = true }
+            .focusable(interactionSource = interaction)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp))
@@ -2534,7 +2559,7 @@ private fun DropdownSetting(
         Box {
             Text(
                 selectedLabel, color = Color(0xFFFFD66B), fontSize = 13.sp,
-                modifier = Modifier.pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); expanded = true } }.padding(8.dp)
+                modifier = Modifier.padding(8.dp)
             )
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, text) ->
@@ -2542,5 +2567,46 @@ private fun DropdownSetting(
                 }
             }
         }
+    }
+}
+
+/**
+ * TV-friendly switch setting row — focusable, toggles on D-pad OK press.
+ */
+@Composable
+private fun SwitchSetting(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (focused) Color.White.copy(alpha = 0.15f) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null) {
+                onCheckedChange(!checked)
+            }
+            .focusable(interactionSource = interaction)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Text(description, color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+        }
+        Spacer(Modifier.size(8.dp))
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFFE74C3C)
+            )
+        )
     }
 }

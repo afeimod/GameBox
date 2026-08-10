@@ -82,6 +82,9 @@ public:
     // Set frontend post-processing filter: 0=none 1=scanline 2=crt 3=dot 4=xbr 5=hq2x 6=hq4x 7=xbr+dot
     void setVideoFilter(int filter);
 
+    // --- High-quality scaling ---
+    void setHighQualityScaling(bool enabled);
+
     std::string lastError() const { return lastError_; }
 
 private:

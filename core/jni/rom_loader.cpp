@@ -81,6 +81,10 @@ static std::atomic<bool> s_isFdsGame{false};
 //   8=4xbr, 9=4xbr+dot, 10=hq4x+dot
 static std::atomic<int> s_videoFilter{0};
 
+// When true, blitToSurface uses display-resolution buffer (sharp, heavy CPU).
+// When false, uses source-resolution buffer (fast, GPU upscales).
+static std::atomic<bool> s_highQualityScaling{false};
+
 // 2x upscale buffer for XBR/HQ2X (256x240 → 512x480)
 static uint32_t s_xbrBuffer[kNesW * 2 * kNesH * 2];
 
@@ -443,7 +447,8 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_frame, width, height, kNesW,
         filter,
         s_xbrBuffer, s_hq4xBuffer, s_xbrMidBuffer,
-        kNesW, kNesH);
+        kNesW, kNesH,
+        s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
 static void pushAudio(const int16_t* samples, size_t count) {
@@ -829,26 +834,21 @@ void setSurface(void* nativeWindow) {
         ANativeWindow_acquire(s_window);
 
         // CRITICAL PERFORMANCE FIX:
-        // Set the native buffer geometry to the NES source resolution
-        // (256x240) instead of 0x0 (window default). With 0x0, the buffer
-        // matches the full display (e.g. 1920x1080 = 2M pixels) and the
-        // C++ blitToSurface must do a per-pixel float nearest-neighbor
-        // scale on the CPU — 2M float ops + pixel copies per frame = very
-        // slow on low-power TV boxes.
-        //
-        // By setting the buffer to 256x240, blitToSurface becomes a 1:1
-        // pixel copy (61K pixels, no scaling math), and the Android hardware
-        // compositor (SurfaceFlinger) handles the GPU-accelerated upscale
-        // to the display resolution for free.
-        //
-        // XBR/HQX filters still work because they produce their own
-        // intermediate buffers at 2x/4x source resolution; applyFilterAndBlit
-        // calls setBuffersGeometry with the filter's output size before
-        // blitting (see core_shared.h).
-        ANativeWindow_setBuffersGeometry(s_window, kNesW, kNesH,
-                                         WINDOW_FORMAT_RGBA_8888);
-        LOGI("Surface attached (buffer geometry = %ux%u, hardware-scaled to display)",
-             kNesW, kNesH);
+        // Set the native buffer geometry based on the s_highQualityScaling flag.
+        // - false (default): buffer = NES source resolution (256x240) → fast
+        //   1:1 blit + Android hardware compositor GPU upscale.
+        // - true: buffer = display resolution (0x0) → sharp C++ per-pixel
+        //   nearest-neighbor scale, but much heavier CPU.
+        if (s_highQualityScaling.load(std::memory_order_relaxed)) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0,
+                                             WINDOW_FORMAT_RGBA_8888);
+            LOGI("Surface attached (buffer geometry = display-res, high-quality scaling)");
+        } else {
+            ANativeWindow_setBuffersGeometry(s_window, kNesW, kNesH,
+                                             WINDOW_FORMAT_RGBA_8888);
+            LOGI("Surface attached (buffer geometry = %ux%u, hardware-scaled to display)",
+                 kNesW, kNesH);
+        }
     } else {
         LOGI("Surface detached");
     }
@@ -895,6 +895,27 @@ void videoAspectRatio(int& num, int& den) {
 void setVideoFilter(int filter) {
     s_videoFilter.store(filter, std::memory_order_relaxed);
     LOGI("Video filter set: %d (0=none, 1=scanline, 2=crt, 3=dot, 4=xbr, 5=hq2x, 6=hq4x, 7=xbr+dot)", filter);
+}
+
+void setHighQualityScaling(bool enabled) {
+    s_highQualityScaling.store(enabled, std::memory_order_relaxed);
+    // Re-apply the surface buffer geometry immediately so the change takes
+    // effect on the next frame without needing to detach/reattach the surface.
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+    if (s_window) {
+        if (enabled) {
+            // 0x0 = match display resolution (triggers C++ per-pixel scale)
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        } else {
+            // Source resolution = fast 1:1 blit + GPU upscale
+            ANativeWindow_setBuffersGeometry(s_window, kNesW, kNesH, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+    LOGI("High-quality scaling: %s", enabled ? "ON (display-res, sharp)" : "OFF (source-res, fast)");
+}
+
+bool getHighQualityScaling() {
+    return s_highQualityScaling.load(std::memory_order_relaxed);
 }
 
 } // namespace nescore::rom

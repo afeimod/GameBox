@@ -136,4 +136,11 @@ object NesNative {
      *   10 = HQ4X + dot (HQ4X with dot overlay)
      */
     @JvmStatic external fun setVideoFilter(filter: Int)
+
+    /**
+     * Control the native surface buffer geometry.
+     * - `false`: buffer = source resolution (256x240) → fast 1:1 blit + GPU upscale
+     * - `true`:  buffer = display resolution → sharp C++ per-pixel scale (heavier CPU)
+     */
+    @JvmStatic external fun setHighQualityScaling(enabled: Boolean)
 }

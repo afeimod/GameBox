@@ -116,6 +116,7 @@ int Engine::videoWidth()  { return rom::videoWidth(); }
 int Engine::videoHeight() { return rom::videoHeight(); }
 
 void Engine::setVideoFilter(int filter) { rom::setVideoFilter(filter); }
+void Engine::setHighQualityScaling(bool enabled) { rom::setHighQualityScaling(enabled); }
 
 } // namespace gbacore
 
@@ -298,6 +299,11 @@ Java_com_nesstation_app_core_jni_GbaNative_videoHeight(JNIEnv*, jclass) {
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_GbaNative_setVideoFilter(JNIEnv*, jclass, jint filter) {
     gbacore::Engine::instance().setVideoFilter(filter);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_setHighQualityScaling(JNIEnv*, jclass, jboolean enabled) {
+    gbacore::Engine::instance().setHighQualityScaling(enabled);
 }
 
 } // extern "C"

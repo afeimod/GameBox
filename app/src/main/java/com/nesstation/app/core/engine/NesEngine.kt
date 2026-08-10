@@ -152,6 +152,7 @@ class NesEngine private constructor() : EmulatorEngine {
     override fun videoHeight(): Int = if (isLoaded) NesNative.videoHeight() else 240
 
     override fun setVideoFilter(filter: Int) = NesNative.setVideoFilter(filter)
+    override fun setHighQualityScaling(enabled: Boolean) = NesNative.setHighQualityScaling(enabled)
 
     override fun setFastForward(speed: Int) {
         _ffSpeed = speed
@@ -191,9 +192,13 @@ class NesEngine private constructor() : EmulatorEngine {
         }
 
         // Dedicated audio thread with BLOCKING writes — no crackling.
+        // Uses a larger buffer (8192 frames = ~0.17s @44.1k) and only reads
+        // when the AudioTrack has room, preventing underruns on TV devices
+        // where the emulation thread may briefly stall.
         audioRunning.set(true)
         audioThread = thread(name = "nes-audio-loop", isDaemon = true) {
-            val buf = ShortArray(4096)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            val buf = ShortArray(8192)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -201,7 +206,10 @@ class NesEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(2)
+                            // No audio available — sleep briefly to avoid busy-spin.
+                            // 5ms is short enough to not introduce noticeable latency
+                            // but long enough to let the emulation thread produce audio.
+                            Thread.sleep(5)
                         }
                     } catch (_: InterruptedException) {
                         break
