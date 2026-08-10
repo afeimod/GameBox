@@ -244,7 +244,13 @@ fun SettingsScreen(
                         ) { updateLayout(padLayout.copy(cropOverscan = it)) }
 
                         DropdownRow("画面缩放",
-                            listOf("stretch" to "全屏拉伸(默认)", "4:3" to "4:3", "8:7" to "8:7", "16:9" to "16:9"),
+                            listOf(
+                                "stretch" to "全屏拉伸(默认)",
+                                "4:3" to "4:3",
+                                "3:2" to "3:2 (GBA 原生)",
+                                "8:7" to "8:7 (NES 像素比)",
+                                "16:9" to "16:9"
+                            ),
                             padLayout.videoScale
                         ) { updateLayout(padLayout.copy(videoScale = it)) }
 

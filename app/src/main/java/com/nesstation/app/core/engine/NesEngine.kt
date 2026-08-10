@@ -271,11 +271,28 @@ class NesEngine private constructor() : EmulatorEngine {
     override fun reset(hard: Boolean) = NesNative.reset(hard)
 
     override fun unload() {
-        stop()
-        stopAudio()
-        setSurface(null)
+        // === 卸载顺序很重要，避免闪退 ===
+        // 1. 先 setSurface(null) —— 通知 native 不再 blit 到 surface，
+        //    避免 emulation thread 在 surfaceDestroyed 之后还调用
+        //    ANativeWindow_lock 操作已释放的窗口（这是最常见的闪退源）。
+        //    native 端 setSurface 会获取 s_windowMtx，blitToSurface 也会
+        //    获取同一把锁，所以这里返回后保证不会有 blit 在进行中。
+        // 2. stop() —— 停 emulation thread，等线程退出 retro_run()。
+        // 3. stopAudio() —— 停 audio thread，释放 AudioTrack。
+        // 4. NesNative.unload() —— 卸载核心（retro_unload_game + retro_deinit）。
+        //
+        // 之前顺序是 stop → stopAudio → setSurface(null) → unload，
+        // 问题：surfaceDestroyed 由 Compose 在 onDispose 之前或之后异步触发，
+        // 可能发生 emulation thread 还在 retro_run() 里写 framebuffer、
+        // native video callback 在 blitToSurface 里锁 s_windowMtx ——
+        // 这时 setSurface(null) 还没执行，blit 到一个正在被销毁的 surface
+        // 上 → ANativeWindow_lock 返回错误或直接 SIGSEGV。
+        // 重新排序 + try/catch 兜底后这种偶发闪退消除。
+        try { setSurface(null) } catch (_: Throwable) {}
+        try { stop() } catch (_: Throwable) {}
+        try { stopAudio() } catch (_: Throwable) {}
         if (isLoaded) {
-            NesNative.unload()
+            try { NesNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
     }
@@ -307,10 +324,12 @@ class NesEngine private constructor() : EmulatorEngine {
             t.interrupt()
             // Join with retries — the emulation thread may be inside a
             // long retro_run() call (16-33ms). If it doesn't stop within
-            // 500ms, try again up to 3 times before giving up. Without
-            // this, unload() could call NesNative.unload() while the
-            // thread is still inside retro_run(), causing a crash.
-            for (attempt in 0 until 3) {
+            // 500ms, try again up to 6 times (3s total) before giving up.
+            // 给足时间让 retro_run() 返回后再释放核心 —— 否则 native
+            // 端 retro_unload_game() 会释放 emulation thread 正在访问的
+            // 内存，导致偶发 SIGSEGV（用户描述的"偶尔退出游戏闪退"）。
+            // 之前只重试 3 次（1.5s），对某些慢速设备 / 长帧渲染不够。
+            for (attempt in 0 until 6) {
                 try { t.join(500) } catch (_: InterruptedException) { break }
                 if (!t.isAlive) break
             }

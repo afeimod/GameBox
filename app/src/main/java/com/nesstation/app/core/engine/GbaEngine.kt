@@ -247,11 +247,15 @@ class GbaEngine private constructor() : EmulatorEngine {
     override fun reset(hard: Boolean) = GbaNative.reset(hard)
 
     override fun unload() {
-        stop()
-        stopAudio()
-        setSurface(null)
+        // === 卸载顺序很重要，避免闪退（同 NesEngine）===
+        // 先 setSurface(null) 让 native blit 提前退出，再停线程，再卸载核心。
+        // 之前顺序 stop → stopAudio → setSurface(null) → unload 会让 emulation
+        // thread 在 surface 即将销毁时还在 blit，偶发 SIGSEGV。
+        try { setSurface(null) } catch (_: Throwable) {}
+        try { stop() } catch (_: Throwable) {}
+        try { stopAudio() } catch (_: Throwable) {}
         if (isLoaded) {
-            GbaNative.unload()
+            try { GbaNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
     }
@@ -285,7 +289,8 @@ class GbaEngine private constructor() : EmulatorEngine {
             // long retro_run() call. Without this, unload() could call
             // GbaNative.unload() while the thread is still inside
             // retro_run(), causing a crash.
-            for (attempt in 0 until 3) {
+            // 6 次 × 500ms = 3s（之前 1.5s 对慢速设备不够，偶发闪退）
+            for (attempt in 0 until 6) {
                 try { t.join(500) } catch (_: InterruptedException) { break }
                 if (!t.isAlive) break
             }

@@ -408,6 +408,7 @@ fun EmulatorScreen(
                 padLayout = padLayout,
                 surfaceSize = surfaceSize,
                 platform = platform,
+                isPortrait = isPortrait,
                 onPadBits = { bits -> engine.setPad1(bits) }
             )
         }
@@ -535,6 +536,7 @@ fun EmulatorScreen(
             PadLayoutEditor(
                 padLayout = padLayout,
                 platform = platform,
+                isPortrait = isPortrait,
                 onLayoutChange = { newLayout ->
                     padLayout = newLayout
                     PadLayoutStore.save(context, newLayout)
@@ -652,6 +654,7 @@ private fun GameSurfaceView(
     Box(modifier = modifier, contentAlignment = contentAlignment) {
         val surfaceModifier = when (videoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
+            "3:2" -> Modifier.aspectRatio(3f / 2f)   // GBA 原生比例 (240x160)
             "8:7" -> Modifier.aspectRatio(8f / 7f)
             "16:9" -> Modifier.aspectRatio(16f / 9f)
             else -> Modifier.fillMaxSize() // stretch (default)
@@ -914,7 +917,8 @@ private fun OnScreenController(
     padLayout: PadLayout,
     surfaceSize: IntSize,
     onPadBits: (Int) -> Unit,
-    platform: GamePlatform = GamePlatform.NES
+    platform: GamePlatform = GamePlatform.NES,
+    isPortrait: Boolean = false
 ) {
     val density = LocalDensity.current
     val opacity = padLayout.opacity
@@ -926,6 +930,21 @@ private fun OnScreenController(
     // L/R bit values differ between GBA (bit8/9) and SNES (bit10/11)
     val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
     val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
+
+    // === 横竖屏布局选择 ===
+    // 横屏用 dpad / btnA / btnB / ...，竖屏用 dpadP / btnAP / btnBP / ...
+    // 两套布局各自独立保存，互不干扰。
+    val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
+    val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
+    val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
+    val btnTurboA = if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA
+    val btnTurboB = if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB
+    val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
+    val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
+    val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
+    val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
+    val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
+    val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
 
     // Compute button hit-areas in pixels
     fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): androidx.compose.ui.geometry.Rect {
@@ -986,20 +1005,20 @@ private fun OnScreenController(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(padLayout, surfaceSize) {
+            .pointerInput(padLayout, surfaceSize, isPortrait) {
                 // Compute hit areas once (recomputed when key changes)
-                val dpadRect = btnRect(padLayout.dpad)
-                val aRect = btnRect(padLayout.btnA)
-                val bRect = btnRect(padLayout.btnB)
+                val dpadRect = btnRect(dpad)
+                val aRect = btnRect(btnA)
+                val bRect = btnRect(btnB)
                 // Turbo A/B hit areas only for non-SNES platforms
-                val taRect = if (!showXY) btnRect(padLayout.btnTurboA) else null
-                val tbRect = if (!showXY) btnRect(padLayout.btnTurboB) else null
-                val startRect = btnRect(padLayout.btnStart, 2.2f, 0.7f)
-                val selectRect = btnRect(padLayout.btnSelect, 2.2f, 0.7f)
-                val lRect = if (showLR) btnRect(padLayout.btnL, 1.6f, 0.7f) else null
-                val rRect = if (showLR) btnRect(padLayout.btnR, 1.6f, 0.7f) else null
-                val xRect = if (showXY) btnRect(padLayout.btnX) else null
-                val yRect = if (showXY) btnRect(padLayout.btnY) else null
+                val taRect = if (!showXY) btnRect(btnTurboA) else null
+                val tbRect = if (!showXY) btnRect(btnTurboB) else null
+                val startRect = btnRect(btnStart, 2.2f, 0.7f)
+                val selectRect = btnRect(btnSelect, 2.2f, 0.7f)
+                val lRect = if (showLR) btnRect(btnL, 1.6f, 0.7f) else null
+                val rRect = if (showLR) btnRect(btnR, 1.6f, 0.7f) else null
+                val xRect = if (showXY) btnRect(btnX) else null
+                val yRect = if (showXY) btnRect(btnY) else null
 
                 // Process a pointer DOWN at the given position.
                 // Returns true if the pointer landed on a button.
@@ -1105,35 +1124,35 @@ private fun OnScreenController(
                 }
             }
     ) {
-        // Draw D-pad
+        // Draw D-pad (用横屏/竖屏对应的布局)
         DpadCanvas(
-            layout = padLayout.dpad,
+            layout = dpad,
             surfaceSize = surfaceSize,
             opacity = opacity,
             pressedDirs = visualState and 0xF0
         )
         // Draw A
-        ActionButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnA, surfaceSize, opacity, visualState and BTN_A != 0)
+        ActionButtonCanvas("A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
         // Draw B
-        ActionButtonCanvas("B", Color(0xFFE67E22), padLayout.btnB, surfaceSize, opacity, visualState and BTN_B != 0)
+        ActionButtonCanvas("B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and BTN_B != 0)
         // Turbo A/B — hidden on SNES (X/Y buttons take their place)
         if (!showXY) {
-            TurboButtonCanvas("A", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
-            TurboButtonCanvas("B", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
+            TurboButtonCanvas("A", Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
+            TurboButtonCanvas("B", Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
         }
         // Start
-        PillButtonCanvas("START", padLayout.btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
+        PillButtonCanvas("START", btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
         // Select
-        PillButtonCanvas("SELECT", padLayout.btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
+        PillButtonCanvas("SELECT", btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
         // L/R shoulder buttons (GBA/SNES)
         if (showLR) {
-            ShoulderButtonCanvas("L", padLayout.btnL, surfaceSize, opacity, visualState and lBit != 0)
-            ShoulderButtonCanvas("R", padLayout.btnR, surfaceSize, opacity, visualState and rBit != 0)
+            ShoulderButtonCanvas("L", btnL, surfaceSize, opacity, visualState and lBit != 0)
+            ShoulderButtonCanvas("R", btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
         // X/Y face buttons (SNES only)
         if (showXY) {
-            ActionButtonCanvas("X", Color(0xFF3498DB), padLayout.btnX, surfaceSize, opacity, visualState and BTN_X != 0)
-            ActionButtonCanvas("Y", Color(0xFF2ECC71), padLayout.btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
+            ActionButtonCanvas("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
+            ActionButtonCanvas("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
         }
     }
 }
@@ -1668,6 +1687,7 @@ private fun SlotRow(
 private fun PadLayoutEditor(
     padLayout: PadLayout,
     platform: GamePlatform = GamePlatform.NES,
+    isPortrait: Boolean = false,
     onLayoutChange: (PadLayout) -> Unit,
     surfaceSize: IntSize,
     onClose: () -> Unit
@@ -1678,18 +1698,75 @@ private fun PadLayoutEditor(
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC
     val showXY = platform == GamePlatform.SFC
 
+    // === 横竖屏布局选择 ===
+    // 横屏编辑修改 dpad / btnA / ...，竖屏编辑修改 dpadP / btnAP / ...
+    // 全局设置（透明度、核心选项等）在两个方向共享，编辑器不动这些。
+    val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
+    val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
+    val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
+    val btnTurboA = if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA
+    val btnTurboB = if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB
+    val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
+    val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
+    val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
+    val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
+    val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
+    val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
+
+    // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段
+    fun updateBtn(btnType: BtnType, newLayout: ButtonLayout) {
+        val updated = when (btnType) {
+            BtnType.DPAD -> if (isPortrait) padLayout.copy(dpadP = newLayout) else padLayout.copy(dpad = newLayout)
+            BtnType.A -> if (isPortrait) padLayout.copy(btnAP = newLayout) else padLayout.copy(btnA = newLayout)
+            BtnType.B -> if (isPortrait) padLayout.copy(btnBP = newLayout) else padLayout.copy(btnB = newLayout)
+            BtnType.TURBO_A -> if (isPortrait) padLayout.copy(btnTurboAP = newLayout) else padLayout.copy(btnTurboA = newLayout)
+            BtnType.TURBO_B -> if (isPortrait) padLayout.copy(btnTurboBP = newLayout) else padLayout.copy(btnTurboB = newLayout)
+            BtnType.START -> if (isPortrait) padLayout.copy(btnStartP = newLayout) else padLayout.copy(btnStart = newLayout)
+            BtnType.SELECT -> if (isPortrait) padLayout.copy(btnSelectP = newLayout) else padLayout.copy(btnSelect = newLayout)
+            BtnType.L -> if (isPortrait) padLayout.copy(btnLP = newLayout) else padLayout.copy(btnL = newLayout)
+            BtnType.R -> if (isPortrait) padLayout.copy(btnRP = newLayout) else padLayout.copy(btnR = newLayout)
+            BtnType.X -> if (isPortrait) padLayout.copy(btnXP = newLayout) else padLayout.copy(btnX = newLayout)
+            BtnType.Y -> if (isPortrait) padLayout.copy(btnYP = newLayout) else padLayout.copy(btnY = newLayout)
+        }
+        onLayoutChange(updated)
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
-        // Top toolbar
+        // Top toolbar — 加上当前编辑方向提示
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp)
                 .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("拖动移动 · 点击选大小", color = Color.White, fontSize = 13.sp)
+            Text(
+                if (isPortrait) "竖屏布局 · 拖动移动 · 点击选大小"
+                else "横屏布局 · 拖动移动 · 点击选大小",
+                color = Color.White, fontSize = 13.sp
+            )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { onLayoutChange(PadLayout()) }) {
-                Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
+            IconButton(onClick = {
+                // 重置当前方向的布局（不动另一方向）
+                val defaults = PadLayout()
+                if (isPortrait) {
+                    onLayoutChange(padLayout.copy(
+                        dpadP = defaults.dpadP, btnAP = defaults.btnAP, btnBP = defaults.btnBP,
+                        btnTurboAP = defaults.btnTurboAP, btnTurboBP = defaults.btnTurboBP,
+                        btnStartP = defaults.btnStartP, btnSelectP = defaults.btnSelectP,
+                        btnLP = defaults.btnLP, btnRP = defaults.btnRP,
+                        btnXP = defaults.btnXP, btnYP = defaults.btnYP
+                    ))
+                } else {
+                    onLayoutChange(padLayout.copy(
+                        dpad = defaults.dpad, btnA = defaults.btnA, btnB = defaults.btnB,
+                        btnTurboA = defaults.btnTurboA, btnTurboB = defaults.btnTurboB,
+                        btnStart = defaults.btnStart, btnSelect = defaults.btnSelect,
+                        btnL = defaults.btnL, btnR = defaults.btnR,
+                        btnX = defaults.btnX, btnY = defaults.btnY
+                    ))
+                }
+            }) {
+                Icon(Icons.Rounded.Refresh, "重置当前方向", tint = Color(0xFFFFD66B))
             }
             IconButton(onClick = onClose) {
                 Text("完成", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -1698,98 +1775,98 @@ private fun PadLayoutEditor(
 
         // Draggable button previews — use Unit key so gesture doesn't restart
         Box(modifier = Modifier.fillMaxSize()) {
-            EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD,
+            EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD, isPortrait = isPortrait,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.05f, 0.45f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(dpad = padLayout.dpad.copy(x = nx, y = ny)))
+                    updateBtn(BtnType.DPAD, dpad.copy(x = nx, y = ny))
                 },
                 onSelect = { selectedBtn = BtnType.DPAD }
             )
-            EditableRoundBtn("A", Color(0xFFE74C3C), padLayout.btnA, surfaceSize, selectedBtn == BtnType.A,
+            EditableRoundBtn("A", Color(0xFFE74C3C), btnA, surfaceSize, selectedBtn == BtnType.A,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.4f, 0.95f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnA = padLayout.btnA.copy(x = nx, y = ny)))
+                    updateBtn(BtnType.A, btnA.copy(x = nx, y = ny))
                 },
                 onSelect = { selectedBtn = BtnType.A }
             )
-            EditableRoundBtn("B", Color(0xFFE67E22), padLayout.btnB, surfaceSize, selectedBtn == BtnType.B,
+            EditableRoundBtn("B", Color(0xFFE67E22), btnB, surfaceSize, selectedBtn == BtnType.B,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.4f, 0.95f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnB = padLayout.btnB.copy(x = nx, y = ny)))
+                    updateBtn(BtnType.B, btnB.copy(x = nx, y = ny))
                 },
                 onSelect = { selectedBtn = BtnType.B }
             )
             if (!showXY) {
-                EditableRoundBtn("TA", Color(0xFFE74C3C), padLayout.btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
+                EditableRoundBtn("TA", Color(0xFFE74C3C), btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
-                        onLayoutChange(padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.TURBO_A, btnTurboA.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.TURBO_A }
                 )
-                EditableRoundBtn("TB", Color(0xFFE67E22), padLayout.btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
+                EditableRoundBtn("TB", Color(0xFFE67E22), btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
-                        onLayoutChange(padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.TURBO_B, btnTurboB.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.TURBO_B }
                 )
             }
-            EditablePillBtn("START", padLayout.btnStart, surfaceSize, selectedBtn == BtnType.START,
+            EditablePillBtn("START", btnStart, surfaceSize, selectedBtn == BtnType.START,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.1f, 0.9f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnStart = padLayout.btnStart.copy(x = nx, y = ny)))
+                    updateBtn(BtnType.START, btnStart.copy(x = nx, y = ny))
                 },
                 onSelect = { selectedBtn = BtnType.START }
             )
-            EditablePillBtn("SELECT", padLayout.btnSelect, surfaceSize, selectedBtn == BtnType.SELECT,
+            EditablePillBtn("SELECT", btnSelect, surfaceSize, selectedBtn == BtnType.SELECT,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.1f, 0.9f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
-                    onLayoutChange(padLayout.copy(btnSelect = padLayout.btnSelect.copy(x = nx, y = ny)))
+                    updateBtn(BtnType.SELECT, btnSelect.copy(x = nx, y = ny))
                 },
                 onSelect = { selectedBtn = BtnType.SELECT }
             )
             // L/R shoulder buttons (GBA/SNES)
             if (showLR) {
-                EditablePillBtn("L", padLayout.btnL, surfaceSize, selectedBtn == BtnType.L,
+                EditablePillBtn("L", btnL, surfaceSize, selectedBtn == BtnType.L,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.05f, 0.4f)
                         val ny = targetY.coerceIn(0.02f, 0.3f)
-                        onLayoutChange(padLayout.copy(btnL = padLayout.btnL.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.L, btnL.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.L }
                 )
-                EditablePillBtn("R", padLayout.btnR, surfaceSize, selectedBtn == BtnType.R,
+                EditablePillBtn("R", btnR, surfaceSize, selectedBtn == BtnType.R,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.6f, 0.95f)
                         val ny = targetY.coerceIn(0.02f, 0.3f)
-                        onLayoutChange(padLayout.copy(btnR = padLayout.btnR.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.R, btnR.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.R }
                 )
             }
             // X/Y face buttons (SNES only)
             if (showXY) {
-                EditableRoundBtn("X", Color(0xFF3498DB), padLayout.btnX, surfaceSize, selectedBtn == BtnType.X,
+                EditableRoundBtn("X", Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
-                        onLayoutChange(padLayout.copy(btnX = padLayout.btnX.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.X, btnX.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.X }
                 )
-                EditableRoundBtn("Y", Color(0xFF2ECC71), padLayout.btnY, surfaceSize, selectedBtn == BtnType.Y,
+                EditableRoundBtn("Y", Color(0xFF2ECC71), btnY, surfaceSize, selectedBtn == BtnType.Y,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
-                        onLayoutChange(padLayout.copy(btnY = padLayout.btnY.copy(x = nx, y = ny)))
+                        updateBtn(BtnType.Y, btnY.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.Y }
                 )
@@ -1804,17 +1881,17 @@ private fun PadLayoutEditor(
             val maxSize: Int
             val label: String
             when (sel) {
-                BtnType.DPAD -> { currentSize = padLayout.dpad.sizeDp; minSize = 80; maxSize = 220; label = "十字键大小" }
-                BtnType.A -> { currentSize = padLayout.btnA.sizeDp; minSize = 40; maxSize = 120; label = "A键大小" }
-                BtnType.B -> { currentSize = padLayout.btnB.sizeDp; minSize = 40; maxSize = 120; label = "B键大小" }
-                BtnType.TURBO_A -> { currentSize = padLayout.btnTurboA.sizeDp; minSize = 30; maxSize = 90; label = "连射A大小" }
-                BtnType.TURBO_B -> { currentSize = padLayout.btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
-                BtnType.START -> { currentSize = padLayout.btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
-                BtnType.SELECT -> { currentSize = padLayout.btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
-                BtnType.L -> { currentSize = padLayout.btnL.sizeDp; minSize = 36; maxSize = 90; label = "L键大小" }
-                BtnType.R -> { currentSize = padLayout.btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
-                BtnType.X -> { currentSize = padLayout.btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
-                BtnType.Y -> { currentSize = padLayout.btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
+                BtnType.DPAD -> { currentSize = dpad.sizeDp; minSize = 80; maxSize = 220; label = "十字键大小" }
+                BtnType.A -> { currentSize = btnA.sizeDp; minSize = 40; maxSize = 120; label = "A键大小" }
+                BtnType.B -> { currentSize = btnB.sizeDp; minSize = 40; maxSize = 120; label = "B键大小" }
+                BtnType.TURBO_A -> { currentSize = btnTurboA.sizeDp; minSize = 30; maxSize = 90; label = "连射A大小" }
+                BtnType.TURBO_B -> { currentSize = btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
+                BtnType.START -> { currentSize = btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
+                BtnType.SELECT -> { currentSize = btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
+                BtnType.L -> { currentSize = btnL.sizeDp; minSize = 36; maxSize = 90; label = "L键大小" }
+                BtnType.R -> { currentSize = btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
+                BtnType.X -> { currentSize = btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
+                BtnType.Y -> { currentSize = btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
             }
 
             Column(
@@ -1835,20 +1912,20 @@ private fun PadLayoutEditor(
                     value = currentSize.toFloat(),
                     onValueChange = { newVal ->
                         val intVal = newVal.toInt()
-                        val newLayout = when (sel) {
-                            BtnType.DPAD -> padLayout.copy(dpad = padLayout.dpad.copy(sizeDp = intVal))
-                            BtnType.A -> padLayout.copy(btnA = padLayout.btnA.copy(sizeDp = intVal))
-                            BtnType.B -> padLayout.copy(btnB = padLayout.btnB.copy(sizeDp = intVal))
-                            BtnType.TURBO_A -> padLayout.copy(btnTurboA = padLayout.btnTurboA.copy(sizeDp = intVal))
-                            BtnType.TURBO_B -> padLayout.copy(btnTurboB = padLayout.btnTurboB.copy(sizeDp = intVal))
-                            BtnType.START -> padLayout.copy(btnStart = padLayout.btnStart.copy(sizeDp = intVal))
-                            BtnType.SELECT -> padLayout.copy(btnSelect = padLayout.btnSelect.copy(sizeDp = intVal))
-                            BtnType.L -> padLayout.copy(btnL = padLayout.btnL.copy(sizeDp = intVal))
-                            BtnType.R -> padLayout.copy(btnR = padLayout.btnR.copy(sizeDp = intVal))
-                            BtnType.X -> padLayout.copy(btnX = padLayout.btnX.copy(sizeDp = intVal))
-                            BtnType.Y -> padLayout.copy(btnY = padLayout.btnY.copy(sizeDp = intVal))
+                        val source = when (sel) {
+                            BtnType.DPAD -> dpad
+                            BtnType.A -> btnA
+                            BtnType.B -> btnB
+                            BtnType.TURBO_A -> btnTurboA
+                            BtnType.TURBO_B -> btnTurboB
+                            BtnType.START -> btnStart
+                            BtnType.SELECT -> btnSelect
+                            BtnType.L -> btnL
+                            BtnType.R -> btnR
+                            BtnType.X -> btnX
+                            BtnType.Y -> btnY
                         }
-                        onLayoutChange(newLayout)
+                        updateBtn(sel, source.copy(sizeDp = intVal))
                     },
                     valueRange = minSize.toFloat()..maxSize.toFloat(),
                     colors = SliderDefaults.colors(
@@ -1936,10 +2013,12 @@ private fun EditableDpad(
     padLayout: PadLayout,
     surfaceSize: IntSize,
     isSelected: Boolean,
+    isPortrait: Boolean = false,
     onMove: (targetX: Float, targetY: Float) -> Unit,
     onSelect: () -> Unit
 ) {
-    val layout = padLayout.dpad
+    // 横屏 / 竖屏 D-pad 布局独立
+    val layout = if (isPortrait) padLayout.dpadP else padLayout.dpad
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
@@ -2090,7 +2169,13 @@ private fun SettingsPanel(
 
         // Common video settings for all platforms
         DropdownSetting("画面缩放",
-            listOf("stretch" to "全屏拉伸(默认)", "4:3" to "4:3", "8:7" to "8:7", "16:9" to "16:9"),
+            listOf(
+                "stretch" to "全屏拉伸(默认)",
+                "4:3" to "4:3",
+                "3:2" to "3:2 (GBA 原生)",
+                "8:7" to "8:7 (NES 像素比)",
+                "16:9" to "16:9"
+            ),
             padLayout.videoScale
         ) { onLayoutChange(padLayout.copy(videoScale = it)) }
 

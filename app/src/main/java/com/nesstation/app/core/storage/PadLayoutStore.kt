@@ -18,31 +18,40 @@ data class ButtonLayout(
  * Complete on-screen controller layout with per-button positioning.
  * Every button can be individually positioned and resized.
  * Includes L/R shoulder buttons (GBA/SNES) and X/Y face buttons (SNES).
+ *
+ * IMPORTANT: 横屏 / 竖屏的按键位置互相独立，互不干扰。
+ *   - landscape 布局：横向玩游戏时手柄排布（dpad 左下，A/B 右下，L/R 顶部）
+ *   - portrait  布局：竖屏玩游戏时手柄排布（默认值适合竖屏，可单独调整）
+ * 用户在横屏编辑手柄位置后切到竖屏，竖屏布局保持自己原来的设置；反之亦然。
+ * 全局设置（透明度、是否显示手柄、核心选项等）两个方向共享。
  */
 data class PadLayout(
-    // D-pad — cross-shaped, positioned on the left
+    // === 横屏布局（landscape） ===
     val dpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140),
-    // A button — right side, lower
     val btnA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.76f, sizeDp = 72),
-    // B button — right side, lower-left of A
     val btnB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.82f, sizeDp = 72),
-    // Turbo A (rapid-fire) — above A
     val btnTurboA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.60f, sizeDp = 48),
-    // Turbo B (rapid-fire) — above B
     val btnTurboB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.66f, sizeDp = 48),
-    // Start — center-right, bottom
     val btnStart: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.92f, sizeDp = 56),
-    // Select — center-left, bottom
     val btnSelect: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.92f, sizeDp = 56),
-    // L button — top-left shoulder (GBA/SNES)
     val btnL: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.15f, sizeDp = 56),
-    // R button — top-right shoulder (GBA/SNES)
     val btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56),
-    // X button — above A (SNES 4-face button layout, top-right of diamond)
     val btnX: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.54f, sizeDp = 60),
-    // Y button — above B (SNES 4-face button layout, top-left of diamond)
     val btnY: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.60f, sizeDp = 60),
-    // Global settings
+    // === 竖屏布局（portrait）—— 默认值给竖屏一个更舒服的排布 ===
+    // dpad 放左下、A/B 放右下，跟横屏差不多但 y 坐标稍微上移避开屏幕底部
+    val dpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130),
+    val btnAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.72f, sizeDp = 68),
+    val btnBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.80f, sizeDp = 68),
+    val btnTurboAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.56f, sizeDp = 46),
+    val btnTurboBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.62f, sizeDp = 46),
+    val btnStartP: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.90f, sizeDp = 54),
+    val btnSelectP: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.90f, sizeDp = 54),
+    val btnLP: ButtonLayout = ButtonLayout(x = 0.12f, y = 0.12f, sizeDp = 54),
+    val btnRP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.12f, sizeDp = 54),
+    val btnXP: ButtonLayout = ButtonLayout(x = 0.83f, y = 0.50f, sizeDp = 56),
+    val btnYP: ButtonLayout = ButtonLayout(x = 0.69f, y = 0.56f, sizeDp = 56),
+    // === 全局设置（横竖屏共享） ===
     val opacity: Float = 0.7f,     // 0.3 – 1.0
     val showPad: Boolean = true,
     // Core options — values MUST match FCEUmm's libretro_core_options.h
@@ -111,11 +120,16 @@ data class PadLayout(
 /**
  * Persistent on-screen controller layout + core option settings.
  * Stores per-button positions (0.0–1.0), sizes (dp), and global options.
+ *
+ * 横屏 / 竖屏的按键位置用不同的 key 前缀持久化：
+ *   - 横屏：`dpad_x` / `a_x` / `b_x` / ... (旧 key，兼容旧版本)
+ *   - 竖屏：`p_dpad_x` / `p_a_x` / `p_b_x` / ... (新 key)
+ * 全局设置（opacity / showPad / 核心选项 / 滤镜等）不分方向共享。
  */
 object PadLayoutStore {
     private const val PREFS_NAME = "pad_layout_v2"
 
-    // Button keys
+    // === 横屏 Button keys (旧 key 兼容旧版本) ===
     private const val KEY_DPAD_X = "dpad_x"
     private const val KEY_DPAD_Y = "dpad_y"
     private const val KEY_DPAD_SIZE = "dpad_size"
@@ -154,6 +168,41 @@ object PadLayoutStore {
     private const val KEY_Y_Y = "y_y"
     private const val KEY_Y_SIZE = "y_size"
 
+    // === 竖屏 Button keys (新 key，p_ 前缀) ===
+    private const val KEY_PDAD_X = "p_dpad_x"
+    private const val KEY_PDAD_Y = "p_dpad_y"
+    private const val KEY_PDAD_SIZE = "p_dpad_size"
+    private const val KEY_PA_X = "p_a_x"
+    private const val KEY_PA_Y = "p_a_y"
+    private const val KEY_PA_SIZE = "p_a_size"
+    private const val KEY_PB_X = "p_b_x"
+    private const val KEY_PB_Y = "p_b_y"
+    private const val KEY_PB_SIZE = "p_b_size"
+    private const val KEY_PTA_X = "p_ta_x"
+    private const val KEY_PTA_Y = "p_ta_y"
+    private const val KEY_PTA_SIZE = "p_ta_size"
+    private const val KEY_PTB_X = "p_tb_x"
+    private const val KEY_PTB_Y = "p_tb_y"
+    private const val KEY_PTB_SIZE = "p_tb_size"
+    private const val KEY_PSTART_X = "p_start_x"
+    private const val KEY_PSTART_Y = "p_start_y"
+    private const val KEY_PSTART_SIZE = "p_start_size"
+    private const val KEY_PSELECT_X = "p_select_x"
+    private const val KEY_PSELECT_Y = "p_select_y"
+    private const val KEY_PSELECT_SIZE = "p_select_size"
+    private const val KEY_PL_X = "p_l_x"
+    private const val KEY_PL_Y = "p_l_y"
+    private const val KEY_PL_SIZE = "p_l_size"
+    private const val KEY_PR_X = "p_r_x"
+    private const val KEY_PR_Y = "p_r_y"
+    private const val KEY_PR_SIZE = "p_r_size"
+    private const val KEY_PX_X = "p_x_x"
+    private const val KEY_PX_Y = "p_x_y"
+    private const val KEY_PX_SIZE = "p_x_size"
+    private const val KEY_PY_X = "p_y_x"
+    private const val KEY_PY_Y = "p_y_y"
+    private const val KEY_PY_SIZE = "p_y_size"
+
     // Global keys
     private const val KEY_OPACITY = "opacity"
     private const val KEY_SHOW_PAD = "show_pad"
@@ -176,6 +225,7 @@ object PadLayoutStore {
     fun load(ctx: Context): PadLayout {
         val p = prefs(ctx)
         return PadLayout(
+            // === 横屏布局 ===
             dpad = ButtonLayout(
                 p.getFloat(KEY_DPAD_X, 0.13f),
                 p.getFloat(KEY_DPAD_Y, 0.78f),
@@ -231,6 +281,63 @@ object PadLayoutStore {
                 p.getFloat(KEY_Y_Y, 0.60f),
                 p.getInt(KEY_Y_SIZE, 60)
             ),
+            // === 竖屏布局（独立持久化，跟横屏互不干扰） ===
+            dpadP = ButtonLayout(
+                p.getFloat(KEY_PDAD_X, 0.18f),
+                p.getFloat(KEY_PDAD_Y, 0.74f),
+                p.getInt(KEY_PDAD_SIZE, 130)
+            ),
+            btnAP = ButtonLayout(
+                p.getFloat(KEY_PA_X, 0.82f),
+                p.getFloat(KEY_PA_Y, 0.72f),
+                p.getInt(KEY_PA_SIZE, 68)
+            ),
+            btnBP = ButtonLayout(
+                p.getFloat(KEY_PB_X, 0.68f),
+                p.getFloat(KEY_PB_Y, 0.80f),
+                p.getInt(KEY_PB_SIZE, 68)
+            ),
+            btnTurboAP = ButtonLayout(
+                p.getFloat(KEY_PTA_X, 0.82f),
+                p.getFloat(KEY_PTA_Y, 0.56f),
+                p.getInt(KEY_PTA_SIZE, 46)
+            ),
+            btnTurboBP = ButtonLayout(
+                p.getFloat(KEY_PTB_X, 0.68f),
+                p.getFloat(KEY_PTB_Y, 0.62f),
+                p.getInt(KEY_PTB_SIZE, 46)
+            ),
+            btnStartP = ButtonLayout(
+                p.getFloat(KEY_PSTART_X, 0.62f),
+                p.getFloat(KEY_PSTART_Y, 0.90f),
+                p.getInt(KEY_PSTART_SIZE, 54)
+            ),
+            btnSelectP = ButtonLayout(
+                p.getFloat(KEY_PSELECT_X, 0.38f),
+                p.getFloat(KEY_PSELECT_Y, 0.90f),
+                p.getInt(KEY_PSELECT_SIZE, 54)
+            ),
+            btnLP = ButtonLayout(
+                p.getFloat(KEY_PL_X, 0.12f),
+                p.getFloat(KEY_PL_Y, 0.12f),
+                p.getInt(KEY_PL_SIZE, 54)
+            ),
+            btnRP = ButtonLayout(
+                p.getFloat(KEY_PR_X, 0.88f),
+                p.getFloat(KEY_PR_Y, 0.12f),
+                p.getInt(KEY_PR_SIZE, 54)
+            ),
+            btnXP = ButtonLayout(
+                p.getFloat(KEY_PX_X, 0.83f),
+                p.getFloat(KEY_PX_Y, 0.50f),
+                p.getInt(KEY_PX_SIZE, 56)
+            ),
+            btnYP = ButtonLayout(
+                p.getFloat(KEY_PY_X, 0.69f),
+                p.getFloat(KEY_PY_Y, 0.56f),
+                p.getInt(KEY_PY_SIZE, 56)
+            ),
+            // === 全局设置 ===
             opacity = p.getFloat(KEY_OPACITY, 0.7f),
             showPad = p.getBoolean(KEY_SHOW_PAD, true),
             highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false),
@@ -284,6 +391,7 @@ object PadLayoutStore {
 
     fun save(ctx: Context, layout: PadLayout) {
         prefs(ctx).edit().apply {
+            // === 横屏布局 ===
             putFloat(KEY_DPAD_X, layout.dpad.x)
             putFloat(KEY_DPAD_Y, layout.dpad.y)
             putInt(KEY_DPAD_SIZE, layout.dpad.sizeDp)
@@ -328,6 +436,52 @@ object PadLayoutStore {
             putFloat(KEY_Y_Y, layout.btnY.y)
             putInt(KEY_Y_SIZE, layout.btnY.sizeDp)
 
+            // === 竖屏布局（独立保存，跟横屏互不干扰） ===
+            putFloat(KEY_PDAD_X, layout.dpadP.x)
+            putFloat(KEY_PDAD_Y, layout.dpadP.y)
+            putInt(KEY_PDAD_SIZE, layout.dpadP.sizeDp)
+
+            putFloat(KEY_PA_X, layout.btnAP.x)
+            putFloat(KEY_PA_Y, layout.btnAP.y)
+            putInt(KEY_PA_SIZE, layout.btnAP.sizeDp)
+
+            putFloat(KEY_PB_X, layout.btnBP.x)
+            putFloat(KEY_PB_Y, layout.btnBP.y)
+            putInt(KEY_PB_SIZE, layout.btnBP.sizeDp)
+
+            putFloat(KEY_PTA_X, layout.btnTurboAP.x)
+            putFloat(KEY_PTA_Y, layout.btnTurboAP.y)
+            putInt(KEY_PTA_SIZE, layout.btnTurboAP.sizeDp)
+
+            putFloat(KEY_PTB_X, layout.btnTurboBP.x)
+            putFloat(KEY_PTB_Y, layout.btnTurboBP.y)
+            putInt(KEY_PTB_SIZE, layout.btnTurboBP.sizeDp)
+
+            putFloat(KEY_PSTART_X, layout.btnStartP.x)
+            putFloat(KEY_PSTART_Y, layout.btnStartP.y)
+            putInt(KEY_PSTART_SIZE, layout.btnStartP.sizeDp)
+
+            putFloat(KEY_PSELECT_X, layout.btnSelectP.x)
+            putFloat(KEY_PSELECT_Y, layout.btnSelectP.y)
+            putInt(KEY_PSELECT_SIZE, layout.btnSelectP.sizeDp)
+
+            putFloat(KEY_PL_X, layout.btnLP.x)
+            putFloat(KEY_PL_Y, layout.btnLP.y)
+            putInt(KEY_PL_SIZE, layout.btnLP.sizeDp)
+
+            putFloat(KEY_PR_X, layout.btnRP.x)
+            putFloat(KEY_PR_Y, layout.btnRP.y)
+            putInt(KEY_PR_SIZE, layout.btnRP.sizeDp)
+
+            putFloat(KEY_PX_X, layout.btnXP.x)
+            putFloat(KEY_PX_Y, layout.btnXP.y)
+            putInt(KEY_PX_SIZE, layout.btnXP.sizeDp)
+
+            putFloat(KEY_PY_X, layout.btnYP.x)
+            putFloat(KEY_PY_Y, layout.btnYP.y)
+            putInt(KEY_PY_SIZE, layout.btnYP.sizeDp)
+
+            // === 全局设置 ===
             putFloat(KEY_OPACITY, layout.opacity)
             putBoolean(KEY_SHOW_PAD, layout.showPad)
             putBoolean(KEY_HIGH_QUALITY_SCALING, layout.highQualityScaling)
