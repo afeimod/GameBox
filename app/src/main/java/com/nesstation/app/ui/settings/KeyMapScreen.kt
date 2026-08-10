@@ -1,6 +1,5 @@
 package com.nesstation.app.ui.settings
 
-import android.content.Context
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,11 +25,9 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,11 +35,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.view.View
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.ui.components.PixelBackdrop
 
@@ -61,10 +59,8 @@ data class KeyAction(
     val defaultKeyCode: Int,
     val defaultKeyLabel: String
 ) {
-    fun keyLabel(context: Context): String =
+    fun keyLabel(context: android.content.Context): String =
         KeyMapStore.get(context, id)?.let { KeyMapStore.keyCodeToLabel(it) } ?: defaultKeyLabel
-    fun keyCode(context: Context): Int =
-        KeyMapStore.get(context, id) ?: defaultKeyCode
 }
 
 // Per-platform button sets
@@ -187,7 +183,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                 item {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, bottom = 4.dp)
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp)
                     ) {
                         Icon(
                             Icons.Rounded.Gamepad,
@@ -227,33 +223,45 @@ fun KeyMapScreen(onBack: () -> Unit) {
     }
 
     // Key capture overlay — when capturingActionId != null, the user presses
-    // any physical key to assign it.
+    // any physical key to assign it. Uses an AndroidView with a View.OnKeyListener
+    // for maximum reliability across Compose versions.
     if (capturingActionId != null) {
         val captureId = capturingActionId!!
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xCC000000))
-                .focusable()
-                .onKeyEvent { keyEvent ->
-                    if (keyEvent.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
-                        val kc = keyEvent.keyCode
-                        // Don't allow mapping the Back key — it cancels capture
-                        if (kc == androidx.compose.ui.input.key.Key.Back) {
-                            capturingActionId = null
-                            true
-                        } else {
-                            // Store the mapping using the integer keyCode
-                            KeyMapStore.put(context, captureId, keyCodeToInt(kc))
-                            capturingActionId = null
-                            true
-                        }
-                    } else {
-                        false
-                    }
-                },
+                .background(Color(0xCC000000)),
             contentAlignment = Alignment.Center
         ) {
+            // Transparent fullscreen View that captures physical key events
+            // via Android's View.OnKeyListener — more reliable than Compose's
+            // onKeyEvent across different Compose versions.
+            AndroidView(
+                factory = { ctx ->
+                    View(ctx).apply {
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        requestFocus()
+                        setOnKeyListener { _, keyCode, event ->
+                            if (event.action == KeyEvent.ACTION_DOWN) {
+                                // Don't allow mapping the Back key — it cancels capture
+                                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                                    capturingActionId = null
+                                    true
+                                } else {
+                                    // Store the mapping using the integer keyCode
+                                    KeyMapStore.put(context, captureId, keyCode)
+                                    capturingActionId = null
+                                    true
+                                }
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     Icons.Rounded.Keyboard,
@@ -419,12 +427,4 @@ private fun FocusableBackButton(onBack: () -> Unit) {
             tint = Color(0xFF1E2A3A)
         )
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: convert Compose Key to Android integer keyCode for storage
-// ---------------------------------------------------------------------------
-private fun keyCodeToInt(key: androidx.compose.ui.input.key.Key): Int {
-    // Compose Key.keyCode is an Int on Android — we just store that value.
-    return key.keyCode
 }

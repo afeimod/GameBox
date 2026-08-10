@@ -82,7 +82,6 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
@@ -100,6 +99,7 @@ import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.storage.PadLayoutStore
 import android.view.KeyEvent
+import android.view.View
 import kotlinx.coroutines.delay
 
 // ---------------------------------------------------------------------------
@@ -114,16 +114,12 @@ private fun isTvMode(context: android.content.Context): Boolean {
 // ---------------------------------------------------------------------------
 // Physical gamepad key → controller bit mapping
 // Used on TV (and whenever a Bluetooth/USB gamepad is connected) to drive
-// the engine directly from onKeyEvent on the Compose tree.
+// the engine directly from a View.OnKeyListener attached to the SurfaceView.
 // Bit layout must match the BTN_* constants below.
 // ---------------------------------------------------------------------------
-private fun gamepadKeyToBits(key: androidx.compose.ui.input.key.Key, platform: GamePlatform): Int {
+private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
     val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
     val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
-    // Compose Key.keyCode returns the underlying Android KeyEvent keyCode
-    // integer on Android, so we can compare against the standard KEYCODE_*
-    // constants.
-    val keyCode = key.keyCode
     return when (keyCode) {
         KeyEvent.KEYCODE_DPAD_UP       -> BTN_UP
         KeyEvent.KEYCODE_DPAD_DOWN     -> BTN_DOWN
@@ -180,9 +176,10 @@ fun EmulatorScreen(
     // TV mode: hide the touch-only on-screen gamepad and route all input
     // through the physical gamepad / D-pad key handler below.
     val isTv = remember { isTvMode(context) }
-    // Tracks currently-held physical gamepad button bits so we can OR them
-    // into the engine's pad state on every key event.
-    var gamepadBits by remember { mutableStateOf(0) }
+    // Tracks currently-held physical gamepad button bits. Uses a plain array
+    // (not Compose state) so key presses don't trigger recomposition — the
+    // bits are pushed directly to the engine via setPad1().
+    val gamepadBitsHolder = remember { intArrayOf(0) }
     var running by remember { mutableStateOf(true) }
     var fastForwardSpeed by remember { mutableStateOf(0) } // 0=off, 6=default
     var loaded by remember { mutableStateOf(false) }
@@ -373,39 +370,12 @@ fun EmulatorScreen(
                 videoScale = padLayout.videoScale,
                 videoFilter = padLayout.videoFilter,
                 isPortrait = isPortrait,
+                platform = platform,
+                gamepadBitsHolder = gamepadBitsHolder,
+                onMenuToggle = { showMenu = !showMenu },
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
-                    .onKeyEvent { keyEvent ->
-                        // Physical gamepad / D-pad key routing — works on TV and
-                        // when a Bluetooth/USB controller is connected to a phone.
-                        val bits = gamepadKeyToBits(keyEvent.keyCode, platform)
-                        if (bits != 0) {
-                            when (keyEvent.type) {
-                                androidx.compose.ui.input.key.KeyEventType.KeyDown -> {
-                                    if (!keyEvent.repeat) {
-                                        gamepadBits = gamepadBits or bits
-                                    }
-                                    engine.setPad1(gamepadBits)
-                                    true
-                                }
-                                androidx.compose.ui.input.key.KeyEventType.KeyUp -> {
-                                    gamepadBits = gamepadBits and bits.inv()
-                                    engine.setPad1(gamepadBits)
-                                    true
-                                }
-                                else -> false
-                            }
-                        } else if (keyEvent.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
-                                   (keyEvent.keyCode == androidx.compose.ui.input.key.Key.Menu ||
-                                    keyEvent.keyCode == androidx.compose.ui.input.key.Key.Back)) {
-                            // Menu/Back toggles the in-game menu overlay
-                            showMenu = !showMenu
-                            true
-                        } else {
-                            false
-                        }
-                    }
             )
         } else {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -656,6 +626,9 @@ private fun GameSurfaceView(
     videoScale: String,
     videoFilter: String,
     isPortrait: Boolean = false,
+    platform: GamePlatform = GamePlatform.NES,
+    gamepadBitsHolder: IntArray = intArrayOf(0),
+    onMenuToggle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // In portrait mode, align game to top; in landscape, center it
@@ -690,6 +663,34 @@ private fun GameSurfaceView(
                     isFocusable = true
                     isFocusableInTouchMode = true
                     requestFocus()
+                    // Physical gamepad / D-pad key routing via Android's
+                    // View.OnKeyListener. This is more reliable than Compose's
+                    // onKeyEvent across different Compose versions.
+                    setOnKeyListener { _, keyCode, event ->
+                        val bits = gamepadKeyToBits(keyCode, platform)
+                        if (bits != 0) {
+                            when (event.action) {
+                                KeyEvent.ACTION_DOWN -> {
+                                    gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
+                                    engine.setPad1(gamepadBitsHolder[0])
+                                    true
+                                }
+                                KeyEvent.ACTION_UP -> {
+                                    gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
+                                    engine.setPad1(gamepadBitsHolder[0])
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else if (event.action == KeyEvent.ACTION_DOWN &&
+                                   (keyCode == KeyEvent.KEYCODE_MENU ||
+                                    keyCode == KeyEvent.KEYCODE_BACK)) {
+                            onMenuToggle()
+                            true
+                        } else {
+                            false
+                        }
+                    }
                 }
             },
             modifier = surfaceModifier
