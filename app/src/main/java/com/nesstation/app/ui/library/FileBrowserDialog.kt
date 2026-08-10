@@ -82,7 +82,7 @@ private val FocusedCardColor = Color(0xFF2A3A52)
  *    MANAGE_EXTERNAL_STORAGE or app-specific external dirs).
  *
  * @param initialDir  starting directory (defaults to external storage)
- * @param extensions  set of lowercase extensions (without '.') to match
+ * @param extensions  collection of lowercase extensions (without '.') to match
  * @param onPicked    called with the absolute path of the chosen folder
  * @param onDismiss   called when the user cancels
  */
@@ -90,7 +90,7 @@ private val FocusedCardColor = Color(0xFF2A3A52)
 fun FileBrowserDialog(
     initialDir: File = Environment.getExternalStorageDirectory()
         ?: File("/"),
-    extensions: Set<String> = ROM_EXTENSIONS,
+    extensions: Collection<String> = ROM_EXTENSIONS,
     onPicked: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -383,7 +383,7 @@ private fun FolderRow(
  */
 private fun countRoms(
     dir: File,
-    extensions: Set<String>,
+    extensions: Collection<String>,
     maxDepth: Int
 ): Int {
     if (maxDepth <= 0) return 0
