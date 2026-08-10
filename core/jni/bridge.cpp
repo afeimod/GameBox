@@ -73,6 +73,10 @@ int Engine::audioSampleRate() {
     return rom::audioSampleRate();
 }
 
+int Engine::audioTargetSampleRate() {
+    return rom::audioTargetSampleRate();
+}
+
 void Engine::setPaths(const std::string& systemDir, const std::string& saveDir) {
     rom::setPaths(systemDir, saveDir);
 }
@@ -212,6 +216,11 @@ Java_com_nesstation_app_core_jni_NesNative_readAudio(JNIEnv* env, jclass, jshort
 JNIEXPORT jint JNICALL
 Java_com_nesstation_app_core_jni_NesNative_audioSampleRate(JNIEnv*, jclass) {
     return nescore::Engine::instance().audioSampleRate();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NesNative_audioTargetSampleRate(JNIEnv*, jclass) {
+    return nescore::Engine::instance().audioTargetSampleRate();
 }
 
 JNIEXPORT void JNICALL

@@ -113,9 +113,23 @@ static uint32_t s_xbrBuffer4x[kSnesMaxW * kSnesMaxH * 4 * 4];
 // Intermediate buffer for 4xBR cascade pass 1 (max 512x478 -> 1024x956)
 static uint32_t s_xbrMidBuffer[kSnesMaxW * kSnesMaxH * 2 * 2];
 
-// Audio ring buffer: interleaved stereo int16 samples.
-// Uses the shared implementation from core_shared.h.
+// Audio ring buffer: interleaved stereo int16 samples (shared implementation).
 static coreshared::AudioRingBuffer s_audio;
+
+// Streaming audio resampler: converts from the SNES native sample rate
+// (~32040 Hz for SNES9x) to Android's 48000 Hz native rate.
+//
+// Without this resampler, AudioTrack is created at ~32040 Hz and Android's
+// AudioFlinger performs low-quality resampling to 48000 Hz internally.
+// On phones the resampling artifact is mild (the phone's audio HAL may
+// even accept 32040 Hz natively), but on TV boxes with HDMI output the
+// native rate is always 48000 Hz, so AudioFlinger's 32040→48000
+// resampling produces audible buzzing, crackling, and muffled audio.
+//
+// Doing the resampling in our own native code with a linear interpolator
+// eliminates these artifacts. This matches the GB/GBC/GBA core (mGBA),
+// which already resamples to 48000 Hz and works correctly on TV.
+static coreshared::AudioResampler s_resampler;
 
 // ---------------------------------------------------------------------------
 // ANativeWindow — hardware-accelerated direct surface rendering
@@ -617,6 +631,18 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_newFrame.store(false);
 
+    // Initialize the resampler from the SNES native rate (~32040 Hz) to
+    // Android's 48000 Hz native rate. This eliminates the buzzing/crackling/
+    // muffled audio that occurs when AudioFlinger is forced to resample
+    // 32040→48000 on TV boxes with HDMI output (where the hardware native
+    // rate is always 48000 Hz). Phones often accept 32040 Hz natively or
+    // have a higher-quality resampler, which is why the bug only appeared
+    // in TV mode.
+    s_resampler.init(s_sampleRate, coreshared::TARGET_SAMPLE_RATE);
+    LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f, active=%d)",
+         s_sampleRate, coreshared::TARGET_SAMPLE_RATE,
+         s_resampler.ratio, s_resampler.active ? 1 : 0);
+
     LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
          av.geometry.base_width, av.geometry.base_height,
@@ -640,6 +666,7 @@ void unload() {
     }
     s_sampleRate = 0;
     s_audio.reset();
+    s_resampler.reset();
     s_newFrame.store(false);
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
     {
@@ -684,10 +711,15 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
 }
 
 int readAudio(int16_t* out, int maxFrames) {
-    return s_audio.read(out, maxFrames);
+    // The resampler pulls source frames from s_audio and writes resampled
+    // output at 48000 Hz. When srcRate == 48000 (active=false), the
+    // resampler passes through directly to s_audio.read().
+    return s_resampler.readResampled(s_audio, out, maxFrames);
 }
 
 int audioSampleRate() { return s_sampleRate; }
+
+int audioTargetSampleRate() { return coreshared::TARGET_SAMPLE_RATE; }
 
 void setControllerInput(int port, uint16_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);

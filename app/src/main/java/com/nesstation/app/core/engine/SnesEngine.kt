@@ -14,8 +14,23 @@ import kotlin.concurrent.thread
  *
  * Architecture:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer, writes to AudioTrack with
- *     BLOCKING mode (prevents sample drops / crackling)
+ *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
+ *     native code), writes to AudioTrack with BLOCKING mode (prevents sample
+ *     drops / crackling)
+ *
+ * Audio pipeline (matches the GB/GBC/GBA core):
+ *   SNES9x core (~32040 Hz) → libretro callback → AudioRingBuffer
+ *     → AudioResampler (32040→48000 Hz, linear interpolation)
+ *     → readAudio() JNI → AudioTrack (48000 Hz)
+ *
+ * The resampler runs in the native layer (snes_loader.cpp). AudioTrack is
+ * always created at 48000 Hz, which is Android's native audio sample rate.
+ * This eliminates the buzzing/crackling/muffled audio that occurred on TV
+ * boxes (HDMI output always runs at 48000 Hz) when AudioTrack was created
+ * at the SNES native rate (~32040 Hz) and AudioFlinger was forced to
+ * resample. Phones often accept 32040 Hz natively or have a higher-quality
+ * resampler, so the bug was invisible there — which is why the issue only
+ * appeared in TV mode.
  *
  * SNES button bit layout (12 buttons):
  *   bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down, bit6=Left, bit7=Right
@@ -61,7 +76,21 @@ class SnesEngine private constructor() : EmulatorEngine {
 
         SnesNative.setFastForward(_ffSpeed)
 
-        startAudio(SnesNative.audioSampleRate().takeIf { it > 0 } ?: 32040)
+        // Use the target sample rate (48000 Hz) for AudioTrack, not the SNES
+        // native rate (~32040 Hz). The native resampler in snes_loader.cpp
+        // converts from the core rate to 48000 Hz before returning samples
+        // via readAudio().
+        //
+        // WHY: On TV boxes with HDMI output, the hardware native audio rate is
+        // always 48000 Hz. If AudioTrack is created at ~32040 Hz, Android's
+        // AudioFlinger performs low-quality resampling to 48000 Hz internally,
+        // producing audible buzzing, crackling, and muffled audio. On phones
+        // the artifact is milder (the phone's audio HAL may accept 32040 Hz
+        // natively or have a higher-quality resampler), which is why the bug
+        // only appeared in TV mode. This matches the GB/GBC/GBA core (mGBA)
+        // which already does the same.
+        val rate = SnesNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        startAudio(rate)
 
         running.set(true)
         thread = thread(name = "snescore-loop", isDaemon = true) {
@@ -161,6 +190,10 @@ class SnesEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
+            // Use a larger buffer for 48000 Hz output to prevent underruns on
+            // weak TV boxes. At 48kHz stereo 16-bit, 1 frame = 4 bytes.
+            // minBuf is typically ~4800 bytes (~1200 frames) on most devices.
+            // A multiplier of 4 gives ~4800 frames, enough for ~100ms of audio.
             val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
@@ -182,7 +215,9 @@ class SnesEngine private constructor() : EmulatorEngine {
         }
 
         // Dedicated audio thread with BLOCKING writes — no crackling.
-        // Blocking write paces the loop at the hardware sample rate.
+        // The native readAudio() returns samples already resampled to 48000 Hz
+        // by the AudioResampler in snes_loader.cpp. Blocking write paces the
+        // loop at the hardware sample rate.
         audioRunning.set(true)
         audioThread = thread(name = "snes-audio-loop", isDaemon = true) {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)

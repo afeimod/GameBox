@@ -52,6 +52,14 @@ int readAudio(int16_t* out, int maxFrames);
 // Sample rate reported by the core after load (e.g. 32040). 0 before load.
 int audioSampleRate();
 
+// Target output sample rate for Android AudioTrack (48000 Hz).
+// Audio is resampled from the SNES native rate (~32040 Hz) to this rate in
+// readAudio(), matching the GB/GBC/GBA core. Using the SNES native rate
+// directly with AudioTrack causes poor-quality resampling in AudioFlinger
+// on TV boxes (HDMI output always runs at 48000 Hz), producing
+// buzzing/crackling/muffled audio.
+int audioTargetSampleRate();
+
 // Push controller state. `bits` layout (12 buttons):
 //   bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down,
 //   bit6=Left, bit7=Right, bit8=X, bit9=Y, bit10=L, bit11=R

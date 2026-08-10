@@ -70,6 +70,16 @@ object NesNative {
     /** Core-reported sample rate (e.g. 44100). 0 before a ROM is loaded. */
     @JvmStatic external fun audioSampleRate(): Int
 
+    /**
+     * Target output sample rate for AudioTrack (48000 Hz on Android).
+     * Audio is resampled from the core's native rate (typically 44100 Hz
+     * for FCEUmm) to this rate in the native layer, matching the GB/GBC/GBA
+     * core. Using the core's native rate directly with AudioTrack causes
+     * poor-quality resampling in AudioFlinger on TV boxes (HDMI output
+     * always runs at 48000 Hz), producing buzzing/crackling/muffled audio.
+     */
+    @JvmStatic external fun audioTargetSampleRate(): Int
+
     /** Set system (FDS BIOS) and save (SRAM) directories. */
     @JvmStatic external fun setPaths(systemDir: String, saveDir: String)
 

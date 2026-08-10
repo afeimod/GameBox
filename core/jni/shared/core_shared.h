@@ -512,6 +512,136 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Streaming audio resampler (shared by all cores)
+//
+// Converts from the core's native sample rate (e.g. 32768 Hz for GBA,
+// ~32040 Hz for SNES, 44100 Hz for NES) to Android's native 48000 Hz.
+//
+// Uses linear interpolation, which is sufficient for the 8-bit/4-bit audio
+// sources used by these consoles. The resampler maintains state between
+// calls so it can process partial frames and maintain continuity.
+//
+// Without this resampler, AudioTrack is created at the core's native rate
+// and Android's AudioFlinger performs low-quality resampling to 48000 Hz
+// internally. On phones the native rate is often 44100 Hz (so NES/FCEUmm
+// is unaffected), but on TV boxes with HDMI output the native rate is
+// always 48000 Hz, so AudioFlinger resamples 44100→48000 (NES) and
+// 32040→48000 (SNES) — producing audible buzzing, crackling, and
+// muffled audio. Doing the resampling in our own native code with a
+// proper linear interpolator eliminates these artifacts.
+//
+// This implementation is shared by NES, SNES, and GB/GBC/GBA cores.
+// ---------------------------------------------------------------------------
+static constexpr int TARGET_SAMPLE_RATE = 48000; // Android native rate
+
+class AudioResampler {
+public:
+    static constexpr int SRC_BUF_SIZE = 4096; // Max source frames per pass
+
+    double ratio;           // srcRate / dstRate (e.g. 32768/48000 ≈ 0.68267)
+    double pos;             // Fractional position in source buffer (unused; kept for compat)
+    int    srcRate;         // Source sample rate
+    int    dstRate;         // Destination sample rate (TARGET_SAMPLE_RATE)
+    int16_t prevL, prevR;   // Previous output sample for continuity at buffer edges
+    bool   active;          // true if resampling is needed (srcRate != dstRate)
+
+    int    srcBufCount;                          // Number of valid frames in srcBuf
+    double srcBufPos;                            // Fractional read position in srcBuf
+    int16_t srcBuf[SRC_BUF_SIZE * 2];            // Interleaved stereo
+
+    AudioResampler() : pos(0.0), srcRate(0), dstRate(TARGET_SAMPLE_RATE),
+                       prevL(0), prevR(0), active(false),
+                       srcBufCount(0), srcBufPos(0.0) {
+        ratio = 1.0;
+    }
+
+    void init(int sourceRate, int destRate = TARGET_SAMPLE_RATE) {
+        srcRate = sourceRate > 0 ? sourceRate : 48000;
+        dstRate = destRate;
+        ratio = (double)srcRate / dstRate;
+        active = (srcRate != dstRate);
+        reset();
+    }
+
+    void reset() {
+        pos = 0.0;
+        prevL = 0;
+        prevR = 0;
+        srcBufCount = 0;
+        srcBufPos = 0.0;
+    }
+
+    // Produce up to maxFrames output frames at dstRate by pulling source
+    // frames from the AudioRingBuffer and resampling.
+    int readResampled(AudioRingBuffer& audio, int16_t* out, int maxFrames) {
+        if (!active) {
+            // No resampling needed — pass through directly
+            return audio.read(out, maxFrames);
+        }
+
+        int produced = 0;
+
+        while (produced < maxFrames) {
+            // Refill internal source buffer when we've consumed most of it.
+            // Keep at least 2 frames for interpolation.
+            int remaining = srcBufCount - (int)srcBufPos;
+            if (remaining < 2) {
+                // Shift unconsumed samples to the beginning
+                if (remaining > 0 && (int)srcBufPos > 0) {
+                    memmove(srcBuf, srcBuf + (int)srcBufPos * 2,
+                            remaining * 2 * sizeof(int16_t));
+                }
+
+                // Read more source frames from the ring buffer
+                int toRead = SRC_BUF_SIZE - remaining;
+                int got = audio.read(srcBuf + remaining * 2, toRead);
+                srcBufCount = remaining + got;
+                srcBufPos = 0.0;
+
+                if (srcBufCount < 2) {
+                    // Not enough source samples for interpolation.
+                    // Fill remaining output with zeros (underrun).
+                    for (int i = produced; i < maxFrames; i++) {
+                        out[i * 2]     = 0;
+                        out[i * 2 + 1] = 0;
+                    }
+                    return produced;
+                }
+            }
+
+            // Linear interpolation at fractional position
+            int idx = (int)srcBufPos;
+            double frac = srcBufPos - idx;
+
+            // Clamp to prevent out-of-bounds access
+            if (idx + 1 >= srcBufCount) {
+                // Use previous samples for edge case
+                out[produced * 2]     = prevL;
+                out[produced * 2 + 1] = prevR;
+            } else {
+                int16_t l0 = srcBuf[idx * 2];
+                int16_t r0 = srcBuf[idx * 2 + 1];
+                int16_t l1 = srcBuf[(idx + 1) * 2];
+                int16_t r1 = srcBuf[(idx + 1) * 2 + 1];
+
+                out[produced * 2]     = (int16_t)(l0 + (l1 - l0) * frac);
+                out[produced * 2 + 1] = (int16_t)(r0 + (r1 - r0) * frac);
+            }
+
+            prevL = out[produced * 2];
+            prevR = out[produced * 2 + 1];
+            produced++;
+
+            // Advance source position by ratio.
+            // Each output sample at dstRate corresponds to ratio source samples.
+            srcBufPos += ratio;
+        }
+
+        return produced;
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Surface management
 // ---------------------------------------------------------------------------
 

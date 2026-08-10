@@ -94,13 +94,26 @@ static uint32_t s_xbrMidBuffer[kNesW * 2 * kNesH * 2];
 // 4x upscale buffer for HQ4X/4xBR (256x240 → 1024x960)
 static uint32_t s_hq4xBuffer[kNesW * 4 * kNesH * 4];
 
-// Audio ring buffer: interleaved stereo int16 samples.
-static constexpr size_t kAudioCap = 1u << 15; // 32768 samples (~0.37s @44.1k stereo)
-static int16_t s_audioRing[kAudioCap];
-static size_t  s_audioWrite = 0;
-static size_t  s_audioRead  = 0;
-static size_t  s_audioCount = 0;
-static std::mutex s_audioMtx;
+// Audio ring buffer: interleaved stereo int16 samples (shared implementation).
+// Uses the shared AudioRingBuffer from core_shared.h, matching the SNES and
+// GB/GBC/GBA cores. The ring capacity (65536 samples ≈ 0.68s @48k stereo)
+// is large enough to absorb emulator-thread jitter on weak TV boxes.
+static coreshared::AudioRingBuffer s_audio;
+
+// Streaming audio resampler: converts from the core's native sample rate
+// (typically 44100 Hz for FCEUmm) to Android's 48000 Hz native rate.
+//
+// Without this resampler, AudioTrack is created at the core's native rate
+// and Android's AudioFlinger performs low-quality resampling to 48000 Hz
+// internally. On phones the native rate is often 44100 Hz (matching FCEUmm)
+// so no resampling is needed and audio sounds fine. But on TV boxes with
+// HDMI output the native rate is always 48000 Hz, so AudioFlinger resamples
+// 44100→48000 — producing audible buzzing, crackling, and muffled audio.
+//
+// Doing the resampling in our own native code with a linear interpolator
+// eliminates these artifacts. This matches the GB/GBC/GBA core (mGBA),
+// which already resamples to 48000 Hz and works correctly on TV.
+static coreshared::AudioResampler s_resampler;
 
 // ---------------------------------------------------------------------------
 // ANativeWindow — hardware-accelerated direct surface rendering
@@ -451,27 +464,13 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
-static void pushAudio(const int16_t* samples, size_t count) {
-    std::lock_guard<std::mutex> lk(s_audioMtx);
-    for (size_t i = 0; i < count; ++i) {
-        if (s_audioCount >= kAudioCap) {
-            // Buffer full: drop the oldest sample (emulation is ahead).
-            s_audioRead = (s_audioRead + 1) % kAudioCap;
-            s_audioCount--;
-        }
-        s_audioRing[s_audioWrite] = samples[i];
-        s_audioWrite = (s_audioWrite + 1) % kAudioCap;
-        s_audioCount++;
-    }
-}
-
 static void cb_audio_sample(int16_t left, int16_t right) {
     int16_t pair[2] = {left, right};
-    pushAudio(pair, 2);
+    s_audio.push(pair, 2);
 }
 
 static size_t cb_audio_batch(const int16_t* data, size_t frames) {
-    pushAudio(data, frames * 2);
+    s_audio.push(data, frames * 2);
     return frames;
 }
 
@@ -496,11 +495,8 @@ static int16_t cb_input_state(unsigned port, unsigned device,
     }
 }
 
-static void resetAudioRing() {
-    std::lock_guard<std::mutex> lk(s_audioMtx);
-    s_audioRead = s_audioWrite = 0;
-    s_audioCount = 0;
-}
+// resetAudioRing() removed — s_audio.reset() (shared AudioRingBuffer) is
+// called directly from loadFromFile / unload.
 
 // ---------------------------------------------------------------------------
 // Interface implementation
@@ -686,8 +682,19 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_videoW = av.geometry.base_width;
     s_videoH = av.geometry.base_height;
 
-    resetAudioRing();
+    s_audio.reset();
     s_newFrame.store(false);
+
+    // Initialize the resampler from the core's native rate to Android's
+    // 48000 Hz native rate. This eliminates the buzzing/crackling/muffled
+    // audio that occurs when AudioFlinger is forced to resample 44100→48000
+    // on TV boxes with HDMI output (where the hardware native rate is
+    // always 48000 Hz). Phones often have a 44100 Hz native rate, so they
+    // were unaffected — which is why the bug only appeared in TV mode.
+    s_resampler.init(s_sampleRate, coreshared::TARGET_SAMPLE_RATE);
+    LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f, active=%d)",
+         s_sampleRate, coreshared::TARGET_SAMPLE_RATE,
+         s_resampler.ratio, s_resampler.active ? 1 : 0);
 
     LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
@@ -710,7 +717,8 @@ void unload() {
         s_loaded = false;
     }
     s_sampleRate = 0;
-    resetAudioRing();
+    s_audio.reset();
+    s_resampler.reset();
     s_newFrame.store(false);
     s_isFdsGame.store(false, std::memory_order_relaxed);
     s_lastRomPath.clear();
@@ -747,20 +755,15 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
 }
 
 int readAudio(int16_t* out, int maxFrames) {
-    if (!out || maxFrames <= 0) return 0;
-    const size_t want = (size_t)maxFrames * 2;
-    std::lock_guard<std::mutex> lk(s_audioMtx);
-    size_t n = (s_audioCount < want) ? s_audioCount : want;
-    for (size_t i = 0; i < n; ++i) {
-        out[i] = s_audioRing[s_audioRead];
-        s_audioRead = (s_audioRead + 1) % kAudioCap;
-    }
-    s_audioCount -= n;
-    for (size_t i = n; i < want; ++i) out[i] = 0; // underrun -> silence
-    return (int)(n / 2);
+    // The resampler pulls source frames from s_audio and writes resampled
+    // output at 48000 Hz. When srcRate == 48000 (active=false), the
+    // resampler passes through directly to s_audio.read().
+    return s_resampler.readResampled(s_audio, out, maxFrames);
 }
 
 int audioSampleRate() { return s_sampleRate; }
+
+int audioTargetSampleRate() { return coreshared::TARGET_SAMPLE_RATE; }
 
 void setControllerInput(int port, uint8_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);

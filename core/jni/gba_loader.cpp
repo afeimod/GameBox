@@ -60,7 +60,11 @@ static constexpr int kMaxH = 160;
 // Using the core's native rate (e.g. 32768 Hz for GBA) directly with
 // AudioTrack causes poor-quality resampling in AudioFlinger, leading to
 // pitch errors, crackling, and muffled audio.
-static constexpr int TARGET_SAMPLE_RATE = 48000;
+//
+// TARGET_SAMPLE_RATE is now defined in shared/core_shared.h and shared by
+// all three cores (NES, SNES, GB/GBC/GBA). We keep this local alias for
+// backward compatibility with code written before the refactor.
+static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
 // ---------------------------------------------------------------------------
 // State
@@ -118,120 +122,16 @@ static uint32_t s_xbrBuffer4x[kMaxW * 4 * kMaxH * 4];
 // Audio ring buffer: interleaved stereo int16 samples (shared implementation).
 static coreshared::AudioRingBuffer s_audio;
 
-// ---------------------------------------------------------------------------
 // Streaming audio resampler: converts from the core's native sample rate
 // (e.g. 32768 Hz for GBA, 32768 Hz for GB/GBC) to Android's 48000 Hz.
 //
-// Uses linear interpolation, which is sufficient for GBA's 8-bit/4-bit audio
-// source material. The resampler maintains state between calls so it can
-// process partial frames and maintain continuity.
-//
-// Without this resampler, AudioTrack is created at 32768 Hz and Android's
-// AudioFlinger performs low-quality resampling to 48000 Hz internally,
-// causing pitch errors and audio artifacts.
-// ---------------------------------------------------------------------------
-static constexpr int RESAMPLER_SRC_BUF_SIZE = 4096; // Max source frames per resample pass
-
-struct AudioResampler {
-    double ratio;           // srcRate / dstRate (e.g. 32768/48000 ≈ 0.68267)
-    double pos;            // Fractional position in source buffer
-    int    srcRate;        // Source sample rate
-    int    dstRate;        // Destination sample rate (TARGET_SAMPLE_RATE)
-    int16_t prevL, prevR;  // Previous output sample for continuity at buffer edges
-    bool   active;         // true if resampling is needed (srcRate != dstRate)
-
-    // Internal source sample buffer - stores unconsumed samples between calls
-    int    srcBufCount;                       // Number of valid frames in srcBuf
-    double srcBufPos;                         // Fractional read position in srcBuf
-    int16_t srcBuf[RESAMPLER_SRC_BUF_SIZE * 2]; // Interleaved stereo
-
-    void init(int sourceRate, int destRate = TARGET_SAMPLE_RATE) {
-        srcRate = sourceRate > 0 ? sourceRate : 32768;
-        dstRate = destRate;
-        ratio = (double)srcRate / dstRate;
-        active = (srcRate != dstRate);
-        reset();
-    }
-
-    void reset() {
-        pos = 0.0;
-        prevL = 0;
-        prevR = 0;
-        srcBufCount = 0;
-        srcBufPos = 0.0;
-    }
-
-    // Produce up to maxFrames output frames at dstRate by pulling source
-    // frames from the AudioRingBuffer and resampling.
-    int readResampled(coreshared::AudioRingBuffer& audio, int16_t* out, int maxFrames) {
-        if (!active) {
-            // No resampling needed - pass through directly
-            return audio.read(out, maxFrames);
-        }
-
-        int produced = 0;
-
-        while (produced < maxFrames) {
-            // Refill internal source buffer when we've consumed most of it
-            // Keep at least 2 frames for interpolation
-            int remaining = srcBufCount - (int)srcBufPos;
-            if (remaining < 2) {
-                // Shift unconsumed samples to the beginning
-                if (remaining > 0 && (int)srcBufPos > 0) {
-                    memmove(srcBuf, srcBuf + (int)srcBufPos * 2,
-                            remaining * 2 * sizeof(int16_t));
-                }
-
-                // Read more source frames from the ring buffer
-                int toRead = RESAMPLER_SRC_BUF_SIZE - remaining;
-                int got = audio.read(srcBuf + remaining * 2, toRead);
-                srcBufCount = remaining + got;
-                srcBufPos = 0.0;
-
-                if (srcBufCount < 2) {
-                    // Not enough source samples for interpolation
-                    // Fill remaining output with zeros (underrun)
-                    for (int i = produced; i < maxFrames; i++) {
-                        out[i * 2]     = 0;
-                        out[i * 2 + 1] = 0;
-                    }
-                    return produced;
-                }
-            }
-
-            // Linear interpolation at fractional position
-            int idx = (int)srcBufPos;
-            double frac = srcBufPos - idx;
-
-            // Clamp to prevent out-of-bounds access
-            if (idx + 1 >= srcBufCount) {
-                // Use previous samples for edge case
-                out[produced * 2]     = prevL;
-                out[produced * 2 + 1] = prevR;
-            } else {
-                int16_t l0 = srcBuf[idx * 2];
-                int16_t r0 = srcBuf[idx * 2 + 1];
-                int16_t l1 = srcBuf[(idx + 1) * 2];
-                int16_t r1 = srcBuf[(idx + 1) * 2 + 1];
-
-                out[produced * 2]     = (int16_t)(l0 + (l1 - l0) * frac);
-                out[produced * 2 + 1] = (int16_t)(r0 + (r1 - r0) * frac);
-            }
-
-            prevL = out[produced * 2];
-            prevR = out[produced * 2 + 1];
-            produced++;
-
-            // Advance source position by ratio
-            // Each output sample at dstRate corresponds to ratio source samples
-            srcBufPos += ratio;
-        }
-
-        return produced;
-    }
-};
-
-static AudioResampler s_resampler;
+// The resampler implementation is shared across all three cores
+// (NES / SNES / GB/GBC/GBA) via coreshared::AudioResampler in
+// shared/core_shared.h. This ensures consistent audio quality and
+// fixes the buzzing/crackling/muffled audio that previously occurred
+// on TV boxes when AudioFlinger was forced to resample non-48000 Hz
+// streams to 48000 Hz for HDMI output.
+static coreshared::AudioResampler s_resampler;
 
 // ---------------------------------------------------------------------------
 // ANativeWindow — hardware-accelerated direct surface rendering

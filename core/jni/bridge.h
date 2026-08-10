@@ -43,6 +43,10 @@ public:
     // Core-reported sample rate (0 before load).
     int  audioSampleRate();
 
+    // Target output sample rate for Android AudioTrack (48000 Hz).
+    // Audio is resampled from the core's native rate to this rate.
+    int  audioTargetSampleRate();
+
     // Set system (FDS BIOS) and save (SRAM) directories.
     void setPaths(const std::string& systemDir, const std::string& saveDir);
 
