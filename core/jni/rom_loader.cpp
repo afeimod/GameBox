@@ -828,14 +828,27 @@ void setSurface(void* nativeWindow) {
         s_window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(s_window);
 
-        // Set buffer format to RGBA_8888. Use 0x0 for dimensions so the
-        // buffer matches the SurfaceView's actual display size — this lets
-        // the blit function scale from NES resolution (256x240) to the
-        // display resolution, which is essential for XBR and gives better
-        // scanline/CRT/dot filter quality.
-        ANativeWindow_setBuffersGeometry(s_window, 0, 0,
+        // CRITICAL PERFORMANCE FIX:
+        // Set the native buffer geometry to the NES source resolution
+        // (256x240) instead of 0x0 (window default). With 0x0, the buffer
+        // matches the full display (e.g. 1920x1080 = 2M pixels) and the
+        // C++ blitToSurface must do a per-pixel float nearest-neighbor
+        // scale on the CPU — 2M float ops + pixel copies per frame = very
+        // slow on low-power TV boxes.
+        //
+        // By setting the buffer to 256x240, blitToSurface becomes a 1:1
+        // pixel copy (61K pixels, no scaling math), and the Android hardware
+        // compositor (SurfaceFlinger) handles the GPU-accelerated upscale
+        // to the display resolution for free.
+        //
+        // XBR/HQX filters still work because they produce their own
+        // intermediate buffers at 2x/4x source resolution; applyFilterAndBlit
+        // calls setBuffersGeometry with the filter's output size before
+        // blitting (see core_shared.h).
+        ANativeWindow_setBuffersGeometry(s_window, kNesW, kNesH,
                                          WINDOW_FORMAT_RGBA_8888);
-        LOGI("Surface attached (buffer geometry = window default)");
+        LOGI("Surface attached (buffer geometry = %ux%u, hardware-scaled to display)",
+             kNesW, kNesH);
     } else {
         LOGI("Surface detached");
     }

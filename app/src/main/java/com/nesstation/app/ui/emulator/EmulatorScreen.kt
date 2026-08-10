@@ -18,6 +18,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -372,6 +373,13 @@ fun EmulatorScreen(
                 isPortrait = isPortrait,
                 platform = platform,
                 gamepadBitsHolder = gamepadBitsHolder,
+                // When any overlay (menu / layout editor / settings / dialogs)
+                // is open, the SurfaceView must NOT consume D-pad / button
+                // keys — those need to reach the Compose UI for navigation.
+                // The key listener returns false (don't consume) when
+                // uiBlocked is true, letting the event propagate to Compose.
+                uiBlocked = showMenu || showLayoutEditor || showSettings ||
+                            showSlotPicker != null || showFFSpeedPicker,
                 onMenuToggle = { showMenu = !showMenu },
                 modifier = Modifier
                     .fillMaxSize()
@@ -628,6 +636,7 @@ private fun GameSurfaceView(
     isPortrait: Boolean = false,
     platform: GamePlatform = GamePlatform.NES,
     gamepadBitsHolder: IntArray = intArrayOf(0),
+    uiBlocked: Boolean = false,
     onMenuToggle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -666,7 +675,54 @@ private fun GameSurfaceView(
                     // Physical gamepad / D-pad key routing via Android's
                     // View.OnKeyListener. This is more reliable than Compose's
                     // onKeyEvent across different Compose versions.
+                    //
+                    // IMPORTANT: when uiBlocked is true (menu / dialog / settings
+                    // is open), we do NOT consume gamepad keys here — they must
+                    // propagate to the Compose UI so the user can navigate the
+                    // menu with the D-pad. Only the Back/Menu key is handled
+                    // here to toggle the menu open/closed.
                     setOnKeyListener { _, keyCode, event ->
+                        if (uiBlocked) {
+                            // UI is blocking — let Compose handle all keys
+                            // (including Back, which the BackHandler will catch).
+                            false
+                        } else {
+                            val bits = gamepadKeyToBits(keyCode, platform)
+                            if (bits != 0) {
+                                when (event.action) {
+                                    KeyEvent.ACTION_DOWN -> {
+                                        gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
+                                        engine.setPad1(gamepadBitsHolder[0])
+                                        true
+                                    }
+                                    KeyEvent.ACTION_UP -> {
+                                        gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
+                                        engine.setPad1(gamepadBitsHolder[0])
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            } else if (event.action == KeyEvent.ACTION_DOWN &&
+                                       (keyCode == KeyEvent.KEYCODE_MENU ||
+                                        keyCode == KeyEvent.KEYCODE_BACK)) {
+                                onMenuToggle()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                }
+            },
+            update = { sv ->
+                // Re-bind the key listener whenever uiBlocked changes so the
+                // closure captures the latest value. Without this, the factory
+                // closure would capture the initial uiBlocked=false and never
+                // update.
+                (sv as SurfaceView).setOnKeyListener { _, keyCode, event ->
+                    if (uiBlocked) {
+                        false
+                    } else {
                         val bits = gamepadKeyToBits(keyCode, platform)
                         if (bits != 0) {
                             when (event.action) {
@@ -691,6 +747,12 @@ private fun GameSurfaceView(
                             false
                         }
                     }
+                }
+                // When UI becomes blocked, release all held gamepad buttons
+                // so the game doesn't think a button is stuck down.
+                if (uiBlocked && gamepadBitsHolder[0] != 0) {
+                    gamepadBitsHolder[0] = 0
+                    engine.setPad1(0)
                 }
             },
             modifier = surfaceModifier
@@ -1300,6 +1362,13 @@ private fun MenuOverlay(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = if (isPortrait) Alignment.TopCenter else Alignment.BottomCenter
     ) {
+    // Focus requester that grabs focus when the menu opens so the D-pad
+    // immediately controls the first menu button (pause) instead of being
+    // stuck on the SurfaceView behind the overlay.
+    val firstButtonFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        try { firstButtonFocus.requestFocus() } catch (_: Exception) {}
+    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
             .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
@@ -1313,7 +1382,7 @@ private fun MenuOverlay(
         // on TV. The default IconButton is clickable but not focusable, which
         // makes TV remote navigation impossible.
         androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-            FocusableIconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
+            FocusableIconButton(onClick = onTogglePause, focusRequester = firstButtonFocus) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
             FocusableIconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
             Text(
                 if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
@@ -1337,17 +1406,26 @@ private fun MenuOverlay(
 /**
  * TV-friendly IconButton wrapper — explicitly focusable so the D-pad can
  * navigate between buttons on TV. Shows a subtle highlight when focused.
+ * Optionally accepts a FocusRequester so the caller can programmatically
+ * grab focus (e.g. when the menu opens).
  */
 @Composable
 private fun FocusableIconButton(
     onClick: () -> Unit,
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     content: @Composable () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    val baseModifier = Modifier
+        .size(40.dp)
+    val mod = if (focusRequester != null) {
+        baseModifier.focusRequester(focusRequester)
+    } else {
+        baseModifier
+    }
     Box(
-        modifier = Modifier
-            .size(40.dp)
+        modifier = mod
             .focusable(interactionSource = interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center

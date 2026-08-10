@@ -42,11 +42,24 @@ static inline uint32_t xrgbToRgba(uint32_t px) {
 
 // Blit a source ARGB framebuffer to the ANativeWindow with nearest-neighbor
 // scaling. Source must be 0xAARRGGBB (uint32_t per pixel).
+//
+// PERFORMANCE: When the source dimensions (w×h) match the native window buffer
+// dimensions (dstW×dstH), this is a fast 1:1 row-copy with no scaling math.
+// The caller should call setBuffersGeometry(window, w, h, RGBA_8888) before
+// the first blit so the buffer matches the source size — then the Android
+// hardware compositor handles the upscale to the display resolution for free
+// (GPU-accelerated), instead of the CPU doing per-pixel float scaling.
 static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
                                   const uint32_t* src, unsigned w, unsigned h,
                                   size_t srcStride) {
     std::lock_guard<std::mutex> lk(windowMtx);
     if (!window) return;
+
+    // If the buffer geometry doesn't match the source size, update it.
+    // This ensures XBR (512x480) and HQ4X (1024x960) buffers get their own
+    // geometry, and the base 256x240 path uses 256x240 geometry.
+    // setBuffersGeometry is cheap if the size is already correct.
+    ANativeWindow_setBuffersGeometry(window, w, h, WINDOW_FORMAT_RGBA_8888);
 
     ANativeWindow_Buffer buf;
     memset(&buf, 0, sizeof(buf));
@@ -63,6 +76,31 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
         return;
     }
 
+    // Fast path: 1:1 copy when source and destination match.
+    // This is the common case after setBuffersGeometry(w, h, ...) above.
+    if (dstW == w && dstH == h &&
+        (buf.format == WINDOW_FORMAT_RGBA_8888 ||
+         buf.format == WINDOW_FORMAT_RGBX_8888)) {
+        uint8_t* dst = static_cast<uint8_t*>(buf.bits);
+        const uint32_t dstStridePx = (uint32_t)buf.stride;
+        for (uint32_t y = 0; y < h; ++y) {
+            const uint32_t* srow = src + y * srcStride;
+            uint8_t* drow = dst + y * dstStridePx * 4;
+            for (uint32_t x = 0; x < w; ++x) {
+                uint32_t px = srow[x];
+                drow[x * 4 + 0] = (px >> 16) & 0xFF;
+                drow[x * 4 + 1] = (px >> 8) & 0xFF;
+                drow[x * 4 + 2] = px & 0xFF;
+                drow[x * 4 + 3] = 0xFF;
+            }
+        }
+        ANativeWindow_unlockAndPost(window);
+        return;
+    }
+
+    // Slow fallback path: per-pixel nearest-neighbor scaling.
+    // Only hit if setBuffersGeometry was overridden by the system or the
+    // surface format doesn't match expectations.
     if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
         buf.format == WINDOW_FORMAT_RGBX_8888) {
         uint8_t* dst = static_cast<uint8_t*>(buf.bits);

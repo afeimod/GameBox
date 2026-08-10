@@ -856,9 +856,15 @@ void setSurface(void* nativeWindow) {
     if (nativeWindow) {
         s_window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(s_window);
-        ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-
-        LOGI("Surface attached (buffer geometry = window default)");
+        // PERFORMANCE: set buffer geometry to GBA source resolution (240x160)
+        // instead of 0x0 (window default). With 0x0 the C++ blit must do
+        // per-pixel float scaling from 240x160 to the full display — very slow
+        // on low-power TV boxes. With 240x160, blitToSurface becomes a 1:1
+        // copy and the Android hardware compositor handles the GPU upscale.
+        // blitToSurface updates the geometry per-frame if the source size
+        // changes (e.g. GB 160x144 vs GBA 240x160).
+        ANativeWindow_setBuffersGeometry(s_window, 240, 160, WINDOW_FORMAT_RGBA_8888);
+        LOGI("Surface attached (buffer geometry = 240x160, hardware-scaled to display)");
     } else {
         LOGI("Surface detached");
     }
