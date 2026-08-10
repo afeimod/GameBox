@@ -54,12 +54,26 @@ open class GameWebView @JvmOverloads constructor(
     private var mobileUa: String = ""
 
     // ---- 3D 视角旋转触摸追踪 ----
+    // 旧实现：每个 ACTION_MOVE 都立即 evaluateJavascript 一次，每秒 60+ 次 JNI
+    // 往返 + JS 解析 + 事件分发 —— 触摸移动太快时 evaluateJavascript 队列堆积，
+    // 前几次触摸事件几乎完全没反应，直到队列消化一部分才"有点顺畅"
+    // （用户描述的"长按屏幕以后才有点顺畅"）。
+    //
+    // 新实现：把 ACTION_MOVE 的 dx/dy 累积到 pendingCameraDx/Dy，
+    // 用 post() + 帧节流（16ms 一次）合并成一次 evaluateJavascript 调用。
+    // 这样无论触摸事件多快，每帧只产生一次 JS 调用，旋转视角立即响应、流畅。
     /** 上一次触摸 X 坐标（用于计算移动增量） */
     private var cameraLastX = 0f
     /** 上一次触摸 Y 坐标（用于计算移动增量） */
     private var cameraLastY = 0f
     /** 是否正在拖动旋转视角 */
     private var cameraDragging = false
+    /** 本帧累积的 X 方向移动量（待 flush 到 JS） */
+    private var pendingCameraDx = 0f
+    /** 本帧累积的 Y 方向移动量（待 flush 到 JS） */
+    private var pendingCameraDy = 0f
+    /** 是否已经 schedule 了帧 flush（防止重复 post） */
+    private val cameraFlushScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * IME 是否被请求（仅 WAFlash 等需要文本输入的场景开启）。
@@ -205,6 +219,8 @@ open class GameWebView @JvmOverloads constructor(
         if (event.action == MotionEvent.ACTION_DOWN) performClick()
 
         // 3D 视角旋转模式：追踪拖动并分发 mousemove 事件
+        // 必须在 super.onTouchEvent 之前处理，否则某些网页的默认 touch handler
+        // 可能消费事件，导致 ACTION_MOVE 不再上报到本 View。
         if (cameraRotationEnabled) {
             handleCameraRotationTouch(event)
         }
@@ -218,6 +234,11 @@ open class GameWebView @JvmOverloads constructor(
      * 3D 视角旋转触摸处理：
      * 追踪拖动距离，通过 JS 分发带 movementX/movementY 的 mousemove 事件。
      * 不拦截事件（返回 void），让网页仍能接收 tap/click。
+     *
+     * 性能优化：ACTION_MOVE 不再每个事件都立即 evaluateJavascript（每秒 60+ 次
+     * JNI 调用会堆积队列、造成前几帧无响应、需要"长按一会才顺畅"的现象）。
+     * 改为累积 dx/dy 到 pendingCameraDx/Dy，每帧（约 16ms）通过 post() 合并
+     * 成一次 evaluateJavascript 调用。
      */
     private fun handleCameraRotationTouch(event: MotionEvent) {
         when (event.actionMasked) {
@@ -225,25 +246,73 @@ open class GameWebView @JvmOverloads constructor(
                 cameraLastX = event.x
                 cameraLastY = event.y
                 cameraDragging = false
+                // 手指按下时立即 flush 上一帧残留的累积量，避免拖动开始时跳跃
+                flushPendingCameraMotion()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.x - cameraLastX
                 val dy = event.y - cameraLastY
-                // 移动超过 2px 才算拖动旋转（避免误触）
-                if (abs(dx) > 2f || abs(dy) > 2f) {
+                // 移动超过 1px 就累积（阈值从 2 降到 1，让微小拖动也能响应；
+                // 之前 2px 阈值 + 每事件 evaluateJavascript 太迟钝）
+                if (abs(dx) > 1f || abs(dy) > 1f) {
                     cameraDragging = true
-                    // 通过 JS 分发 mousemove 事件
-                    evaluateJavascript(
-                        "if(window.__cameraRotate){window.__cameraRotate($dx, $dy);}", null
-                    )
+                    // 累积到本帧待 flush 的总量
+                    pendingCameraDx += dx
+                    pendingCameraDy += dy
                     cameraLastX = event.x
                     cameraLastY = event.y
+                    // schedule 帧 flush（如果还没 schedule）
+                    scheduleCameraFlush()
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // 手指抬起时立即 flush 最后一段累积量，避免最后一帧丢失
+                flushPendingCameraMotion()
                 cameraDragging = false
             }
         }
+    }
+
+    /**
+     * Schedule 一次帧 flush：在下一个 UI 帧（约 16ms 后）把累积的 dx/dy 一次性
+     * 发送给 JS。同一帧内多个 ACTION_MOVE 只会 schedule 一次，确保每帧最多
+     * 一次 evaluateJavascript 调用。
+     */
+    private fun scheduleCameraFlush() {
+        if (cameraFlushScheduled.compareAndSet(false, true)) {
+            post {
+                cameraFlushScheduled.set(false)
+                flushPendingCameraMotion()
+            }
+        }
+    }
+
+    /**
+     * 把累积的 pendingCameraDx/Dy 通过一次 evaluateJavascript 调用发送给 JS。
+     * 用 float 累积、int 派发：JavaScript MouseEvent.movementX/Y 是整数，
+     * 累积小数部分会在下一帧保留，避免慢速拖动时 movementX 始终为 0。
+     */
+    private fun flushPendingCameraMotion() {
+        val dx = pendingCameraDx
+        val dy = pendingCameraDy
+        if (dx == 0f && dy == 0f) return
+        pendingCameraDx = 0f
+        pendingCameraDy = 0f
+        // 把累积量四舍五入到整数；小数部分留在 pendingXxx 累加器里下次再算
+        val intDx = dx.toInt()
+        val intDy = dy.toInt()
+        if (intDx == 0 && intDy == 0) {
+            // 整数部分为 0 —— 把小数部分保留，等下一次累积到 ≥1 再派发
+            pendingCameraDx = dx
+            pendingCameraDy = dy
+            return
+        }
+        // 派发整数部分，余数留到下一帧
+        pendingCameraDx = dx - intDx
+        pendingCameraDy = dy - intDy
+        evaluateJavascript(
+            "if(window.__cameraRotate){window.__cameraRotate($intDx, $intDy);}", null
+        )
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {

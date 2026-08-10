@@ -141,7 +141,12 @@ fun WebGameScreen(
     // ---------- 物理键盘（实体键盘）透传 ----------
     val keyEventHandler: (KeyEvent) -> Boolean = { event ->
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (event.action == KeyEvent.ACTION_UP) onExit()
+            // 系统 BACK 键：网页能后退就后退，不能后退才退出。
+            // 之前是无条件 onExit() —— 用户按返回键直接退出游戏，体验差。
+            if (event.action == KeyEvent.ACTION_UP) {
+                val wv = webViewRef.value
+                if (wv != null && wv.canGoBack()) wv.goBack() else onExit()
+            }
             true
         } else if (event.keyCode in GameWebView.GAME_KEYS) {
             val wv = webViewRef.value
@@ -152,6 +157,8 @@ fun WebGameScreen(
         } else false
     }
     BackHandler(enabled = true, onBack = {
+        // 系统返回键 / 悬浮菜单"返回"共用同一逻辑：
+        // 优先网页后退，无可后退历史时退出。
         val wv = webViewRef.value
         if (wv != null && wv.canGoBack()) wv.goBack() else onExit()
     })
@@ -244,15 +251,20 @@ fun WebGameScreen(
     }
 
     fun applyUa(mode: String) {
+        // 三个兼容模式（desktop / ie_compat / mobile）都必须立即切换 UA + 重载页面，
+        // 否则用户改完设置完全看不到效果，要退出重进才生效。
+        // 之前的实现：desktop 模式不调用 useUaMode()，依赖 GameWebViewClient 在重载时
+        // "智能判断" —— 但 GameWebViewClient 里根本没有读取 ua_mode=desktop 的代码，
+        // 导致 desktop 模式永远不生效。
         PrefsManager.sp.edit().putString("ua_mode", mode).apply()
         val wv = webViewRef.value
         if (wv != null) {
-            if (mode == "desktop") {
-                // desktop 模式由 GameWebViewClient 智能判断
-                // 这里简单 reload 让 GameWebViewClient 走判断
-            } else {
-                wv.useUaMode(mode)
-            }
+            // 三个模式都通过 useUaMode() 切换 userAgentString。
+            // useUaMode 内部：
+            //   desktop  -> DESKTOP_UA (Windows Chrome)
+            //   ie_compat-> IE_COMPAT_UA (Trident/7.0)
+            //   其他      -> 默认移动版 UA + 4399App 标识
+            wv.useUaMode(mode)
         }
         reload()
     }
@@ -664,8 +676,15 @@ fun WebGameScreen(
             override fun onOpenUaMode() { showUaDialog.value = true }
             override fun onRefresh() = reload()
             override fun onBack() {
+                // 悬浮菜单"返回"按钮：
+                // 优先网页后退；无可后退历史时不直接退出（用户可以用"关闭"按钮退出），
+                // 而是提示"已是第一页"——避免误触退出游戏。
                 val wv = webViewRef.value
-                if (wv != null && wv.canGoBack()) wv.goBack() else onExit()
+                if (wv != null && wv.canGoBack()) {
+                    wv.goBack()
+                } else {
+                    Toast.makeText(context, "已是第一页，点\"关闭\"退出", Toast.LENGTH_SHORT).show()
+                }
             }
             override fun onClose() = onExit()
             override fun onExtractSwf() = extractSwfFromPage()
@@ -681,6 +700,17 @@ fun WebGameScreen(
     // 切换手柄可见性时释放按键
     LaunchedEffect(gamepadVisible) {
         if (!gamepadVisible) webViewRef.value?.releaseAllKeys()
+    }
+
+    // ========== 真正的网页刷新 ==========
+    // reload() 只是把 reloadTrigger +1，这里监听变化并实际调用 WebView.reload()。
+    // 之前的实现：reload() 只更新 trigger，没有任何 LaunchedEffect 监听它，
+    // 导致悬浮菜单的"刷新"按钮、UA 切换、缩放设置等所有调 reload() 的地方都
+    // 不刷新网页 —— 用户感觉"刷新按钮没作用"、"兼容模式改完不生效"。
+    LaunchedEffect(reloadTrigger.value) {
+        if (reloadTrigger.value > 0) {
+            webViewRef.value?.reload()
+        }
     }
 
     // 释放资源
