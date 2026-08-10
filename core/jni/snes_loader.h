@@ -114,4 +114,7 @@ void videoAspectRatio(int& num, int& den);
 //   4 = XBR (edge-preserving smooth scaling)
 void setVideoFilter(int filter);
 
+// Control the native surface buffer geometry for performance vs quality.
+void setHighQualityScaling(bool enabled);
+
 } // namespace snescore::rom

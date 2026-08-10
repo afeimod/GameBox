@@ -104,4 +104,9 @@ void videoAspectRatio(int& num, int& den);
 //   4 = XBR (edge-preserving smooth scaling)
 void setVideoFilter(int filter);
 
+// Control the native surface buffer geometry for performance vs quality.
+// - false (default): buffer = source resolution (256x240), fast 1:1 blit + GPU upscale
+// - true: buffer = display resolution, sharp C++ per-pixel scale (heavier CPU)
+void setHighQualityScaling(bool enabled);
+
 } // namespace nescore::rom

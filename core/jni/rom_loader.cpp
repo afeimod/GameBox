@@ -914,8 +914,4 @@ void setHighQualityScaling(bool enabled) {
     LOGI("High-quality scaling: %s", enabled ? "ON (display-res, sharp)" : "OFF (source-res, fast)");
 }
 
-bool getHighQualityScaling() {
-    return s_highQualityScaling.load(std::memory_order_relaxed);
-}
-
 } // namespace nescore::rom
