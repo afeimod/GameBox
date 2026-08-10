@@ -722,29 +722,34 @@ private fun GameSurfaceView(
                 }
             },
             update = { sv ->
+                val surfaceView = sv as SurfaceView
                 // Re-bind the key listener whenever uiBlocked changes so the
-                // closure captures the latest value. Without this, the factory
-                // closure would capture the initial uiBlocked=false and never
-                // update.
-                (sv as SurfaceView).setOnKeyListener { _, keyCode, event ->
+                // closure captures the latest value.
+                surfaceView.setOnKeyListener { _, keyCode, event ->
+                    val bits = gamepadKeyToBits(keyCode, platform)
                     if (uiBlocked) {
+                        // UI is blocking — let Compose handle D-pad navigation.
+                        // But still process KEYUP for gamepad buttons so that
+                        // any button held when the menu opened gets released
+                        // (prevents stuck buttons when menu closes).
+                        if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
+                            gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
+                            engine.setPad1(gamepadBitsHolder[0])
+                        }
+                        // Don't consume — let Compose UI navigate
                         false
                     } else {
-                        val bits = gamepadKeyToBits(keyCode, platform)
-                        if (bits != 0) {
-                            when (event.action) {
-                                KeyEvent.ACTION_DOWN -> {
-                                    gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                                    engine.setPad1(gamepadBitsHolder[0])
-                                    true
-                                }
-                                KeyEvent.ACTION_UP -> {
-                                    gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                                    engine.setPad1(gamepadBitsHolder[0])
-                                    true
-                                }
-                                else -> false
-                            }
+                        // Also ensure any stale button bits are cleared on
+                        // KEYUP even if they weren't tracked as DOWN (e.g.
+                        // menu just closed while button was held).
+                        if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
+                            gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
+                            engine.setPad1(gamepadBitsHolder[0])
+                            true
+                        } else if (bits != 0 && event.action == KeyEvent.ACTION_DOWN) {
+                            gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
+                            engine.setPad1(gamepadBitsHolder[0])
+                            true
                         } else if (event.action == KeyEvent.ACTION_DOWN &&
                                    (keyCode == KeyEvent.KEYCODE_MENU ||
                                     keyCode == KeyEvent.KEYCODE_BACK)) {
@@ -755,11 +760,18 @@ private fun GameSurfaceView(
                         }
                     }
                 }
-                // When UI becomes blocked, release all held gamepad buttons
-                // so the game doesn't think a button is stuck down.
+                // When UI becomes blocked, release ALL held gamepad buttons
+                // so the game doesn't think buttons are stuck down.
                 if (uiBlocked && gamepadBitsHolder[0] != 0) {
                     gamepadBitsHolder[0] = 0
                     engine.setPad1(0)
+                }
+                // When UI becomes unblocked (menu closed), re-request focus
+                // so the SurfaceView can receive gamepad keys again.
+                if (!uiBlocked) {
+                    surfaceView.isFocusable = true
+                    surfaceView.isFocusableInTouchMode = true
+                    surfaceView.requestFocus()
                 }
             },
             modifier = surfaceModifier
