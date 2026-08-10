@@ -10,6 +10,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +52,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import com.nesstation.app.core.engine.EmulatorEngine
 import com.nesstation.app.core.engine.NesEngine
+import com.nesstation.app.core.engine.SnesEngine
+import com.nesstation.app.core.engine.GbaEngine
+import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.ui.components.PixelBackdrop
 
@@ -62,6 +68,14 @@ fun SettingsScreen(
     val context = LocalContext.current
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
     var dialogText by remember { mutableStateOf<String?>(null) }
+
+    // Detect TV mode — on TV the "屏幕手柄" toggle is hidden (the on-screen
+    // pad is auto-hidden because there's no touchscreen).
+    val isTv = remember {
+        !context.packageManager.hasSystemFeature(
+            android.content.pm.PackageManager.FEATURE_TOUCHSCREEN
+        )
+    }
 
     // Apply orientation setting immediately
     fun applyOrientation(orientation: String) {
@@ -79,36 +93,72 @@ fun SettingsScreen(
     fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
         padLayout = new
         PadLayoutStore.save(context, new)
-        // Apply core options immediately
-        val engine = NesEngine.get()
-        engine.setCoreOption("fceumm_ntsc_filter", new.ntscFilter)
-        engine.setCoreOption("fceumm_palette", new.palette)
-        engine.setCoreOption("fceumm_region", new.region)
-        engine.setCoreOption("fceumm_overclocking", new.overclocking)
-        // Audio options (sndquality, sndlowpass, sndvolume) are NOT set —
-        // FCEUmm uses its own built-in defaults for correct audio.
-        // Aspect ratio (fceumm_aspect) is NOT set — the frontend controls
-        // display aspect ratio via videoScale (SurfaceView layout).
-        val cropVal = if (new.cropOverscan == "enabled") "8" else "0"
-        engine.setCoreOption("fceumm_overscan_h_left", cropVal)
-        engine.setCoreOption("fceumm_overscan_h_right", cropVal)
-        engine.setCoreOption("fceumm_overscan_v_top", cropVal)
-        engine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
-        // Apply video filter (frontend post-processing)
-        val filterInt = when (new.videoFilter) {
-            "scanline" -> 1
-            "crt" -> 2
-            "dot" -> 3
-            "xbr" -> 4
-            "hq2x" -> 5
-            "hq4x" -> 6
-            "xbr_dot" -> 7
-            "4xbr" -> 8
-            "4xbr_dot" -> 9
-            "hq4x_dot" -> 10
-            else -> 0
+        // Apply core options to whichever engine(s) are currently loaded.
+        // Previously this hard-coded NesEngine.get() which silently dropped
+        // options when the user was playing a SNES or GBA game.
+        val nesEngine = NesEngine.get()
+        if (nesEngine.isLoaded) {
+            nesEngine.setCoreOption("fceumm_ntsc_filter", new.ntscFilter)
+            nesEngine.setCoreOption("fceumm_palette", new.palette)
+            nesEngine.setCoreOption("fceumm_region", new.region)
+            nesEngine.setCoreOption("fceumm_overclocking", new.overclocking)
+            val cropVal = if (new.cropOverscan == "enabled") "8" else "0"
+            nesEngine.setCoreOption("fceumm_overscan_h_left", cropVal)
+            nesEngine.setCoreOption("fceumm_overscan_h_right", cropVal)
+            nesEngine.setCoreOption("fceumm_overscan_v_top", cropVal)
+            nesEngine.setCoreOption("fceumm_overscan_v_bottom", cropVal)
+            // Apply video filter (frontend post-processing)
+            val filterInt = when (new.videoFilter) {
+                "scanline" -> 1
+                "crt" -> 2
+                "dot" -> 3
+                "xbr" -> 4
+                "hq2x" -> 5
+                "hq4x" -> 6
+                "xbr_dot" -> 7
+                "4xbr" -> 8
+                "4xbr_dot" -> 9
+                "hq4x_dot" -> 10
+                else -> 0
+            }
+            nesEngine.setVideoFilter(filterInt)
         }
-        engine.setVideoFilter(filterInt)
+        // SNES engine: apply video filter if loaded
+        val snesEngine = SnesEngine.get()
+        if (snesEngine.isLoaded) {
+            val filterInt = when (new.videoFilter) {
+                "scanline" -> 1
+                "crt" -> 2
+                "dot" -> 3
+                "xbr" -> 4
+                "hq2x" -> 5
+                "hq4x" -> 6
+                "xbr_dot" -> 7
+                "4xbr" -> 8
+                "4xbr_dot" -> 9
+                "hq4x_dot" -> 10
+                else -> 0
+            }
+            snesEngine.setVideoFilter(filterInt)
+        }
+        // GBA engine: apply video filter if loaded
+        val gbaEngine = GbaEngine.get()
+        if (gbaEngine.isLoaded) {
+            val filterInt = when (new.videoFilter) {
+                "scanline" -> 1
+                "crt" -> 2
+                "dot" -> 3
+                "xbr" -> 4
+                "hq2x" -> 5
+                "hq4x" -> 6
+                "xbr_dot" -> 7
+                "4xbr" -> 8
+                "4xbr_dot" -> 9
+                "hq4x_dot" -> 10
+                else -> 0
+            }
+            gbaEngine.setVideoFilter(filterInt)
+        }
     }
 
     // Permission launcher for Android <= 10
@@ -243,15 +293,25 @@ fun SettingsScreen(
                 // === 输入 ===
                 item {
                     SettingsSection("输入") {
-                        SettingsRow("屏幕手柄", if (padLayout.showPad) "显示" else "隐藏",
-                            showSubtitle = false,
-                            trailing = {
-                                Switch(checked = padLayout.showPad, onCheckedChange = {
-                                    updateLayout(padLayout.copy(showPad = it))
-                                }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
-                            }
-                        )
-                        SettingsRow("按键映射", "自定义", trailing = { Arrow() }) { onOpenKeyMap() }
+                        // On TV the on-screen gamepad is useless (no touchscreen)
+                        // and auto-hidden in EmulatorScreen — hide the toggle too
+                        // so the user isn't confused about why it has no effect.
+                        if (!isTv) {
+                            SettingsRow("屏幕手柄", if (padLayout.showPad) "显示" else "隐藏",
+                                showSubtitle = false,
+                                trailing = {
+                                    Switch(checked = padLayout.showPad, onCheckedChange = {
+                                        updateLayout(padLayout.copy(showPad = it))
+                                    }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
+                                }
+                            )
+                        } else {
+                            SettingsRow("屏幕手柄", "TV 模式自动隐藏",
+                                showSubtitle = false,
+                                trailing = { ValueText("TV") }
+                            )
+                        }
+                        SettingsRow("按键映射", if (isTv) "按核心自定义 · TV" else "按核心自定义", trailing = { Arrow() }) { onOpenKeyMap() }
                     }
                 }
 
@@ -314,9 +374,16 @@ private fun SettingsRow(
     trailing: @Composable () -> Unit = { Arrow() },
     onClick: (() -> Unit)? = null
 ) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable { onClick?.invoke() }.padding(horizontal = 16.dp, vertical = 12.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (focused) Color.White.copy(alpha = 0.85f) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null) { onClick?.invoke() }
+            .focusable(interactionSource = interaction)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -337,14 +404,21 @@ private fun DropdownRow(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = options.find { it.first == selected }?.second ?: selected
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (focused) Color.White.copy(alpha = 0.85f) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null) { expanded = true }
+            .focusable(interactionSource = interaction)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         Box {
-            Text(selectedLabel, color = Color(0xFFE74C3C), fontSize = 13.sp, modifier = Modifier.clickable { expanded = true })
+            Text(selectedLabel, color = Color(0xFFE74C3C), fontSize = 13.sp)
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, text) ->
                     DropdownMenuItem(text = { Text(text, fontSize = 13.sp) }, onClick = { onSelect(value); expanded = false })

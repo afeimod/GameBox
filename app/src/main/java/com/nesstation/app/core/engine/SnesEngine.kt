@@ -66,6 +66,10 @@ class SnesEngine private constructor() : EmulatorEngine {
         running.set(true)
         thread = thread(name = "snescore-loop", isDaemon = true) {
             try {
+                // Boost emulation thread priority for smooth 60fps on TV.
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
+                )
                 while (running.get()) {
                     if (_paused) {
                         try { Thread.sleep(16) } catch (_: InterruptedException) { break }

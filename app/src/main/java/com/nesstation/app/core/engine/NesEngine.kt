@@ -70,6 +70,13 @@ class NesEngine private constructor() : EmulatorEngine {
         running.set(true)
         thread = thread(name = "nescore-loop", isDaemon = true) {
             try {
+                // Boost the emulation thread to a high priority so it doesn't
+                // get starved by the UI thread or background GC on low-power
+                // TV boxes. THREAD_PRIORITY_URGENT_DISPLAY (-8) is the same
+                // priority used by SurfaceFlinger's render thread.
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
+                )
                 while (running.get()) {
                     if (_paused) {
                         try { Thread.sleep(16) } catch (_: InterruptedException) { break }

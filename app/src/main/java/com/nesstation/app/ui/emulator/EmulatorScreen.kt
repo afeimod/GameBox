@@ -13,7 +13,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -79,6 +82,7 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
@@ -95,7 +99,48 @@ import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.storage.PadLayoutStore
+import android.view.KeyEvent
 import kotlinx.coroutines.delay
+
+// ---------------------------------------------------------------------------
+// TV mode detection — used to hide the touch-only on-screen gamepad on TV
+// (where there is no touchscreen) and to enable D-pad / gamepad key routing.
+// ---------------------------------------------------------------------------
+private fun isTvMode(context: android.content.Context): Boolean {
+    val pm = context.packageManager
+    return !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
+}
+
+// ---------------------------------------------------------------------------
+// Physical gamepad key → controller bit mapping
+// Used on TV (and whenever a Bluetooth/USB gamepad is connected) to drive
+// the engine directly from onKeyEvent on the Compose tree.
+// Bit layout must match the BTN_* constants below.
+// ---------------------------------------------------------------------------
+private fun gamepadKeyToBits(key: androidx.compose.ui.input.key.Key, platform: GamePlatform): Int {
+    val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
+    val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
+    // Compose Key.keyCode returns the underlying Android KeyEvent keyCode
+    // integer on Android, so we can compare against the standard KEYCODE_*
+    // constants.
+    val keyCode = key.keyCode
+    return when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP       -> BTN_UP
+        KeyEvent.KEYCODE_DPAD_DOWN     -> BTN_DOWN
+        KeyEvent.KEYCODE_DPAD_LEFT     -> BTN_LEFT
+        KeyEvent.KEYCODE_DPAD_RIGHT    -> BTN_RIGHT
+        KeyEvent.KEYCODE_BUTTON_A      -> BTN_A
+        KeyEvent.KEYCODE_BUTTON_B      -> BTN_B
+        KeyEvent.KEYCODE_BUTTON_X      -> BTN_X
+        KeyEvent.KEYCODE_BUTTON_Y      -> BTN_Y
+        KeyEvent.KEYCODE_BUTTON_L1     -> lBit
+        KeyEvent.KEYCODE_BUTTON_R1     -> rBit
+        KeyEvent.KEYCODE_BUTTON_START,
+        KeyEvent.KEYCODE_MENU          -> BTN_START
+        KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
+        else -> 0
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Button types for multi-touch tracking
@@ -132,6 +177,12 @@ fun EmulatorScreen(
     val engine = remember { EmulatorEngine.forPlatform(game.platform) }
     val platform = game.platform
     val context = LocalContext.current
+    // TV mode: hide the touch-only on-screen gamepad and route all input
+    // through the physical gamepad / D-pad key handler below.
+    val isTv = remember { isTvMode(context) }
+    // Tracks currently-held physical gamepad button bits so we can OR them
+    // into the engine's pad state on every key event.
+    var gamepadBits by remember { mutableStateOf(0) }
     var running by remember { mutableStateOf(true) }
     var fastForwardSpeed by remember { mutableStateOf(0) } // 0=off, 6=default
     var loaded by remember { mutableStateOf(false) }
@@ -146,6 +197,10 @@ fun EmulatorScreen(
     var showFFSpeedPicker by remember { mutableStateOf(false) }
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
+
+    // On TV, auto-hide the on-screen pad regardless of the user's setting —
+    // the touch overlay is useless without a touchscreen and only wastes GPU.
+    val effectiveShowPad = padLayout.showPad && !isTv
 
     // Apply core options on load and when they change
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
@@ -321,6 +376,36 @@ fun EmulatorScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
+                    .onKeyEvent { keyEvent ->
+                        // Physical gamepad / D-pad key routing — works on TV and
+                        // when a Bluetooth/USB controller is connected to a phone.
+                        val bits = gamepadKeyToBits(keyEvent.keyCode, platform)
+                        if (bits != 0) {
+                            when (keyEvent.type) {
+                                androidx.compose.ui.input.key.KeyEventType.KeyDown -> {
+                                    if (!keyEvent.repeat) {
+                                        gamepadBits = gamepadBits or bits
+                                    }
+                                    engine.setPad1(gamepadBits)
+                                    true
+                                }
+                                androidx.compose.ui.input.key.KeyEventType.KeyUp -> {
+                                    gamepadBits = gamepadBits and bits.inv()
+                                    engine.setPad1(gamepadBits)
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else if (keyEvent.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                                   (keyEvent.keyCode == androidx.compose.ui.input.key.Key.Menu ||
+                                    keyEvent.keyCode == androidx.compose.ui.input.key.Key.Back)) {
+                            // Menu/Back toggles the in-game menu overlay
+                            showMenu = !showMenu
+                            true
+                        } else {
+                            false
+                        }
+                    }
             )
         } else {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -332,8 +417,8 @@ fun EmulatorScreen(
             }
         }
 
-        // On-screen controller with multi-touch
-        if (loaded && padLayout.showPad && !showMenu && !showLayoutEditor && !showSettings && surfaceSize != IntSize.Zero) {
+        // On-screen controller with multi-touch — hidden on TV (no touchscreen)
+        if (loaded && effectiveShowPad && !showMenu && !showLayoutEditor && !showSettings && surfaceSize != IntSize.Zero) {
             OnScreenController(
                 padLayout = padLayout,
                 surfaceSize = surfaceSize,
@@ -585,6 +670,11 @@ private fun GameSurfaceView(
         AndroidView(
             factory = { ctx ->
                 SurfaceView(ctx).apply {
+                    // Set the pixel format BEFORE registering the surface
+                    // callback — otherwise the first surfaceCreated may fire
+                    // with the default OPAQUE format and the first frame will
+                    // render with the wrong format before being recreated.
+                    holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
                             engine.setSurface(holder.surface)
@@ -594,7 +684,12 @@ private fun GameSurfaceView(
                             engine.setSurface(null)
                         }
                     })
-                    holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
+                    // Make the SurfaceView focusable so it receives physical
+                    // gamepad / D-pad key events on TV and when a Bluetooth
+                    // controller is connected.
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    requestFocus()
                 }
             },
             modifier = surfaceModifier
@@ -626,12 +721,22 @@ private fun FilterOverlay(
             else -> null
         }
     }
+    // Pre-create the shader + paint once per filter type too — allocating a
+    // BitmapShader + Paint on every Canvas redraw (60 times/second) was a
+    // significant per-frame allocation hotspot.
+    val shaderPaint = remember(filterType, patternBitmap) {
+        patternBitmap?.let { bmp ->
+            android.graphics.Paint().apply {
+                shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                isFilterBitmap = false
+                isAntiAlias = false
+            }
+        }
+    }
 
     Canvas(modifier = modifier) {
-        patternBitmap?.let { bmp ->
+        shaderPaint?.let { paint ->
             drawIntoCanvas { canvas ->
-                val shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-                val paint = android.graphics.Paint().apply { this.shader = shader }
                 canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
             }
         }
@@ -774,6 +879,10 @@ private fun OnScreenController(
     // Turbo auto-fire: simulates rapid short taps (press 2 frames, release 4 frames)
     // FC turbo buttons rapidly press/release the A/B button at ~10Hz.
     // Also maintains held-button state at 60fps for the emulation core.
+    // OPTIMIZATION: when nothing is held (visualState == 0 && turboState == 0)
+    // we skip the JNI call entirely — the engine already has 0 in its pad
+    // state and continuously re-sending 0 wastes CPU and wakes the native
+    // thread 60 times/second for no reason.
     var turboCounter by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -783,9 +892,11 @@ private fun OnScreenController(
                 val turboOn = turboCounter % 6 < 2
                 val effective = if (turboOn) visualState or turboState else visualState
                 onPadBits(effective)
-            } else {
+            } else if (visualState != 0) {
                 onPadBits(visualState)
             }
+            // else: idle — don't call onPadBits(0) every frame; the engine
+            // already has 0 from the last release.
             delay(16)
         }
     }
@@ -1197,23 +1308,57 @@ private fun MenuOverlay(
     ) {
         Text(gameTitle, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         Spacer(Modifier.width(4.dp))
-        IconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
-        IconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
-        Text(
-            if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
-            color = Color(0xFFFFD66B),
-            fontSize = 12.sp,
-            modifier = Modifier.clickable { onCycleFFSpeed() }
-        )
-        IconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
-        IconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
-        IconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }
-        IconButton(onClick = onReset) { Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B)) }
-        IconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
-        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
-        IconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
-        IconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
+        // Each IconButton is explicitly focusable so D-pad navigation works
+        // on TV. The default IconButton is clickable but not focusable, which
+        // makes TV remote navigation impossible.
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+            FocusableIconButton(onClick = onTogglePause) { Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "暂停/继续", tint = Color.White) }
+            FocusableIconButton(onClick = onToggleFastForward) { Icon(Icons.Rounded.FastForward, "快进", tint = if (fastForwardSpeed > 0) Color(0xFFFFD66B) else Color.White) }
+            Text(
+                if (fastForwardSpeed > 0) "${fastForwardSpeed}x" else "",
+                color = Color(0xFFFFD66B),
+                fontSize = 12.sp,
+                modifier = Modifier.clickable { onCycleFFSpeed() }
+            )
+            FocusableIconButton(onClick = onScreenshot) { Icon(Icons.Rounded.CameraAlt, "截图", tint = Color.White) }
+            FocusableIconButton(onClick = onSaveState) { Icon(Icons.Rounded.Save, "存档", tint = Color.White) }
+            FocusableIconButton(onClick = onLoadState) { Icon(Icons.Rounded.Upload, "读档", tint = Color.White) }
+            FocusableIconButton(onClick = onReset) { Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B)) }
+            FocusableIconButton(onClick = onLayoutEditor) { Icon(Icons.Rounded.Tune, "手柄布局", tint = Color.White) }
+            FocusableIconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "设置", tint = Color.White) }
+            FocusableIconButton(onClick = onClose) { Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9)) }
+            FocusableIconButton(onClick = onExit) { Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B)) }
+        }
     }
+    }
+}
+
+/**
+ * TV-friendly IconButton wrapper — explicitly focusable so the D-pad can
+ * navigate between buttons on TV. Shows a subtle highlight when focused.
+ */
+@Composable
+private fun FocusableIconButton(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .focusable(interactionSource = interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (focused) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+            )
+        }
+        content()
     }
 }
 
