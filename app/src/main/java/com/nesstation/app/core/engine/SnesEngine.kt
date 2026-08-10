@@ -161,7 +161,7 @@ class SnesEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            val bufSize = (minBuf * 8).coerceAtLeast(16384)
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -181,11 +181,12 @@ class SnesEngine private constructor() : EmulatorEngine {
             audioTrack = null
         }
 
-        // Dedicated audio thread — mirrors phone audio path.
+        // Dedicated audio thread with BLOCKING writes — no crackling.
+        // Blocking write paces the loop at the hardware sample rate.
         audioRunning.set(true)
         audioThread = thread(name = "snes-audio-loop", isDaemon = true) {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
-            val buf = ShortArray(2048)
+            val buf = ShortArray(4096)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -193,7 +194,7 @@ class SnesEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(16)
+                            Thread.sleep(2)
                         }
                     } catch (_: InterruptedException) {
                         break

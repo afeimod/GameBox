@@ -181,9 +181,8 @@ class GbaEngine private constructor() : EmulatorEngine {
             // Use a larger buffer for 48000 Hz output to prevent underruns.
             // At 48kHz stereo 16-bit, 1 frame = 4 bytes.
             // minBuf is typically ~4800 bytes (~1200 frames) on most devices.
-            // A multiplier of 8 gives ~9600 frames, enough for ~200ms of audio
-            // — absorbs jitter from the emulation thread on low-power TV boxes.
-            val bufSize = (minBuf * 8).coerceAtLeast(16384)
+            // A multiplier of 4 gives ~4800 frames, enough for ~100ms of audio.
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -203,13 +202,14 @@ class GbaEngine private constructor() : EmulatorEngine {
             audioTrack = null
         }
 
-        // Dedicated audio thread — mirrors phone audio path.
+        // Dedicated audio thread with BLOCKING writes.
         // The native readAudio() returns samples already resampled to 48000 Hz
-        // by the AudioResampler in gba_loader.cpp.
+        // by the AudioResampler in gba_loader.cpp. Blocking write paces the
+        // loop at the hardware sample rate.
         audioRunning.set(true)
         audioThread = thread(name = "gba-audio-loop", isDaemon = true) {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
-            val buf = ShortArray(2048)
+            val buf = ShortArray(4096)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -217,7 +217,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(16)
+                            Thread.sleep(2)
                         }
                     } catch (_: InterruptedException) {
                         break

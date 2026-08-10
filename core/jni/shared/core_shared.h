@@ -80,21 +80,23 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
     }
 
     // Fast path: 1:1 copy when source and destination match.
-    // Source is ARGB (0xFFRRGGBB), destination is RGBA_8888/RGBX_8888.
-    // Convert ARGB→RGBA with a single shift + OR (compiles to 1-2 ARM
-    // instructions per pixel). This is ~4x faster than the 4-byte-write
-    // version and ~30x faster than the float-scaling fallback.
+    // Source is ARGB (0xFFRRGGBB). Android's WINDOW_FORMAT_RGBA_8888 is
+    // actually stored as BGRA in memory on little-endian ARM, so we must
+    // write each channel to the correct byte position explicitly.
     if (dstW == w && dstH == h &&
         (buf.format == WINDOW_FORMAT_RGBA_8888 ||
          buf.format == WINDOW_FORMAT_RGBX_8888)) {
-        uint32_t* dst = static_cast<uint32_t*>(buf.bits);
+        uint8_t* dst = static_cast<uint8_t*>(buf.bits);
         const uint32_t dstStridePx = (uint32_t)buf.stride;
         for (uint32_t y = 0; y < h; ++y) {
             const uint32_t* srow = src + y * srcStride;
-            uint32_t* drow = dst + y * dstStridePx;
+            uint8_t* drow = dst + y * dstStridePx * 4;
             for (uint32_t x = 0; x < w; ++x) {
-                // ARGB 0xFFRRGGBB → RGBA 0xRRGGBBFF
-                drow[x] = (srow[x] << 8) | 0xFFu;
+                uint32_t px = srow[x];
+                drow[x * 4 + 0] = (px >> 16) & 0xFF;  // R
+                drow[x * 4 + 1] = (px >> 8) & 0xFF;   // G
+                drow[x * 4 + 2] = px & 0xFF;          // B
+                drow[x * 4 + 3] = 0xFF;               // A
             }
         }
         ANativeWindow_unlockAndPost(window);
@@ -103,24 +105,26 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
 
     // Slow fallback path: per-pixel nearest-neighbor scaling.
     // Only hit when highQualityScaling=true (display-res buffer) or if the
-    // surface format doesn't match expectations. Uses uint32_t writes for
-    // speed (1 write per pixel instead of 4 byte writes).
+    // surface format doesn't match expectations.
     if (buf.format == WINDOW_FORMAT_RGBA_8888 ||
         buf.format == WINDOW_FORMAT_RGBX_8888) {
-        uint32_t* dst = static_cast<uint32_t*>(buf.bits);
-        const uint32_t dstStridePx = (uint32_t)buf.stride;
+        uint8_t* dst = static_cast<uint8_t*>(buf.bits);
+        const uint32_t dstStride = buf.stride * 4;
         const float sx = (float)w / (float)dstW;
         const float sy = (float)h / (float)dstH;
         for (uint32_t y = 0; y < dstH; ++y) {
             uint32_t srcY = (uint32_t)(y * sy);
             if (srcY >= h) srcY = h - 1;
-            uint32_t* drow = dst + y * dstStridePx;
+            uint8_t* drow = dst + y * dstStride;
             const uint32_t* srow = src + srcY * srcStride;
             for (uint32_t x = 0; x < dstW; ++x) {
                 uint32_t srcX = (uint32_t)(x * sx);
                 if (srcX >= w) srcX = w - 1;
-                // ARGB 0xFFRRGGBB → RGBA 0xRRGGBBFF
-                drow[x] = (srow[srcX] << 8) | 0xFFu;
+                uint32_t px = srow[srcX];
+                drow[x * 4 + 0] = (px >> 16) & 0xFF;
+                drow[x * 4 + 1] = (px >> 8) & 0xFF;
+                drow[x * 4 + 2] = px & 0xFF;
+                drow[x * 4 + 3] = 0xFF;
             }
         }
     } else if (buf.format == WINDOW_FORMAT_RGB_565) {

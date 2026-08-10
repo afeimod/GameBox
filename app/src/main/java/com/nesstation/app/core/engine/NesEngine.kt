@@ -171,12 +171,7 @@ class NesEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            // Use a larger buffer (minBuf * 8) to absorb jitter from the
-            // emulation thread. This is the same pattern used by Android's
-            // default phone audio path — a big enough buffer that brief
-            // emulation stalls don't cause underruns, but small enough that
-            // latency stays under ~100ms.
-            val bufSize = (minBuf * 8).coerceAtLeast(16384)
+            val bufSize = (minBuf * 4).coerceAtLeast(8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -196,35 +191,26 @@ class NesEngine private constructor() : EmulatorEngine {
             audioTrack = null
         }
 
-        // Dedicated audio thread — mirrors the phone audio path:
-        // 1. High priority (THREAD_PRIORITY_AUDIO = -16) so the audio
-        //    thread is never starved by the emulation or UI threads.
-        // 2. Moderate read size (2048 stereo frames = ~46ms @44.1k) —
-        //    small enough for low latency, large enough to amortize JNI overhead.
-        // 3. Non-blocking read from the native ring buffer, then blocking
-        //    write to AudioTrack. When no audio is available, sleep 10ms
-        //    (matching one video frame at 60fps) to avoid busy-spinning.
+        // Dedicated audio thread with BLOCKING writes — no crackling.
+        // The audio thread reads from the native ring buffer (non-blocking)
+        // and writes to AudioTrack (blocking). AudioTrack plays at the
+        // hardware sample rate, so the blocking write naturally paces the
+        // loop — when AudioTrack's buffer is full, write() blocks until
+        // room is available, preventing audio acceleration.
         audioRunning.set(true)
         audioThread = thread(name = "nes-audio-loop", isDaemon = true) {
+            // Boost audio thread priority so it's not starved by the
+            // emulation thread on low-power TV devices.
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
-            val buf = ShortArray(2048)
+            val buf = ShortArray(4096)
             try {
                 while (audioRunning.get()) {
                     try {
                         val n = NesNative.readAudio(buf)
                         if (n > 0) {
-                            // Blocking write — AudioTrack will buffer internally
-                            // and play at the correct rate. This is the key to
-                            // smooth audio: the AudioTrack's large internal buffer
-                            // absorbs timing jitter from the emulation thread.
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            // No audio available — sleep one video frame (~16ms
-                            // at 60fps) to let the emulation thread produce audio.
-                            // This matches the emulation thread's frame rate and
-                            // avoids waking the audio thread faster than the
-                            // emulator can produce samples.
-                            Thread.sleep(16)
+                            Thread.sleep(2)
                         }
                     } catch (_: InterruptedException) {
                         break
