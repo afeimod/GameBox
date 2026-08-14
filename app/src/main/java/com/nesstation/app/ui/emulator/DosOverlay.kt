@@ -96,15 +96,18 @@ fun DosOnScreenController(
     val opacity = (padLayout.opacity * 0.5f).coerceIn(0.15f, 0.85f)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Mode switch button — top-right corner, always visible.
-        ModeSwitchButton(
-            isKeyboard = padLayout.dosInputMode == "keyboard",
-            opacity = opacity,
-            isPortrait = isPortrait,
-            onClick = onToggleMode,
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
-        )
-
+        // === Render the overlay FIRST, then ModeSwitchButton ON TOP. ===
+        //
+        // CRITICAL: The gamepad overlay has a full-screen drag area (for mouse
+        // movement) that uses awaitFirstDown(requireUnconsumed = true) and
+        // consumes the touch. If ModeSwitchButton is rendered BEFORE the
+        // overlay, the overlay's drag area is drawn on top of the button and
+        // intercepts all touch events at the top-right corner - making the
+        // mode switch button appear dead.
+        //
+        // By rendering the overlay first and ModeSwitchButton last, the button
+        // is on top of the z-order and receives touch events first. The drag
+        // area below only gets touches that miss the button.
         if (padLayout.dosInputMode == "keyboard") {
             DosKeyboardOverlay(
                 engine = engine,
@@ -120,6 +123,15 @@ fun DosOnScreenController(
                 surfaceSize = surfaceSize
             )
         }
+
+        // Mode switch button - top-right corner, always visible (ON TOP).
+        ModeSwitchButton(
+            isKeyboard = padLayout.dosInputMode == "keyboard",
+            opacity = opacity,
+            isPortrait = isPortrait,
+            onClick = onToggleMode,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+        )
     }
 }
 

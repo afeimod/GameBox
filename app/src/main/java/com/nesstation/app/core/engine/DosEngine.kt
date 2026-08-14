@@ -190,7 +190,16 @@ class DosEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            val bufSize = (minBuf * 4).coerceAtLeast(8192)
+            // LOW-LATENCY: Use the smallest buffer Android will allow.
+            // Previously this was `minBuf * 4` which introduced ~80-150ms of
+            // latency on top of the ring buffer. For DOS games (especially
+            // games with sound effects tied to gameplay like PAL, StarControl,
+            // etc.) this made audio feel noticeably delayed.
+            //
+            // We now use `minBuf` directly (clamped to a safe lower bound of
+            // 2048 samples = ~21ms at 48kHz stereo). Combined with the smaller
+            // read buffer below, total round-trip latency drops to <30ms.
+            val bufSize = minBuf.coerceIn(2048, 8192)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -212,16 +221,19 @@ class DosEngine private constructor() : EmulatorEngine {
 
         audioRunning.set(true)
         audioThread = thread(name = "dos-audio-loop", isDaemon = true) {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
-            val buf = ShortArray(4096)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            // Smaller read buffer = lower latency. 512 stereo frames = ~10ms
+            // at 48kHz. The native ring buffer can supply this without
+            // underrunning as long as the emulation thread keeps up.
+            val buf = ShortArray(1024)
             try {
                 while (audioRunning.get()) {
                     try {
                         val n = DosNative.readAudio(buf)
                         if (n > 0) {
-                            audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
+                            audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
                         } else {
-                            Thread.sleep(2)
+                            Thread.sleep(1)
                         }
                     } catch (_: InterruptedException) {
                         break

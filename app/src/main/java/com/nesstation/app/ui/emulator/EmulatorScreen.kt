@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1922,6 +1924,248 @@ private fun SlotRow(
 }
 
 // ---------------------------------------------------------------------------
+// DOS-specific pad layout editor
+//
+// DOS games use a dedicated overlay (DosOverlay.kt) with two modes:
+//   - gamepad mode: D-pad + Esc/Enter/Space/Tab + Ctrl/Alt/Shift/Back +
+//                   Mouse L/R + drag-to-move-mouse
+//   - keyboard mode: full QWERTY keyboard + function keys + arrows
+//
+// Button positions are NOT user-editable (they are carefully laid out for
+// thumb reachability in both portrait and landscape). What the user CAN
+// configure for DOS is:
+//   1. Overlay opacity (shared with all platforms via padLayout.opacity)
+//   2. Input mode (gamepad vs keyboard) - also toggleable from the top-right
+//      button during gameplay, but exposed here for clarity.
+//
+// This editor shows a live preview of the DOS overlay buttons (read-only)
+// plus the two controls above. It replaces the NES/FC editor which was
+// previously (incorrectly) shown for DOS games.
+// ---------------------------------------------------------------------------
+@Composable
+private fun DosPadLayoutEditor(
+    padLayout: PadLayout,
+    isPortrait: Boolean,
+    onLayoutChange: (PadLayout) -> Unit,
+    onClose: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
+        // Top toolbar
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "DOS 虚拟按键设置",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = {
+                val defaults = PadLayout()
+                onLayoutChange(padLayout.copy(
+                    opacity = defaults.opacity,
+                    dosInputMode = defaults.dosInputMode
+                ))
+            }) {
+                Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
+            }
+            IconButton(onClick = onClose) {
+                Text(
+                    "完成",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            }
+        }
+
+        // Preview area - shows a non-interactive mock of the DOS gamepad layout
+        // so the user can see what buttons are available.
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 80.dp)
+                .background(Color(0x33000000), RoundedCornerShape(16.dp))
+                .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "DOS 游戏模式: ${if (padLayout.dosInputMode == "keyboard") "全键盘" else "手柄"}",
+                    color = Color(0xFFFFD66B),
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    if (padLayout.dosInputMode == "keyboard") {
+                        "全键盘模式: F1-F12 + 数字 + QWERTY + 符号 + 方向键\n" +
+                        "可输入密码、控制台命令、快捷键等"
+                    } else {
+                        "手柄模式: 方向键 + Esc/Enter/Space/Tab\n" +
+                        "Ctrl/Alt/Shift/Back + 鼠标左右键 + 拖动移动鼠标\n" +
+                        "右上角按钮可切换到全键盘"
+                    },
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(Modifier.size(16.dp))
+
+                // Mock button preview row
+                Row(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val previewBg = Color.Black.copy(alpha = 0.4f * padLayout.opacity)
+                    val previewFg = Color.White.copy(alpha = padLayout.opacity)
+                    val previewBorder = Color.White.copy(alpha = 0.6f * padLayout.opacity)
+                    val mockLabels = if (padLayout.dosInputMode == "keyboard") {
+                        listOf("F1", "1", "Q", "A", "Z", "Ctrl", "Space", "←")
+                    } else {
+                        listOf("Esc", "Enter", "Space", "Tab", "Ctrl", "Alt", "L", "R")
+                    }
+                    mockLabels.forEach { label ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(previewBg)
+                                .border(1.dp, previewBorder, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                label,
+                                color = previewFg,
+                                fontSize = 10.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bottom controls - opacity slider + mode toggle
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(16.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            // Opacity slider
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("透明度", color = Color.White, fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("${(padLayout.opacity * 100).toInt()}%", color = Color(0xFFFFD66B), fontSize = 13.sp)
+            }
+            Spacer(Modifier.size(8.dp))
+            Slider(
+                value = padLayout.opacity,
+                onValueChange = { newVal ->
+                    onLayoutChange(padLayout.copy(opacity = newVal.coerceIn(0.3f, 1.0f)))
+                },
+                valueRange = 0.3f..1.0f,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color(0xFFFFD66B),
+                    activeTrackColor = Color(0xFFFFD66B),
+                    inactiveTrackColor = Color(0xFF4A5568)
+                )
+            )
+
+            Spacer(Modifier.size(16.dp))
+
+            // Input mode toggle
+            Text("输入模式", color = Color.White, fontSize = 13.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Spacer(Modifier.size(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+            ) {
+                // Gamepad mode button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
+                            else Color(0xFF2A3A4A)
+                        )
+                        .border(
+                            1.dp,
+                            if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
+                            else Color(0xFF4A5568),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                onLayoutChange(padLayout.copy(dosInputMode = "gamepad"))
+                            }
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "手柄模式",
+                        color = if (padLayout.dosInputMode == "gamepad") Color.Black else Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                    )
+                }
+                // Keyboard mode button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
+                            else Color(0xFF2A3A4A)
+                        )
+                        .border(
+                            1.dp,
+                            if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
+                            else Color(0xFF4A5568),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                onLayoutChange(padLayout.copy(dosInputMode = "keyboard"))
+                            }
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "全键盘模式",
+                        color = if (padLayout.dosInputMode == "keyboard") Color.Black else Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "提示: 游戏中点击右上角圆形按钮也可快速切换模式",
+                color = Color(0xFF8899AA),
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Pad layout editor — drag to move (fixed), tap to select + slider for size
 // ---------------------------------------------------------------------------
 @Composable
@@ -1933,6 +2177,20 @@ private fun PadLayoutEditor(
     surfaceSize: IntSize,
     onClose: () -> Unit
 ) {
+    // === DOS uses a dedicated overlay with its own button set ===
+    // (Esc/Enter/Space/Tab/Ctrl/Alt/Shift/Mouse L/R + full QWERTY keyboard).
+    // The standard NES/FC editor (D-pad + A/B + START/SELECT) does NOT apply
+    // to DOS games. Route to a DOS-specific editor instead.
+    if (platform == GamePlatform.DOS) {
+        DosPadLayoutEditor(
+            padLayout = padLayout,
+            isPortrait = isPortrait,
+            onLayoutChange = onLayoutChange,
+            onClose = onClose
+        )
+        return
+    }
+
     val density = LocalDensity.current
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
 
@@ -2799,31 +3057,19 @@ private fun SettingsPanel(
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("声霸卡类型",
                     listOf(
-                        "sb16" to "Sound Blaster 16 (推荐)",
+                        "sb16" to "Sound Blaster 16 (推荐·默认)",
                         "sbpro2" to "Sound Blaster Pro 2",
                         "sbpro1" to "Sound Blaster Pro",
                         "sb2" to "Sound Blaster 2.0",
-                        "sb1" to "Sound Blaster 1.0",
-                        "gb" to "Game Blaster",
-                        "none" to "关闭"
+                        "none" to "关闭声音"
                     ),
                     padLayout.dosSbType
                 ) { onLayoutChange(padLayout.copy(dosSbType = it)) }
 
-                DropdownSetting("Adlib 模式",
-                    listOf("off" to "关闭", "on" to "开启"),
-                    padLayout.dosSbAdlibMode
-                ) { onLayoutChange(padLayout.copy(dosSbAdlibMode = it)) }
-
-                DropdownSetting("Adlib 模拟器",
-                    listOf("default" to "默认", "cms" to "CMS", "dual" to "双芯片"),
-                    padLayout.dosSbAdlibEmu
-                ) { onLayoutChange(padLayout.copy(dosSbAdlibEmu = it)) }
-
-                DropdownSetting("Gravis Ultrasound",
-                    listOf("off" to "关闭", "on" to "开启"),
-                    padLayout.dosGus
-                ) { onLayoutChange(padLayout.copy(dosGus = it)) }
+                // 移除复杂的 Adlib / GUS 设置，使用 DOSBox-Pure 默认值即可。
+                // 大部分 DOS 游戏使用 Sound Blaster 16 即可获得原始声音效果，
+                // 这些高级选项反而容易导致声音异常或延迟。
+                // 如需调整可手动通过 PadLayout 字段设置。
 
                 Spacer(Modifier.size(8.dp))
                 Text("鼠标", color = Color(0xFF8899AA), fontSize = 11.sp)

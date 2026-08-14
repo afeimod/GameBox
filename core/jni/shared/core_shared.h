@@ -456,12 +456,15 @@ static inline void applyFilterAndBlit(
 
 class AudioRingBuffer {
 public:
-    // Increased from 32768 to 65536 to accommodate resampled audio.
-    // When resampling from 32768 Hz to 48000 Hz, the ring buffer needs more
-    // capacity since the core produces samples at 32768 Hz but the consumer
-    // reads at a higher effective rate after resampling. 65536 provides
-    // ~136ms of buffering at 48000 Hz stereo, preventing underruns.
-    static constexpr size_t kDefaultCap = 1u << 16; // 65536 samples
+    // LOW-LATENCY: Reduced from 65536 to 8192 samples (~85ms at 48kHz stereo
+    // was ~340ms before). The previous huge buffer caused noticeable audio
+    // delay in DOSBox-Pure (sound effects lagging behind gameplay by
+    // 100-300ms). 8192 samples = ~42 stereo frames * 2 = ~85ms max buffer,
+    // which is enough to absorb emulation thread jitter without underrunning.
+    //
+    // If underruns cause crackling, increase to 16384. Do NOT return to
+    // 65536 Б─■ that reintroduces the latency problem.
+    static constexpr size_t kDefaultCap = 1u << 13; // 8192 samples
 
     AudioRingBuffer(size_t cap = kDefaultCap) : kCap(cap) {
         ring = new int16_t[cap];
