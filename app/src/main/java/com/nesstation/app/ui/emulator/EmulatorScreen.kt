@@ -1926,31 +1926,47 @@ private fun SlotRow(
 // ---------------------------------------------------------------------------
 // DOS-specific pad layout editor
 //
-// DOS games use a dedicated overlay (DosOverlay.kt) with two modes:
-//   - gamepad mode: D-pad + Esc/Enter/Space/Tab + Ctrl/Alt/Shift/Back +
-//                   Mouse L/R + drag-to-move-mouse
-//   - keyboard mode: full QWERTY keyboard + function keys + arrows
+// Full editor for the DOS gamepad overlay. Supports:
+//   - Drag any visible button to reposition (landscape/portrait independent)
+//   - Tap a button to select it; use the bottom slider to resize
+//   - Toggle each button's visibility (show/hide) via checkboxes
+//   - Opacity slider (shared with all platforms via padLayout.opacity)
+//   - Input mode toggle (gamepad <-> keyboard)
+//   - Reset to defaults
 //
-// Button positions are NOT user-editable (they are carefully laid out for
-// thumb reachability in both portrait and landscape). What the user CAN
-// configure for DOS is:
-//   1. Overlay opacity (shared with all platforms via padLayout.opacity)
-//   2. Input mode (gamepad vs keyboard) - also toggleable from the top-right
-//      button during gameplay, but exposed here for clarity.
-//
-// This editor shows a live preview of the DOS overlay buttons (read-only)
-// plus the two controls above. It replaces the NES/FC editor which was
-// previously (incorrectly) shown for DOS games.
+// Button positions are stored in PadLayout as ButtonLayout(x, y, sizeDp)
+// where x/y are fractions of the screen (0.0-1.0). The DosGamepadOverlay
+// reads these positions at render time.
 // ---------------------------------------------------------------------------
 @Composable
 private fun DosPadLayoutEditor(
     padLayout: PadLayout,
     isPortrait: Boolean,
     onLayoutChange: (PadLayout) -> Unit,
+    surfaceSize: IntSize,
     onClose: () -> Unit
 ) {
+    var selectedBtn by remember { mutableStateOf<DosBtnType?>(null) }
+
+    // Get the current landscape or portrait layout for each button.
+    fun getLayout(btn: DosBtnType): ButtonLayout =
+        if (isPortrait) btn.portraitLayout(padLayout) else btn.landscapeLayout(padLayout)
+
+    // Update a button's layout (writes back to the correct landscape/portrait field).
+    fun updateBtn(btn: DosBtnType, newLayout: ButtonLayout) {
+        onLayoutChange(
+            if (isPortrait) btn.updatePortrait(padLayout, newLayout)
+            else btn.updateLandscape(padLayout, newLayout)
+        )
+    }
+
+    // Toggle a button's visibility.
+    fun toggleVisible(btn: DosBtnType) {
+        onLayoutChange(btn.toggleVisible(padLayout))
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
-        // Top toolbar
+        // === Top toolbar ===
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp)
                 .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
@@ -1964,11 +1980,31 @@ private fun DosPadLayoutEditor(
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
+            Text(
+                if (isPortrait) "(竖屏)" else "(横屏)",
+                color = Color(0xFF8899AA),
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.size(8.dp))
             IconButton(onClick = {
                 val defaults = PadLayout()
                 onLayoutChange(padLayout.copy(
-                    opacity = defaults.opacity,
-                    dosInputMode = defaults.dosInputMode
+                    dosDpad = defaults.dosDpad, dosBtnEsc = defaults.dosBtnEsc,
+                    dosBtnEnter = defaults.dosBtnEnter, dosBtnSpace = defaults.dosBtnSpace,
+                    dosBtnTab = defaults.dosBtnTab, dosBtnCtrl = defaults.dosBtnCtrl,
+                    dosBtnAlt = defaults.dosBtnAlt, dosBtnShift = defaults.dosBtnShift,
+                    dosBtnBack = defaults.dosBtnBack,
+                    dosBtnMouseL = defaults.dosBtnMouseL, dosBtnMouseR = defaults.dosBtnMouseR,
+                    dosDpadP = defaults.dosDpadP, dosBtnEscP = defaults.dosBtnEscP,
+                    dosBtnEnterP = defaults.dosBtnEnterP, dosBtnSpaceP = defaults.dosBtnSpaceP,
+                    dosBtnTabP = defaults.dosBtnTabP, dosBtnCtrlP = defaults.dosBtnCtrlP,
+                    dosBtnAltP = defaults.dosBtnAltP, dosBtnShiftP = defaults.dosBtnShiftP,
+                    dosBtnBackP = defaults.dosBtnBackP,
+                    dosBtnMouseLP = defaults.dosBtnMouseLP, dosBtnMouseRP = defaults.dosBtnMouseRP,
+                    dosShowDpad = true, dosShowEsc = true, dosShowEnter = true,
+                    dosShowSpace = true, dosShowTab = true, dosShowCtrl = true,
+                    dosShowAlt = true, dosShowShift = true, dosShowBack = true,
+                    dosShowMouseL = true, dosShowMouseR = true
                 ))
             }) {
                 Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
@@ -1983,86 +2019,42 @@ private fun DosPadLayoutEditor(
             }
         }
 
-        // Preview area - shows a non-interactive mock of the DOS gamepad layout
-        // so the user can see what buttons are available.
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 80.dp)
-                .background(Color(0x33000000), RoundedCornerShape(16.dp))
-                .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(16.dp))
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    "DOS 游戏模式: ${if (padLayout.dosInputMode == "keyboard") "全键盘" else "手柄"}",
-                    color = Color(0xFFFFD66B),
-                    fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                )
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    if (padLayout.dosInputMode == "keyboard") {
-                        "全键盘模式: F1-F12 + 数字 + QWERTY + 符号 + 方向键\n" +
-                        "可输入密码、控制台命令、快捷键等"
-                    } else {
-                        "手柄模式: 方向键 + Esc/Enter/Space/Tab\n" +
-                        "Ctrl/Alt/Shift/Back + 鼠标左右键 + 拖动移动鼠标\n" +
-                        "右上角按钮可切换到全键盘"
-                    },
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Spacer(Modifier.size(16.dp))
-
-                // Mock button preview row
-                Row(
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val previewBg = Color.Black.copy(alpha = 0.4f * padLayout.opacity)
-                    val previewFg = Color.White.copy(alpha = padLayout.opacity)
-                    val previewBorder = Color.White.copy(alpha = 0.6f * padLayout.opacity)
-                    val mockLabels = if (padLayout.dosInputMode == "keyboard") {
-                        listOf("F1", "1", "Q", "A", "Z", "Ctrl", "Space", "←")
-                    } else {
-                        listOf("Esc", "Enter", "Space", "Tab", "Ctrl", "Alt", "L", "R")
-                    }
-                    mockLabels.forEach { label ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(previewBg)
-                                .border(1.dp, previewBorder, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                label,
-                                color = previewFg,
-                                fontSize = 10.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                            )
-                        }
-                    }
+        // === Editable button previews ===
+        // Each visible button is rendered as a draggable preview.
+        Box(modifier = Modifier.fillMaxSize()) {
+            DosBtnType.values().forEach { btnType ->
+                val layout = getLayout(btnType)
+                val visible = btnType.isVisible(padLayout)
+                if (visible) {
+                    DosEditableButton(
+                        label = btnType.label,
+                        color = btnType.color,
+                        layout = layout,
+                        surfaceSize = surfaceSize,
+                        isSelected = selectedBtn == btnType,
+                        onMove = { nx, ny ->
+                            updateBtn(btnType, layout.copy(
+                                x = nx.coerceIn(0.02f, 0.98f),
+                                y = ny.coerceIn(0.02f, 0.98f)
+                            ))
+                        },
+                        onSelect = { selectedBtn = btnType },
+                        onLongPress = { toggleVisible(btnType) }
+                    )
                 }
             }
         }
 
-        // Bottom controls - opacity slider + mode toggle
+        // === Bottom control panel ===
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(16.dp)
                 .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            // Opacity slider
+            // --- Opacity slider ---
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("透明度", color = Color.White, fontSize = 13.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
@@ -2083,17 +2075,18 @@ private fun DosPadLayoutEditor(
                 )
             )
 
-            Spacer(Modifier.size(16.dp))
-
-            // Input mode toggle
-            Text("输入模式", color = Color.White, fontSize = 13.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            // --- Input mode toggle ---
+            Spacer(Modifier.size(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("输入模式", color = Color.White, fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+            }
             Spacer(Modifier.size(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
             ) {
-                // Gamepad mode button
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -2113,7 +2106,7 @@ private fun DosPadLayoutEditor(
                                 onLayoutChange(padLayout.copy(dosInputMode = "gamepad"))
                             }
                         }
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -2123,7 +2116,6 @@ private fun DosPadLayoutEditor(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                 }
-                // Keyboard mode button
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -2143,7 +2135,7 @@ private fun DosPadLayoutEditor(
                                 onLayoutChange(padLayout.copy(dosInputMode = "keyboard"))
                             }
                         }
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -2155,15 +2147,292 @@ private fun DosPadLayoutEditor(
                 }
             }
 
-            Spacer(Modifier.size(8.dp))
+            // --- Selected button size slider ---
+            val sel = selectedBtn
+            if (sel != null) {
+                Spacer(Modifier.size(12.dp))
+                val currentSize = getLayout(sel).sizeDp
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${sel.label} 大小", color = Color.White, fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 13.sp)
+                }
+                Spacer(Modifier.size(8.dp))
+                Slider(
+                    value = currentSize.toFloat(),
+                    onValueChange = { newVal ->
+                        val intVal = newVal.toInt()
+                        updateBtn(sel, getLayout(sel).copy(sizeDp = intVal))
+                    },
+                    valueRange = (sel.minSize).toFloat()..(sel.maxSize).toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD66B),
+                        activeTrackColor = Color(0xFFFFD66B),
+                        inactiveTrackColor = Color(0xFF4A5568)
+                    )
+                )
+                // Hide button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
+                ) {
+                    Text(
+                        "隐藏此按键",
+                        color = Color(0xFFFF8888),
+                        fontSize = 12.sp,
+                        modifier = Modifier.pointerInput(Unit) {
+                            detectTapGestures { toggleVisible(sel); selectedBtn = null }
+                        }
+                    )
+                }
+            }
+
+            // --- Button visibility list (scrollable) ---
+            Spacer(Modifier.size(12.dp))
+            Text("按键可见性 (点击切换)", color = Color(0xFF8899AA), fontSize = 11.sp)
+            Spacer(Modifier.size(6.dp))
+            // Two-column grid of toggle chips
+            val allBtns = DosBtnType.values().toList()
+            val rows = allBtns.chunked(3)
+            rows.forEach { rowBtns ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+                ) {
+                    rowBtns.forEach { btnType ->
+                        val visible = btnType.isVisible(padLayout)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (visible) Color(0xFF2ECC71).copy(alpha = 0.3f)
+                                    else Color(0xFF4A5568).copy(alpha = 0.3f)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (visible) Color(0xFF2ECC71) else Color(0xFF4A5568),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .pointerInput(btnType) {
+                                    detectTapGestures { toggleVisible(btnType) }
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                btnType.label,
+                                color = if (visible) Color.White else Color(0xFF8899AA),
+                                fontSize = 11.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                            )
+                        }
+                    }
+                    // Fill remaining space if row has < 3 items
+                    repeat(3 - rowBtns.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+                Spacer(Modifier.size(4.dp))
+            }
+
+            Spacer(Modifier.size(4.dp))
             Text(
-                "提示: 游戏中点击右上角圆形按钮也可快速切换模式",
+                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 长按隐藏按键",
                 color = Color(0xFF8899AA),
-                fontSize = 11.sp
+                fontSize = 10.sp
             )
         }
     }
 }
+
+// DOS button type enum for the editor.
+private enum class DosBtnType(
+    val label: String,
+    val color: Color,
+    val minSize: Int,
+    val maxSize: Int
+) {
+    DPAD("D-Pad", Color(0xFFFFD66B), 80, 220),
+    ESC("Esc", Color(0xFFE74C3C), 36, 100),
+    ENTER("Enter", Color(0xFF2ECC71), 36, 100),
+    SPACE("Space", Color(0xFF3498DB), 36, 100),
+    TAB("Tab", Color(0xFF9B59B6), 36, 100),
+    CTRL("Ctrl", Color(0xFFE67E22), 32, 90),
+    ALT("Alt", Color(0xFFE67E22), 32, 90),
+    SHIFT("Shift", Color(0xFFE67E22), 32, 90),
+    BACK("Back", Color(0xFFE67E22), 32, 90),
+    MOUSE_L("L", Color(0xFFFFD66B), 28, 80),
+    MOUSE_R("R", Color(0xFFFFD66B), 28, 80);
+
+    fun landscapeLayout(p: PadLayout): ButtonLayout = when (this) {
+        DPAD -> p.dosDpad
+        ESC -> p.dosBtnEsc
+        ENTER -> p.dosBtnEnter
+        SPACE -> p.dosBtnSpace
+        TAB -> p.dosBtnTab
+        CTRL -> p.dosBtnCtrl
+        ALT -> p.dosBtnAlt
+        SHIFT -> p.dosBtnShift
+        BACK -> p.dosBtnBack
+        MOUSE_L -> p.dosBtnMouseL
+        MOUSE_R -> p.dosBtnMouseR
+    }
+
+    fun portraitLayout(p: PadLayout): ButtonLayout = when (this) {
+        DPAD -> p.dosDpadP
+        ESC -> p.dosBtnEscP
+        ENTER -> p.dosBtnEnterP
+        SPACE -> p.dosBtnSpaceP
+        TAB -> p.dosBtnTabP
+        CTRL -> p.dosBtnCtrlP
+        ALT -> p.dosBtnAltP
+        SHIFT -> p.dosBtnShiftP
+        BACK -> p.dosBtnBackP
+        MOUSE_L -> p.dosBtnMouseLP
+        MOUSE_R -> p.dosBtnMouseRP
+    }
+
+    fun updateLandscape(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
+        DPAD -> p.copy(dosDpad = l)
+        ESC -> p.copy(dosBtnEsc = l)
+        ENTER -> p.copy(dosBtnEnter = l)
+        SPACE -> p.copy(dosBtnSpace = l)
+        TAB -> p.copy(dosBtnTab = l)
+        CTRL -> p.copy(dosBtnCtrl = l)
+        ALT -> p.copy(dosBtnAlt = l)
+        SHIFT -> p.copy(dosBtnShift = l)
+        BACK -> p.copy(dosBtnBack = l)
+        MOUSE_L -> p.copy(dosBtnMouseL = l)
+        MOUSE_R -> p.copy(dosBtnMouseR = l)
+    }
+
+    fun updatePortrait(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
+        DPAD -> p.copy(dosDpadP = l)
+        ESC -> p.copy(dosBtnEscP = l)
+        ENTER -> p.copy(dosBtnEnterP = l)
+        SPACE -> p.copy(dosBtnSpaceP = l)
+        TAB -> p.copy(dosBtnTabP = l)
+        CTRL -> p.copy(dosBtnCtrlP = l)
+        ALT -> p.copy(dosBtnAltP = l)
+        SHIFT -> p.copy(dosBtnShiftP = l)
+        BACK -> p.copy(dosBtnBackP = l)
+        MOUSE_L -> p.copy(dosBtnMouseLP = l)
+        MOUSE_R -> p.copy(dosBtnMouseRP = l)
+    }
+
+    fun isVisible(p: PadLayout): Boolean = when (this) {
+        DPAD -> p.dosShowDpad
+        ESC -> p.dosShowEsc
+        ENTER -> p.dosShowEnter
+        SPACE -> p.dosShowSpace
+        TAB -> p.dosShowTab
+        CTRL -> p.dosShowCtrl
+        ALT -> p.dosShowAlt
+        SHIFT -> p.dosShowShift
+        BACK -> p.dosShowBack
+        MOUSE_L -> p.dosShowMouseL
+        MOUSE_R -> p.dosShowMouseR
+    }
+
+    fun toggleVisible(p: PadLayout): PadLayout = when (this) {
+        DPAD -> p.copy(dosShowDpad = !p.dosShowDpad)
+        ESC -> p.copy(dosShowEsc = !p.dosShowEsc)
+        ENTER -> p.copy(dosShowEnter = !p.dosShowEnter)
+        SPACE -> p.copy(dosShowSpace = !p.dosShowSpace)
+        TAB -> p.copy(dosShowTab = !p.dosShowTab)
+        CTRL -> p.copy(dosShowCtrl = !p.dosShowCtrl)
+        ALT -> p.copy(dosShowAlt = !p.dosShowAlt)
+        SHIFT -> p.copy(dosShowShift = !p.dosShowShift)
+        BACK -> p.copy(dosShowBack = !p.dosShowBack)
+        MOUSE_L -> p.copy(dosShowMouseL = !p.dosShowMouseL)
+        MOUSE_R -> p.copy(dosShowMouseR = !p.dosShowMouseR)
+    }
+}
+
+// Draggable DOS button preview for the editor.
+@Composable
+private fun DosEditableButton(
+    label: String,
+    color: Color,
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    isSelected: Boolean,
+    onMove: (targetX: Float, targetY: Float) -> Unit,
+    onSelect: () -> Unit,
+    onLongPress: () -> Unit
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val sizePx = with(density) { sizeDp.toPx() }
+
+    val currentLayout by rememberUpdatedState(layout)
+    val currentOnMove by rememberUpdatedState(onMove)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentSurfaceSize by rememberUpdatedState(surfaceSize)
+
+    // Compute pixel offset from fraction coords.
+    val px = if (surfaceSize.width > 0) surfaceSize.width * layout.x - sizePx / 2 else 0f
+    val py = if (surfaceSize.height > 0) surfaceSize.height * layout.y - sizePx / 2 else 0f
+
+    var dragStartX by remember { mutableStateOf(0f) }
+    var dragStartY by remember { mutableStateOf(0f) }
+    var layoutStartX by remember { mutableStateOf(0f) }
+    var layoutStartY by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(sizeDp)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    currentOnSelect()
+                    dragStartX = down.position.x
+                    dragStartY = down.position.y
+                    layoutStartX = currentLayout.x
+                    layoutStartY = currentLayout.y
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.positionChanged()) {
+                            val dxPx = change.position.x - dragStartX
+                            val dyPx = change.position.y - dragStartY
+                            if (currentSurfaceSize.width > 0 && currentSurfaceSize.height > 0) {
+                                val dxFrac = dxPx / currentSurfaceSize.width
+                                val dyFrac = dyPx / currentSurfaceSize.height
+                                currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            }
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val r = size.width * 0.46f
+            drawCircle(
+                color.copy(alpha = if (isSelected) 0.5f else 0.35f),
+                r, Offset(size.width / 2f, size.height / 2f)
+            )
+            drawCircle(
+                color, r, Offset(size.width / 2f, size.height / 2f),
+                style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx())
+            )
+        }
+        Text(
+            label,
+            color = color,
+            fontSize = (sizeDp.value * 0.22f).sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+        )
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Pad layout editor — drag to move (fixed), tap to select + slider for size
@@ -2186,6 +2455,7 @@ private fun PadLayoutEditor(
             padLayout = padLayout,
             isPortrait = isPortrait,
             onLayoutChange = onLayoutChange,
+            surfaceSize = surfaceSize,
             onClose = onClose
         )
         return

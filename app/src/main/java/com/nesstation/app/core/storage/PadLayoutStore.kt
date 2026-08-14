@@ -131,6 +131,44 @@ data class PadLayout(
     // DOS on-screen controller mode: "gamepad" (circular buttons, transparent)
     // or "keyboard" (full QWERTY layout). Switchable at runtime via a button.
     val dosInputMode: String = "gamepad",              // gamepad | keyboard
+    // === DOS gamepad overlay button positions (landscape) ===
+    // Each button has x/y (0.0-1.0 of screen) and sizeDp.
+    // dosBtnEnabled controls whether the button is shown (user can hide/add).
+    val dosDpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140),
+    val dosBtnEsc: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56),
+    val dosBtnEnter: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56),
+    val dosBtnSpace: ButtonLayout = ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56),
+    val dosBtnTab: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56),
+    val dosBtnCtrl: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48),
+    val dosBtnAlt: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48),
+    val dosBtnShift: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48),
+    val dosBtnBack: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48),
+    val dosBtnMouseL: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40),
+    val dosBtnMouseR: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40),
+    // === DOS gamepad overlay button positions (portrait - independent) ===
+    val dosDpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130),
+    val dosBtnEscP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52),
+    val dosBtnEnterP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52),
+    val dosBtnSpaceP: ButtonLayout = ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52),
+    val dosBtnTabP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52),
+    val dosBtnCtrlP: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46),
+    val dosBtnAltP: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46),
+    val dosBtnShiftP: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46),
+    val dosBtnBackP: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46),
+    val dosBtnMouseLP: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38),
+    val dosBtnMouseRP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38),
+    // === DOS button visibility toggles (which buttons are shown) ===
+    val dosShowDpad: Boolean = true,
+    val dosShowEsc: Boolean = true,
+    val dosShowEnter: Boolean = true,
+    val dosShowSpace: Boolean = true,
+    val dosShowTab: Boolean = true,
+    val dosShowCtrl: Boolean = true,
+    val dosShowAlt: Boolean = true,
+    val dosShowShift: Boolean = true,
+    val dosShowBack: Boolean = true,
+    val dosShowMouseL: Boolean = true,
+    val dosShowMouseR: Boolean = true,
     // --- Display orientation ---
     val screenOrientation: String = "sensor",          // sensor | landscape | portrait
     // --- Performance ---
@@ -247,6 +285,23 @@ object PadLayoutStore {
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // Helper: load a ButtonLayout from SharedPreferences with a default fallback.
+    // Uses key prefix "<prefix>_x" / "<prefix>_y" / "<prefix>_size".
+    private fun loadBtn(p: SharedPreferences, prefix: String, default: ButtonLayout): ButtonLayout {
+        return ButtonLayout(
+            x = p.getFloat("${prefix}_x", default.x),
+            y = p.getFloat("${prefix}_y", default.y),
+            sizeDp = p.getInt("${prefix}_size", default.sizeDp)
+        )
+    }
+
+    // Helper: save a ButtonLayout to SharedPreferences with a key prefix.
+    private fun SharedPreferences.Editor.saveBtn(prefix: String, layout: ButtonLayout) {
+        putFloat("${prefix}_x", layout.x)
+        putFloat("${prefix}_y", layout.y)
+        putInt("${prefix}_size", layout.sizeDp)
+    }
 
     fun load(ctx: Context): PadLayout {
         val p = prefs(ctx)
@@ -435,6 +490,42 @@ object PadLayoutStore {
             dosForce60fps = p.getString("dos_force60fps", "on") ?: "on",
             dosTimeAnnounce = p.getString("dos_time_announce", "none") ?: "none",
             dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad",
+            // DOS gamepad overlay button positions (landscape)
+            dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140)),
+            dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56)),
+            dosBtnEnter = loadBtn(p, "dos_btn_enter", ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56)),
+            dosBtnSpace = loadBtn(p, "dos_btn_space", ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56)),
+            dosBtnTab = loadBtn(p, "dos_btn_tab", ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56)),
+            dosBtnCtrl = loadBtn(p, "dos_btn_ctrl", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48)),
+            dosBtnAlt = loadBtn(p, "dos_btn_alt", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48)),
+            dosBtnShift = loadBtn(p, "dos_btn_shift", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48)),
+            dosBtnBack = loadBtn(p, "dos_btn_back", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48)),
+            dosBtnMouseL = loadBtn(p, "dos_btn_mouse_l", ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40)),
+            dosBtnMouseR = loadBtn(p, "dos_btn_mouse_r", ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40)),
+            // DOS gamepad overlay button positions (portrait)
+            dosDpadP = loadBtn(p, "dos_dpad_p", ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130)),
+            dosBtnEscP = loadBtn(p, "dos_btn_esc_p", ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52)),
+            dosBtnEnterP = loadBtn(p, "dos_btn_enter_p", ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52)),
+            dosBtnSpaceP = loadBtn(p, "dos_btn_space_p", ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52)),
+            dosBtnTabP = loadBtn(p, "dos_btn_tab_p", ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52)),
+            dosBtnCtrlP = loadBtn(p, "dos_btn_ctrl_p", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46)),
+            dosBtnAltP = loadBtn(p, "dos_btn_alt_p", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46)),
+            dosBtnShiftP = loadBtn(p, "dos_btn_shift_p", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46)),
+            dosBtnBackP = loadBtn(p, "dos_btn_back_p", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46)),
+            dosBtnMouseLP = loadBtn(p, "dos_btn_mouse_l_p", ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38)),
+            dosBtnMouseRP = loadBtn(p, "dos_btn_mouse_r_p", ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38)),
+            // DOS button visibility toggles
+            dosShowDpad = p.getBoolean("dos_show_dpad", true),
+            dosShowEsc = p.getBoolean("dos_show_esc", true),
+            dosShowEnter = p.getBoolean("dos_show_enter", true),
+            dosShowSpace = p.getBoolean("dos_show_space", true),
+            dosShowTab = p.getBoolean("dos_show_tab", true),
+            dosShowCtrl = p.getBoolean("dos_show_ctrl", true),
+            dosShowAlt = p.getBoolean("dos_show_alt", true),
+            dosShowShift = p.getBoolean("dos_show_shift", true),
+            dosShowBack = p.getBoolean("dos_show_back", true),
+            dosShowMouseL = p.getBoolean("dos_show_mouse_l", true),
+            dosShowMouseR = p.getBoolean("dos_show_mouse_r", true),
             screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
         )
     }
@@ -607,6 +698,42 @@ object PadLayoutStore {
             putString("dos_force60fps", layout.dosForce60fps)
             putString("dos_time_announce", layout.dosTimeAnnounce)
             putString("dos_input_mode", layout.dosInputMode)
+            // DOS gamepad overlay button positions (landscape)
+            saveBtn("dos_dpad", layout.dosDpad)
+            saveBtn("dos_btn_esc", layout.dosBtnEsc)
+            saveBtn("dos_btn_enter", layout.dosBtnEnter)
+            saveBtn("dos_btn_space", layout.dosBtnSpace)
+            saveBtn("dos_btn_tab", layout.dosBtnTab)
+            saveBtn("dos_btn_ctrl", layout.dosBtnCtrl)
+            saveBtn("dos_btn_alt", layout.dosBtnAlt)
+            saveBtn("dos_btn_shift", layout.dosBtnShift)
+            saveBtn("dos_btn_back", layout.dosBtnBack)
+            saveBtn("dos_btn_mouse_l", layout.dosBtnMouseL)
+            saveBtn("dos_btn_mouse_r", layout.dosBtnMouseR)
+            // DOS gamepad overlay button positions (portrait)
+            saveBtn("dos_dpad_p", layout.dosDpadP)
+            saveBtn("dos_btn_esc_p", layout.dosBtnEscP)
+            saveBtn("dos_btn_enter_p", layout.dosBtnEnterP)
+            saveBtn("dos_btn_space_p", layout.dosBtnSpaceP)
+            saveBtn("dos_btn_tab_p", layout.dosBtnTabP)
+            saveBtn("dos_btn_ctrl_p", layout.dosBtnCtrlP)
+            saveBtn("dos_btn_alt_p", layout.dosBtnAltP)
+            saveBtn("dos_btn_shift_p", layout.dosBtnShiftP)
+            saveBtn("dos_btn_back_p", layout.dosBtnBackP)
+            saveBtn("dos_btn_mouse_l_p", layout.dosBtnMouseLP)
+            saveBtn("dos_btn_mouse_r_p", layout.dosBtnMouseRP)
+            // DOS button visibility toggles
+            putBoolean("dos_show_dpad", layout.dosShowDpad)
+            putBoolean("dos_show_esc", layout.dosShowEsc)
+            putBoolean("dos_show_enter", layout.dosShowEnter)
+            putBoolean("dos_show_space", layout.dosShowSpace)
+            putBoolean("dos_show_tab", layout.dosShowTab)
+            putBoolean("dos_show_ctrl", layout.dosShowCtrl)
+            putBoolean("dos_show_alt", layout.dosShowAlt)
+            putBoolean("dos_show_shift", layout.dosShowShift)
+            putBoolean("dos_show_back", layout.dosShowBack)
+            putBoolean("dos_show_mouse_l", layout.dosShowMouseL)
+            putBoolean("dos_show_mouse_r", layout.dosShowMouseR)
             // Display orientation
             putString("screen_orientation", layout.screenOrientation)
         }.apply()

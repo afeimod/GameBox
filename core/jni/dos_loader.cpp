@@ -731,6 +731,47 @@ void unload() {
         s_retro_unload_game();
         s_gameLoaded = false;
     }
+
+    // === FULL STATE RESET ===
+    // Without this, leftover state from a previous game session bleeds into
+    // the next one and causes "everything stops working" bugs:
+    //   - Stuck keys (s_keysDown[] left true) -> game acts as if a key is held
+    //   - Stuck mouse buttons (s_mouseBtn[] left true) -> drag-select forever
+    //   - Stuck pad bits (s_pad1 left non-zero) -> character keeps walking
+    //   - Stuck keyboard callback (s_keyboardCallback) -> not strictly stale,
+    //     but resetting it forces the core to re-register on next load,
+    //     ensuring the callback points to valid memory after a re-init.
+    //   - Mouse delta accumulators (s_mouseDX/s_mouseDY) -> stray cursor jump
+    //   - Audio ring buffer / resampler -> leftover samples from previous game
+    //     play briefly before the new game's audio starts.
+    LOGI("DosEngine unload: resetting all input + audio state");
+    for (int i = 0; i < kKeyArraySize; ++i) {
+        s_keysDown[i].store(false, std::memory_order_relaxed);
+    }
+    for (int i = 0; i < 9; ++i) {
+        s_mouseBtn[i].store(false, std::memory_order_relaxed);
+    }
+    s_pad1.store(0, std::memory_order_relaxed);
+    s_mouseDX.store(0, std::memory_order_relaxed);
+    s_mouseDY.store(0, std::memory_order_relaxed);
+    s_keyboardCallback = nullptr;
+    s_audio.reset();
+    s_resampler.reset();
+    s_newFrame.store(false, std::memory_order_release);
+
+    // Reset video frame buffer state so a stale frame from the previous game
+    // doesn't get blitted before the new game produces its first frame.
+    {
+        std::lock_guard<std::mutex> lk(s_frameMtx);
+        s_frame.clear();
+        s_frameW = 0;
+        s_frameH = 0;
+    }
+    s_videoW = 0;
+    s_videoH = 0;
+
+    // Reset options-changed flag so the core re-reads options on next load.
+    s_optionsChanged.store(false, std::memory_order_release);
 }
 
 void resetEmulation(bool /*hard*/) {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -40,13 +41,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.core.engine.DosEngine
 import com.nesstation.app.core.jni.DosKeys
+import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 // ===========================================================================
-// DOS On-Screen Controller — two modes:
+// DOS On-Screen Controller - two modes:
 //   1. "gamepad" mode: transparent circular buttons (matches screenshots
 //      from ponyemu.main): D-pad on the left, action buttons (Esc/Enter/Space/
 //      Tab/Ctrl/Alt/Shift), mouse buttons (L/R/Middle), and a mode switch key.
@@ -57,33 +59,30 @@ import kotlin.math.min
 //   - Work in both landscape AND portrait (auto-repositions based on isPortrait)
 //   - Support multi-touch (one pointer per button)
 //   - Dispatch events through DosEngine's inject* methods
+//   - Full-screen drag area moves the mouse cursor
+//   - Single-tap on empty screen = left mouse click
+//   - Two-finger tap on empty screen = right mouse click
 // ===========================================================================
 
-// Gamepad bit constants (used for the standard libretro gamepad input — the
+// Gamepad bit constants (used for the standard libretro gamepad input - the
 // dosbox_pure core's auto-mapping converts these to DOS keys).
 private const val BTN_UP = 0x10
 private const val BTN_DOWN = 0x20
 private const val BTN_LEFT = 0x40
 private const val BTN_RIGHT = 0x80
-private const val BTN_A = 0x01      // dosbox_pure → Enter
-private const val BTN_B = 0x02      // dosbox_pure → Esc
-private const val BTN_X = 0x400     // dosbox_pure → Space (libretro ID 10)
-private const val BTN_Y = 0x800     // dosbox_pure → Tab   (libretro ID 11)
-private const val BTN_L = 0x100     // dosbox_pure → mouse left  (libretro ID 8)
-private const val BTN_R = 0x200     // dosbox_pure → mouse right (libretro ID 9)
+private const val BTN_A = 0x01      // dosbox_pure -> Enter
+private const val BTN_B = 0x02      // dosbox_pure -> Esc
+private const val BTN_X = 0x400     // dosbox_pure -> Space (libretro ID 10)
+private const val BTN_Y = 0x800     // dosbox_pure -> Tab   (libretro ID 11)
+private const val BTN_L = 0x100     // dosbox_pure -> mouse left  (libretro ID 8)
+private const val BTN_R = 0x200     // dosbox_pure -> mouse right (libretro ID 9)
 private const val BTN_START = 0x08
 private const val BTN_SELECT = 0x04
 
 /**
- * The DOS on-screen controller — entry point. Switches between gamepad and
+ * The DOS on-screen controller - entry point. Switches between gamepad and
  * keyboard modes based on `padLayout.dosInputMode`. The mode toggle button is
  * always visible (top-right corner).
- *
- * @param engine the DOS engine — used to inject keyboard / mouse events
- * @param padLayout the persisted pad layout + DOSBox options (incl. dosInputMode)
- * @param surfaceSize the current surface size (for relative positioning)
- * @param isPortrait whether the device is currently in portrait orientation
- * @param onToggleMode callback to flip between "gamepad" / "keyboard" mode
  */
 @Composable
 fun DosOnScreenController(
@@ -97,17 +96,10 @@ fun DosOnScreenController(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // === Render the overlay FIRST, then ModeSwitchButton ON TOP. ===
-        //
-        // CRITICAL: The gamepad overlay has a full-screen drag area (for mouse
-        // movement) that uses awaitFirstDown(requireUnconsumed = true) and
-        // consumes the touch. If ModeSwitchButton is rendered BEFORE the
-        // overlay, the overlay's drag area is drawn on top of the button and
-        // intercepts all touch events at the top-right corner - making the
-        // mode switch button appear dead.
-        //
-        // By rendering the overlay first and ModeSwitchButton last, the button
-        // is on top of the z-order and receives touch events first. The drag
-        // area below only gets touches that miss the button.
+        // The overlay's full-screen drag area uses awaitFirstDown(requireUnconsumed=true),
+        // so it only intercepts touches that miss buttons. By rendering the
+        // overlay first and ModeSwitchButton last, the button is on top of
+        // the z-order and receives touch events first.
         if (padLayout.dosInputMode == "keyboard") {
             DosKeyboardOverlay(
                 engine = engine,
@@ -118,6 +110,7 @@ fun DosOnScreenController(
         } else {
             DosGamepadOverlay(
                 engine = engine,
+                padLayout = padLayout,
                 opacity = opacity,
                 isPortrait = isPortrait,
                 surfaceSize = surfaceSize
@@ -136,44 +129,178 @@ fun DosOnScreenController(
 }
 
 // ===========================================================================
-// Gamepad overlay — circular transparent buttons, matches screenshot style.
+// Shared full-screen mouse gesture handler.
+//
+// Handles three gestures on empty screen area (touches that miss buttons):
+//   1. Drag (move)     -> injectMouseMove(dx, dy)
+//   2. Single-tap      -> left mouse click (down + up)
+//   3. Two-finger tap  -> right mouse click (down + up)
+//
+// Detection logic:
+//   - Track all pointers that arrive as "unconsumed" (i.e. not on a button).
+//   - If only 1 pointer and it moves > 8px total -> drag mode.
+//   - If 1 pointer lifts within 250ms with < 8px movement -> single-tap (left click).
+//   - If 2 pointers arrive within 200ms and both lift within 250ms with < 8px
+//     movement each -> two-finger tap (right click).
+//   - If a pointer is still down when another arrives, the first pointer
+//     becomes a drag (cancels single-tap detection for that pointer).
+//
+// IMPORTANT: We use requireUnconsumed=true so buttons get first crack at
+// touch events. A touch that lands on a button is consumed by the button's
+// pointerInput and never reaches this gesture handler.
+// ===========================================================================
+
+@Composable
+private fun FullScreenMouseGestureBox(
+    engine: DosEngine,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                val tapSlopPx = 8.dp.toPx()      // movement tolerance for tap detection
+                val tapTimeoutMs = 250L          // max time between down and up for a tap
+
+                data class PointerInfo(
+                    val id: Long,
+                    val downTimeMs: Long,
+                    val downX: Float,
+                    val downY: Float,
+                    var lastX: Float,
+                    var lastY: Float,
+                    var movedTooMuch: Boolean,
+                    var lifted: Boolean = false,
+                    var liftTimeMs: Long = 0L
+                )
+                // We track up to 2 simultaneous pointers (enough for 1-finger
+                // drag/tap and 2-finger tap).
+                val activePointers = mutableMapOf<Long, PointerInfo>()
+                var dragStarted = false
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val pid = down.id.value
+
+                    // If we already have 2 pointers, drop the oldest
+                    if (activePointers.size >= 2) {
+                        val oldest = activePointers.minByOrNull { it.value.downTimeMs }
+                        if (oldest != null) activePointers.remove(oldest.key)
+                    }
+                    activePointers[pid] = PointerInfo(
+                        id = pid, downTimeMs = now,
+                        downX = down.position.x, downY = down.position.y,
+                        lastX = down.position.x, lastY = down.position.y,
+                        movedTooMuch = false
+                    )
+                    down.consume()
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { change ->
+                            val cpid = change.id.value
+                            val info = activePointers[cpid] ?: return@forEach
+                            change.consume()
+                            info.lastX = change.position.x
+                            info.lastY = change.position.y
+
+                            val dx = change.position.x - info.downX
+                            val dy = change.position.y - info.downY
+                            if (hypot(dx, dy) > tapSlopPx) {
+                                info.movedTooMuch = true
+                                dragStarted = true
+                            }
+
+                            if (change.pressed) {
+                                // Pointer moved while down -> inject mouse move (drag)
+                                if (info.movedTooMuch) {
+                                    val mdx = change.positionChange().x
+                                    val mdy = change.positionChange().y
+                                    if (mdx != 0f || mdy != 0f) {
+                                        engine.injectMouseMove(
+                                            (mdx * 1.5f).toInt(),
+                                            (mdy * 1.5f).toInt()
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Pointer lifted
+                                info.lifted = true
+                                info.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                            }
+                        }
+
+                        // Check if all active pointers have lifted -> gesture complete
+                        if (activePointers.isNotEmpty() && activePointers.values.all { it.lifted }) {
+                            val count = activePointers.size
+                            val noMove = activePointers.values.none { it.movedTooMuch }
+                            val maxLiftDelay = activePointers.values.maxOf { it.liftTimeMs } -
+                                activePointers.values.minOf { it.downTimeMs }
+                            if (!dragStarted && noMove && maxLiftDelay <= tapTimeoutMs * 2) {
+                                when (count) {
+                                    1 -> {
+                                        // Single tap -> left click
+                                        engine.injectMouseButton(0, true)
+                                        engine.injectMouseButton(0, false)
+                                    }
+                                    2 -> {
+                                        // Two-finger tap -> right click
+                                        engine.injectMouseButton(1, true)
+                                        engine.injectMouseButton(1, false)
+                                    }
+                                }
+                            }
+                            activePointers.clear()
+                            dragStarted = false
+                            break
+                        }
+
+                        if (activePointers.isEmpty()) {
+                            dragStarted = false
+                            break
+                        }
+                    }
+                }
+            }
+    )
+}
+
+// ===========================================================================
+// Gamepad overlay - circular transparent buttons, matches screenshot style.
 // Layout:
-//   Left side: D-pad cross (up/down/left/right) — dispatches as standard
-//              gamepad bits (auto-mapped by dosbox_pure to arrow keys).
-//   Right side: 4 circular action buttons in a diamond:
-//              Esc / Enter / Space / Tab — dispatched as keyboard keys.
-//   Bottom-left: virtual mouse left/right buttons (circular) + drag area
-//              in the screen center for mouse movement.
-//   Bottom-right: Start (Enter), Select (Esc) pill buttons + Ctrl/Alt/Shift
-//              modifier buttons for keyboard combinations.
+//   Left side: D-pad cross (up/down/left/right)
+//   Right side: 4 circular action buttons in a diamond: Esc/Enter/Space/Tab
+//   Right side (above action): Mouse L/R buttons (small circular)
+//   Bottom-center: Ctrl/Alt/Shift/Back pill buttons
+//   Empty screen area: drag to move mouse, single-tap = left click,
+//                       two-finger tap = right click
 // ===========================================================================
 
 @Composable
 private fun DosGamepadOverlay(
     engine: DosEngine,
+    padLayout: PadLayout,
     opacity: Float,
     isPortrait: Boolean,
-    @Suppress("UNUSED_PARAMETER") surfaceSize: IntSize
+    surfaceSize: IntSize
 ) {
+    val density = LocalDensity.current
     val bgColor = Color.Black.copy(alpha = opacity * 0.5f)
     val fgColor = Color.White.copy(alpha = opacity)
     val pressedColor = Color(0xFFFFD66B).copy(alpha = opacity)
     val borderColor = Color.White.copy(alpha = opacity * 0.6f)
 
-    // Track pressed buttons for visual feedback.
-    var dpadState by remember { mutableStateOf(0) }   // bitfield of UP/DOWN/LEFT/RIGHT
-    var pressedKeys by remember { mutableStateOf(setOf<Int>()) } // set of DosKeys codes
+    var dpadState by remember { mutableStateOf(0) }
+    var pressedKeys by remember { mutableStateOf(setOf<Int>()) }
     var mouseLeft by remember { mutableStateOf(false) }
     var mouseRight by remember { mutableStateOf(false) }
 
-    // Helper: push current dpad bits to the engine.
     fun pushDpad() {
-        // Convert dpad bits to libretro JOYPAD bits and send.
-        val bits = dpadState and 0xF0  // UP/DOWN/LEFT/RIGHT (bits 4-7)
+        val bits = dpadState and 0xF0
         engine.setPad1(bits)
     }
 
-    // Helper: dispatch keyboard key down/up.
     fun keyDown(code: Int) {
         pressedKeys = pressedKeys + code
         engine.injectKeyDown(code, 0)
@@ -183,182 +310,150 @@ private fun DosGamepadOverlay(
         engine.injectKeyUp(code, 0)
     }
 
+    // Helper: compute absolute pixel offset for a ButtonLayout centered at (x,y).
+    fun btnOffset(layout: ButtonLayout): androidx.compose.ui.unit.IntOffset {
+        val sizePx = with(density) { layout.sizeDp.dp.toPx() }
+        val px = surfaceSize.width * layout.x - sizePx / 2
+        val py = surfaceSize.height * layout.y - sizePx / 2
+        return androidx.compose.ui.unit.IntOffset(px.toInt(), py.toInt())
+    }
+
+    // Select landscape or portrait layout for each button.
+    val dpadL = if (isPortrait) padLayout.dosDpadP else padLayout.dosDpad
+    val escL = if (isPortrait) padLayout.dosBtnEscP else padLayout.dosBtnEsc
+    val enterL = if (isPortrait) padLayout.dosBtnEnterP else padLayout.dosBtnEnter
+    val spaceL = if (isPortrait) padLayout.dosBtnSpaceP else padLayout.dosBtnSpace
+    val tabL = if (isPortrait) padLayout.dosBtnTabP else padLayout.dosBtnTab
+    val ctrlL = if (isPortrait) padLayout.dosBtnCtrlP else padLayout.dosBtnCtrl
+    val altL = if (isPortrait) padLayout.dosBtnAltP else padLayout.dosBtnAlt
+    val shiftL = if (isPortrait) padLayout.dosBtnShiftP else padLayout.dosBtnShift
+    val backL = if (isPortrait) padLayout.dosBtnBackP else padLayout.dosBtnBack
+    val mouseLL = if (isPortrait) padLayout.dosBtnMouseLP else padLayout.dosBtnMouseL
+    val mouseRL = if (isPortrait) padLayout.dosBtnMouseRP else padLayout.dosBtnMouseR
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // === Mouse move: drag area covering the WHOLE screen ===
-        // CRITICAL ORDERING: This must be the FIRST child of the Box so it
-        // is drawn at the BOTTOM of the z-order. In Compose's Box, later
-        // children are drawn on top — so buttons declared after this drag
-        // area will receive touch events FIRST, and only touches that miss
-        // all buttons fall through to this drag handler.
-        //
-        // We use a custom awaitEachGesture (not detectDragGestures) so we
-        // can SKIP drags that start on a button (i.e. the initial down was
-        // already consumed by a button's pointerInput). This prevents the
-        // drag area from stealing touch events from buttons.
-        //
-        // Only drags that start on EMPTY screen area (unconsumed down)
-        // trigger mouse move injection.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        // Wait for a down event. requireUnconsumed = true means
-                        // we only get events that were NOT consumed by buttons
-                        // on top. If a button consumed the down, we never enter
-                        // this gesture — so we don't interfere with button presses.
-                        val down = awaitFirstDown(requireUnconsumed = true)
-                        down.consume()
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            event.changes.forEach { change ->
-                                if (change.pressed) {
-                                    val dx = change.positionChange().x
-                                    val dy = change.positionChange().y
-                                    if (dx != 0f || dy != 0f) {
-                                        engine.injectMouseMove(
-                                            (dx * 1.5f).toInt(),
-                                            (dy * 1.5f).toInt()
-                                        )
-                                    }
-                                    change.consume()
-                                }
-                                if (!change.pressed) {
-                                    change.consume()
-                                    return@awaitEachGesture
-                                }
-                            }
-                        }
+        // === Full-screen mouse gesture area (BOTTOM of z-order) ===
+        // Handles: drag-to-move-mouse, single-tap=left-click, 2-finger-tap=right-click.
+        // Uses requireUnconsumed=true so buttons on top get first touch.
+        FullScreenMouseGestureBox(engine = engine)
+
+        // === D-pad ===
+        if (padLayout.dosShowDpad) {
+            CircularDpad(
+                sizeDp = dpadL.sizeDp.dp,
+                bgColor = bgColor,
+                fgColor = fgColor,
+                borderColor = borderColor,
+                pressedColor = pressedColor,
+                pressed = dpadState,
+                onPressedChange = { dir, pressed ->
+                    val bit = when (dir) {
+                        "up" -> BTN_UP; "down" -> BTN_DOWN
+                        "left" -> BTN_LEFT; "right" -> BTN_RIGHT
+                        else -> 0
                     }
-                }
-        )
+                    dpadState = if (pressed) dpadState or bit else dpadState and bit.inv()
+                    pushDpad()
+                },
+                modifier = Modifier.offset { btnOffset(dpadL) }
+            )
+        }
 
-        // === Left side: D-pad ===
-        val dpadSizeDp = if (isPortrait) 120.dp else 140.dp
-        val dpadOffsetX = if (isPortrait) 24.dp else 32.dp
-        val dpadOffsetY = if (isPortrait) 80.dp else 24.dp
-
-        CircularDpad(
-            sizeDp = dpadSizeDp,
-            bgColor = bgColor,
-            fgColor = fgColor,
-            borderColor = borderColor,
-            pressedColor = pressedColor,
-            pressed = dpadState,
-            onPressedChange = { dir, pressed ->
-                val bit = when (dir) {
-                    "up" -> BTN_UP; "down" -> BTN_DOWN
-                    "left" -> BTN_LEFT; "right" -> BTN_RIGHT
-                    else -> 0
-                }
-                dpadState = if (pressed) dpadState or bit else dpadState and bit.inv()
-                pushDpad()
-            },
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = dpadOffsetX, bottom = dpadOffsetY)
-        )
-
-        // === Right side: Action buttons (4 circular, diamond layout) ===
-        // Top: Esc, Right: Enter, Bottom: Tab, Left: Space
-        val actionSizeDp = if (isPortrait) 52.dp else 60.dp
-        val actionOffsetX = if (isPortrait) 24.dp else 32.dp
-        val actionOffsetY = if (isPortrait) 80.dp else 24.dp
-        val actionSpacing = if (isPortrait) 56.dp else 66.dp
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = actionOffsetX, bottom = actionOffsetY),
-            horizontalAlignment = Alignment.End
-        ) {
-            // Top row: Esc (top), then diamond: Enter / Space / Tab
+        // === Action buttons (Esc/Enter/Space/Tab) - each independently positioned ===
+        if (padLayout.dosShowEsc) {
             CircularKeyButton(
                 label = "Esc",
                 keyCode = DosKeys.ESCAPE,
-                sizeDp = actionSizeDp,
+                sizeDp = escL.sizeDp.dp,
                 bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
                 pressedColor = pressedColor, pressed = DosKeys.ESCAPE in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.ESCAPE) else keyUp(DosKeys.ESCAPE) }
+                onPressedChange = { p -> if (p) keyDown(DosKeys.ESCAPE) else keyUp(DosKeys.ESCAPE) },
+                modifier = Modifier.offset { btnOffset(escL) }
             )
-            Row(
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(actionSpacing - actionSizeDp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularKeyButton(
-                    label = "Space",
-                    keyCode = DosKeys.SPACE,
-                    sizeDp = actionSizeDp,
-                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = DosKeys.SPACE in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(DosKeys.SPACE) else keyUp(DosKeys.SPACE) }
-                )
-                // Spacer
-                androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp))
-                CircularKeyButton(
-                    label = "Enter",
-                    keyCode = DosKeys.RETURN,
-                    sizeDp = actionSizeDp,
-                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = DosKeys.RETURN in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(DosKeys.RETURN) else keyUp(DosKeys.RETURN) }
-                )
-            }
+        }
+        if (padLayout.dosShowEnter) {
+            CircularKeyButton(
+                label = "Enter",
+                keyCode = DosKeys.RETURN,
+                sizeDp = enterL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.RETURN in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.RETURN) else keyUp(DosKeys.RETURN) },
+                modifier = Modifier.offset { btnOffset(enterL) }
+            )
+        }
+        if (padLayout.dosShowSpace) {
+            CircularKeyButton(
+                label = "Space",
+                keyCode = DosKeys.SPACE,
+                sizeDp = spaceL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.SPACE in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.SPACE) else keyUp(DosKeys.SPACE) },
+                modifier = Modifier.offset { btnOffset(spaceL) }
+            )
+        }
+        if (padLayout.dosShowTab) {
             CircularKeyButton(
                 label = "Tab",
                 keyCode = DosKeys.TAB,
-                sizeDp = actionSizeDp,
+                sizeDp = tabL.sizeDp.dp,
                 bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
                 pressedColor = pressedColor, pressed = DosKeys.TAB in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.TAB) else keyUp(DosKeys.TAB) }
+                onPressedChange = { p -> if (p) keyDown(DosKeys.TAB) else keyUp(DosKeys.TAB) },
+                modifier = Modifier.offset { btnOffset(tabL) }
             )
         }
 
-        // === Modifier row (Ctrl/Alt/Shift) — bottom-center, transparent pills ===
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-        ) {
+        // === Modifier pills (Ctrl/Alt/Shift/Back) - each independently positioned ===
+        if (padLayout.dosShowCtrl) {
             PillKeyButton("Ctrl", DosKeys.LCTRL, bgColor, fgColor, borderColor,
                 pressedColor, DosKeys.LCTRL in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LCTRL) else keyUp(DosKeys.LCTRL) })
+                onPressedChange = { p -> if (p) keyDown(DosKeys.LCTRL) else keyUp(DosKeys.LCTRL) },
+                modifier = Modifier.offset { btnOffset(ctrlL) })
+        }
+        if (padLayout.dosShowAlt) {
             PillKeyButton("Alt", DosKeys.LALT, bgColor, fgColor, borderColor,
                 pressedColor, DosKeys.LALT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LALT) else keyUp(DosKeys.LALT) })
+                onPressedChange = { p -> if (p) keyDown(DosKeys.LALT) else keyUp(DosKeys.LALT) },
+                modifier = Modifier.offset { btnOffset(altL) })
+        }
+        if (padLayout.dosShowShift) {
             PillKeyButton("Shift", DosKeys.LSHIFT, bgColor, fgColor, borderColor,
                 pressedColor, DosKeys.LSHIFT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LSHIFT) else keyUp(DosKeys.LSHIFT) })
+                onPressedChange = { p -> if (p) keyDown(DosKeys.LSHIFT) else keyUp(DosKeys.LSHIFT) },
+                modifier = Modifier.offset { btnOffset(shiftL) })
+        }
+        if (padLayout.dosShowBack) {
             PillKeyButton("Back", DosKeys.BACKSPACE, bgColor, fgColor, borderColor,
                 pressedColor, DosKeys.BACKSPACE in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.BACKSPACE) else keyUp(DosKeys.BACKSPACE) })
+                onPressedChange = { p -> if (p) keyDown(DosKeys.BACKSPACE) else keyUp(DosKeys.BACKSPACE) },
+                modifier = Modifier.offset { btnOffset(backL) })
         }
 
-        // === Mouse: left/right buttons (top-left, transparent circular) ===
-        // Plus: drag anywhere in the screen-center area to move the mouse.
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 16.dp, start = 16.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-        ) {
+        // === Mouse L/R buttons - each independently positioned ===
+        if (padLayout.dosShowMouseL) {
             MouseKeyButton("L", mouseLeft, bgColor, fgColor, borderColor, pressedColor,
                 onPressedChange = { p ->
                     mouseLeft = p
-                    engine.injectMouseButton(0, p) // 0 = LEFT
-                })
+                    engine.injectMouseButton(0, p)
+                },
+                modifier = Modifier.offset { btnOffset(mouseLL) })
+        }
+        if (padLayout.dosShowMouseR) {
             MouseKeyButton("R", mouseRight, bgColor, fgColor, borderColor, pressedColor,
                 onPressedChange = { p ->
                     mouseRight = p
-                    engine.injectMouseButton(1, p) // 1 = RIGHT
-                })
+                    engine.injectMouseButton(1, p)
+                },
+                modifier = Modifier.offset { btnOffset(mouseRL) })
         }
     }
 }
 
+
 // ===========================================================================
-// Keyboard overlay — full QWERTY transparent capsule-style keyboard.
+// Keyboard overlay - full QWERTY transparent capsule-style keyboard.
 // Layout (5 rows):
 //   Row 1: Function keys F1-F12 (small capsules)
 //   Row 2: 1-0 + symbols
@@ -366,6 +461,10 @@ private fun DosGamepadOverlay(
 //   Row 4: ASDFGHJKL; + Enter
 //   Row 5: ZXCVBNM,./ + Shift
 //   Row 6: Ctrl/Alt/Space/Esc/Tab/Backspace + arrows
+//
+// Mouse support: full-screen drag area ABOVE the keyboard rows (i.e. on the
+// game viewport). Single-tap = left click, two-finger tap = right click,
+// drag = mouse move.
 // ===========================================================================
 
 @Composable
@@ -389,237 +488,241 @@ private fun DosKeyboardOverlay(
     val keySpacing = 3.dp
     val rowSpacing = 3.dp
 
-    // Keyboard anchored to the bottom of the screen — wrap in a Box so we can
-    // align the Column to the bottom.
     Box(modifier = Modifier.fillMaxSize()) {
+        // === Full-screen mouse gesture area (BOTTOM of z-order) ===
+        // Placed BEFORE the keyboard Column so it's underneath. The keyboard
+        // rows consume their own touch events; touches on the empty viewport
+        // area above the keyboard fall through to this handler.
+        FullScreenMouseGestureBox(engine = engine)
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(rowSpacing)
         ) {
-        // Function keys row (F1-F12)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            val fkeys = listOf(
-                "F1" to DosKeys.F1, "F2" to DosKeys.F2, "F3" to DosKeys.F3, "F4" to DosKeys.F4,
-                "F5" to DosKeys.F5, "F6" to DosKeys.F6, "F7" to DosKeys.F7, "F8" to DosKeys.F8,
-                "F9" to DosKeys.F9, "F10" to DosKeys.F10, "F11" to DosKeys.F11, "F12" to DosKeys.F12
-            )
-            fkeys.forEach { (label, code) ->
+            // Function keys row (F1-F12)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                val fkeys = listOf(
+                    "F1" to DosKeys.F1, "F2" to DosKeys.F2, "F3" to DosKeys.F3, "F4" to DosKeys.F4,
+                    "F5" to DosKeys.F5, "F6" to DosKeys.F6, "F7" to DosKeys.F7, "F8" to DosKeys.F8,
+                    "F9" to DosKeys.F9, "F10" to DosKeys.F10, "F11" to DosKeys.F11, "F12" to DosKeys.F12
+                )
+                fkeys.forEach { (label, code) ->
+                    CapsuleKeyButton(
+                        label = label,
+                        keyCode = code,
+                        modifier = Modifier.weight(1f),
+                        heightDp = keySize,
+                        bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                        pressedColor = pressedColor, pressed = code in pressedKeys,
+                        onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    )
+                }
+            }
+
+            // Number row: 1 2 3 4 5 6 7 8 9 0 - = Back
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                val row = listOf(
+                    "1" to DosKeys.K1, "2" to DosKeys.K2, "3" to DosKeys.K3,
+                    "4" to DosKeys.K4, "5" to DosKeys.K5, "6" to DosKeys.K6,
+                    "7" to DosKeys.K7, "8" to DosKeys.K8, "9" to DosKeys.K9,
+                    "0" to DosKeys.K0, "-" to DosKeys.MINUS, "=" to DosKeys.EQUALS
+                )
+                row.forEach { (label, code) ->
+                    CapsuleKeyButton(
+                        label = label, keyCode = code,
+                        modifier = Modifier.weight(1f), heightDp = keySize,
+                        bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                        pressedColor = pressedColor, pressed = code in pressedKeys,
+                        onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    )
+                }
                 CapsuleKeyButton(
-                    label = label,
-                    keyCode = code,
-                    modifier = Modifier.weight(1f),
-                    heightDp = keySize,
+                    label = "\u232b", keyCode = DosKeys.BACKSPACE,
+                    modifier = Modifier.weight(1.5f), heightDp = keySize,
                     bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = code in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    pressedColor = pressedColor, pressed = DosKeys.BACKSPACE in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.BACKSPACE) else keyUp(DosKeys.BACKSPACE) }
                 )
             }
-        }
 
-        // Number row: 1 2 3 4 5 6 7 8 9 0 - = Back
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            val row = listOf(
-                "1" to DosKeys.K1, "2" to DosKeys.K2, "3" to DosKeys.K3,
-                "4" to DosKeys.K4, "5" to DosKeys.K5, "6" to DosKeys.K6,
-                "7" to DosKeys.K7, "8" to DosKeys.K8, "9" to DosKeys.K9,
-                "0" to DosKeys.K0, "-" to DosKeys.MINUS, "=" to DosKeys.EQUALS
-            )
-            row.forEach { (label, code) ->
+            // QWERTY row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                val row = listOf(
+                    "Q" to DosKeys.Q, "W" to DosKeys.W, "E" to DosKeys.E, "R" to DosKeys.R,
+                    "T" to DosKeys.T, "Y" to DosKeys.Y, "U" to DosKeys.U, "I" to DosKeys.I,
+                    "O" to DosKeys.O, "P" to DosKeys.P, "[" to DosKeys.LEFTBRACKET,
+                    "]" to DosKeys.RIGHTBRACKET, "\\" to DosKeys.BACKSLASH
+                )
+                row.forEach { (label, code) ->
+                    CapsuleKeyButton(
+                        label = label, keyCode = code,
+                        modifier = Modifier.weight(1f), heightDp = keySize,
+                        bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                        pressedColor = pressedColor, pressed = code in pressedKeys,
+                        onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    )
+                }
+            }
+
+            // ASDF row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
                 CapsuleKeyButton(
-                    label = label, keyCode = code,
+                    label = "Caps", keyCode = DosKeys.CAPSLOCK,
+                    modifier = Modifier.weight(1.5f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.CAPSLOCK in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.CAPSLOCK) else keyUp(DosKeys.CAPSLOCK) }
+                )
+                val row = listOf(
+                    "A" to DosKeys.A, "S" to DosKeys.S, "D" to DosKeys.D, "F" to DosKeys.F,
+                    "G" to DosKeys.G, "H" to DosKeys.H, "J" to DosKeys.J, "K" to DosKeys.K,
+                    "L" to DosKeys.L, ";" to DosKeys.SEMICOLON, "'" to DosKeys.APOSTROPHE
+                )
+                row.forEach { (label, code) ->
+                    CapsuleKeyButton(
+                        label = label, keyCode = code,
+                        modifier = Modifier.weight(1f), heightDp = keySize,
+                        bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                        pressedColor = pressedColor, pressed = code in pressedKeys,
+                        onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    )
+                }
+                CapsuleKeyButton(
+                    label = "\u23ce", keyCode = DosKeys.RETURN,
+                    modifier = Modifier.weight(1.5f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.RETURN in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.RETURN) else keyUp(DosKeys.RETURN) }
+                )
+            }
+
+            // ZXCV row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                CapsuleKeyButton(
+                    label = "Shift", keyCode = DosKeys.LSHIFT,
+                    modifier = Modifier.weight(1.5f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.LSHIFT in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.LSHIFT) else keyUp(DosKeys.LSHIFT) }
+                )
+                val row = listOf(
+                    "Z" to DosKeys.Z, "X" to DosKeys.X, "C" to DosKeys.C, "V" to DosKeys.V,
+                    "B" to DosKeys.B, "N" to DosKeys.N, "M" to DosKeys.M,
+                    "," to DosKeys.COMMA, "." to DosKeys.PERIOD, "/" to DosKeys.SLASH
+                )
+                row.forEach { (label, code) ->
+                    CapsuleKeyButton(
+                        label = label, keyCode = code,
+                        modifier = Modifier.weight(1f), heightDp = keySize,
+                        bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                        pressedColor = pressedColor, pressed = code in pressedKeys,
+                        onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    )
+                }
+                CapsuleKeyButton(
+                    label = "Shift", keyCode = DosKeys.RSHIFT,
+                    modifier = Modifier.weight(1.5f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.RSHIFT in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.RSHIFT) else keyUp(DosKeys.RSHIFT) }
+                )
+            }
+
+            // Bottom row: Ctrl Alt Space Esc Tab
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                CapsuleKeyButton(
+                    label = "Ctrl", keyCode = DosKeys.LCTRL,
+                    modifier = Modifier.weight(1.3f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.LCTRL in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.LCTRL) else keyUp(DosKeys.LCTRL) }
+                )
+                CapsuleKeyButton(
+                    label = "Alt", keyCode = DosKeys.LALT,
+                    modifier = Modifier.weight(1.3f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.LALT in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.LALT) else keyUp(DosKeys.LALT) }
+                )
+                CapsuleKeyButton(
+                    label = "Space", keyCode = DosKeys.SPACE,
+                    modifier = Modifier.weight(4f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.SPACE in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.SPACE) else keyUp(DosKeys.SPACE) }
+                )
+                CapsuleKeyButton(
+                    label = "Tab", keyCode = DosKeys.TAB,
+                    modifier = Modifier.weight(1.3f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.TAB in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.TAB) else keyUp(DosKeys.TAB) }
+                )
+                CapsuleKeyButton(
+                    label = "Esc", keyCode = DosKeys.ESCAPE,
+                    modifier = Modifier.weight(1.3f), heightDp = keySize,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = DosKeys.ESCAPE in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.ESCAPE) else keyUp(DosKeys.ESCAPE) }
+                )
+            }
+
+            // Arrow keys row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
+            ) {
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                CapsuleKeyButton(
+                    label = "\u2190", keyCode = DosKeys.LEFT,
                     modifier = Modifier.weight(1f), heightDp = keySize,
                     bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = code in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    pressedColor = pressedColor, pressed = DosKeys.LEFT in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.LEFT) else keyUp(DosKeys.LEFT) }
                 )
-            }
-            CapsuleKeyButton(
-                label = "⌫", keyCode = DosKeys.BACKSPACE,
-                modifier = Modifier.weight(1.5f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.BACKSPACE in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.BACKSPACE) else keyUp(DosKeys.BACKSPACE) }
-            )
-        }
-
-        // QWERTY row: Q W E R T Y U I O P [ ] \
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            val row = listOf(
-                "Q" to DosKeys.Q, "W" to DosKeys.W, "E" to DosKeys.E, "R" to DosKeys.R,
-                "T" to DosKeys.T, "Y" to DosKeys.Y, "U" to DosKeys.U, "I" to DosKeys.I,
-                "O" to DosKeys.O, "P" to DosKeys.P, "[" to DosKeys.LEFTBRACKET,
-                "]" to DosKeys.RIGHTBRACKET, "\\" to DosKeys.BACKSLASH
-            )
-            row.forEach { (label, code) ->
                 CapsuleKeyButton(
-                    label = label, keyCode = code,
+                    label = "\u2191", keyCode = DosKeys.UP,
                     modifier = Modifier.weight(1f), heightDp = keySize,
                     bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = code in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    pressedColor = pressedColor, pressed = DosKeys.UP in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.UP) else keyUp(DosKeys.UP) }
                 )
-            }
-        }
-
-        // ASDF row: A S D F G H J K L ; ' Enter
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            CapsuleKeyButton(
-                label = "Caps", keyCode = DosKeys.CAPSLOCK,
-                modifier = Modifier.weight(1.5f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.CAPSLOCK in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.CAPSLOCK) else keyUp(DosKeys.CAPSLOCK) }
-            )
-            val row = listOf(
-                "A" to DosKeys.A, "S" to DosKeys.S, "D" to DosKeys.D, "F" to DosKeys.F,
-                "G" to DosKeys.G, "H" to DosKeys.H, "J" to DosKeys.J, "K" to DosKeys.K,
-                "L" to DosKeys.L, ";" to DosKeys.SEMICOLON, "'" to DosKeys.APOSTROPHE
-            )
-            row.forEach { (label, code) ->
                 CapsuleKeyButton(
-                    label = label, keyCode = code,
+                    label = "\u2193", keyCode = DosKeys.DOWN,
                     modifier = Modifier.weight(1f), heightDp = keySize,
                     bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = code in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    pressedColor = pressedColor, pressed = DosKeys.DOWN in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.DOWN) else keyUp(DosKeys.DOWN) }
                 )
-            }
-            CapsuleKeyButton(
-                label = "⏎", keyCode = DosKeys.RETURN,
-                modifier = Modifier.weight(1.5f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.RETURN in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.RETURN) else keyUp(DosKeys.RETURN) }
-            )
-        }
-
-        // ZXCV row: Shift Z X C V B N M , . / Shift
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            CapsuleKeyButton(
-                label = "Shift", keyCode = DosKeys.LSHIFT,
-                modifier = Modifier.weight(1.5f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.LSHIFT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LSHIFT) else keyUp(DosKeys.LSHIFT) }
-            )
-            val row = listOf(
-                "Z" to DosKeys.Z, "X" to DosKeys.X, "C" to DosKeys.C, "V" to DosKeys.V,
-                "B" to DosKeys.B, "N" to DosKeys.N, "M" to DosKeys.M,
-                "," to DosKeys.COMMA, "." to DosKeys.PERIOD, "/" to DosKeys.SLASH
-            )
-            row.forEach { (label, code) ->
                 CapsuleKeyButton(
-                    label = label, keyCode = code,
+                    label = "\u2192", keyCode = DosKeys.RIGHT,
                     modifier = Modifier.weight(1f), heightDp = keySize,
                     bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                    pressedColor = pressedColor, pressed = code in pressedKeys,
-                    onPressedChange = { p -> if (p) keyDown(code) else keyUp(code) }
+                    pressedColor = pressedColor, pressed = DosKeys.RIGHT in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(DosKeys.RIGHT) else keyUp(DosKeys.RIGHT) }
                 )
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             }
-            CapsuleKeyButton(
-                label = "Shift", keyCode = DosKeys.RSHIFT,
-                modifier = Modifier.weight(1.5f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.RSHIFT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.RSHIFT) else keyUp(DosKeys.RSHIFT) }
-            )
-        }
-
-        // Bottom row: Ctrl Alt Space Esc Tab + arrows + mouse L/R
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            CapsuleKeyButton(
-                label = "Ctrl", keyCode = DosKeys.LCTRL,
-                modifier = Modifier.weight(1.3f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.LCTRL in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LCTRL) else keyUp(DosKeys.LCTRL) }
-            )
-            CapsuleKeyButton(
-                label = "Alt", keyCode = DosKeys.LALT,
-                modifier = Modifier.weight(1.3f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.LALT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LALT) else keyUp(DosKeys.LALT) }
-            )
-            CapsuleKeyButton(
-                label = "Space", keyCode = DosKeys.SPACE,
-                modifier = Modifier.weight(4f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.SPACE in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.SPACE) else keyUp(DosKeys.SPACE) }
-            )
-            CapsuleKeyButton(
-                label = "Tab", keyCode = DosKeys.TAB,
-                modifier = Modifier.weight(1.3f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.TAB in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.TAB) else keyUp(DosKeys.TAB) }
-            )
-            CapsuleKeyButton(
-                label = "Esc", keyCode = DosKeys.ESCAPE,
-                modifier = Modifier.weight(1.3f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.ESCAPE in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.ESCAPE) else keyUp(DosKeys.ESCAPE) }
-            )
-        }
-
-        // Arrow keys row
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(keySpacing)
-        ) {
-            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-            CapsuleKeyButton(
-                label = "←", keyCode = DosKeys.LEFT,
-                modifier = Modifier.weight(1f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.LEFT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.LEFT) else keyUp(DosKeys.LEFT) }
-            )
-            CapsuleKeyButton(
-                label = "↑", keyCode = DosKeys.UP,
-                modifier = Modifier.weight(1f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.UP in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.UP) else keyUp(DosKeys.UP) }
-            )
-            CapsuleKeyButton(
-                label = "↓", keyCode = DosKeys.DOWN,
-                modifier = Modifier.weight(1f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.DOWN in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.DOWN) else keyUp(DosKeys.DOWN) }
-            )
-            CapsuleKeyButton(
-                label = "→", keyCode = DosKeys.RIGHT,
-                modifier = Modifier.weight(1f), heightDp = keySize,
-                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
-                pressedColor = pressedColor, pressed = DosKeys.RIGHT in pressedKeys,
-                onPressedChange = { p -> if (p) keyDown(DosKeys.RIGHT) else keyUp(DosKeys.RIGHT) }
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        }
         } // end Column
     } // end Box
 }
@@ -640,23 +743,18 @@ private fun ModeSwitchButton(
     val bgColor = Color.Black.copy(alpha = opacity * 0.6f)
     val fgColor = Color.White.copy(alpha = opacity)
     val borderColor = Color.White.copy(alpha = opacity * 0.7f)
-    val label = if (isKeyboard) "🎮" else "⌨"
-    val tip = if (isKeyboard) "切换手柄" else "切换键盘"
+    val label = if (isKeyboard) "\ud83c\udfae" else "\u2328"
 
     Box(
         modifier = modifier
             .size(44.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(bgColor)
+            .border(width = 1.dp, color = borderColor, shape = RoundedCornerShape(22.dp))
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onClick() })
             }
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width; val h = size.height
-            drawCircle(borderColor, radius = w * 0.48f, center = Offset(w/2, h/2),
-                style = Stroke(width = w * 0.04f))
-        }
         Text(
             text = label,
             color = fgColor,
@@ -670,20 +768,20 @@ private fun ModeSwitchButton(
 
 /**
  * Circular D-pad (cross shape with 4 directional buttons).
- * Drawn with Canvas primitives — transparent background, white border.
+ * Drawn with Canvas primitives - transparent background, white border.
  */
 @Composable
 private fun CircularDpad(
     sizeDp: androidx.compose.ui.unit.Dp,
     bgColor: Color, fgColor: Color, borderColor: Color, pressedColor: Color,
-    pressed: Int, // bitfield: BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT
+    pressed: Int,
     onPressedChange: (dir: String, pressed: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val sizePx = with(density) { sizeDp.toPx() }
 
-    val pointers = remember { mutableMapOf<Long, String>() }  // pointerId → direction
+    val pointers = remember { mutableMapOf<Long, String>() }
 
     Box(
         modifier = modifier
@@ -726,14 +824,12 @@ private fun CircularDpad(
     }
 }
 
-/** Hit-test a touch point against the D-pad's 4 quadrants. Returns "up/down/left/right" or "". */
+/** Hit-test a touch point against the D-pad's 4 quadrants. */
 private fun hitTestDpad(pos: Offset, sizePx: Float): String {
     val cx = sizePx / 2; val cy = sizePx / 2
     val dx = pos.x - cx; val dy = pos.y - cy
     val radius = sizePx / 2
-    // Outside the D-pad circle
     if (hypot(dx, dy) > radius) return ""
-    // Determine direction by larger axis
     return if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
         if (dx > 0) "right" else "left"
     } else {
@@ -751,7 +847,6 @@ private fun DrawScope.drawDpad(
     val armW = sizePx * 0.32f
     val r = sizePx * 0.08f
 
-    // Helper: draw a rounded-rect arm with arrow.
     fun arm(isVertical: Boolean, dir: Int) {
         val isPressed = (pressed and dir) != 0
         val color = if (isPressed) pressedColor else bgColor
@@ -778,7 +873,6 @@ private fun DrawScope.drawDpad(
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
             style = Stroke(width = sizePx * 0.02f)
         )
-        // Arrow tip
         val tipColor = if (isPressed) Color.Black.copy(alpha = 0.7f) else fgColor
         val arrowSize = sizePx * 0.08f
         when (dir) {
@@ -792,7 +886,6 @@ private fun DrawScope.drawDpad(
     arm(false, BTN_RIGHT)
     arm(true, BTN_UP)
     arm(true, BTN_DOWN)
-    // Center pivot dot
     drawCircle(fgColor.copy(alpha = 0.5f), radius = sizePx * 0.04f, center = Offset(cx, cy))
 }
 
@@ -823,8 +916,6 @@ private fun CircularKeyButton(
     onPressedChange: (pressed: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
-    val sizePx = with(density) { sizeDp.toPx() }
     var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
     Box(
@@ -857,7 +948,6 @@ private fun CircularKeyButton(
             val r = size.width * 0.46f
             drawCircle(if (pressed) pressedColor else bgColor, r, Offset(cx, cy))
             drawCircle(borderColor, r, Offset(cx, cy), style = Stroke(width = size.width * 0.04f))
-            // Inner highlight
             if (!pressed) {
                 drawCircle(Color.White.copy(alpha = 0.1f), r * 0.85f,
                     Offset(cx, cy - r * 0.15f))
@@ -886,10 +976,6 @@ private fun PillKeyButton(
 ) {
     var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
-    // IMPORTANT: Do NOT use Canvas(fillMaxSize) here — it makes the Box expand
-    // to fill all available space in the Row, causing the first button to take
-    // the entire width and pushing siblings off-screen. Use Modifier.border()
-    // instead which wraps to content size.
     Box(
         modifier = modifier
             .wrapContentSize(Alignment.Center)

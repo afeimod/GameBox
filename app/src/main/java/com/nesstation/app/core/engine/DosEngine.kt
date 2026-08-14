@@ -272,6 +272,12 @@ class DosEngine private constructor() : EmulatorEngine {
             try { DosNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
+        // Reset frontend-side state so a new game starts clean.
+        // Without this, _paused=true or _ffSpeed=N from the previous session
+        // would carry over and make the new game start paused or fast-forwarding.
+        _paused = false
+        _ffSpeed = 0
+        hasSurface = false
     }
 
     override fun shutdown() = unload()
