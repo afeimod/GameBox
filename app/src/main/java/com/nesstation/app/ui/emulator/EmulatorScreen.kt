@@ -100,6 +100,7 @@ import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
 import android.view.KeyEvent
 import android.view.View
