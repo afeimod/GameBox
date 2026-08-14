@@ -171,6 +171,41 @@ private fun DosGamepadOverlay(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // === Mouse move: drag area covering the WHOLE screen ===
+        // CRITICAL ORDERING: This must be the FIRST child of the Box so it
+        // is drawn at the BOTTOM of the z-order. In Compose's Box, later
+        // children are drawn on top — so buttons declared after this drag
+        // area will receive touch events FIRST, and only touches that miss
+        // all buttons fall through to this drag handler.
+        //
+        // The previous version declared this Box LAST (on top), which caused
+        // it to intercept every touch event across the screen and made all
+        // virtual buttons unresponsive (bug #3).
+        //
+        // We use detectDragGestures (not detectTapGestures) so taps/clicks
+        // on buttons are NOT consumed by this handler — only actual drags
+        // (movement) trigger mouse move injection.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { },
+                        onDragEnd = { },
+                        onDragCancel = { },
+                        onDrag = { change: PointerInputChange, _ ->
+                            val dx = change.positionChange().x
+                            val dy = change.positionChange().y
+                            if (dx != 0f || dy != 0f) {
+                                // Scale up the delta for better mouse sensitivity.
+                                engine.injectMouseMove((dx * 1.5f).toInt(), (dy * 1.5f).toInt())
+                            }
+                            change.consume()
+                        }
+                    )
+                }
+        )
+
         // === Left side: D-pad ===
         val dpadSizeDp = if (isPortrait) 120.dp else 140.dp
         val dpadOffsetX = if (isPortrait) 24.dp else 32.dp
@@ -292,30 +327,6 @@ private fun DosGamepadOverlay(
                     engine.injectMouseButton(1, p) // 1 = RIGHT
                 })
         }
-
-        // === Mouse move: drag area covering the center of the screen ===
-        // Any drag in the screen-center area (avoiding the button zones) is
-        // converted to relative mouse movement.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { },
-                        onDragEnd = { },
-                        onDragCancel = { },
-                        onDrag = { change: PointerInputChange, _ ->
-                            val dx = change.positionChange().x
-                            val dy = change.positionChange().y
-                            if (dx != 0f || dy != 0f) {
-                                // Scale up the delta for better mouse sensitivity.
-                                engine.injectMouseMove((dx * 1.5f).toInt(), (dy * 1.5f).toInt())
-                            }
-                            change.consume()
-                        }
-                    )
-                }
-        )
     }
 }
 
@@ -653,6 +664,7 @@ private fun CircularDpad(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     val id = down.id.value
                     val pos = down.position
                     val dir = hitTestDpad(pos, sizePx)
@@ -663,6 +675,7 @@ private fun CircularDpad(
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
+                            change.consume()
                             val pid = change.id.value
                             val oldDir = pointers[pid]
                             val newDir = if (change.pressed) hitTestDpad(change.position, sizePx) else ""
@@ -793,6 +806,7 @@ private fun CircularKeyButton(
             .pointerInput(keyCode) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     if (currentPointerId == null) {
                         currentPointerId = down.id.value
                         onPressedChange(true)
@@ -800,6 +814,7 @@ private fun CircularKeyButton(
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
+                            change.consume()
                             if (change.id.value == currentPointerId && !change.pressed) {
                                 onPressedChange(false)
                                 currentPointerId = null
@@ -851,6 +866,7 @@ private fun PillKeyButton(
             .pointerInput(keyCode) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     if (currentPointerId == null) {
                         currentPointerId = down.id.value
                         onPressedChange(true)
@@ -858,6 +874,7 @@ private fun PillKeyButton(
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
+                            change.consume()
                             if (change.id.value == currentPointerId && !change.pressed) {
                                 onPressedChange(false)
                                 currentPointerId = null
@@ -907,6 +924,7 @@ private fun CapsuleKeyButton(
             .pointerInput(keyCode) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     if (currentPointerId == null) {
                         currentPointerId = down.id.value
                         onPressedChange(true)
@@ -914,6 +932,7 @@ private fun CapsuleKeyButton(
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
+                            change.consume()
                             if (change.id.value == currentPointerId && !change.pressed) {
                                 onPressedChange(false)
                                 currentPointerId = null
@@ -960,6 +979,7 @@ private fun MouseKeyButton(
             .pointerInput(label) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     if (currentPointerId == null) {
                         currentPointerId = down.id.value
                         onPressedChange(true)
@@ -967,6 +987,7 @@ private fun MouseKeyButton(
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
+                            change.consume()
                             if (change.id.value == currentPointerId && !change.pressed) {
                                 onPressedChange(false)
                                 currentPointerId = null

@@ -164,6 +164,170 @@ private const val BTN_L_GBA = 0x100   // bit8 — GBA L
 private const val BTN_R_GBA = 0x200   // bit9 — GBA R
 
 // ---------------------------------------------------------------------------
+// DOS game folder loader
+// ---------------------------------------------------------------------------
+// DOSBox-Pure needs the entire game folder (launcher + assets + data files)
+// to run a DOS game. When the user imports a DOS game we only persist the
+// launcher URI (play.bat / START.BAT / setup.exe / ...). At load time this
+// function:
+//   1. Resolves the launcher's parent folder via DocumentsContract.
+//   2. Recursively copies the whole folder (preserving subfolder structure)
+//      into <filesDir>/dos_games/<sanitizedGameId>/.
+//   3. Returns the absolute path of the copied launcher file, or null on
+//      failure.
+//
+// The copy is cached per-game-id: if the destination folder already exists
+// and contains the launcher, we skip the copy (so re-launching a game is
+// instant). Delete the folder to force a re-copy.
+//
+// Works with content:// URIs that contain UTF-8 percent-encoded Chinese
+// characters — DocumentsContract handles the encoding transparently, and
+// the destination filenames use the original Unicode names.
+// ---------------------------------------------------------------------------
+private fun loadDosGameFolder(
+    context: android.content.Context,
+    launcherUriStr: String,
+    gameId: String
+): java.io.File? {
+    // === Local file path fast-path ===
+    // If the stored path is a plain filesystem path (not a content:// URI),
+    // the launcher file is already on disk — just return it directly. The
+    // folder is already accessible to the core via standard file I/O.
+    if (!launcherUriStr.startsWith("content://")) {
+        val f = java.io.File(launcherUriStr)
+        return if (f.exists()) f else null
+    }
+
+    val uri = android.net.Uri.parse(launcherUriStr)
+    val cr = context.contentResolver
+
+    // Determine the document ID of the launcher file. For a document URI
+    // built via buildDocumentUriUsingTree, this is the last path segment
+    // after "/document/".
+    val docId = try {
+        android.provider.DocumentsContract.getDocumentId(uri)
+    } catch (_: Exception) {
+        // Fallback: try tree URI (rare — means user picked a folder directly)
+        try { android.provider.DocumentsContract.getTreeDocumentId(uri) }
+        catch (_: Exception) { return null }
+    }
+
+    // Split the document ID into parent path + leaf filename.
+    // SAF document IDs typically look like "primary:Games/DOSGame/play.bat"
+    // or "msf:1234;Games/DOSGame/play.bat". We strip the last segment.
+    val lastSlash = docId.lastIndexOf('/')
+    val parentDocId = if (lastSlash > 0) docId.substring(0, lastSlash) else docId
+    val launcherName = if (lastSlash > 0) docId.substring(lastSlash + 1) else docId
+
+    // Derive the tree URI from the launcher URI. SAF document URIs look like:
+    //   content://<authority>/tree/<treeDocId>/document/<docId>
+    // The tree URI is just the first two path segments:
+    //   content://<authority>/tree/<treeDocId>
+    // We extract it by finding the "tree" path segment and taking the next
+    // segment. For URIs that don't follow this shape we fall back to using
+    // the parent doc id as the tree id.
+    val treeUri = run {
+        val paths = uri.pathSegments
+        val treeIdx = paths.indexOf("tree")
+        if (treeIdx >= 0 && treeIdx + 1 < paths.size) {
+            // Standard SAF tree URI — reuse the original (already URL-encoded)
+            // tree segment so persistable URI permissions match.
+            android.net.Uri.Builder()
+                .scheme(android.content.ContentResolver.SCHEME_CONTENT)
+                .authority(uri.authority)
+                .appendPath("tree")
+                .appendPath(paths[treeIdx + 1])
+                .build()
+        } else {
+            // Fallback: treat parentDocId as the tree root.
+            android.net.Uri.Builder()
+                .scheme(android.content.ContentResolver.SCHEME_CONTENT)
+                .authority(uri.authority)
+                .appendPath("tree")
+                .appendPath(parentDocId)
+                .build()
+        }
+    }
+
+    val parentUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocId)
+
+    // Sanitize game id → folder name (filesystem-safe, lowercase).
+    val safeId = gameId.lowercase().replace(Regex("[^a-z0-9._-]"), "_")
+        .takeIf { it.isNotBlank() } ?: "dos_game"
+
+    val destRoot = java.io.File(context.filesDir, "dos_games/$safeId")
+    val destLauncher = java.io.File(destRoot, launcherName)
+
+    // Fast path: launcher already copied — assume the folder is up to date.
+    // (User can clear app data to force re-copy.)
+    if (destLauncher.exists() && destLauncher.length() > 0) {
+        return destLauncher
+    }
+
+    // Wipe any stale partial copy.
+    if (destRoot.exists()) destRoot.deleteRecursively()
+    destRoot.mkdirs()
+
+    // Recursively copy the parent folder into destRoot.
+    try {
+        copySafFolderRecursive(context, treeUri, parentUri, destRoot)
+    } catch (e: Exception) {
+        android.util.Log.e("DosLoader", "Folder copy failed", e)
+        return null
+    }
+
+    // The launcher file should now exist in destRoot under its original name.
+    return if (destLauncher.exists()) destLauncher else {
+        // Fallback: find the first .bat/.exe/.com in destRoot.
+        destRoot.walkTopDown()
+            .firstOrNull { it.isFile && it.extension.lowercase() in setOf("bat", "exe", "com") }
+    }
+}
+
+/** Recursively copy a SAF folder tree to a local File tree. */
+private fun copySafFolderRecursive(
+    context: android.content.Context,
+    treeUri: android.net.Uri,
+    folderUri: android.net.Uri,
+    destFolder: java.io.File
+) {
+    val cr = context.contentResolver
+    val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+        treeUri,
+        android.provider.DocumentsContract.getDocumentId(folderUri)
+    )
+    cr.query(childrenUri, null, null, null, null)?.use { cursor ->
+        while (cursor.moveToNext()) {
+            val docId = cursor.getString(cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+            val name = cursor.getString(cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)) ?: continue
+            val mimeType = cursor.getString(cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE))
+
+            val childUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+            val destFile = java.io.File(destFolder, name)
+
+            if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                destFile.mkdirs()
+                copySafFolderRecursive(context, treeUri, childUri, destFile)
+            } else {
+                // Copy file content.
+                try {
+                    cr.openInputStream(childUri)?.use { input ->
+                        destFile.outputStream().use { out -> input.copyTo(out) }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("DosLoader", "Failed to copy $name", e)
+                    // Continue with other files — one missing asset shouldn't
+                    // abort the whole game load.
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main Emulator Screen
 // ---------------------------------------------------------------------------
 @Composable
@@ -317,7 +481,31 @@ fun EmulatorScreen(
         engine.setSaveName(saveName)
 
         val romFile = java.io.File(romPath)
-        if (romFile.exists()) {
+        if (platform == GamePlatform.DOS) {
+            // === DOS-specific loading ===
+            // DOSBox-Pure needs the FULL game folder (the .bat launcher usually
+            // references other files: .exe, .dat, .cfg, assets...). When the
+            // user imported the game we only stored the launcher URI, so here
+            // we must rebuild the folder context by:
+            //   1. Walking the SAF tree from the launcher URI's parent folder.
+            //   2. Copying every file into <filesDir>/dos_games/<gameId>/.
+            //   3. Passing the copied launcher path to the core.
+            // Without this, DOSBox-Pure cannot find the executable referenced
+            // by the .bat file and falls back to its "Start Menu" with the
+            // message "No executable file found" — exactly the bug we're fixing.
+            val result = loadDosGameFolder(context, romPath, game.id)
+            if (result == null) {
+                errorMsg = "DOS 游戏加载失败：无法读取文件夹内容"
+            } else {
+                val ok = engine.loadRom(result, filesDir, savesDirPath) { }
+                if (!ok) {
+                    val err = engine.lastError()
+                    errorMsg = err.ifEmpty { "DOS 游戏加载失败" }
+                } else {
+                    loaded = true
+                }
+            }
+        } else if (romFile.exists()) {
             // FDS BIOS is auto-extracted from assets by NesApp on startup.
             // If missing, the core will report the error; user can import via Settings.
             val ok = engine.loadRom(romFile, filesDir, savesDirPath) { }
