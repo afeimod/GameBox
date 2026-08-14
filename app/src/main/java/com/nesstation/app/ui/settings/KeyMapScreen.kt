@@ -89,6 +89,30 @@ private val GBA_ACTIONS = NES_ACTIONS + listOf(
     KeyAction("gba_r", "R", Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R1, "R1")
 )
 
+// DOS gamepad mapping — dosbox_pure's auto-mapping converts these libretro
+// gamepad buttons to DOS keys (A→Enter, B→Esc, X→Space, Y→Tab, L→mouse left,
+// R→mouse right, etc.). The user can rebind which physical gamepad button
+// triggers each libretro ID.
+private val DOS_ACTIONS = listOf(
+    KeyAction("dos_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
+    KeyAction("dos_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
+    KeyAction("dos_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
+    KeyAction("dos_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
+    KeyAction("dos_a",      "A / Enter",  Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "手柄 A"),
+    KeyAction("dos_b",      "B / Esc",    Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "手柄 B"),
+    KeyAction("dos_x",      "X / Space",  Color(0xFF3498DB), KeyEvent.KEYCODE_BUTTON_X, "手柄 X"),
+    KeyAction("dos_y",      "Y / Tab",    Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_Y, "手柄 Y"),
+    KeyAction("dos_l",      "L / 鼠标左",  Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_L1, "L1"),
+    KeyAction("dos_r",      "R / 鼠标右",  Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R1, "R1"),
+    KeyAction("dos_l2",     "L2 / 鼠标中", Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_L2, "L2"),
+    KeyAction("dos_r2",     "R2",         Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R2, "R2"),
+    KeyAction("dos_select", "Select",     Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_SELECT, "Select"),
+    KeyAction("dos_start",  "Start",      Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Start"),
+    KeyAction("dos_l3",     "L3 / 切换键盘", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_THUMBL, "左摇杆按下"),
+    KeyAction("dos_r3",     "R3 / 菜单",  Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_THUMBR, "右摇杆按下"),
+    KeyAction("dos_mode",   "Mode / 菜单", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_MODE, "Mode")
+)
+
 // Java (J2ME) uses the same 12-key phone keypad mapping as the J2ME-Loader
 // settings — but here we expose the gamepad buttons for D-pad + soft keys.
 private val JAVA_ACTIONS = listOf(
@@ -107,6 +131,7 @@ private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform
     GamePlatform.SFC  -> SNES_ACTIONS
     GamePlatform.GB   -> NES_ACTIONS
     GamePlatform.GBA  -> GBA_ACTIONS
+    GamePlatform.DOS  -> DOS_ACTIONS
     GamePlatform.JAVA -> JAVA_ACTIONS
 }
 
@@ -163,6 +188,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         GamePlatform.SFC to "SFC",
                         GamePlatform.GBA to "GBA",
                         GamePlatform.GB to "GB/GBC",
+                        GamePlatform.DOS to "DOS",
                         GamePlatform.JAVA to "Java"
                     )
                 ) { (platform, label) ->

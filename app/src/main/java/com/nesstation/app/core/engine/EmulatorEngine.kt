@@ -114,12 +114,14 @@ interface EmulatorEngine {
          * NES  -> NesEngine
          * SFC  -> SnesEngine
          * GB/GBA -> GbaEngine
+         * DOS  -> DosEngine (DOSBox-Pure)
          */
         fun forPlatform(platform: GamePlatform): EmulatorEngine = when (platform) {
             GamePlatform.NES  -> NesEngine.get()
             GamePlatform.SFC  -> SnesEngine.get()
             GamePlatform.GB   -> GbaEngine.get()
             GamePlatform.GBA  -> GbaEngine.get()
+            GamePlatform.DOS  -> DosEngine.get()
             GamePlatform.JAVA -> NesEngine.get() // fallback, should not be used
         }
     }

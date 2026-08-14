@@ -5,6 +5,7 @@ import android.util.Log
 import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.engine.SnesEngine
 import com.nesstation.app.core.engine.GbaEngine
+import com.nesstation.app.core.engine.DosEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
 import java.io.File
@@ -51,6 +52,12 @@ class NesApp : Application() {
         tryInit("NesEngine")          { NesEngine.ensureLoaded() }
         tryInit("SnesEngine")         { SnesEngine.ensureLoaded() }
         tryInit("GbaEngine")          { GbaEngine.ensureLoaded() }
+        tryInit("DosEngine")          {
+            // Set the app context first so DosNative can locate the prebuilt
+            // libdosbox_pure_libretro_android.so in the app's native lib dir.
+            com.nesstation.app.core.jni.DosNative.appContext = this
+            DosEngine.ensureLoaded()
+        }
         tryInit("FdsBios")            { ensureFdsBios() }
     }
 

@@ -105,6 +105,32 @@ data class PadLayout(
     val gbModel: String = "Autodetect",               // Autodetect | Game Boy | Super Game Boy | Game Boy Color | Game Boy Advance
     val gbSgbBorders: String = "ON",                  // ON | OFF
     val gbaFrameskipThreshold: String = "33",         // 0-100 (audio buffer threshold for auto frameskip)
+    // --- DOSBox-Pure (DOS) specific options ---
+    val dosMachine: String = "svga_s3",               // svga_s3 | hercules | cga | tandy | pcjr | ega | vgaonly | none
+    val dosCycles: String = "auto",                    // auto | max | 6000 | 10000 | 20000 | 40000 | 80000 | custom
+    val dosCyclesMax: String = "50000",                // string (used when dosCycles = custom)
+    val dosSbType: String = "sb16",                    // sb1 | sb2 | sbpro1 | sbpro2 | sb16 | gb | none
+    val dosSbAdlibMode: String = "off",                // on | off
+    val dosSbAdlibEmu: String = "default",             // default | cms | dual
+    val dosGus: String = "off",                        // off | on
+    val dosMouseInput: String = "emulated",            // emulated | absolute | ps2 | none
+    val dosMouseTimeout: String = "off",               // off | 3 | 5 | 10
+    val dosKeyboardLayout: String = "us",              // us | uk | br | de | it | fr | ru | es | ...
+    val dosKeyboardDelay: String = "300",              // 100 | 200 | 300 | 400 | 500
+    val dosKeyboardRate: String = "10",                // 5 | 10 | 15 | 20 | 30
+    val dosAutoMapping: String = "on",                 // on | off
+    val dosSavestate: String = "on",                   // on | 500 | 1000 | 2000 | 4000 | 8000 | 0
+    val dosDimScreen: String = "off",                  // off | 5 | 10 | 20 | 30 | 60
+    val dosResolution: String = "original",            // custom | 640x480 | 800x600 | 1024x768 | 1280x720 | 1600x900 | 1920x1080 | original
+    val dosScale: String = "2",                        // 1 | 2 | 3 | 4 | 5
+    val dosAspectRatio: String = "auto",               // auto | 4:3 | 16:9 | 16:10 | stretch
+    val dosCgaColors: String = "default",              // default | amber | green | white | bright
+    val dosVoodoo: String = "off",                     // off | on
+    val dosForce60fps: String = "on",                  // off | on
+    val dosTimeAnnounce: String = "none",              // none | boot | quiet
+    // DOS on-screen controller mode: "gamepad" (circular buttons, transparent)
+    // or "keyboard" (full QWERTY layout). Switchable at runtime via a button.
+    val dosInputMode: String = "gamepad",              // gamepad | keyboard
     // --- Display orientation ---
     val screenOrientation: String = "sensor",          // sensor | landscape | portrait
     // --- Performance ---
@@ -385,6 +411,30 @@ object PadLayoutStore {
             gbModel = p.getString("gb_model", "Autodetect") ?: "Autodetect",
             gbSgbBorders = p.getString("gb_sgb_borders", "ON") ?: "ON",
             gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33",
+            // DOSBox-Pure options
+            dosMachine = p.getString("dos_machine", "svga_s3") ?: "svga_s3",
+            dosCycles = p.getString("dos_cycles", "auto") ?: "auto",
+            dosCyclesMax = p.getString("dos_cycles_max", "50000") ?: "50000",
+            dosSbType = p.getString("dos_sb_type", "sb16") ?: "sb16",
+            dosSbAdlibMode = p.getString("dos_sb_adlib_mode", "off") ?: "off",
+            dosSbAdlibEmu = p.getString("dos_sb_adlib_emu", "default") ?: "default",
+            dosGus = p.getString("dos_gus", "off") ?: "off",
+            dosMouseInput = p.getString("dos_mouse_input", "emulated") ?: "emulated",
+            dosMouseTimeout = p.getString("dos_mouse_timeout", "off") ?: "off",
+            dosKeyboardLayout = p.getString("dos_keyboard_layout", "us") ?: "us",
+            dosKeyboardDelay = p.getString("dos_keyboard_delay", "300") ?: "300",
+            dosKeyboardRate = p.getString("dos_keyboard_rate", "10") ?: "10",
+            dosAutoMapping = p.getString("dos_auto_mapping", "on") ?: "on",
+            dosSavestate = p.getString("dos_savestate", "on") ?: "on",
+            dosDimScreen = p.getString("dos_dim_screen", "off") ?: "off",
+            dosResolution = p.getString("dos_resolution", "original") ?: "original",
+            dosScale = p.getString("dos_scale", "2") ?: "2",
+            dosAspectRatio = p.getString("dos_aspect_ratio", "auto") ?: "auto",
+            dosCgaColors = p.getString("dos_cga_colors", "default") ?: "default",
+            dosVoodoo = p.getString("dos_voodoo", "off") ?: "off",
+            dosForce60fps = p.getString("dos_force60fps", "on") ?: "on",
+            dosTimeAnnounce = p.getString("dos_time_announce", "none") ?: "none",
+            dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad",
             screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
         )
     }
@@ -533,6 +583,30 @@ object PadLayoutStore {
             putString("gb_model", layout.gbModel)
             putString("gb_sgb_borders", layout.gbSgbBorders)
             putString("gba_frameskip_threshold", layout.gbaFrameskipThreshold)
+            // DOSBox-Pure options
+            putString("dos_machine", layout.dosMachine)
+            putString("dos_cycles", layout.dosCycles)
+            putString("dos_cycles_max", layout.dosCyclesMax)
+            putString("dos_sb_type", layout.dosSbType)
+            putString("dos_sb_adlib_mode", layout.dosSbAdlibMode)
+            putString("dos_sb_adlib_emu", layout.dosSbAdlibEmu)
+            putString("dos_gus", layout.dosGus)
+            putString("dos_mouse_input", layout.dosMouseInput)
+            putString("dos_mouse_timeout", layout.dosMouseTimeout)
+            putString("dos_keyboard_layout", layout.dosKeyboardLayout)
+            putString("dos_keyboard_delay", layout.dosKeyboardDelay)
+            putString("dos_keyboard_rate", layout.dosKeyboardRate)
+            putString("dos_auto_mapping", layout.dosAutoMapping)
+            putString("dos_savestate", layout.dosSavestate)
+            putString("dos_dim_screen", layout.dosDimScreen)
+            putString("dos_resolution", layout.dosResolution)
+            putString("dos_scale", layout.dosScale)
+            putString("dos_aspect_ratio", layout.dosAspectRatio)
+            putString("dos_cga_colors", layout.dosCgaColors)
+            putString("dos_voodoo", layout.dosVoodoo)
+            putString("dos_force60fps", layout.dosForce60fps)
+            putString("dos_time_announce", layout.dosTimeAnnounce)
+            putString("dos_input_mode", layout.dosInputMode)
             // Display orientation
             putString("screen_orientation", layout.screenOrientation)
         }.apply()

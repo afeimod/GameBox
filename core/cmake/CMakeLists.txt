@@ -344,6 +344,52 @@ if(EXISTS "${MGBA_DIR}/CMakeLists.txt")
 endif()
 
 # ---------------------------------------------------------------------------
+# DOSBox-Pure (DOS/PC emulator) — built as libdoscore.so, which dlopen()s the
+# prebuilt libdosbox_pure_libretro_android.so from app/src/main/jniLibs/<abi>/
+# at runtime. This avoids having to compile the complex dosbox-pure source tree
+# and lets us reuse the prebuilt binaries from the libretro buildbot.
+#
+# Our JNI bridge (dos_bridge.cpp) + libretro frontend (dos_loader.cpp) drive
+# the core through the standard retro_* API, same pull-model as the other cores.
+# The loader also requires the HQX library for video filter upscalers.
+# ---------------------------------------------------------------------------
+set(DOS_JNI_SOURCES
+    "${APP_JNI_DIR}/dos_bridge.cpp"
+    "${APP_JNI_DIR}/dos_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(doscore SHARED ${DOS_JNI_SOURCES})
+
+target_include_directories(doscore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(doscore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(doscore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt dosbox_pure .so.
+target_link_libraries(doscore log android dl)
+
+# ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
 # Converted from J2ME-Loader's Android.mk to CMake
 # ---------------------------------------------------------------------------

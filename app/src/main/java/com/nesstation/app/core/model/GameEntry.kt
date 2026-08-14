@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.Color
  * SFC  = SNES/Super Famicom games (snes9x core)
  * GB   = Game Boy / Game Boy Color games (mGBA core)
  * GBA  = Game Boy Advance games (mGBA core)
+ * DOS  = DOS/PC games (DOSBox-Pure core)
  * JAVA = J2ME/Java ME games (J2ME-Loader engine)
  */
 enum class GamePlatform(val displayName: String) {
@@ -15,6 +16,7 @@ enum class GamePlatform(val displayName: String) {
     SFC("SFC"),
     GB("GB/GBC"),
     GBA("GBA"),
+    DOS("DOS"),
     JAVA("Java");
 
     companion object {
@@ -26,6 +28,11 @@ enum class GamePlatform(val displayName: String) {
         /**
          * Determine platform from a ROM file extension.
          * GB and GBC are merged into a single GB category.
+         *
+         * DOSBox accepts: .bat (batch launcher), .exe (DOS executable),
+         * .com (small DOS executable), .dosz (dosbox-pure zip bundle),
+         * .conf (dosbox config), .iso/.cue/.img (CD images),
+         * .ima/.vhd/.hd (hard disk images).
          */
         fun fromExtension(ext: String): GamePlatform? {
             return when (ext.lowercase()) {
@@ -33,10 +40,31 @@ enum class GamePlatform(val displayName: String) {
                 "smc", "sfc", "swc", "fig", "bs" -> SFC
                 "gb", "sgb", "gbc" -> GB
                 "gba" -> GBA
+                // DOSBox-Pure — executable launchers and bundle formats.
+                "bat", "exe", "com", "dosz", "conf", "iso", "cue", "img", "ima", "vhd", "hd" -> DOS
                 "jar", "jad" -> JAVA
                 else -> null
             }
         }
+
+        /**
+         * DOSBox launcher file extensions (used by the folder-import flow).
+         * When a user picks a folder, we look for files with these extensions
+         * and pick the best launch candidate (play.bat > run.bat > START.BAT >
+         * autoexec.bat > setup.exe > any .exe > any .com).
+         */
+        val DOS_LAUNCHER_EXTENSIONS = setOf("bat", "exe", "com")
+
+        /**
+         * Files preferred as folder-import launch targets, in priority order.
+         * The first matching file (case-insensitive) becomes the game's entry.
+         */
+        val DOS_LAUNCHER_PRIORITY = listOf(
+            "play.bat", "run.bat", "start.bat", "autoexec.bat",
+            "go.bat", "launch.bat", "main.bat",
+            "play.exe", "run.exe", "start.exe", "setup.exe",
+            "game.exe", "main.exe", "launch.exe"
+        )
     }
 }
 

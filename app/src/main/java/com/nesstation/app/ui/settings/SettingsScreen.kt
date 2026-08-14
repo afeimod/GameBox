@@ -349,10 +349,11 @@ fun SettingsScreen(
                 // === 关于 ===
                 item {
                     SettingsSection("关于") {
-                        SettingsRow("版本", "2.0.0", trailing = { ValueText("2.0.0") })
-                        SettingsRow("核心", "FCEUmm + Snes9x + mGBA", trailing = { ValueText("FCEUmm + Snes9x + mGBA") })
+                        SettingsRow("版本", "2.2.1", trailing = { ValueText("2.2.1") })
+                        SettingsRow("核心", "FCEUmm + Snes9x + mGBA + DOSBox-Pure",
+                            trailing = { ValueText("FCEUmm + Snes9x + mGBA + DOSBox-Pure") })
                         SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
-                            dialogText = "NesStation 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA) 核心，遵循 MIT 许可证"
+                            dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、DOSBox-Pure (DOS) 核心，遵循 MIT 许可证"
                         }
                     }
                 }

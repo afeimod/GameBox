@@ -79,12 +79,27 @@ import java.io.File
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
-/// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA)
+/// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA, DOSBox)
 val ROM_EXTENSIONS = listOf(
     "nes", "fds", "unf", "unif", "nez", "unh",  // NES/Famicom
     "smc", "sfc", "swc", "fig", "bs",            // SNES/SFC
     "gb", "sgb", "gbc", "gba",                    // GB/GBC/GBA
-    "zip", "7z", "gz"                             // compressed archives
+    "dosz",                                          // DOSBox-Pure bundle
+    "iso", "cue",                                    // DOS CD images
+    "zip", "7z", "gz"                                // compressed archives
+)
+
+/// DOSBox launcher extensions (only these are imported as game entries when
+/// a user picks a folder — data files like .DAT, .CFG, .PIC etc. are skipped).
+val DOS_LAUNCHER_EXTENSIONS = setOf("bat", "exe", "com")
+
+/// Preferred DOS launcher filenames in priority order. When a folder contains
+/// multiple launchers, the first matching file (case-insensitive) is imported.
+val DOS_LAUNCHER_PRIORITY = listOf(
+    "play.bat", "run.bat", "start.bat", "autoexec.bat",
+    "go.bat", "launch.bat", "main.bat",
+    "play.exe", "run.exe", "start.exe", "setup.exe",
+    "game.exe", "main.exe", "launch.exe"
 )
 
 @Composable
@@ -216,10 +231,31 @@ fun LibraryScreen(
             } catch (_: SecurityException) { }
             catch (_: Exception) { }
 
+            // === DOSBox folder import ===
+            // When the user is on the DOS platform tab and picks a folder, we
+            // only import the executable launcher file (play.bat / run.bat /
+            // START.BAT / setup.exe / ...). Data files in the same folder are
+            // left untouched — dosbox_pure reads them via its own VFS at run
+            // time using the launcher's parent directory as the working dir.
+            if (selectedPlatform == GamePlatform.DOS) {
+                val launcherUri = findDosLauncherInSafTree(context, uri)
+                if (launcherUri == null) {
+                    dialogMsg = "所选文件夹未找到 DOS 启动文件（支持 .bat / .exe / .com）\n" +
+                                "建议命名：play.bat / run.bat / START.BAT"
+                } else {
+                    val name = queryDisplayName(launcherUri) ?: "dos_game.bat"
+                    val title = name.substringBeforeLast('.')
+                    RomStore.add(context, title, launcherUri.toString(), GamePlatform.DOS)
+                    refreshList()
+                    dialogMsg = "已导入 DOS 游戏：$title"
+                }
+                return@rememberLauncherForActivityResult
+            }
+
             // Recursively scan the selected folder for ROM files
             val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
             if (romFiles.isEmpty()) {
-                dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip）"
+                dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip .dosz）"
             } else {
                 var count = 0
                 var failed = 0
@@ -480,6 +516,7 @@ fun LibraryScreen(
                     lazyItems(listOf(
                         GamePlatform.NES, GamePlatform.SFC,
                         GamePlatform.GB, GamePlatform.GBA,
+                        GamePlatform.DOS,
                         GamePlatform.JAVA
                     )) { platform ->
                         FilterChip(
@@ -615,9 +652,29 @@ fun LibraryScreen(
         FileBrowserDialog(
             onPicked = { folderPath ->
                 showFileBrowser = false
+                val folder = File(folderPath)
+
+                // === DOSBox folder import — local file system path ===
+                if (selectedPlatform == GamePlatform.DOS) {
+                    val launcher = findDosLauncherInLocalFolder(folder)
+                    if (launcher == null) {
+                        dialogMsg = "所选文件夹未找到 DOS 启动文件（支持 .bat / .exe / .com）\n" +
+                                    "建议命名：play.bat / run.bat / START.BAT"
+                    } else {
+                        RomStore.add(
+                            context,
+                            launcher.nameWithoutExtension,
+                            launcher.absolutePath,
+                            GamePlatform.DOS
+                        )
+                        refreshList()
+                        dialogMsg = "已导入 DOS 游戏：${launcher.nameWithoutExtension}"
+                    }
+                    return@FileBrowserDialog
+                }
+
                 // Recursively scan the chosen folder for ROM files (same logic
                 // as the SAF folder picker callback above).
-                val folder = File(folderPath)
                 val romFiles = scanLocalFolderForRoms(folder, maxDepth = 5)
                 if (romFiles.isEmpty()) {
                     dialogMsg = "所选文件夹未找到ROM文件（支持 ${ROM_EXTENSIONS.joinToString()}）"
@@ -1004,4 +1061,97 @@ private fun HomePill(
             fontWeight = FontWeight.SemiBold
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// DOSBox folder-import helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively scan a SAF tree folder for DOS launcher files (.bat / .exe / .com)
+ * and return the URI of the best launch candidate by priority:
+ *   play.bat > run.bat > START.BAT > autoexec.bat > go.bat > launch.bat >
+ *   main.bat > play.exe > ... > setup.exe > any .exe > any .com
+ *
+ * Returns null if no launcher is found.
+ *
+ * Works with content:// URIs that contain UTF-8 percent-encoded Chinese
+ * characters — DocumentsContract handles the encoding transparently.
+ */
+private fun findDosLauncherInSafTree(
+    context: android.content.Context,
+    treeUri: Uri
+): Uri? {
+    data class Candidate(val uri: Uri, val name: String, val isBat: Boolean, val isExe: Boolean)
+
+    val candidates = mutableListOf<Candidate>()
+
+    fun walk(folderUri: Uri) {
+        try {
+            val folderDocId = if (folderUri == treeUri) {
+                DocumentsContract.getTreeDocumentId(treeUri)
+            } else {
+                DocumentsContract.getDocumentId(folderUri)
+            }
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, folderDocId)
+            context.contentResolver.query(childrenUri, null, null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val docId = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+                    val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)) ?: continue
+                    val mimeType = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE))
+
+                    if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        val subUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                        walk(subUri)
+                    } else {
+                        val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+                        if (ext in DOS_LAUNCHER_EXTENSIONS) {
+                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                            candidates.add(Candidate(fileUri, name.lowercase(),
+                                isBat = ext == "bat", isExe = ext == "exe"))
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+    walk(treeUri)
+
+    if (candidates.isEmpty()) return null
+
+    // Match by priority list (case-insensitive)
+    for (preferred in DOS_LAUNCHER_PRIORITY) {
+        val match = candidates.firstOrNull { it.name == preferred }
+        if (match != null) return match.uri
+    }
+    // Fallback: prefer .bat, then .exe, then .com
+    return candidates.firstOrNull { it.isBat }?.uri
+        ?: candidates.firstOrNull { it.isExe }?.uri
+        ?: candidates.firstOrNull()?.uri
+}
+
+/**
+ * Scan a local file system folder for DOS launcher files and return the best
+ * launch candidate by priority. Used by the built-in FileBrowserDialog when
+ * the system SAF picker is unavailable (TV devices).
+ *
+ * Chinese folder/file names work transparently — Java's File class is
+ * Unicode-native and Android's filesystem is UTF-8.
+ */
+private fun findDosLauncherInLocalFolder(folder: File): File? {
+    if (!folder.exists() || !folder.isDirectory) return null
+
+    val candidates = folder.walkTopDown()
+        .filter { it.isFile && it.extension.lowercase() in DOS_LAUNCHER_EXTENSIONS }
+        .toList()
+
+    if (candidates.isEmpty()) return null
+
+    for (preferred in DOS_LAUNCHER_PRIORITY) {
+        val match = candidates.firstOrNull { it.name.equals(preferred, ignoreCase = true) }
+        if (match != null) return match
+    }
+    return candidates.firstOrNull { it.name.endsWith(".bat", ignoreCase = true) }
+        ?: candidates.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) }
+        ?: candidates.firstOrNull { it.name.endsWith(".com", ignoreCase = true) }
 }

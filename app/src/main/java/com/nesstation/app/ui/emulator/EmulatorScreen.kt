@@ -220,7 +220,16 @@ fun EmulatorScreen(
                    padLayout.sfcLayer4, padLayout.sfcLayer5,
                    padLayout.gbcColorPreset, padLayout.gbaColorPreset,
                    padLayout.gbaFrameskipType, padLayout.gbaForceRTC,
-                   padLayout.gbaAllowOpposite) {
+                   padLayout.gbaAllowOpposite,
+                   // DOSBox-Pure options — trigger applyCoreOptions when changed
+                   padLayout.dosMachine, padLayout.dosCycles, padLayout.dosCyclesMax,
+                   padLayout.dosSbType, padLayout.dosSbAdlibMode, padLayout.dosSbAdlibEmu,
+                   padLayout.dosGus, padLayout.dosMouseInput, padLayout.dosMouseTimeout,
+                   padLayout.dosKeyboardLayout, padLayout.dosKeyboardDelay, padLayout.dosKeyboardRate,
+                   padLayout.dosAutoMapping, padLayout.dosSavestate, padLayout.dosDimScreen,
+                   padLayout.dosResolution, padLayout.dosScale, padLayout.dosAspectRatio,
+                   padLayout.dosCgaColors, padLayout.dosVoodoo, padLayout.dosForce60fps,
+                   padLayout.dosTimeAnnounce) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         //
@@ -404,13 +413,31 @@ fun EmulatorScreen(
 
         // On-screen controller with multi-touch — hidden on TV (no touchscreen)
         if (loaded && effectiveShowPad && !showMenu && !showLayoutEditor && !showSettings && surfaceSize != IntSize.Zero) {
-            OnScreenController(
-                padLayout = padLayout,
-                surfaceSize = surfaceSize,
-                platform = platform,
-                isPortrait = isPortrait,
-                onPadBits = { bits -> engine.setPad1(bits) }
-            )
+            if (platform == GamePlatform.DOS && engine is com.nesstation.app.core.engine.DosEngine) {
+                // DOS uses a dedicated overlay with two modes (gamepad / keyboard)
+                // and full keyboard + mouse support. The mode toggle is handled
+                // by flipping padLayout.dosInputMode and persisting it.
+                DosOnScreenController(
+                    engine = engine,
+                    padLayout = padLayout,
+                    surfaceSize = surfaceSize,
+                    isPortrait = isPortrait,
+                    onToggleMode = {
+                        val newMode = if (padLayout.dosInputMode == "gamepad") "keyboard" else "gamepad"
+                        val newLayout = padLayout.copy(dosInputMode = newMode)
+                        padLayout = newLayout
+                        PadLayoutStore.save(context, newLayout)
+                    }
+                )
+            } else {
+                OnScreenController(
+                    padLayout = padLayout,
+                    surfaceSize = surfaceSize,
+                    platform = platform,
+                    isPortrait = isPortrait,
+                    onPadBits = { bits -> engine.setPad1(bits) }
+                )
+            }
         }
 
         if (loaded && showMenu && !showLayoutEditor && !showSettings) {
@@ -629,6 +656,32 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             if (platform == GamePlatform.GBA) {
                 engine.setCoreOption("mgba_gba_idle_optimization", layout.gbaIdleOptimization)
             }
+        }
+        GamePlatform.DOS -> {
+            // Apply all DOSBox-Pure core options. These match the upstream
+            // dosbox_pure retro_set_variables() declarations.
+            engine.setCoreOption("dosbox_pure_machine", layout.dosMachine)
+            engine.setCoreOption("dosbox_pure_cycles", layout.dosCycles)
+            engine.setCoreOption("dosbox_pure_cycles_max", layout.dosCyclesMax)
+            engine.setCoreOption("dosbox_pure_sblaster_type", layout.dosSbType)
+            engine.setCoreOption("dosbox_pure_sblaster_adlib_mode", layout.dosSbAdlibMode)
+            engine.setCoreOption("dosbox_pure_sblaster_adlib_emu", layout.dosSbAdlibEmu)
+            engine.setCoreOption("dosbox_pure_gus", layout.dosGus)
+            engine.setCoreOption("dosbox_pure_mouse_input", layout.dosMouseInput)
+            engine.setCoreOption("dosbox_pure_mouse_timeout", layout.dosMouseTimeout)
+            engine.setCoreOption("dosbox_pure_keyboard_layout", layout.dosKeyboardLayout)
+            engine.setCoreOption("dosbox_pure_keyboard_delay", layout.dosKeyboardDelay)
+            engine.setCoreOption("dosbox_pure_keyboard_rate", layout.dosKeyboardRate)
+            engine.setCoreOption("dosbox_pure_auto_mapping", layout.dosAutoMapping)
+            engine.setCoreOption("dosbox_pure_savestate", layout.dosSavestate)
+            engine.setCoreOption("dosbox_pure_dim_screen", layout.dosDimScreen)
+            engine.setCoreOption("dosbox_pure_resolution", layout.dosResolution)
+            engine.setCoreOption("dosbox_pure_scale", layout.dosScale)
+            engine.setCoreOption("dosbox_pure_aspect_ratio", layout.dosAspectRatio)
+            engine.setCoreOption("dosbox_pure_cga_colors", layout.dosCgaColors)
+            engine.setCoreOption("dosbox_pure_voodoo", layout.dosVoodoo)
+            engine.setCoreOption("dosbox_pure_force60fps", layout.dosForce60fps)
+            engine.setCoreOption("dosbox_pure_time_announce", layout.dosTimeAnnounce)
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -2509,6 +2562,195 @@ private fun SettingsPanel(
                         padLayout.gbaForceRTC
                     ) { onLayoutChange(padLayout.copy(gbaForceRTC = it)) }
                 }
+            }
+            GamePlatform.DOS -> {
+                Text("DOSBox 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                Text("机器类型", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("显示芯片",
+                    listOf(
+                        "svga_s3" to "SVGA (S3 Trio64, 推荐)",
+                        "vgaonly" to "VGA Only",
+                        "ega" to "EGA",
+                        "cga" to "CGA",
+                        "tandy" to "Tandy",
+                        "pcjr" to "PCjr",
+                        "hercules" to "Hercules",
+                        "none" to "无(仅文本模式)"
+                    ),
+                    padLayout.dosMachine
+                ) { onLayoutChange(padLayout.copy(dosMachine = it)) }
+
+                Text("CPU 性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("CPU 周期",
+                    listOf(
+                        "auto" to "自动(推荐)",
+                        "max" to "最大",
+                        "6000" to "6000 (80386)",
+                        "10000" to "10000 (80486)",
+                        "20000" to "20000 (Pentium)",
+                        "40000" to "40000 (Pentium II)",
+                        "80000" to "80000 (Pentium III)",
+                        "custom" to "自定义"
+                    ),
+                    padLayout.dosCycles
+                ) { onLayoutChange(padLayout.copy(dosCycles = it)) }
+
+                if (padLayout.dosCycles == "custom") {
+                    DropdownSetting("自定义周期",
+                        listOf("10000" to "10000", "20000" to "20000",
+                               "30000" to "30000", "50000" to "50000",
+                               "80000" to "80000", "100000" to "100000"),
+                        padLayout.dosCyclesMax
+                    ) { onLayoutChange(padLayout.copy(dosCyclesMax = it)) }
+                }
+
+                Spacer(Modifier.size(8.dp))
+                Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("声霸卡类型",
+                    listOf(
+                        "sb16" to "Sound Blaster 16 (推荐)",
+                        "sbpro2" to "Sound Blaster Pro 2",
+                        "sbpro1" to "Sound Blaster Pro",
+                        "sb2" to "Sound Blaster 2.0",
+                        "sb1" to "Sound Blaster 1.0",
+                        "gb" to "Game Blaster",
+                        "none" to "关闭"
+                    ),
+                    padLayout.dosSbType
+                ) { onLayoutChange(padLayout.copy(dosSbType = it)) }
+
+                DropdownSetting("Adlib 模式",
+                    listOf("off" to "关闭", "on" to "开启"),
+                    padLayout.dosSbAdlibMode
+                ) { onLayoutChange(padLayout.copy(dosSbAdlibMode = it)) }
+
+                DropdownSetting("Adlib 模拟器",
+                    listOf("default" to "默认", "cms" to "CMS", "dual" to "双芯片"),
+                    padLayout.dosSbAdlibEmu
+                ) { onLayoutChange(padLayout.copy(dosSbAdlibEmu = it)) }
+
+                DropdownSetting("Gravis Ultrasound",
+                    listOf("off" to "关闭", "on" to "开启"),
+                    padLayout.dosGus
+                ) { onLayoutChange(padLayout.copy(dosGus = it)) }
+
+                Spacer(Modifier.size(8.dp))
+                Text("鼠标", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("鼠标输入模式",
+                    listOf(
+                        "emulated" to "模拟(推荐·游戏)",
+                        "absolute" to "绝对坐标",
+                        "ps2" to "PS/2 鼠标",
+                        "none" to "关闭"
+                    ),
+                    padLayout.dosMouseInput
+                ) { onLayoutChange(padLayout.copy(dosMouseInput = it)) }
+
+                DropdownSetting("鼠标超时",
+                    listOf("off" to "关闭", "3" to "3秒", "5" to "5秒", "10" to "10秒"),
+                    padLayout.dosMouseTimeout
+                ) { onLayoutChange(padLayout.copy(dosMouseTimeout = it)) }
+
+                Spacer(Modifier.size(8.dp))
+                Text("键盘", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("键盘布局",
+                    listOf(
+                        "us" to "US (美式)", "uk" to "UK (英式)",
+                        "de" to "德语", "fr" to "法语", "it" to "意大利语",
+                        "es" to "西班牙语", "br" to "巴西", "ru" to "俄语",
+                        "jp" to "日语"
+                    ),
+                    padLayout.dosKeyboardLayout
+                ) { onLayoutChange(padLayout.copy(dosKeyboardLayout = it)) }
+
+                DropdownSetting("按键延迟",
+                    listOf("100" to "100ms", "200" to "200ms", "300" to "300ms",
+                           "400" to "400ms", "500" to "500ms"),
+                    padLayout.dosKeyboardDelay
+                ) { onLayoutChange(padLayout.copy(dosKeyboardDelay = it)) }
+
+                DropdownSetting("按键重复率",
+                    listOf("5" to "5/s", "10" to "10/s", "15" to "15/s",
+                           "20" to "20/s", "30" to "30/s"),
+                    padLayout.dosKeyboardRate
+                ) { onLayoutChange(padLayout.copy(dosKeyboardRate = it)) }
+
+                Spacer(Modifier.size(8.dp))
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("分辨率",
+                    listOf(
+                        "original" to "原始(推荐)",
+                        "640x480" to "640×480",
+                        "800x600" to "800×600",
+                        "1024x768" to "1024×768",
+                        "1280x720" to "1280×720 (HD)",
+                        "1600x900" to "1600×900 (HD+)",
+                        "1920x1080" to "1920×1080 (FHD)",
+                        "custom" to "自定义"
+                    ),
+                    padLayout.dosResolution
+                ) { onLayoutChange(padLayout.copy(dosResolution = it)) }
+
+                DropdownSetting("缩放倍数",
+                    listOf("1" to "1×", "2" to "2×", "3" to "3×", "4" to "4×", "5" to "5×"),
+                    padLayout.dosScale
+                ) { onLayoutChange(padLayout.copy(dosScale = it)) }
+
+                DropdownSetting("画面比例",
+                    listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9",
+                           "16:10" to "16:10", "stretch" to "拉伸"),
+                    padLayout.dosAspectRatio
+                ) { onLayoutChange(padLayout.copy(dosAspectRatio = it)) }
+
+                DropdownSetting("CGA 配色",
+                    listOf("default" to "默认", "amber" to "琥珀色",
+                           "green" to "绿色", "white" to "白色", "bright" to "高亮"),
+                    padLayout.dosCgaColors
+                ) { onLayoutChange(padLayout.copy(dosCgaColors = it)) }
+
+                Spacer(Modifier.size(8.dp))
+                Text("高级", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("自动键位映射",
+                    listOf("on" to "开启(推荐)", "off" to "关闭"),
+                    padLayout.dosAutoMapping
+                ) { onLayoutChange(padLayout.copy(dosAutoMapping = it)) }
+
+                DropdownSetting("Voodoo 显卡",
+                    listOf("off" to "关闭", "on" to "开启"),
+                    padLayout.dosVoodoo
+                ) { onLayoutChange(padLayout.copy(dosVoodoo = it)) }
+
+                DropdownSetting("强制 60fps",
+                    listOf("on" to "开启(推荐)", "off" to "关闭"),
+                    padLayout.dosForce60fps
+                ) { onLayoutChange(padLayout.copy(dosForce60fps = it)) }
+
+                DropdownSetting("时间播报",
+                    listOf("none" to "关闭", "boot" to "启动时", "quiet" to "静默"),
+                    padLayout.dosTimeAnnounce
+                ) { onLayoutChange(padLayout.copy(dosTimeAnnounce = it)) }
+
+                DropdownSetting("暗屏超时",
+                    listOf("off" to "关闭", "5" to "5秒", "10" to "10秒",
+                           "20" to "20秒", "30" to "30秒", "60" to "60秒"),
+                    padLayout.dosDimScreen
+                ) { onLayoutChange(padLayout.copy(dosDimScreen = it)) }
+
+                DropdownSetting("存档大小",
+                    listOf("on" to "默认", "500" to "500MB", "1000" to "1GB",
+                           "2000" to "2GB", "4000" to "4GB", "8000" to "8GB", "0" to "关闭"),
+                    padLayout.dosSavestate
+                ) { onLayoutChange(padLayout.copy(dosSavestate = it)) }
+
+                Spacer(Modifier.size(8.dp))
+                Text("输入模式", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("虚拟按键模式",
+                    listOf("gamepad" to "手柄(圆形按钮)", "keyboard" to "全键盘(QWERTY)"),
+                    padLayout.dosInputMode
+                ) { onLayoutChange(padLayout.copy(dosInputMode = it)) }
             }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }
