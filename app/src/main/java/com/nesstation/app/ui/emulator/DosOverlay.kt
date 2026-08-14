@@ -645,7 +645,7 @@ private fun CircularDpad(
     val density = LocalDensity.current
     val sizePx = with(density) { sizeDp.toPx() }
 
-    val pointers = remember { mutableMapOf<Int, String>() }  // pointerId → direction
+    val pointers = remember { mutableMapOf<Long, String>() }  // pointerId → direction
 
     Box(
         modifier = modifier
@@ -785,7 +785,7 @@ private fun CircularKeyButton(
 ) {
     val density = LocalDensity.current
     val sizePx = with(density) { sizeDp.toPx() }
-    var currentPointerId by remember { mutableStateOf<Int?>(null) }
+    var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
     Box(
         modifier = modifier
@@ -842,7 +842,7 @@ private fun PillKeyButton(
     onPressedChange: (pressed: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var currentPointerId by remember { mutableStateOf<Int?>(null) }
+    var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
     Box(
         modifier = modifier
@@ -897,7 +897,7 @@ private fun CapsuleKeyButton(
     pressed: Boolean,
     onPressedChange: (pressed: Boolean) -> Unit
 ) {
-    var currentPointerId by remember { mutableStateOf<Int?>(null) }
+    var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
     Box(
         modifier = modifier
@@ -951,7 +951,7 @@ private fun MouseKeyButton(
     onPressedChange: (pressed: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var currentPointerId by remember { mutableStateOf<Int?>(null) }
+    var currentPointerId by remember { mutableStateOf<Long?>(null) }
     val sizeDp = 40.dp
 
     Box(

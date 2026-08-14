@@ -235,6 +235,7 @@ private fun PlatformBadge(platform: GamePlatform, modifier: Modifier = Modifier)
         GamePlatform.SFC  -> "SFC" to Color(0xFF1565C0)   // blue — Super Famicom
         GamePlatform.GB   -> "GB"  to Color(0xFF558B2F)   // green — Game Boy/GBC
         GamePlatform.GBA  -> "GBA" to Color(0xFF6A1B9A)   // purple — GBA
+        GamePlatform.DOS  -> "DOS" to Color(0xFF37474F)   // blue-grey — DOS/PC
         GamePlatform.JAVA -> "Java" to Color(0xFF4E342E)  // brown — J2ME
     }
     Box(
