@@ -517,11 +517,11 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
 
 static void cb_audio_sample(int16_t left, int16_t right) {
     int16_t pair[2] = { left, right };
-    s_audio.write(pair, 1);
+    s_audio.push(pair, 2);
 }
 
 static size_t cb_audio_sample_batch(const int16_t* data, size_t frames) {
-    s_audio.write(data, frames);
+    s_audio.push(data, frames * 2);
     return frames;
 }
 
@@ -630,6 +630,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         s_gameLoaded = false;
     }
 
+    // Reset audio buffer and resampler state so leftover samples from a
+    // previous game session don't bleed into the new one.
+    s_audio.reset();
+    s_resampler.reset();
+
     // DOSBox-Pure accepts file paths directly. For folders, the path should
     // be the folder itself (the core auto-detects the launcher).
     retro_game_info gameInfo{};
@@ -735,11 +740,9 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
 
 int readAudio(int16_t* out, int maxFrames) {
     if (!s_loaded || !s_gameLoaded) return 0;
-    int n = s_audio.read(out, maxFrames);
-    if (s_sampleRate > 0 && s_sampleRate != TARGET_SAMPLE_RATE) {
-        n = s_resampler.resample(out, n, maxFrames);
-    }
-    return n;
+    // readResampled handles both the resampling path and the passthrough
+    // (no-resampling) path internally, matching the GBA/SNES core pattern.
+    return s_resampler.readResampled(s_audio, out, maxFrames);
 }
 
 int audioSampleRate() {
