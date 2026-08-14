@@ -220,11 +220,13 @@ object DosKeys {
     const val F5 = 286; const val F6 = 287; const val F7 = 288; const val F8 = 289
     const val F9 = 290; const val F10 = 291; const val F11 = 292; const val F12 = 293
 
-    // Modifiers
-    const val LSHIFT = 303; const val RSHIFT = 304
-    const val LCTRL = 305;  const val RCTRL = 306
-    const val LALT = 308;   const val RALT = 307
-    const val LMETA = 311;  const val RMETA = 312
+    // Modifiers — values MUST match libretro.h RETROK_* constants exactly.
+    // (Previous version had L/R swapped — LCTRL was 305 but RETROK_LCTRL is 306.
+    // This caused modifier keys to send the wrong code, breaking Ctrl+Key combos.)
+    const val RSHIFT = 303; const val LSHIFT = 304   // RETROK_RSHIFT=303, RETROK_LSHIFT=304
+    const val RCTRL = 305;  const val LCTRL = 306    // RETROK_RCTRL=305,  RETROK_LCTRL=306
+    const val RALT = 307;   const val LALT = 308     // RETROK_RALT=307,   RETROK_LALT=308
+    const val RMETA = 309;  const val LMETA = 310    // RETROK_RMETA=309,  RETROK_LMETA=310
 
     // Navigation / editing
     const val CAPSLOCK = 301

@@ -243,8 +243,18 @@ fun LibraryScreen(
                     dialogMsg = "所选文件夹未找到 DOS 启动文件（支持 .bat / .exe / .com）\n" +
                                 "建议命名：play.bat / run.bat / START.BAT"
                 } else {
-                    val name = queryDisplayName(launcherUri) ?: "dos_game.bat"
-                    val title = name.substringBeforeLast('.')
+                    val launcherName = queryDisplayName(launcherUri) ?: "dos_game.bat"
+                    val execName = launcherName.substringBeforeLast('.')
+                    // Build title as "folderName(execName)" — e.g. folder "pal"
+                    // + launcher "play.bat" → "pal(play)". This makes it easy to
+                    // distinguish multiple games that share the same launcher name
+                    // (e.g. several games each with their own play.bat).
+                    val folderName = extractFolderNameFromTreeUri(uri)
+                    val title = if (folderName.isNotEmpty()) {
+                        "$folderName($execName)"
+                    } else {
+                        execName
+                    }
                     RomStore.add(context, title, launcherUri.toString(), GamePlatform.DOS)
                     refreshList()
                     dialogMsg = "已导入 DOS 游戏：$title"
@@ -661,14 +671,19 @@ fun LibraryScreen(
                         dialogMsg = "所选文件夹未找到 DOS 启动文件（支持 .bat / .exe / .com）\n" +
                                     "建议命名：play.bat / run.bat / START.BAT"
                     } else {
+                        // Build title as "folderName(execName)" — e.g. folder "pal"
+                        // + launcher "play.bat" → "pal(play)".
+                        val folderName = folder.name
+                        val execName = launcher.nameWithoutExtension
+                        val title = "$folderName($execName)"
                         RomStore.add(
                             context,
-                            launcher.nameWithoutExtension,
+                            title,
                             launcher.absolutePath,
                             GamePlatform.DOS
                         )
                         refreshList()
-                        dialogMsg = "已导入 DOS 游戏：${launcher.nameWithoutExtension}"
+                        dialogMsg = "已导入 DOS 游戏：$title"
                     }
                     return@FileBrowserDialog
                 }
@@ -1066,6 +1081,38 @@ private fun HomePill(
 // ---------------------------------------------------------------------------
 // DOSBox folder-import helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract the folder display name from a SAF tree URI.
+ *
+ * SAF tree URIs look like:
+ *   content://com.android.externalstorage.documents/tree/primary:Games%2Fpal
+ *   content://com.android.externalstorage.documents/tree/msf%3A1234%3BGames%2Fpal
+ *
+ * The last path segment (after "tree/") is the document ID, URL-encoded.
+ * After decoding, it looks like "primary:Games/pal" or "msf:1234;Games/pal".
+ * The folder name is the part after the last "/" (or after ":" if no "/").
+ *
+ * Returns "" if the name cannot be extracted.
+ *
+ * Chinese folder names are handled transparently — URL decoding produces the
+ * original Unicode string.
+ */
+private fun extractFolderNameFromTreeUri(treeUri: Uri): String {
+    return try {
+        val paths = treeUri.pathSegments
+        val treeIdx = paths.indexOf("tree")
+        if (treeIdx < 0 || treeIdx + 1 >= paths.size) return ""
+        val treeDocId = android.net.Uri.decode(paths[treeIdx + 1])
+        // treeDocId looks like "primary:Games/pal" or "primary:Games%2Fpal" (already decoded)
+        // The folder name is the last segment after "/" or ":".
+        val afterColon = treeDocId.substringAfter(':')
+        val afterSlash = afterColon.substringAfterLast('/')
+        afterSlash.ifBlank { treeDocId.substringAfterLast(':').ifBlank { treeDocId } }
+    } catch (_: Exception) {
+        ""
+    }
+}
 
 /**
  * Recursively scan a SAF tree folder for DOS launcher files (.bat / .exe / .com)

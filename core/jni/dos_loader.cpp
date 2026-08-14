@@ -165,6 +165,13 @@ static std::atomic<int>  s_mouseDY{0};
 static std::atomic<bool> s_mouseBtn[9]{};
 static std::atomic<int>  s_inputDeviceMode{0};  // 0=joypad,1=kbd,2=mouse,3=all
 
+// Keyboard event callback — registered by the core via
+// RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK. DOSBox-Pure uses this callback
+// (NOT input_state polling) to receive key press/release events. Without
+// calling this callback, keyboard input never reaches the DOSBox keyboard
+// handler, and keys appear "dead" even though s_keysDown[] is updated.
+static retro_keyboard_event_t s_keyboardCallback = nullptr;
+
 static std::atomic<int>  s_videoFilter{0};
 static std::atomic<bool> s_highQualityScaling{false};
 static std::atomic<bool> s_fastForward{false};
@@ -435,6 +442,20 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
             return true;
 
+        case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK: {
+            // DOSBox-Pure registers a keyboard callback so it receives
+            // key-down / key-up events. We store it and invoke it from
+            // keyboardDown() / keyboardUp(). Without this, the on-screen
+            // keyboard buttons update s_keysDown[] but DOSBox never sees
+            // the key event — making all keys appear "dead".
+            if (data) {
+                auto* cb = static_cast<const retro_keyboard_callback*>(data);
+                s_keyboardCallback = cb ? cb->callback : nullptr;
+                LOGI("Keyboard callback registered: %p", s_keyboardCallback);
+            }
+            return true;
+        }
+
         default:
             return false;
     }
@@ -583,21 +604,29 @@ static int16_t cb_input_state(unsigned port, unsigned device,
 static void applyInputDeviceMode(int mode) {
     if (!s_retro_set_controller_port_device) return;
 
-    // Always register JOYPAD on port 0 (default)
-    s_retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-
-    // For mode 3 (combined), we keep JOYPAD as primary. The core's input_state
-    // callback will be queried for KEYBOARD and MOUSE on the same port even
-    // without explicit registration (libretro allows querying any device).
-    // However, calling set_controller_port_device with KEYBOARD or MOUSE
-    // tells the core to enable the corresponding input handler.
-
+    // DOSBox-Pure handles keyboard input via the retro_keyboard_event
+    // callback (registered through RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK)
+    // and mouse input via input_state polling on RETRO_DEVICE_MOUSE.
+    //
+    // The port device registration only affects which device type the core
+    // treats as the "primary" input. For combined mode (3), we register
+    // JOYPAD so the auto-mapped gamepad works, but keyboard and mouse
+    // still function through their respective mechanisms.
+    //
+    // IMPORTANT: We must NOT call set_controller_port_device(0, KEYBOARD)
+    // for combined mode — doing so would disable the gamepad. The keyboard
+    // callback works regardless of the registered port device.
     if (mode == 1) {
+        // Keyboard-only mode — disable gamepad, enable keyboard.
         s_retro_set_controller_port_device(0, RETRO_DEVICE_KEYBOARD);
     } else if (mode == 2) {
+        // Mouse-only mode — disable gamepad, enable mouse.
         s_retro_set_controller_port_device(0, RETRO_DEVICE_MOUSE);
+    } else {
+        // Mode 0 (default) and mode 3 (combined) — JOYPAD as primary.
+        // Keyboard and mouse work through their own callback/polling paths.
+        s_retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     }
-    // mode 0 (default) and mode 3 (combined) leave JOYPAD as the primary device.
 }
 
 // ---------------------------------------------------------------------------
@@ -761,11 +790,21 @@ void keyboardDown(int keyCode, int /*modifiers*/) {
     if (keyCode >= 0 && keyCode < kKeyArraySize) {
         s_keysDown[keyCode].store(true, std::memory_order_relaxed);
     }
+    // Forward the key-down event to the core's keyboard callback.
+    // DOSBox-Pure relies on this callback (not input_state polling) to
+    // receive key press events. Without this call, keys are dead.
+    if (s_keyboardCallback) {
+        s_keyboardCallback(true, (unsigned)keyCode, 0, (uint16_t)0);
+    }
 }
 
 void keyboardUp(int keyCode, int /*modifiers*/) {
     if (keyCode >= 0 && keyCode < kKeyArraySize) {
         s_keysDown[keyCode].store(false, std::memory_order_relaxed);
+    }
+    // Forward the key-up event to the core's keyboard callback.
+    if (s_keyboardCallback) {
+        s_keyboardCallback(false, (unsigned)keyCode, 0, (uint16_t)0);
     }
 }
 

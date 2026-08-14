@@ -2,9 +2,9 @@ package com.nesstation.app.ui.emulator
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -178,31 +179,45 @@ private fun DosGamepadOverlay(
         // area will receive touch events FIRST, and only touches that miss
         // all buttons fall through to this drag handler.
         //
-        // The previous version declared this Box LAST (on top), which caused
-        // it to intercept every touch event across the screen and made all
-        // virtual buttons unresponsive (bug #3).
+        // We use a custom awaitEachGesture (not detectDragGestures) so we
+        // can SKIP drags that start on a button (i.e. the initial down was
+        // already consumed by a button's pointerInput). This prevents the
+        // drag area from stealing touch events from buttons.
         //
-        // We use detectDragGestures (not detectTapGestures) so taps/clicks
-        // on buttons are NOT consumed by this handler — only actual drags
-        // (movement) trigger mouse move injection.
+        // Only drags that start on EMPTY screen area (unconsumed down)
+        // trigger mouse move injection.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { },
-                        onDragEnd = { },
-                        onDragCancel = { },
-                        onDrag = { change: PointerInputChange, _ ->
-                            val dx = change.positionChange().x
-                            val dy = change.positionChange().y
-                            if (dx != 0f || dy != 0f) {
-                                // Scale up the delta for better mouse sensitivity.
-                                engine.injectMouseMove((dx * 1.5f).toInt(), (dy * 1.5f).toInt())
+                    awaitEachGesture {
+                        // Wait for a down event. requireUnconsumed = true means
+                        // we only get events that were NOT consumed by buttons
+                        // on top. If a button consumed the down, we never enter
+                        // this gesture — so we don't interfere with button presses.
+                        val down = awaitFirstDown(requireUnconsumed = true)
+                        down.consume()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                if (change.pressed) {
+                                    val dx = change.positionChange().x
+                                    val dy = change.positionChange().y
+                                    if (dx != 0f || dy != 0f) {
+                                        engine.injectMouseMove(
+                                            (dx * 1.5f).toInt(),
+                                            (dy * 1.5f).toInt()
+                                        )
+                                    }
+                                    change.consume()
+                                }
+                                if (!change.pressed) {
+                                    change.consume()
+                                    return@awaitEachGesture
+                                }
                             }
-                            change.consume()
                         }
-                    )
+                    }
                 }
         )
 
@@ -859,10 +874,20 @@ private fun PillKeyButton(
 ) {
     var currentPointerId by remember { mutableStateOf<Long?>(null) }
 
+    // IMPORTANT: Do NOT use Canvas(fillMaxSize) here — it makes the Box expand
+    // to fill all available space in the Row, causing the first button to take
+    // the entire width and pushing siblings off-screen. Use Modifier.border()
+    // instead which wraps to content size.
     Box(
         modifier = modifier
+            .wrapContentSize(Alignment.Center)
             .clip(RoundedCornerShape(20.dp))
             .background(if (pressed) pressedColor else bgColor)
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(20.dp)
+            )
             .pointerInput(keyCode) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -884,20 +909,14 @@ private fun PillKeyButton(
                     }
                 }
             }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRoundRect(
-                borderColor,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.1f, size.width * 0.1f),
-                style = Stroke(width = size.width * 0.04f)
-            )
-        }
         Text(
             text = label,
             color = if (pressed) Color.Black.copy(alpha = 0.85f) else fgColor,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
             modifier = Modifier.align(Alignment.Center)
         )
     }
@@ -921,6 +940,11 @@ private fun CapsuleKeyButton(
             .height(heightDp)
             .clip(RoundedCornerShape(heightDp * 0.3f))
             .background(if (pressed) pressedColor else bgColor)
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(heightDp * 0.3f)
+            )
             .pointerInput(keyCode) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -943,13 +967,6 @@ private fun CapsuleKeyButton(
                 }
             }
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRoundRect(
-                borderColor,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height * 0.2f, size.height * 0.2f),
-                style = Stroke(width = size.height * 0.05f)
-            )
-        }
         Text(
             text = label,
             color = if (pressed) Color.Black.copy(alpha = 0.85f) else fgColor,
