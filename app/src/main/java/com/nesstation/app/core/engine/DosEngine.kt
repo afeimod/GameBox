@@ -32,6 +32,22 @@ import kotlin.concurrent.thread
  *   bit4=Up, bit5=Down, bit6=Left, bit7=Right,
  *   bit8=L(mouse left), bit9=R(mouse right),
  *   bit10=X(Space), bit11=Y(Tab)
+ *
+ * ## Thread safety & restart conflict prevention
+ *
+ * All lifecycle methods ([loadRom], [unload], [shutdown], [reset], [stop],
+ * [stopAudio], [cleanup]) are synchronized on [lifecycleLock] to prevent
+ * race conditions when the user switches games quickly or calls unload while
+ * loadRom is still starting.
+ *
+ * The shutdown sequence is:
+ *   1. setSurface(null) — prevent blit-after-unload SIGSEGV
+ *   2. stop() — interrupt + join emulation thread (up to 3s total)
+ *   3. stopAudio() — interrupt + join audio thread, release AudioTrack
+ *   4. DosNative.unload() — release native core resources
+ *   5. Reset frontend state (_paused, _ffSpeed, hasSurface, isLoaded)
+ *
+ * The [cleanup] method is idempotent — safe to call multiple times.
  */
 class DosEngine private constructor() : EmulatorEngine {
 
@@ -43,10 +59,10 @@ class DosEngine private constructor() : EmulatorEngine {
     override val frameBuffer = IntArray(1024 * 768)
 
     private val running = AtomicBoolean(false)
-    private var thread: Thread? = null
-    private var audioTrack: AudioTrack? = null
+    @Volatile private var thread: Thread? = null
+    @Volatile private var audioTrack: AudioTrack? = null
     private val audioRunning = AtomicBoolean(false)
-    private var audioThread: Thread? = null
+    @Volatile private var audioThread: Thread? = null
 
     @Volatile override var isLoaded = false
         private set
@@ -55,6 +71,9 @@ class DosEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    /** Lock for all lifecycle methods to prevent restart conflicts. */
+    private val lifecycleLock = Any()
+
     override fun ensureLoaded(): Boolean = DosNative.ensureLoaded()
 
     override fun loadRom(
@@ -62,10 +81,13 @@ class DosEngine private constructor() : EmulatorEngine {
         systemDir: String,
         saveDir: String,
         onFrame: () -> Unit
-    ): Boolean {
+    ): Boolean = synchronized(lifecycleLock) {
         if (!ensureLoaded()) return false
 
-        stop()
+        // Full cleanup of any previous session before loading new ROM.
+        // This prevents the restart conflict where stop() hasn't finished
+        // joining the old thread before a new one starts.
+        cleanup()
 
         DosNative.setPaths(systemDir, saveDir)
 
@@ -249,7 +271,7 @@ class DosEngine private constructor() : EmulatorEngine {
         audioRunning.set(false)
         audioThread?.let {
             it.interrupt()
-            try { it.join(200) } catch (_: InterruptedException) {}
+            try { it.join(500) } catch (_: InterruptedException) {}
         }
         audioThread = null
 
@@ -260,27 +282,73 @@ class DosEngine private constructor() : EmulatorEngine {
         audioTrack = null
     }
 
-    override fun reset(hard: Boolean) = DosNative.reset(hard)
+    override fun reset(hard: Boolean) = synchronized(lifecycleLock) {
+        DosNative.reset(hard)
+    }
 
-    override fun unload() {
-        // Same unload order as GbaEngine — surface first, then stop, then audio,
-        // then core. Prevents blit-after-unload SIGSEGV.
+    override fun unload() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    override fun shutdown() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    /**
+     * Complete, idempotent resource cleanup.
+     *
+     * Releases ALL resources in the correct order:
+     *   1. Detach surface (prevents blit-after-unload SIGSEGV)
+     *   2. Stop emulation thread (interrupt + join, up to 3s)
+     *   3. Stop audio thread + release AudioTrack
+     *   4. Unload native core (DosNative.unload)
+     *   5. Reset frontend state for a clean next start
+     *
+     * Safe to call multiple times — each step guards against null/no-op.
+     */
+    private fun cleanup() {
+        // Step 1: Detach surface first to prevent native blit crashes.
         try { setSurface(null) } catch (_: Throwable) {}
-        try { stop() } catch (_: Throwable) {}
+
+        // Step 2: Stop emulation thread — interrupt and wait for it to finish.
+        // This is critical for restart safety: if we don't fully join the old
+        // thread before loading a new ROM, the old thread's runFrame() calls
+        // can race with the new core's initialization.
+        running.set(false)
+        thread?.let { t ->
+            t.interrupt()
+            // Try joining with increasing patience. The thread should exit
+            // quickly after running.set(false) + interrupt(), but native
+            // calls (DosNative.runFrame) may block briefly.
+            for (attempt in 0 until 6) {
+                try { t.join(500) } catch (_: InterruptedException) { break }
+                if (!t.isAlive) break
+                android.util.Log.w("DosEngine",
+                    "Emulation thread still alive after ${(attempt + 1) * 500}ms")
+            }
+            if (t.isAlive) {
+                android.util.Log.e("DosEngine",
+                    "Emulation thread did NOT exit within 3s — proceeding anyway")
+            }
+        }
+        thread = null
+
+        // Step 3: Stop audio thread and release AudioTrack.
         try { stopAudio() } catch (_: Throwable) {}
+
+        // Step 4: Unload native core.
         if (isLoaded) {
             try { DosNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
-        // Reset frontend-side state so a new game starts clean.
+
+        // Step 5: Reset frontend-side state so a new game starts clean.
         // Without this, _paused=true or _ffSpeed=N from the previous session
         // would carry over and make the new game start paused or fast-forwarding.
         _paused = false
         _ffSpeed = 0
         hasSurface = false
     }
-
-    override fun shutdown() = unload()
 
     // EmulatorEngine interface implementations — use DOS-specific methods above
     override fun setPad1(bits: Int) = DosNative.setPad1(bits)
@@ -301,18 +369,6 @@ class DosEngine private constructor() : EmulatorEngine {
     }
 
     override fun lastError(): String = DosNative.lastError()
-
-    private fun stop() {
-        running.set(false)
-        thread?.let { t ->
-            t.interrupt()
-            for (attempt in 0 until 6) {
-                try { t.join(500) } catch (_: InterruptedException) { break }
-                if (!t.isAlive) break
-            }
-        }
-        thread = null
-    }
 
     companion object {
         @Volatile private var instance: DosEngine? = null

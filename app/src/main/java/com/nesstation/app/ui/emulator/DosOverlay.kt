@@ -103,6 +103,7 @@ fun DosOnScreenController(
         if (padLayout.dosInputMode == "keyboard") {
             DosKeyboardOverlay(
                 engine = engine,
+                padLayout = padLayout,
                 opacity = opacity,
                 isPortrait = isPortrait,
                 surfaceSize = surfaceSize
@@ -132,22 +133,29 @@ fun DosOnScreenController(
 // Shared full-screen mouse gesture handler.
 //
 // Handles three gestures on empty screen area (touches that miss buttons):
-//   1. Drag (move)     -> injectMouseMove(dx, dy)
+//   1. Drag (move)     -> injectMouseMove(dx, dy)  [single finger drag]
 //   2. Single-tap      -> left mouse click (down + up)
 //   3. Two-finger tap  -> right mouse click (down + up)
 //
-// Detection logic:
-//   - Track all pointers that arrive as "unconsumed" (i.e. not on a button).
-//   - If only 1 pointer and it moves > 8px total -> drag mode.
-//   - If 1 pointer lifts within 250ms with < 8px movement -> single-tap (left click).
-//   - If 2 pointers arrive within 200ms and both lift within 250ms with < 8px
-//     movement each -> two-finger tap (right click).
-//   - If a pointer is still down when another arrives, the first pointer
-//     becomes a drag (cancels single-tap detection for that pointer).
+// IMPORTANT DESIGN: Uses a SINGLE awaitEachGesture loop to handle all
+// pointer events. This avoids the regression where separate gesture detectors
+// (detectTapGestures + detectDragGestures) interfere with each other — a
+// tap-and-hold that becomes a drag would be cancelled by the tap detector,
+// and detectDragGestures' awaitTouchSlopOrCancellation consumes the initial
+// down, preventing tap detection from ever seeing it.
 //
-// IMPORTANT: We use requireUnconsumed=true so buttons get first crack at
-// touch events. A touch that lands on a button is consumed by the button's
-// pointerInput and never reaches this gesture handler.
+// Detection logic (all within one loop):
+//   - Track up to 2 pointers that arrive as "unconsumed" (not on a button).
+//   - The FIRST pointer to arrive is the PRIMARY pointer.
+//   - If the primary pointer moves > tapSlopPx -> drag mode.
+//   - Once in drag mode, ONLY the primary pointer injects mouse move.
+//     A second finger arriving during drag does NOT break the drag.
+//   - If a second finger arrives while the primary is still and hasn't
+//     moved too much, we wait for both to lift -> two-finger tap (right click).
+//   - If 1 pointer lifts within timeout with < tapSlopPx movement ->
+//     single-tap (left click).
+//
+// requireUnconsumed=true ensures buttons get first crack at touch events.
 // ===========================================================================
 
 @Composable
@@ -173,48 +181,52 @@ private fun FullScreenMouseGestureBox(
                     var lifted: Boolean = false,
                     var liftTimeMs: Long = 0L
                 )
-                // We track up to 2 simultaneous pointers (enough for 1-finger
-                // drag/tap and 2-finger tap).
-                val activePointers = mutableMapOf<Long, PointerInfo>()
-                var dragStarted = false
 
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = true)
+                    // Wait for the first unconsumed down (i.e., a touch that
+                    // didn't land on any button).
+                    val firstDown = awaitFirstDown(requireUnconsumed = true)
                     val now = android.os.SystemClock.uptimeMillis()
-                    val pid = down.id.value
+                    val primaryId = firstDown.id.value
 
-                    // If we already have 2 pointers, drop the oldest
-                    if (activePointers.size >= 2) {
-                        val oldest = activePointers.minByOrNull { it.value.downTimeMs }
-                        if (oldest != null) activePointers.remove(oldest.key)
-                    }
-                    activePointers[pid] = PointerInfo(
-                        id = pid, downTimeMs = now,
-                        downX = down.position.x, downY = down.position.y,
-                        lastX = down.position.x, lastY = down.position.y,
+                    // Primary pointer = the one that may drag or single-tap.
+                    // Secondary pointer = arrives later, may turn it into a
+                    // two-finger tap (right click).
+                    val primary = PointerInfo(
+                        id = primaryId, downTimeMs = now,
+                        downX = firstDown.position.x, downY = firstDown.position.y,
+                        lastX = firstDown.position.x, lastY = firstDown.position.y,
                         movedTooMuch = false
                     )
-                    down.consume()
+                    var secondary: PointerInfo? = null
+                    var dragStarted = false
+                    // Once drag starts, we lock into drag mode and ignore
+                    // the secondary pointer for click detection.
+                    var dragLocked = false
+
+                    firstDown.consume()
 
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
-                            val cpid = change.id.value
-                            val info = activePointers[cpid] ?: return@forEach
                             change.consume()
-                            info.lastX = change.position.x
-                            info.lastY = change.position.y
+                            val cpid = change.id.value
 
-                            val dx = change.position.x - info.downX
-                            val dy = change.position.y - info.downY
-                            if (hypot(dx, dy) > tapSlopPx) {
-                                info.movedTooMuch = true
-                                dragStarted = true
-                            }
+                            if (cpid == primary.id) {
+                                // === Primary pointer update ===
+                                primary.lastX = change.position.x
+                                primary.lastY = change.position.y
 
-                            if (change.pressed) {
-                                // Pointer moved while down -> inject mouse move (drag)
-                                if (info.movedTooMuch) {
+                                val dx = change.position.x - primary.downX
+                                val dy = change.position.y - primary.downY
+                                if (!primary.movedTooMuch && hypot(dx, dy) > tapSlopPx) {
+                                    primary.movedTooMuch = true
+                                    dragStarted = true
+                                    dragLocked = true
+                                }
+
+                                if (change.pressed && dragStarted) {
+                                    // Inject mouse move only from the primary pointer
                                     val mdx = change.positionChange().x
                                     val mdy = change.positionChange().y
                                     if (mdx != 0f || mdy != 0f) {
@@ -224,40 +236,73 @@ private fun FullScreenMouseGestureBox(
                                         )
                                     }
                                 }
+
+                                if (!change.pressed) {
+                                    primary.lifted = true
+                                    primary.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                                }
                             } else {
-                                // Pointer lifted
-                                info.lifted = true
-                                info.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                                // === Secondary pointer ===
+                                val sec = secondary
+                                if (sec == null && change.pressed && !dragLocked) {
+                                    // New secondary finger arrived (only if not already dragging)
+                                    secondary = PointerInfo(
+                                        id = cpid,
+                                        downTimeMs = android.os.SystemClock.uptimeMillis(),
+                                        downX = change.position.x, downY = change.position.y,
+                                        lastX = change.position.x, lastY = change.position.y,
+                                        movedTooMuch = false
+                                    )
+                                } else if (sec != null && cpid == sec.id) {
+                                    sec.lastX = change.position.x
+                                    sec.lastY = change.position.y
+                                    val sdx = change.position.x - sec.downX
+                                    val sdy = change.position.y - sec.downY
+                                    if (hypot(sdx, sdy) > tapSlopPx) {
+                                        sec.movedTooMuch = true
+                                        // Secondary moved too much — cancel two-finger tap,
+                                        // but don't break the primary's drag.
+                                        dragLocked = true
+                                    }
+                                    if (!change.pressed) {
+                                        sec.lifted = true
+                                        sec.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                                    }
+                                }
+                                // Ignore any additional pointers beyond 2
                             }
                         }
 
-                        // Check if all active pointers have lifted -> gesture complete
-                        if (activePointers.isNotEmpty() && activePointers.values.all { it.lifted }) {
-                            val count = activePointers.size
-                            val noMove = activePointers.values.none { it.movedTooMuch }
-                            val maxLiftDelay = activePointers.values.maxOf { it.liftTimeMs } -
-                                activePointers.values.minOf { it.downTimeMs }
-                            if (!dragStarted && noMove && maxLiftDelay <= tapTimeoutMs * 2) {
-                                when (count) {
-                                    1 -> {
-                                        // Single tap -> left click
-                                        engine.injectMouseButton(0, true)
-                                        engine.injectMouseButton(0, false)
-                                    }
-                                    2 -> {
+                        // Check if all tracked pointers have lifted -> gesture complete
+                        val sec = secondary
+                        val allLifted = if (sec != null && !sec.lifted) false else primary.lifted
+
+                        if (allLifted) {
+                            val hasSecondary = sec != null && sec.lifted
+                            if (!dragLocked && !primary.movedTooMuch) {
+                                val primaryElapsed = primary.liftTimeMs - primary.downTimeMs
+                                if (hasSecondary && !sec!!.movedTooMuch) {
+                                    val secondaryElapsed = sec.liftTimeMs - sec.downTimeMs
+                                    // Both fingers lifted with minimal movement within timeout
+                                    if (primaryElapsed <= tapTimeoutMs * 2 &&
+                                        secondaryElapsed <= tapTimeoutMs * 2) {
                                         // Two-finger tap -> right click
                                         engine.injectMouseButton(1, true)
                                         engine.injectMouseButton(1, false)
                                     }
+                                } else if (!hasSecondary && primaryElapsed <= tapTimeoutMs) {
+                                    // Single tap -> left click
+                                    engine.injectMouseButton(0, true)
+                                    engine.injectMouseButton(0, false)
                                 }
                             }
-                            activePointers.clear()
-                            dragStarted = false
+                            // Drag already handled in the move loop above.
                             break
                         }
 
-                        if (activePointers.isEmpty()) {
-                            dragStarted = false
+                        if (primary.lifted) {
+                            // Primary lifted but secondary hasn't — just end the gesture.
+                            // (Secondary arriving after primary lift is meaningless.)
                             break
                         }
                     }
@@ -330,6 +375,13 @@ private fun DosGamepadOverlay(
     val backL = if (isPortrait) padLayout.dosBtnBackP else padLayout.dosBtnBack
     val mouseLL = if (isPortrait) padLayout.dosBtnMouseLP else padLayout.dosBtnMouseL
     val mouseRL = if (isPortrait) padLayout.dosBtnMouseRP else padLayout.dosBtnMouseR
+    // Extra key buttons (addable via editor)
+    val insertL = if (isPortrait) padLayout.dosBtnInsertP else padLayout.dosBtnInsert
+    val deleteL = if (isPortrait) padLayout.dosBtnDeleteP else padLayout.dosBtnDelete
+    val homeL = if (isPortrait) padLayout.dosBtnHomeP else padLayout.dosBtnHome
+    val endL = if (isPortrait) padLayout.dosBtnEndP else padLayout.dosBtnEnd
+    val pageUpL = if (isPortrait) padLayout.dosBtnPageUpP else padLayout.dosBtnPageUp
+    val pageDownL = if (isPortrait) padLayout.dosBtnPageDownP else padLayout.dosBtnPageDown
 
     Box(modifier = Modifier.fillMaxSize()) {
         // === Full-screen mouse gesture area (BOTTOM of z-order) ===
@@ -448,6 +500,68 @@ private fun DosGamepadOverlay(
                 },
                 modifier = Modifier.offset { btnOffset(mouseRL) })
         }
+
+        // === Extra key buttons (addable via editor, each independently positioned) ===
+        if (padLayout.dosShowInsert) {
+            CircularKeyButton(
+                label = "Ins", keyCode = DosKeys.INSERT,
+                sizeDp = insertL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.INSERT in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.INSERT) else keyUp(DosKeys.INSERT) },
+                modifier = Modifier.offset { btnOffset(insertL) }
+            )
+        }
+        if (padLayout.dosShowDelete) {
+            CircularKeyButton(
+                label = "Del", keyCode = DosKeys.DELETE,
+                sizeDp = deleteL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.DELETE in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.DELETE) else keyUp(DosKeys.DELETE) },
+                modifier = Modifier.offset { btnOffset(deleteL) }
+            )
+        }
+        if (padLayout.dosShowHome) {
+            CircularKeyButton(
+                label = "Home", keyCode = DosKeys.HOME,
+                sizeDp = homeL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.HOME in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.HOME) else keyUp(DosKeys.HOME) },
+                modifier = Modifier.offset { btnOffset(homeL) }
+            )
+        }
+        if (padLayout.dosShowEnd) {
+            CircularKeyButton(
+                label = "End", keyCode = DosKeys.END,
+                sizeDp = endL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.END in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.END) else keyUp(DosKeys.END) },
+                modifier = Modifier.offset { btnOffset(endL) }
+            )
+        }
+        if (padLayout.dosShowPageUp) {
+            CircularKeyButton(
+                label = "PgUp", keyCode = DosKeys.PAGEUP,
+                sizeDp = pageUpL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.PAGEUP in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.PAGEUP) else keyUp(DosKeys.PAGEUP) },
+                modifier = Modifier.offset { btnOffset(pageUpL) }
+            )
+        }
+        if (padLayout.dosShowPageDown) {
+            CircularKeyButton(
+                label = "PgDn", keyCode = DosKeys.PAGEDOWN,
+                sizeDp = pageDownL.sizeDp.dp,
+                bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                pressedColor = pressedColor, pressed = DosKeys.PAGEDOWN in pressedKeys,
+                onPressedChange = { p -> if (p) keyDown(DosKeys.PAGEDOWN) else keyUp(DosKeys.PAGEDOWN) },
+                modifier = Modifier.offset { btnOffset(pageDownL) }
+            )
+        }
     }
 }
 
@@ -470,16 +584,20 @@ private fun DosGamepadOverlay(
 @Composable
 private fun DosKeyboardOverlay(
     engine: DosEngine,
+    padLayout: PadLayout,
     opacity: Float,
     isPortrait: Boolean,
-    @Suppress("UNUSED_PARAMETER") surfaceSize: IntSize
+    surfaceSize: IntSize
 ) {
+    val density = LocalDensity.current
     val bgColor = Color.Black.copy(alpha = opacity * 0.5f)
     val fgColor = Color.White.copy(alpha = opacity)
     val borderColor = Color.White.copy(alpha = opacity * 0.6f)
     val pressedColor = Color(0xFFFFD66B).copy(alpha = opacity)
 
     var pressedKeys by remember { mutableStateOf(setOf<Int>()) }
+    var mouseLeft by remember { mutableStateOf(false) }
+    var mouseRight by remember { mutableStateOf(false) }
 
     fun keyDown(code: Int) { pressedKeys = pressedKeys + code; engine.injectKeyDown(code, 0) }
     fun keyUp(code: Int)   { pressedKeys = pressedKeys - code; engine.injectKeyUp(code, 0) }
@@ -488,12 +606,48 @@ private fun DosKeyboardOverlay(
     val keySpacing = 3.dp
     val rowSpacing = 3.dp
 
+    // Helper: compute absolute pixel offset for a ButtonLayout centered at (x,y).
+    fun btnOffset(layout: ButtonLayout): androidx.compose.ui.unit.IntOffset {
+        val sizePx = with(density) { layout.sizeDp.dp.toPx() }
+        val px = surfaceSize.width * layout.x - sizePx / 2
+        val py = surfaceSize.height * layout.y - sizePx / 2
+        return androidx.compose.ui.unit.IntOffset(px.toInt(), py.toInt())
+    }
+
+    // Select landscape or portrait layout for mouse buttons.
+    val mouseLL = if (isPortrait) padLayout.dosBtnMouseLP else padLayout.dosBtnMouseL
+    val mouseRL = if (isPortrait) padLayout.dosBtnMouseRP else padLayout.dosBtnMouseR
+
     Box(modifier = Modifier.fillMaxSize()) {
         // === Full-screen mouse gesture area (BOTTOM of z-order) ===
         // Placed BEFORE the keyboard Column so it's underneath. The keyboard
         // rows consume their own touch events; touches on the empty viewport
         // area above the keyboard fall through to this handler.
+        //
+        // In keyboard mode, this covers the ENTIRE screen so you can drag
+        // the mouse anywhere (including above the keyboard rows). Touches on
+        // keyboard keys are consumed by the keys and never reach this handler.
         FullScreenMouseGestureBox(engine = engine)
+
+        // === Mouse L/R buttons — positioned on the RIGHT side of screen ===
+        // These appear above the keyboard, on the right edge, so the user can
+        // hold left/right mouse buttons while using the keyboard with the other hand.
+        if (padLayout.dosShowMouseL) {
+            MouseKeyButton("L", mouseLeft, bgColor, fgColor, borderColor, pressedColor,
+                onPressedChange = { p ->
+                    mouseLeft = p
+                    engine.injectMouseButton(0, p)
+                },
+                modifier = Modifier.offset { btnOffset(mouseLL) })
+        }
+        if (padLayout.dosShowMouseR) {
+            MouseKeyButton("R", mouseRight, bgColor, fgColor, borderColor, pressedColor,
+                onPressedChange = { p ->
+                    mouseRight = p
+                    engine.injectMouseButton(1, p)
+                },
+                modifier = Modifier.offset { btnOffset(mouseRL) })
+        }
 
         Column(
             modifier = Modifier

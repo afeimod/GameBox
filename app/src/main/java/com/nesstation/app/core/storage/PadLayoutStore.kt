@@ -157,6 +157,20 @@ data class PadLayout(
     val dosBtnBackP: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46),
     val dosBtnMouseLP: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38),
     val dosBtnMouseRP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38),
+    // === DOS extra buttons (addable via editor, hidden by default) ===
+    val dosBtnInsert: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40),
+    val dosBtnDelete: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40),
+    val dosBtnHome: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40),
+    val dosBtnEnd: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40),
+    val dosBtnPageUp: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40),
+    val dosBtnPageDown: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40),
+    // Extra button portrait positions
+    val dosBtnInsertP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38),
+    val dosBtnDeleteP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38),
+    val dosBtnHomeP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38),
+    val dosBtnEndP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38),
+    val dosBtnPageUpP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38),
+    val dosBtnPageDownP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38),
     // === DOS button visibility toggles (which buttons are shown) ===
     val dosShowDpad: Boolean = true,
     val dosShowEsc: Boolean = true,
@@ -169,6 +183,13 @@ data class PadLayout(
     val dosShowBack: Boolean = true,
     val dosShowMouseL: Boolean = true,
     val dosShowMouseR: Boolean = true,
+    // Extra button visibility (hidden by default — user adds them via editor)
+    val dosShowInsert: Boolean = false,
+    val dosShowDelete: Boolean = false,
+    val dosShowHome: Boolean = false,
+    val dosShowEnd: Boolean = false,
+    val dosShowPageUp: Boolean = false,
+    val dosShowPageDown: Boolean = false,
     // --- Display orientation ---
     val screenOrientation: String = "sensor",          // sensor | landscape | portrait
     // --- Performance ---
@@ -514,6 +535,20 @@ object PadLayoutStore {
             dosBtnBackP = loadBtn(p, "dos_btn_back_p", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46)),
             dosBtnMouseLP = loadBtn(p, "dos_btn_mouse_l_p", ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38)),
             dosBtnMouseRP = loadBtn(p, "dos_btn_mouse_r_p", ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38)),
+            // DOS extra buttons (landscape)
+            dosBtnInsert = loadBtn(p, "dos_btn_insert", ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40)),
+            dosBtnDelete = loadBtn(p, "dos_btn_delete", ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40)),
+            dosBtnHome = loadBtn(p, "dos_btn_home", ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40)),
+            dosBtnEnd = loadBtn(p, "dos_btn_end", ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40)),
+            dosBtnPageUp = loadBtn(p, "dos_btn_pageup", ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40)),
+            dosBtnPageDown = loadBtn(p, "dos_btn_pagedown", ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40)),
+            // DOS extra buttons (portrait)
+            dosBtnInsertP = loadBtn(p, "dos_btn_insert_p", ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38)),
+            dosBtnDeleteP = loadBtn(p, "dos_btn_delete_p", ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38)),
+            dosBtnHomeP = loadBtn(p, "dos_btn_home_p", ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38)),
+            dosBtnEndP = loadBtn(p, "dos_btn_end_p", ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38)),
+            dosBtnPageUpP = loadBtn(p, "dos_btn_pageup_p", ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38)),
+            dosBtnPageDownP = loadBtn(p, "dos_btn_pagedown_p", ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38)),
             // DOS button visibility toggles
             dosShowDpad = p.getBoolean("dos_show_dpad", true),
             dosShowEsc = p.getBoolean("dos_show_esc", true),
@@ -526,6 +561,12 @@ object PadLayoutStore {
             dosShowBack = p.getBoolean("dos_show_back", true),
             dosShowMouseL = p.getBoolean("dos_show_mouse_l", true),
             dosShowMouseR = p.getBoolean("dos_show_mouse_r", true),
+            dosShowInsert = p.getBoolean("dos_show_insert", false),
+            dosShowDelete = p.getBoolean("dos_show_delete", false),
+            dosShowHome = p.getBoolean("dos_show_home", false),
+            dosShowEnd = p.getBoolean("dos_show_end", false),
+            dosShowPageUp = p.getBoolean("dos_show_pageup", false),
+            dosShowPageDown = p.getBoolean("dos_show_pagedown", false),
             screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
         )
     }
@@ -722,6 +763,20 @@ object PadLayoutStore {
             saveBtn("dos_btn_back_p", layout.dosBtnBackP)
             saveBtn("dos_btn_mouse_l_p", layout.dosBtnMouseLP)
             saveBtn("dos_btn_mouse_r_p", layout.dosBtnMouseRP)
+            // DOS extra buttons (landscape)
+            saveBtn("dos_btn_insert", layout.dosBtnInsert)
+            saveBtn("dos_btn_delete", layout.dosBtnDelete)
+            saveBtn("dos_btn_home", layout.dosBtnHome)
+            saveBtn("dos_btn_end", layout.dosBtnEnd)
+            saveBtn("dos_btn_pageup", layout.dosBtnPageUp)
+            saveBtn("dos_btn_pagedown", layout.dosBtnPageDown)
+            // DOS extra buttons (portrait)
+            saveBtn("dos_btn_insert_p", layout.dosBtnInsertP)
+            saveBtn("dos_btn_delete_p", layout.dosBtnDeleteP)
+            saveBtn("dos_btn_home_p", layout.dosBtnHomeP)
+            saveBtn("dos_btn_end_p", layout.dosBtnEndP)
+            saveBtn("dos_btn_pageup_p", layout.dosBtnPageUpP)
+            saveBtn("dos_btn_pagedown_p", layout.dosBtnPageDownP)
             // DOS button visibility toggles
             putBoolean("dos_show_dpad", layout.dosShowDpad)
             putBoolean("dos_show_esc", layout.dosShowEsc)
@@ -734,6 +789,12 @@ object PadLayoutStore {
             putBoolean("dos_show_back", layout.dosShowBack)
             putBoolean("dos_show_mouse_l", layout.dosShowMouseL)
             putBoolean("dos_show_mouse_r", layout.dosShowMouseR)
+            putBoolean("dos_show_insert", layout.dosShowInsert)
+            putBoolean("dos_show_delete", layout.dosShowDelete)
+            putBoolean("dos_show_home", layout.dosShowHome)
+            putBoolean("dos_show_end", layout.dosShowEnd)
+            putBoolean("dos_show_pageup", layout.dosShowPageUp)
+            putBoolean("dos_show_pagedown", layout.dosShowPageDown)
             // Display orientation
             putString("screen_orientation", layout.screenOrientation)
         }.apply()

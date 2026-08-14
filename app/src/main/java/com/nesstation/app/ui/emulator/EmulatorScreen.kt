@@ -1995,16 +1995,24 @@ private fun DosPadLayoutEditor(
                     dosBtnAlt = defaults.dosBtnAlt, dosBtnShift = defaults.dosBtnShift,
                     dosBtnBack = defaults.dosBtnBack,
                     dosBtnMouseL = defaults.dosBtnMouseL, dosBtnMouseR = defaults.dosBtnMouseR,
+                    dosBtnInsert = defaults.dosBtnInsert, dosBtnDelete = defaults.dosBtnDelete,
+                    dosBtnHome = defaults.dosBtnHome, dosBtnEnd = defaults.dosBtnEnd,
+                    dosBtnPageUp = defaults.dosBtnPageUp, dosBtnPageDown = defaults.dosBtnPageDown,
                     dosDpadP = defaults.dosDpadP, dosBtnEscP = defaults.dosBtnEscP,
                     dosBtnEnterP = defaults.dosBtnEnterP, dosBtnSpaceP = defaults.dosBtnSpaceP,
                     dosBtnTabP = defaults.dosBtnTabP, dosBtnCtrlP = defaults.dosBtnCtrlP,
                     dosBtnAltP = defaults.dosBtnAltP, dosBtnShiftP = defaults.dosBtnShiftP,
                     dosBtnBackP = defaults.dosBtnBackP,
                     dosBtnMouseLP = defaults.dosBtnMouseLP, dosBtnMouseRP = defaults.dosBtnMouseRP,
+                    dosBtnInsertP = defaults.dosBtnInsertP, dosBtnDeleteP = defaults.dosBtnDeleteP,
+                    dosBtnHomeP = defaults.dosBtnHomeP, dosBtnEndP = defaults.dosBtnEndP,
+                    dosBtnPageUpP = defaults.dosBtnPageUpP, dosBtnPageDownP = defaults.dosBtnPageDownP,
                     dosShowDpad = true, dosShowEsc = true, dosShowEnter = true,
                     dosShowSpace = true, dosShowTab = true, dosShowCtrl = true,
                     dosShowAlt = true, dosShowShift = true, dosShowBack = true,
-                    dosShowMouseL = true, dosShowMouseR = true
+                    dosShowMouseL = true, dosShowMouseR = true,
+                    dosShowInsert = false, dosShowDelete = false, dosShowHome = false,
+                    dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false
                 ))
             }) {
                 Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
@@ -2172,13 +2180,13 @@ private fun DosPadLayoutEditor(
                         inactiveTrackColor = Color(0xFF4A5568)
                     )
                 )
-                // Hide button
+                // Delete button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
                 ) {
                     Text(
-                        "隐藏此按键",
+                        "删除此按键",
                         color = Color(0xFFFF8888),
                         fontSize = 12.sp,
                         modifier = Modifier.pointerInput(Unit) {
@@ -2188,9 +2196,50 @@ private fun DosPadLayoutEditor(
                 }
             }
 
+            // --- Add button (currently hidden buttons) ---
+            val hiddenBtns = DosBtnType.values().filter { !it.isVisible(padLayout) }
+            if (hiddenBtns.isNotEmpty()) {
+                Spacer(Modifier.size(12.dp))
+                Text("添加按键 (点击添加)", color = Color(0xFF2ECC71), fontSize = 11.sp)
+                Spacer(Modifier.size(6.dp))
+                val addRows = hiddenBtns.chunked(4)
+                addRows.forEach { rowBtns ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+                    ) {
+                        rowBtns.forEach { btnType ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
+                                    .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
+                                    .pointerInput(btnType) {
+                                        detectTapGestures { toggleVisible(btnType) }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "+ ${btnType.label}",
+                                    color = Color(0xFF2ECC71),
+                                    fontSize = 10.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                )
+                            }
+                        }
+                        repeat(4 - rowBtns.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                    Spacer(Modifier.size(4.dp))
+                }
+            }
+
             // --- Button visibility list (scrollable) ---
             Spacer(Modifier.size(12.dp))
-            Text("按键可见性 (点击切换)", color = Color(0xFF8899AA), fontSize = 11.sp)
+            Text("已添加按键 (点击删除)", color = Color(0xFF8899AA), fontSize = 11.sp)
             Spacer(Modifier.size(6.dp))
             // Two-column grid of toggle chips
             val allBtns = DosBtnType.values().toList()
@@ -2239,7 +2288,7 @@ private fun DosPadLayoutEditor(
 
             Spacer(Modifier.size(4.dp))
             Text(
-                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 长按隐藏按键",
+                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 点击 \"+\" 添加按键 · 点击已添加按键可删除",
                 color = Color(0xFF8899AA),
                 fontSize = 10.sp
             )
@@ -2264,7 +2313,14 @@ private enum class DosBtnType(
     SHIFT("Shift", Color(0xFFE67E22), 32, 90),
     BACK("Back", Color(0xFFE67E22), 32, 90),
     MOUSE_L("L", Color(0xFFFFD66B), 28, 80),
-    MOUSE_R("R", Color(0xFFFFD66B), 28, 80);
+    MOUSE_R("R", Color(0xFFFFD66B), 28, 80),
+    // Extra buttons (addable via editor, hidden by default)
+    INSERT("Ins", Color(0xFF1ABC9C), 28, 80),
+    DELETE("Del", Color(0xFF1ABC9C), 28, 80),
+    HOME("Home", Color(0xFF1ABC9C), 28, 80),
+    END("End", Color(0xFF1ABC9C), 28, 80),
+    PAGEUP("PgUp", Color(0xFF1ABC9C), 28, 80),
+    PAGEDOWN("PgDn", Color(0xFF1ABC9C), 28, 80);
 
     fun landscapeLayout(p: PadLayout): ButtonLayout = when (this) {
         DPAD -> p.dosDpad
@@ -2278,6 +2334,12 @@ private enum class DosBtnType(
         BACK -> p.dosBtnBack
         MOUSE_L -> p.dosBtnMouseL
         MOUSE_R -> p.dosBtnMouseR
+        INSERT -> p.dosBtnInsert
+        DELETE -> p.dosBtnDelete
+        HOME -> p.dosBtnHome
+        END -> p.dosBtnEnd
+        PAGEUP -> p.dosBtnPageUp
+        PAGEDOWN -> p.dosBtnPageDown
     }
 
     fun portraitLayout(p: PadLayout): ButtonLayout = when (this) {
@@ -2292,6 +2354,12 @@ private enum class DosBtnType(
         BACK -> p.dosBtnBackP
         MOUSE_L -> p.dosBtnMouseLP
         MOUSE_R -> p.dosBtnMouseRP
+        INSERT -> p.dosBtnInsertP
+        DELETE -> p.dosBtnDeleteP
+        HOME -> p.dosBtnHomeP
+        END -> p.dosBtnEndP
+        PAGEUP -> p.dosBtnPageUpP
+        PAGEDOWN -> p.dosBtnPageDownP
     }
 
     fun updateLandscape(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
@@ -2306,6 +2374,12 @@ private enum class DosBtnType(
         BACK -> p.copy(dosBtnBack = l)
         MOUSE_L -> p.copy(dosBtnMouseL = l)
         MOUSE_R -> p.copy(dosBtnMouseR = l)
+        INSERT -> p.copy(dosBtnInsert = l)
+        DELETE -> p.copy(dosBtnDelete = l)
+        HOME -> p.copy(dosBtnHome = l)
+        END -> p.copy(dosBtnEnd = l)
+        PAGEUP -> p.copy(dosBtnPageUp = l)
+        PAGEDOWN -> p.copy(dosBtnPageDown = l)
     }
 
     fun updatePortrait(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
@@ -2320,6 +2394,12 @@ private enum class DosBtnType(
         BACK -> p.copy(dosBtnBackP = l)
         MOUSE_L -> p.copy(dosBtnMouseLP = l)
         MOUSE_R -> p.copy(dosBtnMouseRP = l)
+        INSERT -> p.copy(dosBtnInsertP = l)
+        DELETE -> p.copy(dosBtnDeleteP = l)
+        HOME -> p.copy(dosBtnHomeP = l)
+        END -> p.copy(dosBtnEndP = l)
+        PAGEUP -> p.copy(dosBtnPageUpP = l)
+        PAGEDOWN -> p.copy(dosBtnPageDownP = l)
     }
 
     fun isVisible(p: PadLayout): Boolean = when (this) {
@@ -2334,6 +2414,12 @@ private enum class DosBtnType(
         BACK -> p.dosShowBack
         MOUSE_L -> p.dosShowMouseL
         MOUSE_R -> p.dosShowMouseR
+        INSERT -> p.dosShowInsert
+        DELETE -> p.dosShowDelete
+        HOME -> p.dosShowHome
+        END -> p.dosShowEnd
+        PAGEUP -> p.dosShowPageUp
+        PAGEDOWN -> p.dosShowPageDown
     }
 
     fun toggleVisible(p: PadLayout): PadLayout = when (this) {
@@ -2348,6 +2434,39 @@ private enum class DosBtnType(
         BACK -> p.copy(dosShowBack = !p.dosShowBack)
         MOUSE_L -> p.copy(dosShowMouseL = !p.dosShowMouseL)
         MOUSE_R -> p.copy(dosShowMouseR = !p.dosShowMouseR)
+        INSERT -> p.copy(dosShowInsert = !p.dosShowInsert)
+        DELETE -> p.copy(dosShowDelete = !p.dosShowDelete)
+        HOME -> p.copy(dosShowHome = !p.dosShowHome)
+        END -> p.copy(dosShowEnd = !p.dosShowEnd)
+        PAGEUP -> p.copy(dosShowPageUp = !p.dosShowPageUp)
+        PAGEDOWN -> p.copy(dosShowPageDown = !p.dosShowPageDown)
+    }
+
+    /** Key code for injection (used by DosGamepadOverlay to render the button). */
+    fun keyCode(): Int = when (this) {
+        DPAD -> 0  // Dpad uses setPad1, not injectKeyDown
+        ESC -> DosKeys.ESCAPE
+        ENTER -> DosKeys.RETURN
+        SPACE -> DosKeys.SPACE
+        TAB -> DosKeys.TAB
+        CTRL -> DosKeys.LCTRL
+        ALT -> DosKeys.LALT
+        SHIFT -> DosKeys.LSHIFT
+        BACK -> DosKeys.BACKSPACE
+        MOUSE_L -> 0  // Mouse buttons use injectMouseButton
+        MOUSE_R -> 0
+        INSERT -> DosKeys.INSERT
+        DELETE -> DosKeys.DELETE
+        HOME -> DosKeys.HOME
+        END -> DosKeys.END
+        PAGEUP -> DosKeys.PAGEUP
+        PAGEDOWN -> DosKeys.PAGEDOWN
+    }
+
+    /** Whether this button type uses injectKeyDown/injectKeyUp. */
+    fun isKeyButton(): Boolean = when (this) {
+        DPAD, MOUSE_L, MOUSE_R -> false
+        else -> true
     }
 }
 
