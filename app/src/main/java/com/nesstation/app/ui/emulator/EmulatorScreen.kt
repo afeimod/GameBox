@@ -2157,17 +2157,17 @@ private fun DosPadLayoutEditor(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.85f)
-                .padding(bottom = 8.dp)
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .fillMaxWidth(0.78f)
+                .padding(bottom = 4.dp)
+                .background(Color(0xBB1E2A3A), RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
-            // --- Opacity + Input mode in one row ---
+            // --- Opacity row (compact) ---
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("透明度", color = Color.White, fontSize = 11.sp,
+                Text("透明度", color = Color.White, fontSize = 10.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Text("${(padLayout.opacity * 100).toInt()}%", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                Text("${(padLayout.opacity * 100).toInt()}%", color = Color(0xFFFFD66B), fontSize = 10.sp)
             }
             Slider(
                 value = padLayout.opacity,
@@ -2185,12 +2185,12 @@ private fun DosPadLayoutEditor(
             // --- Input mode toggle (compact) ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(
                             if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
                             else Color(0xFF2A3A4A)
@@ -2199,27 +2199,27 @@ private fun DosPadLayoutEditor(
                             1.dp,
                             if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
                             else Color(0xFF4A5568),
-                            RoundedCornerShape(8.dp)
+                            RoundedCornerShape(6.dp)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
                                 onLayoutChange(padLayout.copy(dosInputMode = "gamepad"))
                             }
                         }
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "手柄模式",
+                        "手柄",
                         color = if (padLayout.dosInputMode == "gamepad") Color.Black else Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                 }
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(
                             if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
                             else Color(0xFF2A3A4A)
@@ -2228,26 +2228,26 @@ private fun DosPadLayoutEditor(
                             1.dp,
                             if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
                             else Color(0xFF4A5568),
-                            RoundedCornerShape(8.dp)
+                            RoundedCornerShape(6.dp)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
                                 onLayoutChange(padLayout.copy(dosInputMode = "keyboard"))
                             }
                         }
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "全键盘模式",
+                        "键盘",
                         color = if (padLayout.dosInputMode == "keyboard") Color.Black else Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                 }
             }
 
-            Spacer(Modifier.size(6.dp))
+            Spacer(Modifier.size(3.dp))
 
             // --- Selected button size slider ---
             val sel = selectedBtn
@@ -2255,10 +2255,10 @@ private fun DosPadLayoutEditor(
             if (sel != null) {
                 val currentSize = getLayout(sel).sizeDp
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${sel.label} 大小", color = Color.White, fontSize = 11.sp,
+                    Text("${sel.label} 大小", color = Color.White, fontSize = 10.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 10.sp)
                 }
                 Slider(
                     value = currentSize.toFloat(),
@@ -2275,10 +2275,10 @@ private fun DosPadLayoutEditor(
                 )
             } else if (selExtra != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selExtra.label} 大小", color = Color.White, fontSize = 11.sp,
+                    Text("${selExtra.label} 大小", color = Color.White, fontSize = 10.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    Text("${selExtra.sizeDp}dp", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                    Text("${selExtra.sizeDp}dp", color = Color(0xFFFFD66B), fontSize = 10.sp)
                 }
                 Slider(
                     value = selExtra.sizeDp.toFloat(),
@@ -2296,46 +2296,45 @@ private fun DosPadLayoutEditor(
             }
 
             // --- Add / Delete buttons ---
-            Spacer(Modifier.size(4.dp))
+            Spacer(Modifier.size(2.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Add button
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
-                        .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(6.dp))
                         .pointerInput(Unit) { detectTapGestures { showAddDialog = true } }
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("＋ 添加按键", color = Color(0xFF2ECC71), fontSize = 12.sp,
+                    Text("＋ 添加", color = Color(0xFF2ECC71), fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 }
                 // Delete button
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xFFFF8888).copy(alpha = 0.12f))
-                        .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(6.dp))
                         .pointerInput(Unit) { detectTapGestures { showDeleteDialog = true } }
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("✕ 删除按键", color = Color(0xFFFF8888), fontSize = 12.sp,
+                    Text("✕ 删除", color = Color(0xFFFF8888), fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 }
             }
 
-            Spacer(Modifier.size(2.dp))
             Text(
-                "拖动移动 · 点击选中调整大小 · 长按删除",
+                "拖动移动 · 点击选中调大小 · 长按删除",
                 color = Color(0xFF8899AA),
-                fontSize = 9.sp
+                fontSize = 8.sp
             )
         }
 
@@ -2424,7 +2423,7 @@ private fun DosKeyPickerDialog(
                 Text("固定按键", color = Color(0xFFFFD66B), fontSize = 12.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Spacer(Modifier.size(4.dp))
-                KeyGrid(hiddenFixedBtns.map { it.label to it }, cols = 5) { btnType ->
+                KeyGrid(hiddenFixedBtns.map { it.label to it }, cols = 5) { (_, btnType) ->
                     onAddFixedBtn(btnType)
                 }
                 Spacer(Modifier.size(8.dp))
@@ -2874,7 +2873,10 @@ private fun DosEditableButton(
     onLongPress: () -> Unit
 ) {
     val density = LocalDensity.current
-    val sizeDp = layout.sizeDp.dp
+    // In the editor, show buttons at 65% of their actual size so they're
+    // compact, don't overlap much, and don't occlude each other.
+    val editorScale = 0.65f
+    val sizeDp = (layout.sizeDp * editorScale).dp
     val sizePx = with(density) { sizeDp.toPx() }
 
     val currentLayout by rememberUpdatedState(layout)
@@ -2926,18 +2928,18 @@ private fun DosEditableButton(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val r = size.width * 0.46f
             drawCircle(
-                color.copy(alpha = if (isSelected) 0.5f else 0.35f),
+                color.copy(alpha = if (isSelected) 0.5f else 0.25f),
                 r, Offset(size.width / 2f, size.height / 2f)
             )
             drawCircle(
                 color, r, Offset(size.width / 2f, size.height / 2f),
-                style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx())
+                style = Stroke(width = if (isSelected) 2.5.dp.toPx() else 1.5.dp.toPx())
             )
         }
         Text(
             label,
             color = color,
-            fontSize = (sizeDp.value * 0.22f).sp,
+            fontSize = (sizeDp.value * 0.28f).sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
         )
     }
