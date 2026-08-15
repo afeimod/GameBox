@@ -166,7 +166,7 @@ private fun FullScreenMouseGestureBox(
             .fillMaxSize()
             .pointerInput(Unit) {
                 val tapSlopPx = 8.dp.toPx()      // movement tolerance for tap detection
-                val tapTimeoutMs = 250L          // max time between down and up for a tap
+                val tapTimeoutMs = 400L          // max time between down and up for a tap
 
                 awaitEachGesture {
                     // Wait for the first unconsumed down (i.e., a touch that
@@ -175,15 +175,15 @@ private fun FullScreenMouseGestureBox(
                     firstDown.consume()
 
                     val primaryId = firstDown.id.value
-                    var primaryDownX = firstDown.position.x
-                    var primaryDownY = firstDown.position.y
-                    // Track the LAST INJECTED position so we can compute
-                    // delta manually instead of relying on positionChange().
-                    var primaryLastX = firstDown.position.x
-                    var primaryLastY = firstDown.position.y
+                    val primaryDownX = firstDown.position.x
+                    val primaryDownY = firstDown.position.y
+                    // primaryPrevX/Y tracks the previous position for computing
+                    // incremental mouse-move deltas (manually, not via positionChange()).
+                    var primaryPrevX = firstDown.position.x
+                    var primaryPrevY = firstDown.position.y
                     var primaryMovedTooMuch = false
                     var primaryLifted = false
-                    var primaryDownTime = android.os.SystemClock.uptimeMillis()
+                    val primaryDownTime = android.os.SystemClock.uptimeMillis()
                     var primaryLiftTime = 0L
 
                     var secondaryId: Long? = null
@@ -194,6 +194,12 @@ private fun FullScreenMouseGestureBox(
                     var secondaryDownTime = 0L
                     var secondaryLiftTime = 0L
 
+                    // dragStarted gates mouse-move injection: we don't inject any
+                    // mouse movement until the finger has clearly moved beyond the
+                    // tap slop, so that clean taps don't cause cursor drift.
+                    // When drag starts, we inject the accumulated displacement
+                    // from the down position in one shot (no dead zone).
+                    var dragStarted = false
                     // Once drag starts, we lock into drag mode and ignore
                     // the secondary pointer for click detection.
                     var dragLocked = false
@@ -210,29 +216,35 @@ private fun FullScreenMouseGestureBox(
                                 val newY = change.position.y
 
                                 if (change.pressed) {
-                                    // Inject mouse delta from the LAST position
-                                    // (computed manually — avoids any issues with
-                                    // positionChange() after consume()).
-                                    val mdx = newX - primaryLastX
-                                    val mdy = newY - primaryLastY
-                                    if (mdx != 0f || mdy != 0f) {
-                                        engine.injectMouseMove(
-                                            (mdx * 1.5f).toInt(),
-                                            (mdy * 1.5f).toInt()
-                                        )
-                                    }
-                                    primaryLastX = newX
-                                    primaryLastY = newY
-
                                     // Check if total movement exceeds tap slop
-                                    // (only for tap-vs-drag classification, does
-                                    // NOT gate mouse movement injection).
                                     val totalDx = newX - primaryDownX
                                     val totalDy = newY - primaryDownY
                                     if (!primaryMovedTooMuch && hypot(totalDx, totalDy) > tapSlopPx) {
                                         primaryMovedTooMuch = true
+                                        // Transition from tap-candidate to drag:
+                                        // inject the full accumulated displacement so
+                                        // the cursor jumps to where the finger is now
+                                        // (no dead zone).
+                                        engine.injectMouseMove(
+                                            (totalDx * 1.5f).toInt(),
+                                            (totalDy * 1.5f).toInt()
+                                        )
+                                        dragStarted = true
                                         dragLocked = true
+                                    } else if (dragStarted) {
+                                        // Already dragging — inject incremental delta
+                                        // computed manually from the previous position.
+                                        val mdx = newX - primaryPrevX
+                                        val mdy = newY - primaryPrevY
+                                        if (mdx != 0f || mdy != 0f) {
+                                            engine.injectMouseMove(
+                                                (mdx * 1.5f).toInt(),
+                                                (mdy * 1.5f).toInt()
+                                            )
+                                        }
                                     }
+                                    primaryPrevX = newX
+                                    primaryPrevY = newY
                                 } else {
                                     primaryLifted = true
                                     primaryLiftTime = android.os.SystemClock.uptimeMillis()
