@@ -30,8 +30,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -141,11 +139,9 @@ fun DosOnScreenController(
 // pointer events. This avoids the regression where separate gesture detectors
 // (detectTapGestures + detectDragGestures) interfere with each other.
 //
-// KEY TECHNIQUE: Uses PointerEventPass.Final to observe events AFTER
-// children (buttons/keys) have had their chance to consume them in the
-// Main pass. If a button consumed the DOWN, isConsumed=true and we skip
-// it. This is more reliable than awaitFirstDown(requireUnconsumed=true),
-// which can miss events depending on dispatch order in the Main pass.
+// KEY TECHNIQUE: Uses awaitFirstDown(requireUnconsumed = true) to only
+// start handling when the touch is on empty space (not consumed by a child
+// button). Subsequent events are observed via awaitPointerEvent().
 //
 // Detection logic (all within one loop):
 //   - Track up to 2 pointers that arrive as "unconsumed" (not on a button).
@@ -156,6 +152,8 @@ fun DosOnScreenController(
 //     single-tap (left click).
 //   - If a second finger arrives and both lift within timeout ->
 //     two-finger tap (right click).
+//   - When primary lifts, wait briefly for secondary to also lift
+//     (for two-finger tap detection).
 // ===========================================================================
 
 @Composable
@@ -168,20 +166,13 @@ private fun FullScreenMouseGestureBox(
             .fillMaxSize()
             .pointerInput(Unit) {
                 val tapSlopPx = 12.dp.toPx()     // movement tolerance for tap detection
-                val tapTimeoutMs = 500L          // max time between down and up for a tap
-                val pass = PointerEventPass.Final
+                val tapTimeoutMs = 400L          // max time between down and up for a tap
 
                 awaitEachGesture {
-                    // Wait for the first unconsumed DOWN using Final pass.
-                    // Final pass runs AFTER children processed events in Main pass,
-                    // so if a button consumed the DOWN, isConsumed will be true.
-                    var firstDown: PointerInputChange? = null
-                    while (firstDown == null) {
-                        val event = awaitPointerEvent(pass)
-                        firstDown = event.changes.firstOrNull {
-                            it.pressed && !it.previousPressed && !it.isConsumed
-                        }
-                    }
+                    // Use awaitFirstDown(requireUnconsumed = true) to only handle
+                    // touches on empty screen area (not on buttons). Buttons are
+                    // siblings at higher z-order and process events first in Main pass.
+                    val firstDown = awaitFirstDown(requireUnconsumed = true)
                     firstDown.consume()
 
                     val primaryId = firstDown.id.value
@@ -205,10 +196,12 @@ private fun FullScreenMouseGestureBox(
                     var dragStarted = false
                     var dragLocked = false
 
+                    // Timeout for waiting secondary pointer to lift after primary lifts
+                    val secondaryWaitTimeoutMs = 300L
+
                     while (true) {
-                        val event = awaitPointerEvent(pass)
+                        val event = awaitPointerEvent()
                         event.changes.forEach { change ->
-                            change.consume()
                             val cpid = change.id.value
 
                             if (cpid == primaryId) {
@@ -216,6 +209,10 @@ private fun FullScreenMouseGestureBox(
                                 val newY = change.position.y
 
                                 if (change.pressed) {
+                                    // Phase-based injection:
+                                    // 1. Within slop: don't inject mouse move (tap candidate)
+                                    // 2. First move beyond slop: inject accumulated displacement
+                                    // 3. Subsequent moves: inject incremental displacement
                                     val totalDx = newX - primaryDownX
                                     val totalDy = newY - primaryDownY
                                     if (!primaryMovedTooMuch && hypot(totalDx, totalDy) > tapSlopPx) {
@@ -238,13 +235,14 @@ private fun FullScreenMouseGestureBox(
                                     }
                                     primaryPrevX = newX
                                     primaryPrevY = newY
-                                } else {
+                                } else if (!primaryLifted) {
                                     primaryLifted = true
                                     primaryLiftTime = android.os.SystemClock.uptimeMillis()
                                 }
                             } else {
                                 val secId = secondaryId
                                 if (secId == null && change.pressed && !dragLocked) {
+                                    // Second finger arrived (potential two-finger tap)
                                     secondaryId = cpid
                                     secondaryDownX = change.position.x
                                     secondaryDownY = change.position.y
@@ -257,29 +255,34 @@ private fun FullScreenMouseGestureBox(
                                             secondaryMovedTooMuch = true
                                             dragLocked = true
                                         }
-                                    } else {
+                                    } else if (!secondaryLifted) {
                                         secondaryLifted = true
                                         secondaryLiftTime = android.os.SystemClock.uptimeMillis()
                                     }
                                 }
                             }
+                            change.consume()
                         }
 
+                        // Check if all tracked pointers have lifted
                         val secId = secondaryId
-                        val allLifted = if (secId != null && !secondaryLifted) false else primaryLifted
+                        val allLifted = primaryLifted && (secId == null || secondaryLifted)
 
                         if (allLifted) {
+                            // Both pointers (or just primary) have lifted — check for tap
                             val hasSecondary = secId != null && secondaryLifted
                             if (!dragLocked && !primaryMovedTooMuch) {
                                 val primaryElapsed = primaryLiftTime - primaryDownTime
                                 if (hasSecondary && !secondaryMovedTooMuch) {
+                                    // Two-finger tap → right click
                                     val secElapsed = secondaryLiftTime - secondaryDownTime
-                                    if (primaryElapsed <= tapTimeoutMs * 2 &&
-                                        secElapsed <= tapTimeoutMs * 2) {
+                                    if (primaryElapsed <= tapTimeoutMs + secondaryWaitTimeoutMs &&
+                                        secElapsed <= tapTimeoutMs + secondaryWaitTimeoutMs) {
                                         engine.injectMouseButton(1, true)
                                         engine.injectMouseButton(1, false)
                                     }
                                 } else if (!hasSecondary && primaryElapsed <= tapTimeoutMs) {
+                                    // Single tap → left click
                                     engine.injectMouseButton(0, true)
                                     engine.injectMouseButton(0, false)
                                 }
@@ -287,7 +290,26 @@ private fun FullScreenMouseGestureBox(
                             break
                         }
 
-                        if (primaryLifted) {
+                        // If primary lifted but secondary hasn't, wait a bit for it
+                        // (for two-finger tap detection). If secondary doesn't lift
+                        // within timeout, treat as single primary lift.
+                        if (primaryLifted && secId != null && !secondaryLifted) {
+                            val elapsed = android.os.SystemClock.uptimeMillis() - primaryLiftTime
+                            if (elapsed >= secondaryWaitTimeoutMs) {
+                                // Secondary didn't lift in time — treat as single tap
+                                if (!dragLocked && !primaryMovedTooMuch) {
+                                    val primaryElapsed = primaryLiftTime - primaryDownTime
+                                    if (primaryElapsed <= tapTimeoutMs) {
+                                        engine.injectMouseButton(0, true)
+                                        engine.injectMouseButton(0, false)
+                                    }
+                                }
+                                break
+                            }
+                        }
+
+                        // If primary lifted and no secondary, done
+                        if (primaryLifted && secId == null) {
                             break
                         }
                     }
@@ -546,6 +568,46 @@ private fun DosGamepadOverlay(
                 onPressedChange = { p -> if (p) keyDown(DosKeys.PAGEDOWN) else keyUp(DosKeys.PAGEDOWN) },
                 modifier = Modifier.offset { btnOffset(pageDownL) }
             )
+        }
+
+        // === Dynamic extra keys (letters, numbers, symbols, F-keys, etc.) ===
+        // Parsed from dosExtraKeys / dosExtraKeysP JSON string.
+        val extraKeysJson = if (isPortrait) padLayout.dosExtraKeysP else padLayout.dosExtraKeys
+        val extraKeys = remember(extraKeysJson) {
+            com.nesstation.app.core.storage.DosExtraKeyEntry.parseList(extraKeysJson)
+        }
+        extraKeys.forEach { entry ->
+            val entryKeyCode = entry.keyCode
+            val entryLabel = entry.label
+            val entryLayout = ButtonLayout(x = entry.x, y = entry.y, sizeDp = entry.sizeDp)
+            if (entryKeyCode < 0) {
+                // Mouse button (e.g., middle click keyCode = -2)
+                val btnIdx = when (entryKeyCode) {
+                    -2 -> 2  // middle
+                    else -> 0
+                }
+                var mouseBtn by remember { mutableStateOf(false) }
+                CircularKeyButton(
+                    label = entryLabel, keyCode = 0,
+                    sizeDp = entry.sizeDp.dp,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = mouseBtn,
+                    onPressedChange = { p ->
+                        mouseBtn = p
+                        engine.injectMouseButton(btnIdx, p)
+                    },
+                    modifier = Modifier.offset { btnOffset(entryLayout) }
+                )
+            } else {
+                CircularKeyButton(
+                    label = entryLabel, keyCode = entryKeyCode,
+                    sizeDp = entry.sizeDp.dp,
+                    bgColor = bgColor, fgColor = fgColor, borderColor = borderColor,
+                    pressedColor = pressedColor, pressed = entryKeyCode in pressedKeys,
+                    onPressedChange = { p -> if (p) keyDown(entryKeyCode) else keyUp(entryKeyCode) },
+                    modifier = Modifier.offset { btnOffset(entryLayout) }
+                )
+            }
         }
     }
 }

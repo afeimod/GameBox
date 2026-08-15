@@ -102,6 +102,7 @@ import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
+import com.nesstation.app.core.storage.DosExtraKeyEntry
 import android.view.KeyEvent
 import android.view.View
 import kotlinx.coroutines.delay
@@ -1948,6 +1949,46 @@ private fun DosPadLayoutEditor(
     onClose: () -> Unit
 ) {
     var selectedBtn by remember { mutableStateOf<DosBtnType?>(null) }
+    var selectedExtraKey by remember { mutableStateOf<DosExtraKeyEntry?>(null) }
+
+    // Parse the extra keys list for the current orientation
+    val extraKeysList = remember(padLayout, isPortrait) {
+        val json = if (isPortrait) padLayout.dosExtraKeysP else padLayout.dosExtraKeys
+        DosExtraKeyEntry.parseList(json)
+    }
+
+    fun getExtraKeys(): List<DosExtraKeyEntry> = extraKeysList
+
+    fun addExtraKey(entry: DosExtraKeyEntry) {
+        val current = getExtraKeys()
+        if (current.any { it.keyCode == entry.keyCode }) return // already added
+        val newList = current + entry
+        val json = DosExtraKeyEntry.formatList(newList)
+        onLayoutChange(
+            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
+            else padLayout.copy(dosExtraKeys = json)
+        )
+    }
+
+    fun removeExtraKey(keyCode: Int) {
+        val current = getExtraKeys()
+        val newList = current.filter { it.keyCode != keyCode }
+        val json = DosExtraKeyEntry.formatList(newList)
+        onLayoutChange(
+            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
+            else padLayout.copy(dosExtraKeys = json)
+        )
+    }
+
+    fun updateExtraKey(oldKeyCode: Int, newEntry: DosExtraKeyEntry) {
+        val current = getExtraKeys()
+        val newList = current.map { if (it.keyCode == oldKeyCode) newEntry else it }
+        val json = DosExtraKeyEntry.formatList(newList)
+        onLayoutChange(
+            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
+            else padLayout.copy(dosExtraKeys = json)
+        )
+    }
 
     // Get the current landscape or portrait layout for each button.
     fun getLayout(btn: DosBtnType): ButtonLayout =
@@ -1966,27 +2007,66 @@ private fun DosPadLayoutEditor(
         onLayoutChange(btn.toggleVisible(padLayout))
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
-        // === Top toolbar ===
+    // All available extra keys (not in DosBtnType) that can be added
+    val allAvailableExtraKeys = remember {
+        listOf(
+            // Letters A-Z
+            "A" to DosKeys.A, "B" to DosKeys.B, "C" to DosKeys.C, "D" to DosKeys.D,
+            "E" to DosKeys.E, "F" to DosKeys.F, "G" to DosKeys.G, "H" to DosKeys.H,
+            "I" to DosKeys.I, "J" to DosKeys.J, "K" to DosKeys.K, "L" to DosKeys.L,
+            "M" to DosKeys.M, "N" to DosKeys.N, "O" to DosKeys.O, "P" to DosKeys.P,
+            "Q" to DosKeys.Q, "R" to DosKeys.R, "S" to DosKeys.S, "T" to DosKeys.T,
+            "U" to DosKeys.U, "V" to DosKeys.V, "W" to DosKeys.W, "X" to DosKeys.X,
+            "Y" to DosKeys.Y, "Z" to DosKeys.Z,
+            // Digits 0-9
+            "0" to DosKeys.K0, "1" to DosKeys.K1, "2" to DosKeys.K2, "3" to DosKeys.K3,
+            "4" to DosKeys.K4, "5" to DosKeys.K5, "6" to DosKeys.K6, "7" to DosKeys.K7,
+            "8" to DosKeys.K8, "9" to DosKeys.K9,
+            // Function keys
+            "F1" to DosKeys.F1, "F2" to DosKeys.F2, "F3" to DosKeys.F3, "F4" to DosKeys.F4,
+            "F5" to DosKeys.F5, "F6" to DosKeys.F6, "F7" to DosKeys.F7, "F8" to DosKeys.F8,
+            "F9" to DosKeys.F9, "F10" to DosKeys.F10, "F11" to DosKeys.F11, "F12" to DosKeys.F12,
+            // Arrow keys
+            "↑" to DosKeys.UP, "↓" to DosKeys.DOWN, "←" to DosKeys.LEFT, "→" to DosKeys.RIGHT,
+            // Symbols
+            "-" to DosKeys.MINUS, "=" to DosKeys.EQUALS,
+            "[" to DosKeys.LEFTBRACKET, "]" to DosKeys.RIGHTBRACKET,
+            ";" to DosKeys.SEMICOLON, "'" to DosKeys.APOSTROPHE,
+            "," to DosKeys.COMMA, "." to DosKeys.PERIOD, "/" to DosKeys.SLASH,
+            "\\" to DosKeys.BACKSLASH, "`" to DosKeys.GRAVE,
+            // Mouse middle button
+            "M中" to -2,  // special keyCode for mouse middle button
+            // Navigation extra
+            "PgUp" to DosKeys.PAGEUP, "PgDn" to DosKeys.PAGEDOWN,
+            "Caps" to DosKeys.CAPSLOCK, "NumLk" to DosKeys.NUMLOCK
+        )
+    }
+
+    // Dialog state for add/delete
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0x66000000))) {
+        // === Top toolbar (compact) ===
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "DOS 虚拟按键设置",
+                "DOS 按键设置",
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
             Text(
                 if (isPortrait) "(竖屏)" else "(横屏)",
                 color = Color(0xFF8899AA),
-                fontSize = 11.sp
+                fontSize = 10.sp
             )
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(6.dp))
             IconButton(onClick = {
                 val defaults = PadLayout()
                 onLayoutChange(padLayout.copy(
@@ -2013,7 +2093,8 @@ private fun DosPadLayoutEditor(
                     dosShowAlt = true, dosShowShift = true, dosShowBack = true,
                     dosShowMouseL = true, dosShowMouseR = true,
                     dosShowInsert = false, dosShowDelete = false, dosShowHome = false,
-                    dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false
+                    dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false,
+                    dosExtraKeys = "", dosExtraKeysP = ""
                 ))
             }) {
                 Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
@@ -2022,14 +2103,13 @@ private fun DosPadLayoutEditor(
                 Text(
                     "完成",
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
             }
         }
 
         // === Editable button previews ===
-        // Each visible button is rendered as a draggable preview.
         Box(modifier = Modifier.fillMaxSize()) {
             DosBtnType.values().forEach { btnType ->
                 val layout = getLayout(btnType)
@@ -2047,30 +2127,48 @@ private fun DosPadLayoutEditor(
                                 y = ny.coerceIn(0.02f, 0.98f)
                             ))
                         },
-                        onSelect = { selectedBtn = btnType },
+                        onSelect = { selectedBtn = btnType; selectedExtraKey = null },
                         onLongPress = { toggleVisible(btnType) }
                     )
                 }
             }
+            // Render extra key buttons (letters, numbers, etc.)
+            extraKeysList.forEach { entry ->
+                val isSel = selectedExtraKey?.keyCode == entry.keyCode
+                DosEditableButton(
+                    label = entry.label,
+                    color = Color(0xFF3498DB),
+                    layout = ButtonLayout(x = entry.x, y = entry.y, sizeDp = entry.sizeDp),
+                    surfaceSize = surfaceSize,
+                    isSelected = isSel,
+                    onMove = { nx, ny ->
+                        updateExtraKey(entry.keyCode, entry.copy(
+                            x = nx.coerceIn(0.02f, 0.98f),
+                            y = ny.coerceIn(0.02f, 0.98f)
+                        ))
+                    },
+                    onSelect = { selectedExtraKey = entry; selectedBtn = null },
+                    onLongPress = { removeExtraKey(entry.keyCode) }
+                )
+            }
         }
 
-        // === Bottom control panel ===
+        // === Compact centered bottom panel ===
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .fillMaxWidth(0.85f)
+                .padding(bottom = 8.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // --- Opacity slider ---
+            // --- Opacity + Input mode in one row ---
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("透明度", color = Color.White, fontSize = 13.sp,
+                Text("透明度", color = Color.White, fontSize = 11.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Text("${(padLayout.opacity * 100).toInt()}%", color = Color(0xFFFFD66B), fontSize = 13.sp)
+                Text("${(padLayout.opacity * 100).toInt()}%", color = Color(0xFFFFD66B), fontSize = 11.sp)
             }
-            Spacer(Modifier.size(8.dp))
             Slider(
                 value = padLayout.opacity,
                 onValueChange = { newVal ->
@@ -2084,22 +2182,15 @@ private fun DosPadLayoutEditor(
                 )
             )
 
-            // --- Input mode toggle ---
-            Spacer(Modifier.size(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("输入模式", color = Color.White, fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-            }
-            Spacer(Modifier.size(8.dp))
+            // --- Input mode toggle (compact) ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
                             if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
                             else Color(0xFF2A3A4A)
@@ -2108,27 +2199,27 @@ private fun DosPadLayoutEditor(
                             1.dp,
                             if (padLayout.dosInputMode == "gamepad") Color(0xFFFFD66B)
                             else Color(0xFF4A5568),
-                            RoundedCornerShape(12.dp)
+                            RoundedCornerShape(8.dp)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
                                 onLayoutChange(padLayout.copy(dosInputMode = "gamepad"))
                             }
                         }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "手柄模式",
                         color = if (padLayout.dosInputMode == "gamepad") Color.Black else Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                 }
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
                             if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
                             else Color(0xFF2A3A4A)
@@ -2137,37 +2228,38 @@ private fun DosPadLayoutEditor(
                             1.dp,
                             if (padLayout.dosInputMode == "keyboard") Color(0xFFFFD66B)
                             else Color(0xFF4A5568),
-                            RoundedCornerShape(12.dp)
+                            RoundedCornerShape(8.dp)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
                                 onLayoutChange(padLayout.copy(dosInputMode = "keyboard"))
                             }
                         }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "全键盘模式",
                         color = if (padLayout.dosInputMode == "keyboard") Color.Black else Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                 }
             }
 
+            Spacer(Modifier.size(6.dp))
+
             // --- Selected button size slider ---
             val sel = selectedBtn
+            val selExtra = selectedExtraKey
             if (sel != null) {
-                Spacer(Modifier.size(12.dp))
                 val currentSize = getLayout(sel).sizeDp
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${sel.label} 大小", color = Color.White, fontSize = 13.sp,
+                    Text("${sel.label} 大小", color = Color.White, fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 13.sp)
+                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 11.sp)
                 }
-                Spacer(Modifier.size(8.dp))
                 Slider(
                     value = currentSize.toFloat(),
                     onValueChange = { newVal ->
@@ -2181,119 +2273,362 @@ private fun DosPadLayoutEditor(
                         inactiveTrackColor = Color(0xFF4A5568)
                     )
                 )
+            } else if (selExtra != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${selExtra.label} 大小", color = Color.White, fontSize = 11.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${selExtra.sizeDp}dp", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                }
+                Slider(
+                    value = selExtra.sizeDp.toFloat(),
+                    onValueChange = { newVal ->
+                        val intVal = newVal.toInt()
+                        updateExtraKey(selExtra.keyCode, selExtra.copy(sizeDp = intVal))
+                    },
+                    valueRange = 24f..80f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD66B),
+                        activeTrackColor = Color(0xFFFFD66B),
+                        inactiveTrackColor = Color(0xFF4A5568)
+                    )
+                )
+            }
+
+            // --- Add / Delete buttons ---
+            Spacer(Modifier.size(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Add button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
+                        .pointerInput(Unit) { detectTapGestures { showAddDialog = true } }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("＋ 添加按键", color = Color(0xFF2ECC71), fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                }
                 // Delete button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFFF8888).copy(alpha = 0.12f))
+                        .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
+                        .pointerInput(Unit) { detectTapGestures { showDeleteDialog = true } }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✕ 删除按键", color = Color(0xFFFF8888), fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                }
+            }
+
+            Spacer(Modifier.size(2.dp))
+            Text(
+                "拖动移动 · 点击选中调整大小 · 长按删除",
+                color = Color(0xFF8899AA),
+                fontSize = 9.sp
+            )
+        }
+
+        // === Add key dialog ===
+        if (showAddDialog) {
+            DosKeyPickerDialog(
+                title = "添加按键",
+                existingExtraKeyCodes = extraKeysList.map { it.keyCode },
+                padLayout = padLayout,
+                allAvailableKeys = allAvailableExtraKeys,
+                onAddFixedBtn = { btnType ->
+                    if (!btnType.isVisible(padLayout)) toggleVisible(btnType)
+                },
+                onAddExtraKey = { entry -> addExtraKey(entry) },
+                onDismiss = { showAddDialog = false }
+            )
+        }
+
+        // === Delete key dialog ===
+        if (showDeleteDialog) {
+            DosKeyDeleteDialog(
+                padLayout = padLayout,
+                extraKeys = extraKeysList,
+                onDeleteFixedBtn = { btnType ->
+                    if (btnType.isVisible(padLayout)) toggleVisible(btnType)
+                },
+                onDeleteExtraKey = { keyCode -> removeExtraKey(keyCode) },
+                onDismiss = { showDeleteDialog = false }
+            )
+        }
+    }
+}
+
+/** Dialog for adding keys — shows all available keys organized by category. */
+@Composable
+private fun DosKeyPickerDialog(
+    title: String,
+    existingExtraKeyCodes: List<Int>,
+    padLayout: PadLayout,
+    allAvailableKeys: List<Pair<String, Int>>,
+    onAddFixedBtn: (DosBtnType) -> Unit,
+    onAddExtraKey: (DosExtraKeyEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Compute which fixed buttons are hidden (can be added)
+    val hiddenFixedBtns = DosBtnType.values().filter { !it.isVisible(padLayout) }
+    // Compute which extra keys are not yet added
+    val availableExtraKeys = allAvailableKeys.filter { (label, code) ->
+        code !in existingExtraKeyCodes
+    }
+
+    // Categorize extra keys
+    val letters = availableExtraKeys.filter { it.second in 97..122 }
+    val digits = availableExtraKeys.filter { it.second in 48..57 }
+    val fKeys = availableExtraKeys.filter { it.second in 282..293 }
+    val arrows = availableExtraKeys.filter { it.second in listOf(273,274,275,276) }
+    val symbols = availableExtraKeys.filter { it.second in listOf(45,61,91,93,59,39,44,46,47,92,96) }
+    val mouseKeys = availableExtraKeys.filter { it.second < 0 }
+    val otherKeys = availableExtraKeys.filter { it !in letters && it !in digits && it !in fKeys && it !in arrows && it !in symbols && it !in mouseKeys }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xAA000000))
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 400.dp)
+                .background(Color(0xEE1E2A3A), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = Color.White, fontSize = 15.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text("点击外部关闭", color = Color(0xFF8899AA), fontSize = 10.sp)
+            }
+            Spacer(Modifier.size(8.dp))
+
+            // Fixed buttons (from DosBtnType)
+            if (hiddenFixedBtns.isNotEmpty()) {
+                Text("固定按键", color = Color(0xFFFFD66B), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(hiddenFixedBtns.map { it.label to it }, cols = 5) { btnType ->
+                    onAddFixedBtn(btnType)
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Letters
+            if (letters.isNotEmpty()) {
+                Text("字母", color = Color(0xFF3498DB), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(letters, cols = 9) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 36
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Digits
+            if (digits.isNotEmpty()) {
+                Text("数字", color = Color(0xFF2ECC71), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(digits, cols = 5) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 36
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // F-keys
+            if (fKeys.isNotEmpty()) {
+                Text("功能键", color = Color(0xFF9B59B6), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(fKeys, cols = 6) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 32
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Arrows
+            if (arrows.isNotEmpty()) {
+                Text("方向键", color = Color(0xFFE67E22), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(arrows, cols = 4) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 36
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Symbols
+            if (symbols.isNotEmpty()) {
+                Text("符号", color = Color(0xFF1ABC9C), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(symbols, cols = 6) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 32
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Mouse keys
+            if (mouseKeys.isNotEmpty()) {
+                Text("鼠标", color = Color(0xFFFFD66B), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(mouseKeys, cols = 4) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 36
+                    ))
+                }
+                Spacer(Modifier.size(8.dp))
+            }
+
+            // Other
+            if (otherKeys.isNotEmpty()) {
+                Text("其他", color = Color(0xFF8899AA), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                KeyGrid(otherKeys, cols = 5) { (label, code) ->
+                    onAddExtraKey(DosExtraKeyEntry(
+                        keyCode = code, label = label,
+                        x = 0.5f, y = 0.5f, sizeDp = 32
+                    ))
+                }
+            }
+        }
+    }
+}
+
+/** Reusable key grid component. */
+@Composable
+private fun <T> KeyGrid(
+    items: List<T>,
+    cols: Int = 5,
+    onSelect: (T) -> Unit
+) {
+    val rows = items.chunked(cols)
+    rows.forEach { rowItems ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            rowItems.forEach { item ->
+                val label = when (item) {
+                    is DosBtnType -> item.label
+                    is Pair<*, *> -> item.first as? String ?: ""
+                    else -> item.toString()
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFF2ECC71).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .pointerInput(item) { detectTapGestures { onSelect(item) } }
+                        .padding(vertical = 5.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "删除此按键",
-                        color = Color(0xFFFF8888),
-                        fontSize = 12.sp,
-                        modifier = Modifier.pointerInput(Unit) {
-                            detectTapGestures { toggleVisible(sel); selectedBtn = null }
-                        }
+                        "+ $label",
+                        color = Color(0xFF2ECC71),
+                        fontSize = 10.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                     )
                 }
             }
+            repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
+        }
+        Spacer(Modifier.size(3.dp))
+    }
+}
 
-            // --- Add / Delete sections (collapsible) ---
-            Spacer(Modifier.size(12.dp))
+/** Dialog for deleting keys — shows all currently visible keys. */
+@Composable
+private fun DosKeyDeleteDialog(
+    padLayout: PadLayout,
+    extraKeys: List<DosExtraKeyEntry>,
+    onDeleteFixedBtn: (DosBtnType) -> Unit,
+    onDeleteExtraKey: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val visibleFixedBtns = DosBtnType.values().filter { it.isVisible(padLayout) }
 
-            // Add section
-            val hiddenBtns = DosBtnType.values().filter { !it.isVisible(padLayout) }
-            var showAdd by remember { mutableStateOf(false) }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
-                    .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
-                    .pointerInput(Unit) { detectTapGestures { showAdd = !showAdd } }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("＋ 添加按键", color = Color(0xFF2ECC71), fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("${hiddenBtns.size} 个可添加", color = Color(0xFF2ECC71).copy(alpha = 0.7f), fontSize = 11.sp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xAA000000))
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.85f)
+                .heightIn(max = 350.dp)
+                .background(Color(0xEE1E2A3A), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("删除按键", color = Color.White, fontSize = 15.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text("点击外部关闭", color = Color(0xFF8899AA), fontSize = 10.sp)
             }
-            if (showAdd && hiddenBtns.isNotEmpty()) {
-                Spacer(Modifier.size(6.dp))
-                val addRows = hiddenBtns.chunked(4)
-                addRows.forEach { rowBtns ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
-                    ) {
-                        rowBtns.forEach { btnType ->
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
-                                    .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
-                                    .pointerInput(btnType) {
-                                        detectTapGestures { toggleVisible(btnType) }
-                                    }
-                                    .padding(vertical = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "+ ${btnType.label}",
-                                    color = Color(0xFF2ECC71),
-                                    fontSize = 10.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                                )
-                            }
-                        }
-                        repeat(4 - rowBtns.size) {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                    Spacer(Modifier.size(4.dp))
-                }
-            }
-
             Spacer(Modifier.size(8.dp))
 
-            // Delete section
-            val visibleBtns = DosBtnType.values().filter { it.isVisible(padLayout) }
-            var showDelete by remember { mutableStateOf(false) }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFFF8888).copy(alpha = 0.12f))
-                    .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
-                    .pointerInput(Unit) { detectTapGestures { showDelete = !showDelete } }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("✕ 删除按键", color = Color(0xFFFF8888), fontSize = 13.sp,
+            // Fixed buttons
+            if (visibleFixedBtns.isNotEmpty()) {
+                Text("固定按键", color = Color(0xFFFFD66B), fontSize = 12.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("${visibleBtns.size} 个已添加", color = Color(0xFFFF8888).copy(alpha = 0.7f), fontSize = 11.sp)
-            }
-            if (showDelete && visibleBtns.isNotEmpty()) {
-                Spacer(Modifier.size(6.dp))
-                val delRows = visibleBtns.chunked(4)
-                delRows.forEach { rowBtns ->
+                Spacer(Modifier.size(4.dp))
+                val rows = visibleFixedBtns.chunked(5)
+                rows.forEach { rowBtns ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         rowBtns.forEach { btnType ->
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Color(0xFFFF8888).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0xFFFF8888).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                                     .pointerInput(btnType) {
-                                        detectTapGestures { toggleVisible(btnType); selectedBtn = null }
+                                        detectTapGestures { onDeleteFixedBtn(btnType) }
                                     }
-                                    .padding(vertical = 6.dp),
+                                    .padding(vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -2304,20 +2639,50 @@ private fun DosPadLayoutEditor(
                                 )
                             }
                         }
-                        repeat(4 - rowBtns.size) {
-                            Spacer(Modifier.weight(1f))
-                        }
+                        repeat(5 - rowBtns.size) { Spacer(Modifier.weight(1f)) }
                     }
-                    Spacer(Modifier.size(4.dp))
+                    Spacer(Modifier.size(3.dp))
                 }
+                Spacer(Modifier.size(8.dp))
             }
 
-            Spacer(Modifier.size(4.dp))
-            Text(
-                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 点击「添加」展开可添加列表 · 点击「删除」展开已添加列表",
-                color = Color(0xFF8899AA),
-                fontSize = 10.sp
-            )
+            // Extra keys (letters, numbers, etc.)
+            if (extraKeys.isNotEmpty()) {
+                Text("自定义按键", color = Color(0xFF3498DB), fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                val rows = extraKeys.chunked(5)
+                rows.forEach { rowKeys ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        rowKeys.forEach { entry ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFFF8888).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFFFF8888).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                    .pointerInput(entry.keyCode) {
+                                        detectTapGestures { onDeleteExtraKey(entry.keyCode) }
+                                    }
+                                    .padding(vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "− ${entry.label}",
+                                    color = Color(0xFFFF8888),
+                                    fontSize = 10.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                )
+                            }
+                        }
+                        repeat(5 - rowKeys.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                    Spacer(Modifier.size(3.dp))
+                }
+            }
         }
     }
 }

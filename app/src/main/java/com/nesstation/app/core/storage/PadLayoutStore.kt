@@ -2,6 +2,7 @@ package com.nesstation.app.core.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
 
 /**
  * Individual button layout — each button has its own position and size.
@@ -13,6 +14,56 @@ data class ButtonLayout(
     val y: Float,       // 0.0 = top, 1.0 = bottom (center of button)
     val sizeDp: Int     // diameter/width in dp
 )
+
+/**
+ * Extra key entry for dynamically added DOS keys (letters, numbers, symbols, F-keys, etc.).
+ * These are not part of the fixed DosBtnType enum and can be freely added/removed.
+ * Serialized as JSON for storage in PadLayout.
+ */
+data class DosExtraKeyEntry(
+    val keyCode: Int,       // libretro RETROK_* constant
+    val label: String,      // Display label (e.g. "A", "1", "F1")
+    val x: Float = 0.5f,   // 0.0–1.0 fraction of screen width
+    val y: Float = 0.5f,   // 0.0–1.0 fraction of screen height
+    val sizeDp: Int = 36   // diameter in dp
+) {
+    fun toJson(): String {
+        val arr = JSONArray()
+        arr.put(keyCode); arr.put(label); arr.put(x); arr.put(y); arr.put(sizeDp)
+        return arr.toString()
+    }
+
+    companion object {
+        fun fromJson(json: String): DosExtraKeyEntry? {
+            return try {
+                val arr = JSONArray(json)
+                DosExtraKeyEntry(
+                    keyCode = arr.getInt(0),
+                    label = arr.getString(1),
+                    x = arr.getDouble(2).toFloat(),
+                    y = arr.getDouble(3).toFloat(),
+                    sizeDp = arr.getInt(4)
+                )
+            } catch (_: Exception) { null }
+        }
+
+        /** Parse a JSON array string into a list of DosExtraKeyEntry. */
+        fun parseList(json: String): List<DosExtraKeyEntry> {
+            if (json.isBlank()) return emptyList()
+            return try {
+                val arr = JSONArray(json)
+                (0 until arr.length()).mapNotNull { fromJson(arr.getString(it)) }
+            } catch (_: Exception) { emptyList() }
+        }
+
+        /** Serialize a list of DosExtraKeyEntry into a JSON array string. */
+        fun formatList(entries: List<DosExtraKeyEntry>): String {
+            val arr = JSONArray()
+            entries.forEach { arr.put(it.toJson()) }
+            return arr.toString()
+        }
+    }
+}
 
 /**
  * Complete on-screen controller layout with per-button positioning.
@@ -190,6 +241,10 @@ data class PadLayout(
     val dosShowEnd: Boolean = false,
     val dosShowPageUp: Boolean = false,
     val dosShowPageDown: Boolean = false,
+    // --- Dynamic extra keys (letters, numbers, symbols, F-keys, etc.) ---
+    // JSON-encoded list of DosExtraKeyEntry — can be freely added/removed by the user.
+    val dosExtraKeys: String = "",          // landscape extra keys (JSON)
+    val dosExtraKeysP: String = "",         // portrait extra keys (JSON)
     // --- Display orientation ---
     val screenOrientation: String = "sensor",          // sensor | landscape | portrait
     // --- Performance ---
@@ -567,6 +622,8 @@ object PadLayoutStore {
             dosShowEnd = p.getBoolean("dos_show_end", false),
             dosShowPageUp = p.getBoolean("dos_show_pageup", false),
             dosShowPageDown = p.getBoolean("dos_show_pagedown", false),
+            dosExtraKeys = p.getString("dos_extra_keys", "") ?: "",
+            dosExtraKeysP = p.getString("dos_extra_keys_p", "") ?: "",
             screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
         )
     }
@@ -795,6 +852,9 @@ object PadLayoutStore {
             putBoolean("dos_show_end", layout.dosShowEnd)
             putBoolean("dos_show_pageup", layout.dosShowPageUp)
             putBoolean("dos_show_pagedown", layout.dosShowPageDown)
+            // Dynamic extra keys
+            putString("dos_extra_keys", layout.dosExtraKeys)
+            putString("dos_extra_keys_p", layout.dosExtraKeysP)
             // Display orientation
             putString("screen_orientation", layout.screenOrientation)
         }.apply()
