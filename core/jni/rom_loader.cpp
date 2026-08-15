@@ -635,6 +635,12 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
                                           hdrPrgBytes + hdrChrBytes;
             uint64_t actualSize = romData.size();
 
+            // Decode current mapper (for diagnostic logging) — same formula
+            // FCEUmm's iNES_get_mapper_id uses on the LEGACY path (byte7 & 0x0C == 0).
+            // We log this so the user can verify the patch preserved the mapper.
+            uint32_t origMapper = ((uint32_t)(romData[7] & 0xF0)) |
+                                  ((uint32_t)romData[6] >> 4);
+
             // If the file is significantly larger than the header claims
             // (more than 16KB extra = one PRG bank), patch the header.
             if (actualSize > headerClaimedSize + 16 * 1024) {
@@ -649,11 +655,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
                 if (prgUnits > 0xEFF) prgUnits = 0xEFF;
 
                 LOGI("iNES header mismatch: file=%llu bytes, header claims=%llu "
-                     "(PRG=%u CHR=%u trainer=%d). Patching PRG size to %u units (%u bytes).",
+                     "(PRG=%u CHR=%u trainer=%d mapper=%u). Patching PRG size to %u units (%u bytes).",
                      (unsigned long long)actualSize,
                      (unsigned long long)headerClaimedSize,
                      hdrPrgBytes, hdrChrBytes, hasTrainer ? 1 : 0,
-                     prgUnits, prgUnits * 16 * 1024);
+                     origMapper, prgUnits, prgUnits * 16 * 1024);
 
                 // Set PRG size: byte 4 = low 8 bits, byte 9 low nibble = high 4 bits
                 romData[4] = (uint8_t)(prgUnits & 0xFF);
@@ -665,6 +671,26 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
                     romData[7] = (romData[7] & 0xF3) | 0x08;
                     // Set byte 9 low nibble = highNibble (preserve high nibble)
                     romData[9] = (romData[9] & 0xF0) | highNibble;
+
+                    // CRITICAL: when switching to NES 2.0 format, FCEUmm now
+                    // also reads byte 8's LOW nibble as mapper bits 8-11
+                    // (iNES_get_mapper_id: ret = ((byte8 << 8) & 0xF00) | ...).
+                    // For pirate multicarts the original iNES header usually
+                    // has byte 8 = 0 (unused in legacy iNES), but some dumps
+                    // leave garbage in bytes 8-15. If byte 8 has a non-zero
+                    // low nibble, FCEUmm will compute a WRONG mapper ID
+                    // (e.g. mapper 268 + garbage low nibble = mapper 0xN268),
+                    // causing iNES_Init() to fail and the screen stays gray.
+                    //
+                    // Fix: clear byte 8 entirely (both low nibble = mapper hi
+                    // bits and high nibble = submapper) since pirate multicarts
+                    // don't use submappers — leaving garbage there can confuse
+                    // the core. This preserves the original mapper ID.
+                    romData[8] = 0x00;
+
+                    LOGI("iNES patch: switched to NES 2.0 — cleared byte 8 "
+                         "(mapper hi/submapper) to preserve mapper ID %u.",
+                         origMapper);
                 }
                 // If highNibble == 0, we don't need NES 2.0 marker —
                 // byte 4 alone holds the full PRG size (legacy mode).

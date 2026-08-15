@@ -137,6 +137,24 @@ static std::string s_coreMessage;
 static std::string s_coreError;
 static std::string s_coreLibPath;
 
+// === Extended game info for RETRO_ENVIRONMENT_GET_GAME_INFO_EXT ===
+// Genesis-Plus-GX's retro_load_game() queries GET_GAME_INFO_EXT. If we
+// implement it and return the in-memory ROM buffer, GPGX uses the buffer
+// directly (g_rom_data/g_rom_size) and skips filestream_open(). This
+// bypasses any file-path encoding issues (Chinese characters, spaces,
+// brackets in paths like "/storage/emulated/0/游戏/MD/Double Dragon (UE) [!].sms")
+// and lets the core read the ROM from memory.
+//
+// Without this, GPGX relies on info->path and filestream_open() — which
+// can silently fail on certain Android FUSE paths, producing a black screen
+// with no error logged (the user's reported SMS bug).
+static std::vector<uint8_t> s_extRomData;
+static std::string s_extRomDir;
+static std::string s_extRomName;
+static std::string s_extRomExt;
+static struct retro_game_info_ext s_extGameInfo;
+static bool s_extGameInfoValid = false;
+
 // Dynamic frame buffer (ARGB, 0xAARRGGBB).
 static std::mutex s_frameMtx;
 static std::vector<uint32_t> s_frame;
@@ -437,6 +455,28 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
             return true;
 
+        // === Provide extended game info so GPGX uses our in-memory ROM buffer ===
+        // Genesis-Plus-GX's retro_load_game() queries GET_GAME_INFO_EXT. If we
+        // return our pre-loaded ROM buffer here, GPGX copies it directly into
+        // cart.rom via load_archive()'s g_rom_data fast-path — bypassing
+        // filestream_open() on the (possibly Chinese-character-laden) path.
+        // Without this, GPGX falls back to info->path and may fail silently.
+        case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT: {
+            if (!s_extGameInfoValid) {
+                LOGW("GET_GAME_INFO_EXT: no extended info available "
+                     "(s_extGameInfoValid=false) — GPGX will read from path");
+                return false;
+            }
+            if (data) {
+                *static_cast<struct retro_game_info_ext**>(data) = &s_extGameInfo;
+                LOGI("GET_GAME_INFO_EXT: returning in-memory buffer "
+                     "(data=%p, size=%zu, full_path=%s)",
+                     s_extGameInfo.data, s_extGameInfo.size,
+                     s_extGameInfo.full_path ? s_extGameInfo.full_path : "(null)");
+            }
+            return true;
+        }
+
         default:
             return false;
     }
@@ -585,35 +625,130 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_resampler.reset();
 
+    // === Pre-load ROM into memory and fill extended game info ===
+    // Genesis-Plus-GX queries GET_GAME_INFO_EXT during retro_load_game().
+    // If we provide the in-memory buffer, GPGX uses it directly via
+    // load_archive()'s g_rom_data fast-path — bypassing filestream_open()
+    // which can fail silently on paths with Chinese characters / spaces.
+    // This fixes the SMS black screen bug where the core logs BIOS paths
+    // but never logs "Loading N bytes" because filestream_open returned NULL.
+    std::vector<uint8_t> romData;
+    {
+        FILE* f = std::fopen(path.c_str(), "rb");
+        if (f) {
+            std::fseek(f, 0, SEEK_END);
+            long sz = std::ftell(f);
+            std::fseek(f, 0, SEEK_SET);
+            if (sz > 0 && sz < 64 * 1024 * 1024) {
+                romData.resize((size_t)sz);
+                size_t rd = std::fread(romData.data(), 1, (size_t)sz, f);
+                if (rd == (size_t)sz) {
+                    // Move romData into the persistent s_extRomData so it
+                    // survives beyond this block (GPGX queries
+                    // GET_GAME_INFO_EXT later during retro_load_game()).
+                    s_extRomData = std::move(romData);
+
+                    // Parse path into dir / name / ext for retro_game_info_ext
+                    size_t lastSlash = path.find_last_of('/');
+                    std::string fileName = (lastSlash != std::string::npos)
+                        ? path.substr(lastSlash + 1) : path;
+                    s_extRomDir = (lastSlash != std::string::npos)
+                        ? path.substr(0, lastSlash) : ".";
+                    size_t lastDot = fileName.find_last_of('.');
+                    if (lastDot != std::string::npos) {
+                        s_extRomName = fileName.substr(0, lastDot);
+                        s_extRomExt = fileName.substr(lastDot + 1);
+                        std::transform(s_extRomExt.begin(), s_extRomExt.end(),
+                                       s_extRomExt.begin(),
+                                       [](unsigned char c) { return std::tolower(c); });
+                    } else {
+                        s_extRomName = fileName;
+                        s_extRomExt = "md";
+                    }
+
+                    std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
+                    s_extGameInfo.full_path     = path.c_str();
+                    s_extGameInfo.archive_path  = nullptr;
+                    s_extGameInfo.archive_file  = nullptr;
+                    s_extGameInfo.dir           = s_extRomDir.c_str();
+                    s_extGameInfo.name          = s_extRomName.c_str();
+                    s_extGameInfo.ext           = s_extRomExt.c_str();
+                    s_extGameInfo.meta          = nullptr;
+                    s_extGameInfo.data          = s_extRomData.data();
+                    s_extGameInfo.size          = s_extRomData.size();
+                    s_extGameInfo.file_in_archive = false;
+                    s_extGameInfoValid = true;
+                    LOGI("Filled ext game info: path=%s, dir=%s, name=%s, ext=%s, "
+                         "data=%p, size=%zu",
+                         path.c_str(), s_extRomDir.c_str(), s_extRomName.c_str(),
+                         s_extRomExt.c_str(), s_extGameInfo.data, s_extGameInfo.size);
+                } else {
+                    LOGW("ROM read partial: got %zu of %ld bytes — falling back to path mode",
+                         rd, sz);
+                    s_extRomData.clear();
+                    s_extGameInfoValid = false;
+                }
+            } else {
+                LOGW("ROM size out of range: %ld bytes — falling back to path mode", sz);
+                s_extRomData.clear();
+                s_extGameInfoValid = false;
+            }
+            std::fclose(f);
+        } else {
+            LOGW("Cannot open ROM file for pre-load: %s — falling back to path mode",
+                 path.c_str());
+            s_extRomData.clear();
+            s_extGameInfoValid = false;
+        }
+    }
+
     // Genesis-Plus-GX accepts file paths directly. For .cue / .chd / .iso
     // (Mega-CD), the path points to the cue sheet which references the bin.
+    // We also provide game.data (pointing to s_extRomData) so GPGX can use
+    // either path or in-memory data depending on which mode it prefers.
     retro_game_info gameInfo{};
     gameInfo.path = path.c_str();
-    gameInfo.data = nullptr;
-    gameInfo.size = 0;
+    gameInfo.data = s_extGameInfoValid ? s_extRomData.data() : nullptr;
+    gameInfo.size = s_extGameInfoValid ? s_extRomData.size() : 0;
     gameInfo.meta = nullptr;
+
+    LOGI("About to call retro_load_game for: %s (systemDir=%s, extInfoValid=%d, "
+         "data=%p, size=%zu)",
+         path.c_str(), s_systemDir.c_str(), s_extGameInfoValid ? 1 : 0,
+         gameInfo.data, gameInfo.size);
 
     bool ok = s_retro_load_game(&gameInfo);
     if (!ok) {
         // Fallback: read ROM into memory (used for content:// URI temp files
         // when the core needs data + size rather than just a path).
-        FILE* fp = fopen(path.c_str(), "rb");
-        if (fp) {
-            fseek(fp, 0, SEEK_END);
-            long sz = ftell(fp);
-            fseek(fp, 0, SEEK_SET);
-            if (sz > 0 && sz < 64 * 1024 * 1024) {
-                std::vector<uint8_t> buf(sz);
-                size_t rd = fread(buf.data(), 1, sz, fp);
-                fclose(fp);
-                if (rd == (size_t)sz) {
-                    gameInfo.data = buf.data();
-                    gameInfo.size = sz;
-                    ok = s_retro_load_game(&gameInfo);
+        // If we already pre-loaded above, s_extRomData is set — try with
+        // a fresh gameInfo pointing to it (sometimes the first call fails
+        // because GPGX's GET_GAME_INFO_EXT was queried before s_extRomData
+        // was assigned, but on subsequent calls within the same load_game
+        // invocation that's not possible — so this fallback is mainly for
+        // the case where pre-load failed).
+        if (!s_extGameInfoValid) {
+            FILE* fp = fopen(path.c_str(), "rb");
+            if (fp) {
+                fseek(fp, 0, SEEK_END);
+                long sz = ftell(fp);
+                fseek(fp, 0, SEEK_SET);
+                if (sz > 0 && sz < 64 * 1024 * 1024) {
+                    std::vector<uint8_t> buf(sz);
+                    size_t rd = fread(buf.data(), 1, sz, fp);
+                    fclose(fp);
+                    if (rd == (size_t)sz) {
+                        gameInfo.data = buf.data();
+                        gameInfo.size = sz;
+                        ok = s_retro_load_game(&gameInfo);
+                    }
+                } else {
+                    fclose(fp);
                 }
-            } else {
-                fclose(fp);
             }
+        } else {
+            LOGE("retro_load_game failed even with in-memory buffer — "
+                 "GPGX rejected the ROM (unsupported mapper or corrupt file)");
         }
     }
 
@@ -722,6 +857,17 @@ void unload() {
     s_saveName.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
+
+    // Clear extended game info so a stale buffer is never returned to the
+    // core after unload (would cause use-after-free if GPGX queries
+    // GET_GAME_INFO_EXT for the next game before we fill it again).
+    s_extRomData.clear();
+    s_extRomData.shrink_to_fit();
+    s_extRomDir.clear();
+    s_extRomName.clear();
+    s_extRomExt.clear();
+    std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
+    s_extGameInfoValid = false;
 }
 
 void resetEmulation(bool /*hard*/) {

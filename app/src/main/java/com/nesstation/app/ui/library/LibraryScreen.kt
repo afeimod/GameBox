@@ -277,34 +277,64 @@ fun LibraryScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
+
+        // === Deduplicate multi-file CD images ===
+        // When the user selects multiple files from the same game folder
+        // (e.g. game.cue + game.bin + game.iso), only import the launch
+        // file (.cue if present, otherwise .ccd, otherwise keep .iso/.chd
+        // as single-file formats). Skip companion files (.bin/.img/.sub).
+        // This matches the folder-scan behavior in scanUriForRomsRecursive
+        // and prevents the user's reported bug of "3 entries per MD CD game".
+        data class PickedFile(val uri: android.net.Uri, val name: String, val ext: String)
+        val picked = mutableListOf<PickedFile>()
+        uris.forEach { u ->
+            val n = queryDisplayName(u) ?: return@forEach
+            val e = n.substringAfterLast('.', "").lowercase()
+            if (e in ROM_EXTENSIONS) picked.add(PickedFile(u, n, e))
+        }
+        val pickedExts = picked.map { it.ext }.toSet()
+        val hasCue = "cue" in pickedExts
+        val hasCcd = "ccd" in pickedExts
+        // .bin is only skipped if we have a .cue (it's a CD data track).
+        // Without .cue, a .bin is likely a SEGA MD cart dump — keep it.
+        val skipIfCue = setOf("img", "bin", "ccd", "sub", "iso")
+        val skipIfCcd = setOf("img", "sub")
+        val filtered = picked.filter { c ->
+            if (c.ext == "sub") return@filter false  // .sub is always a companion
+            if (hasCue && c.ext in skipIfCue) return@filter false
+            if (!hasCue && hasCcd && c.ext in skipIfCcd) return@filter false
+            true
+        }
+
         var count = 0
-        uris.forEach { uri ->
+        var skipped = picked.size - filtered.size
+        filtered.forEach { pf ->
             try {
                 context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    pf.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) { }
-            val name = queryDisplayName(uri) ?: "unknown.nes"
-            val ext = name.substringAfterLast('.', "").lowercase()
-            if (ext in ROM_EXTENSIONS) {
-                // Pass the user's selected platform tab as a hint so that
-                // ambiguous CD-image extensions (.cue/.img/.iso/.ccd/.sub)
-                // are resolved in favor of the user's intent. Without a hint,
-                // SEGA-CD games would default to DOS.
-                val platform = detectPlatformFromUri(context, uri, name, hintPlatform = selectedPlatform)
-                // 街机游戏使用中文名映射（kof98h → 拳皇98 - ...）
-                val title = if (platform == GamePlatform.ARCADE) {
-                    ArcadeTitleMapper.resolveDisplayTitle(name)
-                } else {
-                    name.substringBeforeLast('.')
-                }
-                RomStore.add(context, title, uri.toString(), platform)
-                count++
+            // Pass the user's selected platform tab as a hint so that
+            // ambiguous CD-image extensions (.cue/.img/.iso/.ccd/.sub)
+            // are resolved in favor of the user's intent. Without a hint,
+            // SEGA-CD games would default to DOS.
+            val platform = detectPlatformFromUri(context, pf.uri, pf.name, hintPlatform = selectedPlatform)
+            // 街机游戏使用中文名映射（kof98h → 拳皇98 - ...）
+            val title = if (platform == GamePlatform.ARCADE) {
+                ArcadeTitleMapper.resolveDisplayTitle(pf.name)
+            } else {
+                pf.name.substringBeforeLast('.')
             }
+            RomStore.add(context, title, pf.uri.toString(), platform)
+            count++
         }
         if (count > 0) {
             refreshList()
-            dialogMsg = "已导入 $count 个ROM文件"
+            dialogMsg = if (skipped > 0) {
+                "已导入 $count 个ROM文件（自动跳过 $skipped 个CD附属文件）"
+            } else {
+                "已导入 $count 个ROM文件"
+            }
         }
     }
 

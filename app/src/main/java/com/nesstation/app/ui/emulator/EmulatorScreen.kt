@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -2689,10 +2690,13 @@ private fun DosPadLayoutEditor(
         }
 
         // === Centered control panel (combines toolbar + controls) ===
+        // Keep NARROW and at TopCenter so it doesn't cover the on-screen
+        // buttons being dragged (same fix as PadLayoutEditor).
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.82f)
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp)
+                .widthIn(min = 240.dp, max = 320.dp)
                 .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
@@ -3764,12 +3768,19 @@ private fun PadLayoutEditor(
         }
 
         // === Centered control panel ===
+        // IMPORTANT: keep this panel NARROW and centered. A wide panel
+        // (e.g. fillMaxWidth(0.85f)) covers the on-screen virtual buttons
+        // the user is trying to drag — see user report "虚拟按键布局界面咋又宽了
+        // ... 应该在中间位置不要那么长啊, 挡住按键". We cap the width to a
+        // content-fit size and align it to TopCenter so it doesn't overlap
+        // the action buttons (which live in the lower half of the screen).
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.85f)
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp)
+                .widthIn(min = 240.dp, max = 320.dp)
                 .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             // --- Toolbar row ---
             Row(verticalAlignment = Alignment.CenterVertically) {

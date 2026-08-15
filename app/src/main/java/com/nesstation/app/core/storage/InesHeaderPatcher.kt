@@ -106,6 +106,20 @@ object InesHeaderPatcher {
             header[7] = ((header[7].toInt() and 0xF3) or 0x08).toByte()
             // Set byte 9 low nibble = highNibble (preserve high nibble = CHR size bits)
             header[9] = ((header[9].toInt() and 0xF0) or highNibble).toByte()
+
+            // CRITICAL: when we switch the header to NES 2.0 format, FCEUmm's
+            // iNES_get_mapper_id() now reads byte 8's LOW nibble as mapper
+            // bits 8-11 (ret = ((byte8 << 8) & 0xF00) | (byte7 & 0xF0) | (byte6 >> 4)).
+            // On the legacy path (byte7 & 0x0C == 0) byte 8 is ignored, so pirate
+            // multicarts often leave garbage there. If we don't clear it, the
+            // computed mapper ID changes (e.g. mapper 268 + garbage = mapper 0xN268)
+            // and iNES_Init() fails → gray screen.
+            //
+            // Fix: clear byte 8 entirely. Byte 8 = submapper (high nibble) +
+            // mapper bits 8-11 (low nibble). Pirate multicarts don't use
+            // submappers, so clearing both is safe and preserves the original
+            // mapper ID encoded in byte 6 low nibble + byte 7 high nibble.
+            header[8] = 0
         }
         // If highNibble == 0, byte 4 alone holds the full PRG size (legacy mode).
 
