@@ -58,6 +58,25 @@ static std::string s_coreMessage;  // last message from the core (e.g. FDS BIOS 
 static std::string s_lastRomPath;  // last successfully loaded ROM path (for SRAM save)
 static std::string s_saveName;     // explicit .srm basename (set by frontend for content:// URI games)
 
+// === Extended game info for RETRO_ENVIRONMENT_GET_GAME_INFO_EXT ===
+// FCEUmm registers a content info override (need_fullpath=false for
+// fds|nes|unf|unif). When retro_load_game() runs, the core queries
+// GET_GAME_INFO_EXT to fetch the in-memory ROM buffer. If we don't
+// implement this, FCEUmm falls back to re-reading the file from
+// info->path, which BYPASSES our in-memory iNES header patch for
+// pirate multicarts (500-in-1 etc.) — causing gray screen.
+// By filling this struct with our (already-patched) romData, FCEUmm
+// uses the patched header directly and loads the full PRG ROM.
+//
+// The buffer (s_extRomData) must outlive retro_load_game(); it is
+// cleared in unload().
+static std::vector<uint8_t> s_extRomData;
+static std::string s_extRomDir;
+static std::string s_extRomName;
+static std::string s_extRomExt;
+static struct retro_game_info_ext s_extGameInfo;
+static bool s_extGameInfoValid = false;
+
 // Frame buffer (ARGB, 0xAARRGGBB). Written by video_cb, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
 static std::mutex s_frameMtx;
@@ -312,6 +331,28 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
             return false;
+
+        // === Provide extended game info so FCEUmm uses our patched ROM buffer ===
+        // FCEUmm registers a content info override (need_fullpath=false for
+        // .nes/.fds/.unf/.unif). When it calls GET_GAME_INFO_EXT during
+        // retro_load_game(), we return the patched ROM data — otherwise the
+        // core re-reads the file from disk and bypasses our iNES header patch
+        // for pirate multicarts (500-in-1, COOLBOY, etc.), causing gray screen.
+        case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT: {
+            if (!s_extGameInfoValid) {
+                LOGW("GET_GAME_INFO_EXT: no extended info available "
+                     "(s_extGameInfoValid=false) — FCEUmm will re-read file");
+                return false;
+            }
+            if (data) {
+                *static_cast<struct retro_game_info_ext**>(data) = &s_extGameInfo;
+                LOGI("GET_GAME_INFO_EXT: returning patched buffer "
+                     "(data=%p, size=%zu, full_path=%s)",
+                     s_extGameInfo.data, s_extGameInfo.size,
+                     s_extGameInfo.full_path ? s_extGameInfo.full_path : "(null)");
+            }
+            return true;
+        }
 
         default:
             return false;
@@ -633,6 +674,50 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         game.path = path.c_str();
         game.data = romData.data();
         game.size = romData.size();
+
+        // === Fill extended game info for RETRO_ENVIRONMENT_GET_GAME_INFO_EXT ===
+        // Move romData into the persistent s_extRomData so it survives beyond
+        // this block (FCEUmm queries GET_GAME_INFO_EXT later during
+        // retro_load_game()). The patched iNES header (if any) is preserved.
+        s_extRomData = std::move(romData);
+        // Re-point game.data to the moved buffer (romData is now empty)
+        game.data = s_extRomData.data();
+        game.size = s_extRomData.size();
+
+        // Parse path into dir / name / ext for retro_game_info_ext
+        size_t lastSlash = path.find_last_of('/');
+        std::string fileName = (lastSlash != std::string::npos)
+            ? path.substr(lastSlash + 1) : path;
+        s_extRomDir = (lastSlash != std::string::npos)
+            ? path.substr(0, lastSlash) : ".";
+        size_t lastDot = fileName.find_last_of('.');
+        if (lastDot != std::string::npos) {
+            s_extRomName = fileName.substr(0, lastDot);
+            s_extRomExt = fileName.substr(lastDot + 1);
+            std::transform(s_extRomExt.begin(), s_extRomExt.end(),
+                           s_extRomExt.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+        } else {
+            s_extRomName = fileName;
+            s_extRomExt = "nes";
+        }
+
+        std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
+        s_extGameInfo.full_path     = path.c_str();
+        s_extGameInfo.archive_path  = nullptr;
+        s_extGameInfo.archive_file  = nullptr;
+        s_extGameInfo.dir           = s_extRomDir.c_str();
+        s_extGameInfo.name          = s_extRomName.c_str();
+        s_extGameInfo.ext           = s_extRomExt.c_str();
+        s_extGameInfo.meta          = nullptr;
+        s_extGameInfo.data          = s_extRomData.data();
+        s_extGameInfo.size          = s_extRomData.size();
+        s_extGameInfo.file_in_archive = false;
+        s_extGameInfoValid = true;
+        LOGI("Filled ext game info: path=%s, dir=%s, name=%s, ext=%s, "
+             "data=%p, size=%zu",
+             path.c_str(), s_extRomDir.c_str(), s_extRomName.c_str(),
+             s_extRomExt.c_str(), s_extGameInfo.data, s_extGameInfo.size);
     }
 
     // Reset FDS state (no auto-insert needed — FDSInit called by PowerNES
@@ -803,6 +888,16 @@ void unload() {
     s_isFdsGame.store(false, std::memory_order_relaxed);
     s_lastRomPath.clear();
     s_saveName.clear();
+    // Clear extended game info so a stale buffer is never returned to the
+    // core after unload (would cause use-after-free if FCEUmm queries
+    // GET_GAME_INFO_EXT for the next game before we fill it again).
+    s_extRomData.clear();
+    s_extRomData.shrink_to_fit();
+    s_extRomDir.clear();
+    s_extRomName.clear();
+    s_extRomExt.clear();
+    std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
+    s_extGameInfoValid = false;
 }
 
 void resetEmulation(bool /*hard*/) {

@@ -970,6 +970,23 @@ private fun scanUriForRomsRecursive(
             DocumentsContract.getDocumentId(folderUri)
         }
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, folderDocId)
+
+        // === Two-pass scan to deduplicate multi-file CD images ===
+        // A typical Mega-CD / SEGA-CD dump consists of:
+        //   game.cue + game.img + game.ccd + game.sub   (4 files!)
+        //   OR  game.cue + game.bin + game.sub
+        //   OR  game.chd                                 (single file)
+        //   OR  game.iso                                 (single file)
+        // Previously we imported .cue + .img + .ccd as 3 separate library
+        // entries, which cluttered the UI. Now we do a pre-pass to collect
+        // all file extensions in the folder, then:
+        //   - If the folder has .cue → import only .cue (skip .img/.bin/.ccd/.sub/.iso)
+        //   - If the folder has .ccd (no .cue) → import only .ccd (skip .img/.sub)
+        //   - .chd and standalone .iso are always imported (single-file formats)
+        // This ensures each game appears as ONE entry in the library.
+        data class FileEntry(val name: String, val uri: Uri, val ext: String)
+        val candidates = mutableListOf<FileEntry>()
+
         context.contentResolver.query(childrenUri, null, null, null, null)?.use { cursor ->
             while (cursor.moveToNext()) {
                 val docId = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
@@ -983,29 +1000,30 @@ private fun scanUriForRomsRecursive(
                 } else {
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext in ROM_EXTENSIONS) {
-                        // For multi-file CD images (.cue + .img/.sub/.ccd), only
-                        // import the .cue sheet — the .img/.sub are referenced
-                        // relative to the .cue file and would create duplicate
-                        // entries in the library.
-                        if (ext in setOf("img", "sub", "ccd")) {
-                            // Skip — these are companion files for .cue/.ccd
-                            // sheets and shouldn't appear as separate entries.
-                            // Exception: if the folder has NO .cue, the user
-                            // might have a standalone .img (e.g. raw Mega-CD
-                            // dump); we still pick the .cue over .img when both
-                            // exist (handled in deduplication below).
-                            // For now, we keep .img/.sub but mark them for
-                            // later deduplication — pass through.
-                            // Actually, simplest behavior: skip .sub entirely
-                            // (it's always a companion file). Keep .img/.ccd
-                            // since they could be standalone.
-                            if (ext == "sub") continue
-                        }
                         val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                        results.add(name to fileUri)
+                        candidates.add(FileEntry(name, fileUri, ext))
                     }
                 }
             }
+        }
+
+        // Pass 2: decide which candidates to keep based on folder contents.
+        // CD companion files that should be skipped if a primary exists.
+        val folderExts = candidates.map { it.ext }.toSet()
+        val hasCue = "cue" in folderExts
+        val hasCcd = "ccd" in folderExts
+        // .bin is tricky — it could be a Mega-CD data track OR a SEGA MD
+        // cartridge dump. Only skip .bin if we have a .cue (which references
+        // it as a CD data track); otherwise keep it (it's likely a cart).
+        val skipIfCue = setOf("img", "bin", "ccd", "sub", "iso")
+        val skipIfCcd = setOf("img", "sub")
+
+        for (c in candidates) {
+            if (hasCue && c.ext in skipIfCue) continue
+            if (hasCue.not() && hasCcd && c.ext in skipIfCcd) continue
+            // .sub is always a companion file — never import standalone.
+            if (c.ext == "sub") continue
+            results.add(c.name to c.uri)
         }
     } catch (_: Exception) { }
     return results
@@ -1026,18 +1044,30 @@ private fun scanLocalFolderForRoms(folder: File, maxDepth: Int): List<File> {
     } catch (_: Exception) {
         return results
     }
-    for (f in children) {
-        if (f.name.startsWith(".")) continue
-        if (f.isFile) {
-            val ext = f.extension.lowercase()
-            if (ext in ROM_EXTENSIONS) {
-                // .sub is always a companion file for a .cue/.ccd — skip.
-                if (ext == "sub") continue
-                results.add(f)
-            }
-        } else if (f.isDirectory) {
-            results.addAll(scanLocalFolderForRoms(f, maxDepth - 1))
-        }
+
+    // === Two-pass deduplication (same logic as scanUriForRomsRecursive) ===
+    // If folder contains .cue → skip .img/.bin/.ccd/.sub/.iso (CD companions)
+    // If folder contains .ccd (no .cue) → skip .img/.sub
+    // .sub is always skipped (always a companion file).
+    val fileChildren = children.filter { it.isFile && !it.name.startsWith(".") }
+    val dirChildren = children.filter { it.isDirectory && !it.name.startsWith(".") }
+
+    val folderExts = fileChildren.map { it.extension.lowercase() }.toSet()
+    val hasCue = "cue" in folderExts
+    val hasCcd = "ccd" in folderExts
+    val skipIfCue = setOf("img", "bin", "ccd", "sub", "iso")
+    val skipIfCcd = setOf("img", "sub")
+
+    for (f in fileChildren) {
+        val ext = f.extension.lowercase()
+        if (ext !in ROM_EXTENSIONS) continue
+        if (hasCue && ext in skipIfCue) continue
+        if (hasCue.not() && hasCcd && ext in skipIfCcd) continue
+        if (ext == "sub") continue
+        results.add(f)
+    }
+    for (d in dirChildren) {
+        results.addAll(scanLocalFolderForRoms(d, maxDepth - 1))
     }
     return results
 }

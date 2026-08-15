@@ -42,6 +42,8 @@ object InesHeaderPatcher {
      * early if not an iNES header.
      */
     fun patchIfNeeded(file: File): String {
+        android.util.Log.i("InesHeaderPatcher",
+            "patchIfNeeded: file=${file.absolutePath}, size=${file.length()}")
         if (!file.exists()) return "file not found"
         val size = file.length()
         if (size < 16) return "file too small"

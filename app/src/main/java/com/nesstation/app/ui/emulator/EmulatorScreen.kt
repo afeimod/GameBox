@@ -374,6 +374,19 @@ fun EmulatorScreen(
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
+    // === Debounced persistence of PadLayout ===
+    // Dragging a button fires onLayoutChange on EVERY pointer move event
+    // (60+ times per second). Calling PadLayoutStore.save() on each event
+    // serializes the entire layout to SharedPreferences on disk, causing
+    // severe jank ("不跟手"). Instead we just update in-memory state here
+    // and persist via a debounced LaunchedEffect — it waits 400ms after
+    // the last change before writing to disk, so a continuous drag only
+    // triggers ONE save at the end.
+    LaunchedEffect(padLayout) {
+        kotlinx.coroutines.delay(400)
+        PadLayoutStore.save(context, padLayout)
+    }
+
     // On TV, auto-hide the on-screen pad regardless of the user's setting —
     // the touch overlay is useless without a touchscreen and only wastes GPU.
     val effectiveShowPad = padLayout.showPad && !isTv
@@ -834,7 +847,7 @@ fun EmulatorScreen(
                         val newMode = if (padLayout.dosInputMode == "gamepad") "keyboard" else "gamepad"
                         val newLayout = padLayout.copy(dosInputMode = newMode)
                         padLayout = newLayout
-                        PadLayoutStore.save(context, newLayout)
+                        // Persisted by the debounced LaunchedEffect above.
                     }
                 )
             } else {
@@ -973,8 +986,11 @@ fun EmulatorScreen(
                 platform = platform,
                 isPortrait = isPortrait,
                 onLayoutChange = { newLayout ->
+                    // Just update in-memory state — the LaunchedEffect above
+                    // will persist to disk 400ms after the last change.
+                    // (Previously called PadLayoutStore.save() here on every
+                    // pointer-move event, causing severe drag lag.)
                     padLayout = newLayout
-                    PadLayoutStore.save(context, newLayout)
                 },
                 surfaceSize = surfaceSize,
                 onClose = { showLayoutEditor = false }
@@ -987,7 +1003,6 @@ fun EmulatorScreen(
                 platform = platform,
                 onLayoutChange = { newLayout ->
                     padLayout = newLayout
-                    PadLayoutStore.save(context, newLayout)
                     applyCoreOptions(engine, newLayout, platform)
                 },
                 onClose = { showSettings = false }
@@ -3478,6 +3493,7 @@ private fun DosEditableButton(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    down.consume()
                     currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
@@ -3487,7 +3503,7 @@ private fun DosEditableButton(
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
+                        if (!change.pressed) { change.consume(); break }
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
@@ -3495,6 +3511,7 @@ private fun DosEditableButton(
                                 val dxFrac = dxPx / currentSurfaceSize.width
                                 val dyFrac = dyPx / currentSurfaceSize.height
                                 currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                                change.consume()
                             }
                         }
                     }
@@ -4139,6 +4156,7 @@ private fun EditableRoundBtn(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    down.consume()  // prevent parent from double-processing
                     currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
@@ -4148,13 +4166,14 @@ private fun EditableRoundBtn(
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
+                        if (!change.pressed) { change.consume(); break }
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
                             val dxFrac = dxPx / currentSurfaceSize.width
                             val dyFrac = dyPx / currentSurfaceSize.height
                             currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            change.consume()  // reduce recomposition overhead
                         }
                     }
                 }
@@ -4201,6 +4220,7 @@ private fun EditableDpad(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    down.consume()
                     currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
@@ -4210,13 +4230,14 @@ private fun EditableDpad(
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
+                        if (!change.pressed) { change.consume(); break }
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
                             val dxFrac = dxPx / currentSurfaceSize.width
                             val dyFrac = dyPx / currentSurfaceSize.height
                             currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            change.consume()
                         }
                     }
                 }
@@ -4266,6 +4287,7 @@ private fun EditablePillBtn(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    down.consume()
                     currentOnSelect()
                     dragStartX = down.position.x
                     dragStartY = down.position.y
@@ -4275,13 +4297,14 @@ private fun EditablePillBtn(
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
+                        if (!change.pressed) { change.consume(); break }
                         if (change.positionChanged()) {
                             val dxPx = change.position.x - dragStartX
                             val dyPx = change.position.y - dragStartY
                             val dxFrac = dxPx / currentSurfaceSize.width
                             val dyFrac = dyPx / currentSurfaceSize.height
                             currentOnMove(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            change.consume()
                         }
                     }
                 }
