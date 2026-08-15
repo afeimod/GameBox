@@ -2,8 +2,20 @@
 
 一个为 Android 手机与 Android TV 打造的高质感多平台复古游戏模拟器。
 
-- **NES / FC 模拟**：核心采用业界精度与兼容性最好的 **FCEUmm**（FCEUX 的现代化 C/C++ 重构版），通过 NDK 编译为原生库，提供 60FPS 流畅运行、即时存档、跨设备同步和 TV 模式 D-pad 焦点导航。
-- **J2ME / Java ME 模拟**：内置 **J2ME-Loader** 引擎，支持运行 `.jar` 格式的 Java ME 游戏/MIDlet，通过 DexClassLoader 动态加载，完整兼容 MIDP 2.0 / CLDC 1.1 规范。
+支持 **8 大平台**：NES / SFC / GB / GBA / DOS / Arcade / MD / Java ME，通过
+统一的 Compose UI 与一致的游戏内菜单体验，让你在 TV 大屏和手机小屏上都能
+畅玩从 8-bit 到街机的所有经典游戏。
+
+| 平台 | 核心 | 文件扩展名 | 是否需要 BIOS |
+| --- | --- | --- | --- |
+| **NES / FC**   | FCEUmm            | `.nes` `.fds` `.unf`           | FDS 游戏需要 `disksys.rom` |
+| **SNES / SFC** | snes9x            | `.smc` `.sfc` `.fig` `.swc`   | 否 |
+| **GB / GBC**   | mGBA              | `.gb` `.gbc` `.sgb`           | 否 |
+| **GBA**        | mGBA              | `.gba`                        | 否 |
+| **DOS**        | DOSBox-Pure       | `.bat` `.exe` `.dosz` `.conf` `.iso` | 否 |
+| **Arcade**     | **FBNeo**         | `.zip` `.7z`                  | NeoGeo / PGM / Mega-CD 游戏需要 |
+| **MD / SEGA**  | **Genesis-Plus-GX** | `.md` `.smd` `.sms` `.gg` `.sg` `.cue` `.chd` | Mega-CD 游戏需要 |
+| **Java ME**    | J2ME-Loader       | `.jar` `.jad`                 | 否 |
 
 > 主界面参考 Pico-8 / Analogue Pocket 的视觉语言：像素云朵天空 + 玻璃拟态卡片 + 圆角高亮。
 
@@ -13,128 +25,209 @@
 
 | 模块 | 功能 |
 | --- | --- |
-| **NES 核心** | FCEUmm 核心（NTSC / PAL），自动存档槽位 ×5 |
-| **J2ME 核心** | J2ME-Loader 引擎，支持 `.jar` 安装与运行，MIDP 2.0 / CLDC 1.1，M3G 3D 渲染 |
-| **画面 — NES** | 多种滤镜（Nearest、Bilinear、CRT-Shader）、画面比例、横竖屏旋转、扫描线 |
-| **画面 — J2ME** | 9 种视频滤镜（无滤镜、扫描线、CRT、点阵、XBR、4XBR、XBR+点阵、4XBR+点阵、HQ4x），滤镜直接作用于游戏画面而非全屏覆盖 |
-| **音频** | 低延迟 OpenSL / AAudio 音频后端（NES），J2ME 独立音频系统（MIDI Driver） |
-| **输入** | 屏幕手柄（NES 标准布局）、蓝牙手柄 / 键盘 / TV D-pad，自定义按键映射；J2ME 虚拟键盘 + 按键重映射 |
-| **游戏库** | 横向平台分类（NES / Java），自动扫描 `.nes` ROM，手动安装 `.jar`，收藏、最近游玩、搜索、封面 |
-| **自定义图标** | 所有界面长按游戏卡片可自定义图标，支持从相册选取图片 |
-| **存档** | 即时存档、即时读档、电池存档（Flash / SRAM / Mapper 电池）、自动存档 |
-| **截图** | 一键截图，保存到相册 |
-| **快进/慢放** | 2×/4× 快进，慢动作（NES） |
-| **J2ME 悬浮菜单** | 全屏沉浸式刘海屏适配，浮动菜单支持滤镜选择、暂停/恢复、屏幕布局、退出 |
+| **8 大核心** | NES（FCEUmm）、SNES（snes9x）、GB/GBC/GBA（mGBA）、DOS（DOSBox-Pure）、Arcade（FBNeo）、MD/SEGA（Genesis-Plus-GX）、Java ME（J2ME-Loader） |
+| **画面** | 多种滤镜（Nearest、Scanline、CRT、Dot、XBR、HQ2X、HQ4X），画面比例（4:3 / 16:9 / 自动 / 拉伸），横竖屏旋转 |
+| **音频** | 48000 Hz 重采样 + AudioTrack BLOCKING 写入，消除 TV HDMI 输出爆音 |
+| **输入** | 屏幕手柄（可自定义布局）、蓝牙手柄 / 键盘 / TV D-pad 焦点导航、自定义按键映射 |
+| **游戏库** | 横向平台分类（NES / SFC / GB / GBA / DOS / Arcade / MD / Java），自动扫描 ROM，收藏、最近游玩、搜索、封面 |
+| **存档** | 10 个存档槽位 + 自动存档 + 电池存档（SRAM / Flash / Mapper 电池） |
+| **截图** | 一键截图保存到相册 |
+| **快进/慢放** | 2×/4×/6×/8× 快进 |
+| **游戏内菜单** | 返回键唤起，包含：暂停/恢复、存档/读档、快进、截图、设置（引擎专属选项）、退出 |
+| **引擎独立设置** | 每个核心有独立的设置项（NES NTSC 滤镜、SNES 图层、GBA 颜色预设、Arcade 旋转、MD 区域选择等） |
+| **自定义图标** | 长按游戏卡片可自定义图标，支持从相册选取图片 |
 | **TV 模式** | Android TV 适配，Leanback 启动、横屏 D-pad 焦点、远距离 UI |
-| **设置** | 主题、TV 模式开关、按键重映射、性能调优、清理缓存 |
+| **J2ME 悬浮菜单** | 全屏沉浸式刘海屏适配，浮动菜单支持滤镜选择、暂停/恢复、屏幕布局、退出 |
 
 ---
 
 ## 📁 目录结构
 
 ```
-NesStation/
-├── app/                              # 主 module（手机 + TV + J2ME）
+GameBox-main/
+├── app/                              # 主 module（手机 + TV + 全部核心的 UI）
 │   ├── src/main/
-│   │   ├── java/com/nesstation/app/  # Kotlin + Compose 主代码
+│   │   ├── java/com/nesstation/app/
 │   │   │   ├── core/
 │   │   │   │   ├── model/            # GameEntry, GamePlatform 等数据模型
-│   │   │   │   ├── storage/          # RomStore, JavaGameStore（存储层）
-│   │   │   │   ├── engine/           # NesEngine（NES 模拟引擎）
-│   │   │   │   └── jni/              # NES JNI 桥接
-│   │   │   └── ui/                   # Compose UI（Home, Library, Settings 等）
+│   │   │   │   ├── storage/          # RomStore, RomScanner, PadLayoutStore
+│   │   │   │   ├── engine/           # NesEngine, SnesEngine, GbaEngine, DosEngine,
+│   │   │   │   │                     # FbNeoEngine, GenesisEngine (8 大引擎)
+│   │   │   │   └── jni/              # NesNative, SnesNative, GbaNative, DosNative,
+│   │   │   │                         # FbNeoNative, GenesisNative
+│   │   │   └── ui/                   # Compose UI（Home, Library, Settings,
+│   │   │                             #   EmulatorScreen, etc.）
 │   │   ├── java/javax/microedition/  # J2ME-Loader 引擎代码
-│   │   │   ├── shell/                # MicroActivity（J2ME 游戏入口）
-│   │   │   ├── lcdui/                # UI 渲染层（Canvas, Image 等）
-│   │   │   │   ├── graphics/         # 滤镜系统（J2meBitmapFilter, J2meFilterShaders 等）
-│   │   │   │   └── keyboard/         # 虚拟键盘
-│   │   │   ├── media/                # 音频/媒体
-│   │   │   └── util/                 # 工具类
-│   │   ├── java/ru/playsoftware/     # J2ME-Loader 配置/设置模块
-│   │   ├── cpp/m3g/                  # M3G 3D 渲染原生代码
-│   │   ├── jni/                      # NES 原生层（壳入口）
-│   │   └── res/                      # 资源文件（含 J2ME 布局/字符串）
-│   ├── build.gradle.kts              # 构建配置（含 J2ME 依赖、DataBinding、ProGuard）
+│   │   ├── cpp/m3g/                  # M3G 3D 渲染原生代码（J2ME）
+│   │   ├── assets/
+│   │   │   ├── fbneo/                # FBNeo BIOS 文件目录（自带 README）
+│   │   │   ├── genesis/              # Genesis-Plus-GX BIOS 文件目录
+│   │   │   ├── legal/                # 各核心的开源许可证
+│   │   │   ├── scanner/              # ROM 扫描配置
+│   │   │   └── disksys.rom           # FDS BIOS（已内置）
+│   │   ├── jniLibs/
+│   │   │   ├── arm64-v8a/            # 预编译 .so（FBNeo / Genesis-Plus-GX /
+│   │   │   ├── armeabi-v7a/          #   DOSBox-Pure libretro 核心）
+│   │   │   └── x86_64/
+│   │   └── res/                      # 资源文件
+│   ├── build.gradle.kts              # 构建配置
 │   ├── proguard-rules.pro            # ProGuard/R8 混淆规则
 │   └── multidex-config.pro           # MultiDex 保留规则
+├── core/                             # 原生核心源码 + JNI 桥接
+│   ├── fceumm/                       # FCEUmm 核心（git submodule）
+│   ├── snes9x/                       # snes9x 核心（git submodule）
+│   ├── mgba/                         # mGBA 核心（vendored）
+│   ├── jni/                          # C++ ↔ Kotlin 桥接 + libretro 前端
+│   │   ├── bridge.cpp / rom_loader.cpp         # NES（FCEUmm）
+│   │   ├── snes_bridge.cpp / snes_loader.cpp   # SNES（snes9x）
+│   │   ├── gba_bridge.cpp / gba_loader.cpp     # GBA（mGBA）
+│   │   ├── dos_bridge.cpp / dos_loader.cpp     # DOS（DOSBox-Pure）
+│   │   ├── fbneo_bridge.cpp / fbneo_loader.cpp # Arcade（FBNeo）
+│   │   ├── genesis_bridge.cpp / genesis_loader.cpp  # MD（Genesis-Plus-GX）
+│   │   ├── shared/                   # 共享 libretro.h + 工具
+│   │   └── hqx/                      # HQ2X / HQ4X 视频滤镜算法
+│   ├── cmake/CMakeLists.txt          # CMake 入口
+│   └── native-stub/                  # 占位核心（无 submodule 时用）
 ├── dexlib/                           # J2ME DEX 转换库（独立 module）
-├── core/                             # FCEUmm 核心源码 + JNI
-│   ├── fceumm/                       # 第三方核心源码（git submodule）
-│   ├── jni/                          # C++ ↔ Kotlin 桥接
-│   └── cmake/                        # CMakeLists
+├── scripts/
+│   ├── download_prebuilt_cores.sh    # 下载预编译 .so 文件
+│   └── check_bios_files.sh           # 检查 BIOS 文件完整性
 ├── .github/workflows/                # CI 构建
 └── docs/                             # 截图、设计说明
 ```
 
-> 注意：本仓库 **不包含任何受版权保护的游戏 ROM 或 JAR 文件**。请仅使用你自己合法获取的游戏文件。
+> 注意：本仓库 **不包含任何受版权保护的游戏 ROM 或 BIOS 文件**。请仅使用你自己合法获取的游戏文件。BIOS 占位文件在 `app/src/main/assets/fbneo/` 和 `app/src/main/assets/genesis/` 中有详细说明。
 
 ---
 
-## 🎮 J2ME / Java ME 集成
+## 🎮 各核心说明
 
-### 安装 Java 游戏
+### NES / FC（FCEUmm 核心）
+- 业界精度与兼容性最好的 NES 模拟核心
+- 支持 NTSC / PAL / Dendy 三种区域
+- 支持 FDS 磁碟游戏（需 `disksys.rom` BIOS，已内置在 assets）
+- NTSC 滤镜（composite / s-video / RGB）、调色板选择、超频
+- 自动存档 ×5 槽位 + 10 个手动存档槽
 
-1. 在游戏库界面切换到 **Java** 分类标签
-2. 点击右上角 **+** 按钮
-3. 选择 `.jar` 文件（支持多选）
-4. 安装完成后游戏会出现在 Java 分类列表中
+### SNES / SFC（snes9x 核心）
+- snes9x 是跨平台兼容性最好的 SNES 核心
+- 支持 5 个图层开关（BG1 / BG2 / BG3 / BG4 / OBJ）
+- 高分辨率模式（hires）、图形透明、减少精灵闪烁
+- 音频插值（同步 / 异步）
+- 阻止无效 VRAM 写入、允许上下同时输入
 
-### 启动 Java 游戏
+### GB / GBC / GBA（mGBA 核心）
+- mGBA 是最活跃维护的高精度 GB/GBC/GBA 核心
+- GBC 颜色预设（默认 / GB ASP / GBC LCD / GBA LCD 等）
+- GBA 颜色预设（默认 / GBA LCD / GBA SP 101 等）
+- 帧跳类型（自动 / 无 / 帧跳 / VBI）
+- 强制 RTC（实时时钟，用于宝可梦等游戏）
+- 允许相反方向输入
 
-点击游戏卡片即可启动。Java 游戏通过 `Config.startApp()` 启动 `MicroActivity`，使用 DexClassLoader 动态加载游戏的 DEX 文件。
+### DOS（DOSBox-Pure 核心）
+- DOSBox-Pure 是为 RetroArch 优化的 DOSBox 分支
+- 支持 .bat 启动器导入整个游戏文件夹
+- 机器型号（SVGA / VGA / EGA / CGA / Tandy / PCjr）
+- CPU 速度（自动 / 486 / 386 / 286 / 8086）、声卡类型（SB16 / SB Pro / GUS）
+- 鼠标输入模式（手柄 / 键盘）、暗屏超时
+- Voodoo 显卡模拟、强制 60fps
 
-### J2ME 悬浮菜单
+### **Arcade / 街机（FBNeo 核心）**
+- FBNeo（Final Burn Neo）支持 CPS1 / CPS2 / CPS3 / NeoGeo / PGM / ST-V 等
+- 街机游戏存储为 `.zip` / `.7z` 文件（zip 本身就是 ROM）
+- **6 键街机布局**：A B X Y L R + Select(Coin) + Start
+- NeoGeo 模式切换（MVS 街机 / AES 家用）
+- 画面旋转（横向 / 竖向射击游戏必需）、竖屏模式
+- CPU 速度调节（50% / 75% / 100% / 150% / 200% / 250%）
+- 音频插值（最近邻 / 线性 / 三次）+ 低通滤波
+- **BIOS 需求**：NeoGeo 游戏 → `neogeo.zip`，PGM 游戏（三国战纪/魔窟）→ `pgm.zip`，详见 `assets/fbneo/README.txt`
 
-游戏中通过悬浮菜单可进行以下操作：
+### **MD / SEGA（Genesis-Plus-GX 核心）**
+- Genesis-Plus-GX 支持 Mega Drive / Master System / Game Gear / SG-1000 / Mega-CD
+- ⚠️ **不支持 SEGA Saturn（SS）** — SS 需要单独的 Yabause / Mednafen 核心
+- **3 键 / 6 键手柄切换**（经典 3 键 / 街机 6 键）
+- 区域选择（自动 / NTSC-U 美 / PAL 欧 / NTSC-J 日）
+- 系统型号（自动 / MD / SMS / GG / SG）
+- NTSC 滤镜（黑白 / RF / 复合 / S-Video / RGB）、LCD 滤镜
+- Game Gear 扩展屏幕（160×144 → 256×144）、画面拉伸
+- Master System FM 音源（自动 / 开 / 关）
+- Mega-CD CD 快速启动（跳过 BIOS 动画）
+- 超频（100% / 125% / 150% / 200%）
+- **BIOS 需求**：MD/SMS/GG/SG 卡带游戏无需 BIOS；Mega-CD 光盘游戏需要 `bios_CD_E/J/U.zip`，详见 `assets/genesis/README.txt`
 
-| 菜单项 | 功能 |
-| --- | --- |
-| **滤镜** | 弹出滤镜选择对话框，支持 9 种滤镜（见下方滤镜系统） |
-| **暂停/恢复** | 暂停或恢复 MIDlet 线程 |
-| **屏幕布局** | 切换屏幕缩放/布局模式 |
-| **退出** | 弹出退出确认对话框 |
+### J2ME / Java ME（J2ME-Loader 引擎）
+- 支持 `.jar` 格式的 Java ME 游戏 / MIDlet
+- 通过 DexClassLoader 动态加载游戏 DEX 文件
+- 完整兼容 MIDP 2.0 / CLDC 1.1 规范
+- M3G 3D 渲染（OpenGL ES 1.1）+ Mascot Capsule Micro3D
+- 9 种视频滤镜（无 / 扫描线 / CRT / 点阵 / XBR / 4XBR / XBR+点阵 / 4XBR+点阵 / HQ4x）
+- 滤镜直接作用于游戏渲染管线而非全屏覆盖
+- 独立的 J2ME 滤镜偏好存储（与 NES 滤镜完全隔离）
 
-游戏界面强制全屏沉浸式模式，支持刘海屏/挖孔屏（`LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`）。
+---
 
-### J2ME 视频滤镜系统
+## 🎮 控制 / 手柄映射
 
-J2ME 游戏内置 9 种视频滤镜，所有滤镜**直接作用于游戏渲染管线**，而非全屏覆盖：
+### NES / SNES / GBA / Arcade / MD
 
-| 模式 | 滤镜名称 | 类型 | 实现方式 |
-| --- | --- | --- | --- |
-| 0 | 无滤镜 | — | 原始画面，最近邻缩放 |
-| 1 | 扫描线 | 遮罩 | GL mode: GLSL 片段着色器 / 非 GL: Canvas 遮罩绘制 |
-| 2 | CRT | 遮罩 | GL mode: GLSL 片段着色器 / 非 GL: Canvas 遮罩绘制 |
-| 3 | 点阵 | 遮罩 | GL mode: GLSL 片段着色器 / 非 GL: Canvas 遮罩绘制 |
-| 4 | XBR | 像素处理 | CPU 边缘自适应插值，2× 放大后 NEAREST 绘制 |
-| 5 | 4XBR | 像素处理 | CPU 边缘自适应插值，4× 放大后 NEAREST 绘制 |
-| 6 | XBR+点阵 | 像素处理 + 遮罩 | XBR 处理后叠加点阵遮罩 |
-| 7 | 4XBR+点阵 | 像素处理 + 遮罩 | 4XBR 处理后叠加点阵遮罩 |
-| 8 | HQ4x | 像素处理 | CPU HQ4x 算法，4× 放大后 NEAREST 绘制 |
+| 按键 | 屏幕按钮 | 物理手柄 / 键盘 |
+| --- | --- | --- |
+| Up / Down / Left / Right | 十字键 | 方向键 / D-pad |
+| A | A | X / Button A |
+| B | B | Z / Button B |
+| X (SNES/MD/Arcade) | X | S / Button X |
+| Y (SNES/MD/Arcade) | Y | A / Button Y |
+| L (SNES/GBA/MD/Arcade) | L | Q / Button L1 |
+| R (SNES/GBA/MD/Arcade) | R | W / Button R1 |
+| Start | Start | Enter / Button Start |
+| Select / Coin (Arcade) | Select | Shift / Button Select |
 
-**渲染管线架构：**
+支持自定义映射：进入 **设置 → 按键映射**。
 
-- **GL 模式**（`graphicsMode == 1`）：
-  - 像素处理滤镜：`J2meBitmapFilter.applyFilter()` 在 CPU 上处理游戏 Bitmap → 生成放大后的 Bitmap → 上传为 GL 纹理 → 使用 passthrough 着色器 + NEAREST 过滤绘制
-  - 遮罩滤镜：编译对应的 GLSL 片段着色器 → 在 GPU 上应用遮罩效果
-  - 无滤镜：使用默认着色器，LINEAR 或 NEAREST 过滤
+### Arcade（FBNeo）专属
+- Select 键 = **投币（Coin）** — 街机游戏必须投币才能开始
+- Start 键 = 开始游戏 / 服务菜单
+- 6 键布局映射：A=Btn1, B=Btn2, X=Btn3, Y=Btn4, L=Btn5, R=Btn6
+- 4 键格斗游戏（KOF、街霸 2）只用 A/B/X/Y
+- 6 键格斗游戏（街霸 Zero、恶魔战士）全部使用
 
-- **非 GL 模式**（`graphicsMode == 0/2/3`）：
-  - 所有滤镜通过 `J2meBitmapFilter.drawFiltered()` 在 Canvas 上处理
-  - 像素处理滤镜：先处理 Bitmap 再绘制
-  - 遮罩滤镜：先绘制原始 Bitmap 再叠加遮罩图案
+### MD / SEGA 专属
+- 3 键游戏：A=SEGA A（跳）、B=SEGA B（攻击）、Start、C=SEGA C（冲刺）
+- 6 键游戏：A=SEGA A, B=SEGA B, X=SEGA C, Y=SEGA X, L=SEGA Y, R=SEGA Z
+- Select = Mode（6 键手柄模式切换）
+- 在设置中切换手柄类型（3 键 / 6 键）
 
-**关键文件：**
+### J2ME
+J2ME 游戏使用 J2ME-Loader 的虚拟键盘系统，支持：
+- 屏幕虚拟按键（可自定义布局）
+- 蓝牙手柄 / 键盘映射
+- 长按游戏卡片 → 设置 → 进入 J2ME 配置页面进行按键重映射
 
-| 文件 | 作用 |
-| --- | --- |
-| `J2meBitmapFilter.java` | CPU 端滤镜实现（XBR/4XBR/HQ4x 像素处理 + 扫描线/CRT/点阵 Canvas 遮罩） |
-| `J2meFilterShaders.java` | GLSL 片段着色器源码（扫描线/CRT/点阵遮罩着色器） |
-| `Canvas.java` | 渲染管线核心，管理 GL/non-GL 模式下的滤镜路由和着色器切换 |
-| `ShaderProgram.java` | GLSL 着色器程序管理（编译、链接、uniform 绑定） |
-| `MicroActivity.java` | 悬浮菜单与滤镜选择对话框 |
+---
 
-**J2ME 滤镜偏好独立存储：** 滤镜选择保存在 `j2me_prefs` SharedPreferences 中，与 NES 滤镜设置完全隔离，避免串滤镜。
+## 🔧 BIOS 文件管理
+
+### FDS（NES 磁碟游戏）
+- 已内置 `assets/disksys.rom`（8192 字节）
+- 启动 FDS 游戏时自动加载，无需手动操作
+
+### FBNeo 街机 BIOS
+- **必需**：NeoGeo 游戏 → `neogeo.zip`，PGM 游戏（三国战纪/魔窟）→ `pgm.zip`
+- CPS1/CPS2/CPS3 游戏无需 BIOS
+- BIOS 文件位置：`<filesDir>/fbneo/`
+- **两种添加方式**：
+  1. **打包到 APK**（私有构建）：放入 `app/src/main/assets/fbneo/`，启动时自动解压
+  2. **运行时导入**：游戏中按返回键 → 设置 → Arcade BIOS 管理 → 导入
+- 详见 `app/src/main/assets/fbneo/README.txt`
+
+### Genesis-Plus-GX（Mega-CD）BIOS
+- **必需**：Mega-CD / SEGA-CD 光盘游戏 → `bios_CD_E.zip`（欧）/ `bios_CD_J.zip`（日）/ `bios_CD_U.zip`（美）
+- 卡带游戏（MD/SMS/GG/SG）无需 BIOS
+- BIOS 文件位置：`<filesDir>/genesis/`
+- **两种添加方式**：同 FBNeo
+- 详见 `app/src/main/assets/genesis/README.txt`
+
+> ⚠️ **法律声明**：所有 BIOS 文件（neogeo.zip、pgm.zip、bios_CD_*.zip 等）都包含受版权保护的代码（SNK、IGS、SEGA 等）。本仓库不包含任何 BIOS 文件，仅提供占位说明文档。你只能将合法获取的 BIOS 文件打包到私有 APK 中供个人使用，不能在公开渠道（GitHub、应用商店等）分发包含 BIOS 的 APK。
 
 ---
 
@@ -148,8 +241,38 @@ cd NesStation
 git submodule update --init --recursive
 ```
 
-如果你只想先跑起来看看 UI，可以在 gradle.properties 里加 `useStubCore=true`，
-这样会用 `core/native-stub` 下的占位库（不会跑真正的 NES 游戏，但能编译过）。
+### 一键下载预编译核心
+
+FBNeo 和 Genesis-Plus-GX 使用 dlopen() 模式加载预编译的 libretro 核心。
+预编译 .so 文件已包含在仓库中（`app/src/main/jniLibs/`），如需更新到最新版本：
+
+```bash
+./scripts/download_prebuilt_cores.sh                # 全部 3 个核心
+./scripts/download_prebuilt_cores.sh fbneo           # 仅 FBNeo
+./scripts/download_prebuilt_cores.sh genesis         # 仅 Genesis-Plus-GX
+./scripts/download_prebuilt_cores.sh dosbox          # 仅 DOSBox-Pure
+```
+
+### 检查 BIOS 文件状态
+
+```bash
+./scripts/check_bios_files.sh
+```
+
+### 添加 BIOS 文件（可选 — 仅 NeoGeo / PGM / Mega-CD 游戏需要）
+
+```bash
+# FBNeo BIOS（neogeo.zip, pgm.zip 等）
+cp /path/to/neogeo.zip app/src/main/assets/fbneo/
+cp /path/to/pgm.zip    app/src/main/assets/fbneo/
+
+# Genesis-Plus-GX Mega-CD BIOS
+cp /path/to/bios_CD_E.zip app/src/main/assets/genesis/
+cp /path/to/bios_CD_J.zip app/src/main/assets/genesis/
+cp /path/to/bios_CD_U.zip app/src/main/assets/genesis/
+```
+
+启动 App 时 `NesApp.ensureFbNeoBios()` 和 `ensureGenesisBios()` 会自动解压到 `<filesDir>/fbneo/` 和 `<filesDir>/genesis/`。
 
 ### 环境
 
@@ -163,15 +286,11 @@ git submodule update --init --recursive
 ### 构建
 
 ```bash
+# 调试构建
 ./gradlew :app:assembleDebug
-# 安装
+
+# 安装到已连接的设备
 ./gradlew :app:installDebug
-```
-
-### TV 版
-
-```bash
-./gradlew :app:assembleTvDebug
 ```
 
 ### 构建注意事项
@@ -180,11 +299,13 @@ git submodule update --init --recursive
 
 2. **DataBinding**：J2ME-Loader 的布局文件使用 DataBinding，已在 `build.gradle.kts` 中启用 `dataBinding { enabled = true }`。
 
-3. **ProGuard/R8**：Release 构建启用了代码混淆。`proguard-rules.pro` 中已添加 J2ME 相关类的 keep 规则（`javax.**`、`ru.playsoftware.j2meloader.**`、`com.mascotcapsule.**` 等），防止 J2ME 运行时类被混淆器裁剪导致 `ExceptionInInitializerError`。
+3. **ProGuard/R8**：Release 构建启用了代码混淆。`proguard-rules.pro` 中已添加各核心 JNI 类的 keep 规则（`javax.**`、`ru.playsoftware.j2meloader.**`、`com.mascotcapsule.**`、`com.nesstation.app.core.jni.**` 等）。
 
-4. **MultiDex**：J2ME-Loader 代码量较大，已启用 `multiDexEnabled = true`。`multidex-config.pro` 指定了需要保留在主 DEX 中的类。
+4. **MultiDex**：J2ME-Loader 代码量较大，已启用 `multiDexEnabled = true`。
 
-5. **包名统一**：J2ME-Loader 原始包名 `ru.playsoftware.j2meloader` 已统一使用 `com.nesstation.app` 作为 Application ID，`BuildConfig` 引用已全部替换。
+5. **预编译 .so 文件**：FBNeo / Genesis-Plus-GX / DOSBox-Pure 的 libretro 核心通过 dlopen() 模式加载，预编译 .so 文件位于 `app/src/main/jniLibs/<abi>/`。FCEUmm / snes9x / mGBA 从源码编译（需要 git submodule）。
+
+6. **`useStubCore`**：如果只想跑起来看 UI，可以在 `gradle.properties` 里设置 `useStubCore=true`，使用占位核心。
 
 ### 手动触发 GitHub Actions
 
@@ -193,57 +314,84 @@ APK 会在 workflow 完成后作为 artifact 上传。
 
 ---
 
-## 🎮 控制 / 手柄映射
+## 🧩 游戏内菜单
 
-### NES
+游戏中按 **返回键** 唤起游戏内菜单（所有核心统一）：
 
-| NES | 键盘（TV/手柄） | 屏幕按钮 |
-| --- | --- | --- |
-| A | X | A 键 |
-| B | Z | B 键 |
-| Start | Enter | Start |
-| Select | Shift | Select |
-| Up/Down/Left/Right | 方向键 | 十字键 |
+| 菜单项 | 功能 |
+| --- | --- |
+| **继续游戏** | 关闭菜单，恢复游戏 |
+| **暂停 / 恢复** | 暂停或恢复模拟 |
+| **快进** | 2× / 4× / 6× / 8× 速度选择 |
+| **存档** | 选择槽位（0-9）保存当前状态 |
+| **读档** | 选择槽位（0-9）读取保存的状态 |
+| **截图** | 保存当前画面到相册 |
+| **设置** | 引擎专属选项（每个核心不同） |
+| **退出** | 退出游戏，返回游戏库 |
 
-支持自定义映射：进入 **设置 → 按键映射**。
+**引擎专属设置**（在设置菜单内，按平台分组）：
 
-### J2ME
-
-J2ME 游戏使用 J2ME-Loader 的虚拟键盘系统，支持：
-- 屏幕虚拟按键（可自定义布局）
-- 蓝牙手柄 / 键盘映射
-- 长按游戏卡片 → 设置 → 进入 J2ME 配置页面进行按键重映射
+- **NES**：NTSC 滤镜、调色板、区域、超频、裁剪过扫描
+- **SNES**：图层开关、减少精灵闪烁、减少卡顿、音频插值、图形透明、高分辨率、阻止无效 VRAM
+- **GBA**：GBC/GBA 颜色预设、帧跳类型、强制 RTC、允许相反方向输入
+- **DOS**：机器型号、CPU 速度、声卡、鼠标输入、键盘布局、Voodoo、暗屏超时
+- **Arcade**：画面比例、旋转、竖屏模式、CPU 速度、跳帧、采样率、音频插值、NeoGeo 模式（MVS/AES）、记忆卡、BIOS 管理
+- **MD/SEGA**：区域、系统型号、画面比例、渲染模式、NTSC 滤镜、LCD 滤镜、过扫描、GG 扩展屏幕、手柄类型（3/6 键）、超频、跳帧、Mega-CD 快速启动、SMS FM 音源、BIOS 管理
 
 ---
 
-## 🧩 添加核心
+## 🧩 添加新核心
 
-### NES 核心
+### 从源码编译的核心（NES / SNES / GBA）
+1. 添加 git submodule 到 `core/<name>/`
+2. 在 `core/cmake/CMakeLists.txt` 中添加 `add_library(...)` 配置
+3. 创建 `core/jni/<name>_bridge.cpp` 和 `<name>_loader.cpp`
+4. 创建 `app/src/main/java/.../core/jni/<Name>Native.kt`（JNI 接口）
+5. 创建 `app/src/main/java/.../core/engine/<Name>Engine.kt`（高层引擎类）
+6. 在 `EmulatorEngine.forPlatform()` 中添加平台路由
+7. 在 `PadLayoutStore.kt` 中添加引擎专属设置字段
+8. 在 `EmulatorScreen.kt` 中添加设置 UI 和 `applyCoreOptions()` 分支
 
-核心以 git submodule 形式存在。如果你 fork 后希望替换成其他核心（如 Nestopia、Mesen），
-可以修改 `core/fceumm` 路径并调整 `core/jni/bridge.cpp` 的接口即可。
-
-### J2ME 核心
-
-J2ME 引擎代码已直接集成在 `app/src/main/java/javax/microedition/` 目录下，无需额外 submodule。
-DEX 转换库在 `dexlib/` module 中。如需更新 J2ME-Loader 引擎，替换对应 Java 源码即可。
+### dlopen 模式的核心（Arcade / MD / DOS）
+1. 用 `./scripts/download_prebuilt_cores.sh <name>` 下载预编译 .so
+2. 步骤同上 3-8
+3. CMakeLists.txt 中 `target_link_libraries(... dl)` 添加 `dl` 库
+4. 在 `NesApp.kt` 中设置 `appContext` 并调用 `ensureLoaded()`
+5. 在 `NesApp.kt` 中添加 `ensure<Bios>()` 方法（如需要 BIOS）
+6. 在 `assets/<name>/` 中添加 BIOS 占位 README
 
 ---
 
 ## 📜 许可证
 
-- 应用代码：MIT
-- FCEUmm：GPLv2（请遵守上游协议）
-- J2ME-Loader：Apache License 2.0（请遵守上游协议）
-- M3G 3D 引擎：Apache License 2.0
+| 组件 | 许可证 |
+| --- | --- |
+| 应用代码 | MIT |
+| FCEUmm（NES 核心） | GPLv2 — 见 `assets/legal/LICENSE-FCEUmm.txt` |
+| snes9x（SNES 核心） | 非商业 — 见 `assets/legal/LICENSE-snes9x.txt` |
+| mGBA（GBA 核心） | MPL-2.0 — 见 `assets/legal/LICENSE-mGBA.txt` |
+| DOSBox-Pure（DOS 核心） | GPLv2 — 见 `assets/legal/LICENSE-DOSBox-Pure.txt` |
+| FBNeo（Arcade 核心） | 非商业 — 见 `assets/legal/LICENSE-FBNeo.txt` |
+| Genesis-Plus-GX（MD 核心） | GPLv2 — 见 `assets/legal/LICENSE-Genesis-Plus-GX.txt` |
+| J2ME-Loader | Apache License 2.0 |
+| M3G 3D 引擎 | Apache License 2.0 |
+| HQ2X / HQ4X 算法 | Maxim Stepin（免费使用） |
+| XBR 算法 | Hyllian / Zenju（免费使用） |
+
+详细的 ROM / BIOS 法律声明见 `app/src/main/assets/legal/ROM_NOTICE.txt`。
 
 ---
 
 ## 🙌 致谢
 
-- FCEUX / FCEUmm 团队 — NES 模拟核心
-- J2ME-Loader 项目（[nikita-shakarun](https://github.com/nikita-shakarun/j2me-loader)） — J2ME/Java ME 模拟引擎
-- libretro 项目灵感
-- Analogue / Pico-8 视觉风格
-- XBR 算法 by Hyllian / Zenju
-- HQ4x 算法 by Maxim Stepin
+- **FCEUX / FCEUmm 团队** — NES 模拟核心
+- **snes9x 团队** — SNES 模拟核心
+- **mGBA 团队**（Vicki Pfau 等）— GB/GBC/GBA 模拟核心
+- **DOSBox-Pure 团队**（Markus Mertama 等）— DOS 模拟核心
+- **FBNeo 团队**（基于 Dave 的 FinalBurn）— Arcade 模拟核心
+- **Genesis-Plus-GX 团队**（Eke-Eke，基于 Charles MacDonald 的 Genesis Plus）— SEGA 模拟核心
+- **J2ME-Loader 项目**（[nikita-shakarun](https://github.com/nikita-shakarun/j2me-loader)） — J2ME/Java ME 模拟引擎
+- **libretro 项目** — 提供 .so 预编译核心的 buildbot
+- **Analogue / Pico-8** — 视觉风格灵感
+- **XBR 算法** by Hyllian / Zenju
+- **HQ4x 算法** by Maxim Stepin
