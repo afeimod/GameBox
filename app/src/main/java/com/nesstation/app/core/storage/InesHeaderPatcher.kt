@@ -81,11 +81,13 @@ object InesHeaderPatcher {
 
         // Compute new PRG size
         val extraBytes = size - headerClaimedSize
-        val newPrgBytes = hdrPrgBytes + extraBytes
-        // Round up to a multiple of 16KB
-        var prgUnits = (newPrgBytes + 16 * 1024 - 1) / (16 * 1024)
+        val newPrgBytes = hdrPrgBytes.toLong() + extraBytes
+        // Round up to a multiple of 16KB (use Long to avoid overflow on big ROMs)
+        var prgUnits = (newPrgBytes + 16L * 1024L - 1L) / (16L * 1024L)
         // Cap at 0xEFF (~60MB) — beyond this requires broken exponent mode
-        if (prgUnits > 0xEFF) prgUnits = 0xEFF
+        if (prgUnits > 0xEFFL) prgUnits = 0xEFFL
+        // Convert to Int for header byte math (always fits — 0xEFF is well within Int range)
+        val prgUnitsInt = prgUnits.toInt()
 
         // Decode current mapper (for diagnostic logging)
         val mapperLow = header[6].toInt() and 0x0F
@@ -93,8 +95,8 @@ object InesHeaderPatcher {
         val mapper = mapperLow or (mapperHigh shl 4)
 
         // Build patched header
-        header[4] = (prgUnits and 0xFF).toByte()
-        val highNibble = ((prgUnits shr 8) and 0x0F)
+        header[4] = (prgUnitsInt and 0xFF).toByte()
+        val highNibble = ((prgUnitsInt shr 8) and 0x0F)
 
         if (highNibble > 0) {
             // Need NES 2.0 marker so byte 9's low nibble is read.
@@ -116,6 +118,6 @@ object InesHeaderPatcher {
 
         return "PATCHED: file=${size}B, header claimed=${headerClaimedSize}B " +
                "(PRG=${hdrPrgBytes}, CHR=${hdrChrBytes}, trainer=$hasTrainer, mapper=$mapper). " +
-               "New PRG=${prgUnits} units (${prgUnits * 16 * 1024}B), highNibble=$highNibble"
+               "New PRG=${prgUnitsInt} units (${prgUnitsInt * 16 * 1024}B), highNibble=$highNibble"
     }
 }

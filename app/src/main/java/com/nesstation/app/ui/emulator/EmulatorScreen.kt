@@ -66,6 +66,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -5447,7 +5448,7 @@ private fun GenesisBiosImportSection() {
 
             val region = detectRegion(origName) ?: 'E'  // default to EU if unknown
             val isZip = origName.endsWith(".zip", ignoreCase = true)
-            val msg = try {
+            val msg: String = try {
                 // Always copy the original file first (preserves user's input format)
                 val origExt = if (isZip) ".zip" else ".bin"
                 val origDestName = "bios_CD_$region$origExt"
@@ -5493,10 +5494,10 @@ private fun GenesisBiosImportSection() {
                     // .bin file: already saved with correct name. Done.
                     "已导入 BIOS (区域=$region): ${origDest.name} (${origDest.length() / 1024}KB)"
                 }
-                refreshKey++
             } catch (e: Exception) {
                 "导入失败: ${e.message}"
             }
+            refreshKey++
             statusText = msg
         }
     }
