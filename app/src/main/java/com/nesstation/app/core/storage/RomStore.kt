@@ -180,4 +180,36 @@ object RomStore {
             saveAll(ctx, list)
         }
     }
+
+    /**
+     * 街机游戏中文标题迁移。
+     *
+     * 对于已经是 ARCADE 平台但标题仍是英文驱动名（如 "kof98h"、"mvc"）
+     * 的游戏，尝试用 ArcadeTitleMapper 查找中文名并更新。
+     *
+     * 已是中文标题或查找不到中文名的游戏不会被修改。
+     * 返回更新了标题的游戏数量。
+     */
+    fun migrateArcadeTitles(ctx: Context): Int {
+        val list = loadAll(ctx)
+        var updatedCount = 0
+        var changed = false
+        for (i in list.indices) {
+            val entry = list[i]
+            if (entry.platform != GamePlatform.ARCADE) continue
+            // 跳过已包含中文字符的标题（认为已经汉化过）
+            if (entry.title.any { it.code in 0x4E00..0x9FFF }) continue
+            // 尝试用文件名（带后缀）查表，覆盖度更高
+            val fileName = entry.romPath?.substringAfterLast('/') ?: entry.title
+            val cnName = ArcadeTitleMapper.lookupByFileName(fileName)
+                ?: ArcadeTitleMapper.lookup(entry.title)
+            if (cnName != null && cnName != entry.title) {
+                list[i] = entry.copy(title = cnName)
+                updatedCount++
+                changed = true
+            }
+        }
+        if (changed) saveAll(ctx, list)
+        return updatedCount
+    }
 }

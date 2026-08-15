@@ -563,7 +563,12 @@ fun EmulatorScreen(
                     val origName: String = if (platform == GamePlatform.ARCADE) {
                         // Query SAF for the original filename — this preserves
                         // the driver name (kof98h.zip, mvc.zip, etc.).
-                        var name = game.title.ifBlank { romPath.substringAfterLast('/') }
+                        // NOTE: game.title is the localized Chinese display name
+                        // (e.g. "拳皇98 - ...") and is NOT a valid driver name.
+                        // If the SAF query fails, we fall back to the URI's last
+                        // path segment (URL-decoded), which usually contains the
+                        // encoded original filename.
+                        var name = ""
                         try {
                             val uri = android.net.Uri.parse(romPath)
                             context.contentResolver.query(
@@ -578,6 +583,23 @@ fun EmulatorScreen(
                                 }
                             }
                         } catch (_: Exception) { }
+                        if (name.isBlank()) {
+                            // Fallback: extract filename from URI last path segment.
+                            // SAF URIs look like:
+                            //   content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fkof98h.zip
+                            // or:
+                            //   content://.../document/primary%3AROMs%2Fkof98h.zip
+                            // The last path segment, URL-decoded, ends with the original filename.
+                            try {
+                                val uri = android.net.Uri.parse(romPath)
+                                val lastSeg = uri.lastPathSegment
+                                if (!lastSeg.isNullOrBlank()) {
+                                    name = android.net.Uri.decode(lastSeg)
+                                        .substringAfterLast('/')
+                                        .substringAfterLast(':')
+                                }
+                            } catch (_: Exception) { }
+                        }
                         name
                     } else {
                         game.title.ifBlank { romPath.substringAfterLast('/') }
@@ -3242,6 +3264,8 @@ private fun PadLayoutEditor(
     val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
     val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
     val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
+    val btnL2 = if (isPortrait) padLayout.btnL2P else padLayout.btnL2
+    val btnR2 = if (isPortrait) padLayout.btnR2P else padLayout.btnR2
 
     // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段
     fun updateBtn(btnType: BtnType, newLayout: ButtonLayout) {

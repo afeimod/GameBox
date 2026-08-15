@@ -74,6 +74,30 @@ class NesApp : Application() {
         tryInit("FdsBios")            { ensureFdsBios() }
         tryInit("FbNeoBios")          { ensureFbNeoBios() }
         tryInit("GenesisBios")        { ensureGenesisBios() }
+        tryInit("ArcadeTitleMigrate") { migrateArcadeTitles() }
+    }
+
+    /**
+     * One-time migration of arcade ROM titles to Chinese display names.
+     *
+     * Older app versions stored arcade ROMs with the raw driver name as title
+     * (e.g. "kof98h", "mvc", "sf2ce"). The ArcadeTitleMapper can now map these
+     * driver names to user-friendly Chinese names. This migration runs on
+     * every startup but is a no-op for games that already have a Chinese title
+     * or whose driver name isn't in the mapping.
+     *
+     * Wrapped in try-catch so a SharedPreferences failure can never block app
+     * startup.
+     */
+    private fun migrateArcadeTitles() {
+        try {
+            val updated = com.nesstation.app.core.storage.RomStore.migrateArcadeTitles(this)
+            if (updated > 0) {
+                Log.i("NesApp", "Arcade title migration: $updated game(s) updated to Chinese names")
+            }
+        } catch (t: Throwable) {
+            Log.w("NesApp", "Arcade title migration failed", t)
+        }
     }
 
     /**

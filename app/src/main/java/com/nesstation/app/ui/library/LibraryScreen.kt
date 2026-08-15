@@ -71,6 +71,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.ArcadeTitleMapper
 import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.GameCard
@@ -215,7 +216,13 @@ fun LibraryScreen(
             val ext = name.substringAfterLast('.', "").lowercase()
             if (ext in ROM_EXTENSIONS) {
                 val platform = detectPlatformFromUri(context, uri, name)
-                RomStore.add(context, name.substringBeforeLast('.'), uri.toString(), platform)
+                // 街机游戏使用中文名映射（kof98h → 拳皇98 - ...）
+                val title = if (platform == GamePlatform.ARCADE) {
+                    ArcadeTitleMapper.resolveDisplayTitle(name)
+                } else {
+                    name.substringBeforeLast('.')
+                }
+                RomStore.add(context, title, uri.toString(), platform)
                 count++
             }
         }
@@ -284,7 +291,13 @@ fun LibraryScreen(
                     try {
                         val ext = name.substringAfterLast('.', "").lowercase()
                         val platform = detectPlatformFromUri(context, fileUri, name)
-                        RomStore.add(context, name.substringBeforeLast('.'), fileUri.toString(), platform)
+                        // 街机游戏使用中文名映射
+                        val title = if (platform == GamePlatform.ARCADE) {
+                            ArcadeTitleMapper.resolveDisplayTitle(name)
+                        } else {
+                            name.substringBeforeLast('.')
+                        }
+                        RomStore.add(context, title, fileUri.toString(), platform)
                         count++
                     } catch (_: Exception) {
                         failed++
@@ -311,7 +324,12 @@ fun LibraryScreen(
                 entries.forEach { (name, path) ->
                     val ext = name.substringAfterLast('.', "").lowercase()
                     val platform = detectPlatformFromFile(File(path))
-                    RomStore.add(context, name.substringBeforeLast('.'), path, platform)
+                    val title = if (platform == GamePlatform.ARCADE) {
+                        ArcadeTitleMapper.resolveDisplayTitle(name)
+                    } else {
+                        name.substringBeforeLast('.')
+                    }
+                    RomStore.add(context, title, path, platform)
                 }
                 refreshList()
                 dialogMsg = "权限已授予，扫描到 ${entries.size} 个ROM文件"
