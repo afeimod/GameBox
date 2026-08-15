@@ -1,20 +1,24 @@
 {
   "$schema": "NesStation ROM scanner configuration",
-  "version": 1,
+  "version": 2,
   "scan_defaults": [
     "ROMs",
     "NesStation",
     "Download/NesStation",
     "Games/NES",
+    "Games/Arcade",
+    "Games/MD",
+    "Games/SEGA",
     "roms"
   ],
-  "extensions": ["nes"],
+  "extensions": ["nes", "smc", "sfc", "gb", "gbc", "gba", "zip", "md", "smd", "sms", "gg", "sg", "cue", "chd"],
   "ignore_patterns": [
     "*.nes.bak",
     "*.nes.tmp",
+    "*.tmp",
     ".DS_Store"
   ],
   "scan_recursive": true,
-  "max_file_size_mb": 8,
-  "notes": "Directories listed under scan_defaults are relative to the primary external storage root. The SAF (Storage Access Framework) tree, when granted by the user, is scanned in addition."
+  "max_file_size_mb": 256,
+  "notes": "Directories listed under scan_defaults are relative to the primary external storage root. The SAF (Storage Access Framework) tree, when granted by the user, is scanned in addition. max_file_size_mb raised to 256 to accommodate arcade ROMs and Mega-CD images."
 }

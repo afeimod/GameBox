@@ -111,18 +111,22 @@ interface EmulatorEngine {
     companion object {
         /**
          * Factory: return the appropriate engine for the given platform.
-         * NES  -> NesEngine
-         * SFC  -> SnesEngine
+         * NES    -> NesEngine
+         * SFC    -> SnesEngine
          * GB/GBA -> GbaEngine
-         * DOS  -> DosEngine (DOSBox-Pure)
+         * DOS    -> DosEngine (DOSBox-Pure)
+         * ARCADE -> FbNeoEngine (FBNeo — CPS1/2/3, NeoGeo, PGM, etc.)
+         * MD     -> GenesisEngine (Genesis-Plus-GX — MD/SMS/GG/SG/Mega-CD)
          */
         fun forPlatform(platform: GamePlatform): EmulatorEngine = when (platform) {
-            GamePlatform.NES  -> NesEngine.get()
-            GamePlatform.SFC  -> SnesEngine.get()
-            GamePlatform.GB   -> GbaEngine.get()
-            GamePlatform.GBA  -> GbaEngine.get()
-            GamePlatform.DOS  -> DosEngine.get()
-            GamePlatform.JAVA -> NesEngine.get() // fallback, should not be used
+            GamePlatform.NES    -> NesEngine.get()
+            GamePlatform.SFC    -> SnesEngine.get()
+            GamePlatform.GB     -> GbaEngine.get()
+            GamePlatform.GBA    -> GbaEngine.get()
+            GamePlatform.DOS    -> DosEngine.get()
+            GamePlatform.ARCADE -> FbNeoEngine.get()
+            GamePlatform.MD     -> GenesisEngine.get()
+            GamePlatform.JAVA   -> NesEngine.get() // fallback, should not be used
         }
     }
 }

@@ -6,6 +6,8 @@ import com.nesstation.app.core.engine.NesEngine
 import com.nesstation.app.core.engine.SnesEngine
 import com.nesstation.app.core.engine.GbaEngine
 import com.nesstation.app.core.engine.DosEngine
+import com.nesstation.app.core.engine.FbNeoEngine
+import com.nesstation.app.core.engine.GenesisEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
 import java.io.File
@@ -58,7 +60,20 @@ class NesApp : Application() {
             com.nesstation.app.core.jni.DosNative.appContext = this
             DosEngine.ensureLoaded()
         }
+        tryInit("FbNeoEngine")         {
+            // FBNeo arcade core — dlopen()s libfbneo_libretro_android.so.
+            com.nesstation.app.core.jni.FbNeoNative.appContext = this
+            FbNeoEngine.ensureLoaded()
+        }
+        tryInit("GenesisEngine")       {
+            // Genesis-Plus-GX SEGA core — dlopen()s
+            // libgenesis_plus_gx_libretro_android.so.
+            com.nesstation.app.core.jni.GenesisNative.appContext = this
+            GenesisEngine.ensureLoaded()
+        }
         tryInit("FdsBios")            { ensureFdsBios() }
+        tryInit("FbNeoBios")          { ensureFbNeoBios() }
+        tryInit("GenesisBios")        { ensureGenesisBios() }
     }
 
     /**
@@ -150,6 +165,107 @@ class NesApp : Application() {
         }.let { _container }
 
     private var _container: AppContainer? = null
+
+    /**
+     * Auto-extract FBNeo BIOS zip files (neogeo.zip, pgm.zip, etc.) from
+     * APK assets to the system directory (<filesDir>/fbneo/).
+     *
+     * FBNeo looks for BIOS files by filename in the system directory. The
+     * most common ones users may bundle:
+     *   - neogeo.zip  — NeoGeo BIOS (required for all NeoGeo games)
+     *   - pgm.zip     — PolyGame Master BIOS (required for all PGM games)
+     *   - neocdz.zip  — NeoGeo CD BIOS
+     *   - cvs2.zip    — Capcom VS SNK 2 decryption key
+     *
+     * These BIOS files have copyright and cannot be bundled in the open-
+     * source release. Users must either:
+     *   1. Place the BIOS zips in `app/src/main/assets/fbneo/` before
+     *      building the APK (for personal distribution to their own devices).
+     *   2. Import them at runtime via the BIOS management UI in Settings.
+     *
+     * This method extracts any BIOS files found in `assets/fbneo/` to
+     * <filesDir>/fbneo/. If the destination already exists, it is kept
+     * (user-imported BIOS takes precedence).
+     */
+    private fun ensureFbNeoBios() {
+        val destDir = File(filesDir, "fbneo")
+        if (!destDir.exists()) destDir.mkdirs()
+
+        // Known BIOS filenames FBNeo looks for. We only extract those that
+        // actually exist in assets/fbneo/ — no error if none are present.
+        val biosFiles = listOf(
+            "neogeo.zip", "pgm.zip", "neocdz.zip", "cvs2.zip",
+            "cps1.zip", "cps2.zip", "stvbios.zip", "tickgal.zip"
+        )
+
+        var extracted = 0
+        for (name in biosFiles) {
+            val dest = File(destDir, name)
+            if (dest.exists() && dest.length() > 0) continue  // keep existing
+            try {
+                assets.open("fbneo/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                extracted++
+                Log.i("NesApp", "FBNeo BIOS extracted: $name")
+            } catch (_: java.io.FileNotFoundException) {
+                // Not bundled — user must import via Settings
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to extract FBNeo BIOS $name", e)
+                if (dest.exists()) dest.delete()
+            }
+        }
+        if (extracted > 0) {
+            Log.i("NesApp", "FBNeo BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
+        } else {
+            Log.i("NesApp", "FBNeo BIOS: no bundled BIOS files found in assets/fbneo/. " +
+                    "Import via Settings → Arcade → BIOS Management.")
+        }
+    }
+
+    /**
+     * Auto-extract Genesis-Plus-GX BIOS zip files (Mega-CD BIOSes) from
+     * APK assets to the system directory (<filesDir>/genesis/).
+     *
+     * Genesis-Plus-GX looks for Mega-CD BIOS files by filename:
+     *   - bios_CD_E.zip  — European Mega-CD BIOS (contains bios_CD_E.bin)
+     *   - bios_CD_J.zip  — Japanese Mega-CD BIOS (contains bios_CD_J.bin)
+     *   - bios_CD_U.zip  — US SEGA-CD BIOS (contains bios_CD_U.bin)
+     *
+     * Cartridge games (MD/SMS/GG/SG) do NOT require BIOS — only Mega-CD
+     * games need these. Like FBNeo BIOS, these have copyright and cannot
+     * be bundled in the open-source release.
+     */
+    private fun ensureGenesisBios() {
+        val destDir = File(filesDir, "genesis")
+        if (!destDir.exists()) destDir.mkdirs()
+
+        val biosFiles = listOf("bios_CD_E.zip", "bios_CD_J.zip", "bios_CD_U.zip")
+
+        var extracted = 0
+        for (name in biosFiles) {
+            val dest = File(destDir, name)
+            if (dest.exists() && dest.length() > 0) continue
+            try {
+                assets.open("genesis/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                extracted++
+                Log.i("NesApp", "Genesis BIOS extracted: $name")
+            } catch (_: java.io.FileNotFoundException) {
+                // Not bundled
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to extract Genesis BIOS $name", e)
+                if (dest.exists()) dest.delete()
+            }
+        }
+        if (extracted > 0) {
+            Log.i("NesApp", "Genesis BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
+        } else {
+            Log.i("NesApp", "Genesis BIOS: no bundled BIOS files found in assets/genesis/. " +
+                    "Import via Settings → MD/SEGA → BIOS Management (only needed for Mega-CD games).")
+        }
+    }
 
     private fun tryInit(tag: String, block: () -> Unit) {
         try {

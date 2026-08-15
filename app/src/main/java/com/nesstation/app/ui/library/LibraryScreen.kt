@@ -527,6 +527,8 @@ fun LibraryScreen(
                         GamePlatform.NES, GamePlatform.SFC,
                         GamePlatform.GB, GamePlatform.GBA,
                         GamePlatform.DOS,
+                        GamePlatform.ARCADE,
+                        GamePlatform.MD,
                         GamePlatform.JAVA
                     )) { platform ->
                         FilterChip(
@@ -960,7 +962,15 @@ private fun detectPlatformFromUri(
                 }
             }
         } catch (_: Exception) { }
+        // No recognized ROM extension inside the zip — assume FBNeo arcade.
+        // Arcade ROMs are .zip files containing raw .bin/.rom files whose
+        // names are MAME-style driver names (e.g. "mvc.rom"), which don't
+        // match any other platform's extension list.
+        return GamePlatform.ARCADE
     }
+
+    // .7z is always arcade (FBNeo).
+    if (ext == "7z") return GamePlatform.ARCADE
 
     return GamePlatform.NES // fallback
 }
@@ -987,7 +997,12 @@ private fun detectPlatformFromFile(file: File): GamePlatform {
                 }
             }
         } catch (_: Exception) { }
+        // No recognized ROM extension inside the zip — assume FBNeo arcade.
+        return GamePlatform.ARCADE
     }
+
+    // .7z is always arcade (FBNeo).
+    if (ext == "7z") return GamePlatform.ARCADE
 
     return GamePlatform.NES
 }

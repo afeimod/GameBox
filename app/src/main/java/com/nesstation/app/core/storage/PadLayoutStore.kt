@@ -254,7 +254,41 @@ data class PadLayout(
     // When false, the native buffer matches the display resolution and
     // the C++ blit does per-pixel nearest-neighbor scaling — sharper but
     // much heavier on CPU (can cause lag on low-power devices).
-    val highQualityScaling: Boolean = false            // false = native-res buffer (fast), true = display-res buffer (sharp)
+    val highQualityScaling: Boolean = false,           // false = native-res buffer (fast), true = display-res buffer (sharp)
+
+    // === FBNeo (Arcade) core options ===
+    // Keys must match fbneo's libretro_core_options.h exactly.
+    val arcadeAspect: String = "auto",                  // auto | 4:3 | 3:4 | 16:9 | 16:15
+    val arcadeRotate: String = "norotate",              // norotate | cw | ccw | flip
+    val arcadeVerticalMode: String = "disabled",        // disabled | enabled
+    val arcadeCropOverscan: String = "enabled",         // enabled | disabled
+    val arcadeCpuSpeed: String = "100",                 // 100 | 75 | 50 | 150 | 200 | 250
+    val arcadeFrameskip: String = "0",                  // 0..10
+    val arcadeForce60hz: String = "disabled",           // disabled | enabled
+    val arcadeSampleRate: String = "48000",             // 48000 | 44100 | 22050
+    val arcadeAudioInterp: String = "2",                // 0=off 1=nearest 2=linear 3=cubic
+    val arcadeLowpass: String = "disabled",             // disabled | enabled
+    val arcadeNeogeomode: String = "MVS",               // MVS | AES
+    val arcadeMemcard: String = "enabled",              // enabled | disabled
+
+    // === Genesis-Plus-GX (MD/SEGA) core options ===
+    // Keys must match genesis_plus_gx's libretro_core_options.h exactly.
+    val mdRegion: String = "auto",                      // auto | ntsc-u | pal | ntsc-j
+    val mdSystem: String = "auto",                      // auto | md | sms | gg | sg
+    val mdAspect: String = "auto",                      // auto | 4:3 | 16:9 | stretch
+    val mdRender: String = "normal",                    // normal | double | interlaced
+    val mdNtscFilter: String = "disabled",              // disabled | monochrome | rf | composite | s-video | rgb
+    val mdLcdFilter: String = "disabled",               // disabled | enabled
+    val mdOverscan: String = "disabled",                // disabled | enabled
+    val mdGgExtra: String = "disabled",                 // disabled | enabled (GG extended screen)
+    val mdLeftBorder: String = "disabled",              // disabled | enabled
+    val mdInput: String = "6 button",                   // 3 button | 6 button
+    val mdAllowUpDown: String = "disabled",             // disabled | enabled
+    val mdOverclock: String = "100%",                   // 100% | 125% | 150% | 200%
+    val mdFrameskip: String = "0",                      // 0..5
+    val mdCdFastboot: String = "enabled",               // enabled | disabled
+    val mdSmsFm: String = "auto",                       // auto | on | off (SMS FM sound)
+    val mdGgStretch: String = "disabled"                // disabled | enabled (Game Gear stretch)
 )
 
 /**
@@ -629,7 +663,37 @@ object PadLayoutStore {
             dosShowPageDown = p.getBoolean("dos_show_pagedown", false),
             dosExtraKeys = p.getString("dos_extra_keys", "") ?: "",
             dosExtraKeysP = p.getString("dos_extra_keys_p", "") ?: "",
-            screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
+            screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor",
+            // FBNeo (Arcade) options
+            arcadeAspect = p.getString("arcade_aspect", "auto") ?: "auto",
+            arcadeRotate = p.getString("arcade_rotate", "norotate") ?: "norotate",
+            arcadeVerticalMode = p.getString("arcade_vertical_mode", "disabled") ?: "disabled",
+            arcadeCropOverscan = p.getString("arcade_crop_overscan", "enabled") ?: "enabled",
+            arcadeCpuSpeed = p.getString("arcade_cpu_speed", "100") ?: "100",
+            arcadeFrameskip = p.getString("arcade_frameskip", "0") ?: "0",
+            arcadeForce60hz = p.getString("arcade_force_60hz", "disabled") ?: "disabled",
+            arcadeSampleRate = p.getString("arcade_sample_rate", "48000") ?: "48000",
+            arcadeAudioInterp = p.getString("arcade_audio_interp", "2") ?: "2",
+            arcadeLowpass = p.getString("arcade_lowpass", "disabled") ?: "disabled",
+            arcadeNeogeomode = p.getString("arcade_neogeo_mode", "MVS") ?: "MVS",
+            arcadeMemcard = p.getString("arcade_memcard", "enabled") ?: "enabled",
+            // Genesis-Plus-GX (MD/SEGA) options
+            mdRegion = p.getString("md_region", "auto") ?: "auto",
+            mdSystem = p.getString("md_system", "auto") ?: "auto",
+            mdAspect = p.getString("md_aspect", "auto") ?: "auto",
+            mdRender = p.getString("md_render", "normal") ?: "normal",
+            mdNtscFilter = p.getString("md_ntsc_filter", "disabled") ?: "disabled",
+            mdLcdFilter = p.getString("md_lcd_filter", "disabled") ?: "disabled",
+            mdOverscan = p.getString("md_overscan", "disabled") ?: "disabled",
+            mdGgExtra = p.getString("md_gg_extra", "disabled") ?: "disabled",
+            mdLeftBorder = p.getString("md_left_border", "disabled") ?: "disabled",
+            mdInput = p.getString("md_input", "6 button") ?: "6 button",
+            mdAllowUpDown = p.getString("md_allow_up_down", "disabled") ?: "disabled",
+            mdOverclock = p.getString("md_overclock", "100%") ?: "100%",
+            mdFrameskip = p.getString("md_frameskip", "0") ?: "0",
+            mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled",
+            mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto",
+            mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled"
         )
     }
 
@@ -862,6 +926,36 @@ object PadLayoutStore {
             putString("dos_extra_keys_p", layout.dosExtraKeysP)
             // Display orientation
             putString("screen_orientation", layout.screenOrientation)
+            // FBNeo (Arcade) options
+            putString("arcade_aspect", layout.arcadeAspect)
+            putString("arcade_rotate", layout.arcadeRotate)
+            putString("arcade_vertical_mode", layout.arcadeVerticalMode)
+            putString("arcade_crop_overscan", layout.arcadeCropOverscan)
+            putString("arcade_cpu_speed", layout.arcadeCpuSpeed)
+            putString("arcade_frameskip", layout.arcadeFrameskip)
+            putString("arcade_force_60hz", layout.arcadeForce60hz)
+            putString("arcade_sample_rate", layout.arcadeSampleRate)
+            putString("arcade_audio_interp", layout.arcadeAudioInterp)
+            putString("arcade_lowpass", layout.arcadeLowpass)
+            putString("arcade_neogeo_mode", layout.arcadeNeogeomode)
+            putString("arcade_memcard", layout.arcadeMemcard)
+            // Genesis-Plus-GX (MD/SEGA) options
+            putString("md_region", layout.mdRegion)
+            putString("md_system", layout.mdSystem)
+            putString("md_aspect", layout.mdAspect)
+            putString("md_render", layout.mdRender)
+            putString("md_ntsc_filter", layout.mdNtscFilter)
+            putString("md_lcd_filter", layout.mdLcdFilter)
+            putString("md_overscan", layout.mdOverscan)
+            putString("md_gg_extra", layout.mdGgExtra)
+            putString("md_left_border", layout.mdLeftBorder)
+            putString("md_input", layout.mdInput)
+            putString("md_allow_up_down", layout.mdAllowUpDown)
+            putString("md_overclock", layout.mdOverclock)
+            putString("md_frameskip", layout.mdFrameskip)
+            putString("md_cd_fastboot", layout.mdCdFastboot)
+            putString("md_sms_fm", layout.mdSmsFm)
+            putString("md_gg_stretch", layout.mdGgStretch)
         }.apply()
     }
 }

@@ -4,12 +4,17 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Game platform type.
- * NES  = NES/Famicom games (FCEUmm core)
- * SFC  = SNES/Super Famicom games (snes9x core)
- * GB   = Game Boy / Game Boy Color games (mGBA core)
- * GBA  = Game Boy Advance games (mGBA core)
- * DOS  = DOS/PC games (DOSBox-Pure core)
- * JAVA = J2ME/Java ME games (J2ME-Loader engine)
+ * NES    = NES/Famicom games (FCEUmm core)
+ * SFC    = SNES/Super Famicom games (snes9x core)
+ * GB     = Game Boy / Game Boy Color games (mGBA core)
+ * GBA    = Game Boy Advance games (mGBA core)
+ * DOS    = DOS/PC games (DOSBox-Pure core)
+ * ARCADE = Arcade machines (FBNeo core — CPS1/2/3, NeoGeo, PGM, etc.)
+ * MD     = SEGA Mega Drive / Genesis / Master System / Game Gear /
+ *           Mega-CD / SG-1000 (Genesis-Plus-GX core)
+ *           NOTE: SS (Saturn) is NOT supported by Genesis-Plus-GX —
+ *           it requires a separate Saturn core (Yabause/Mednafen).
+ * JAVA   = J2ME/Java ME games (J2ME-Loader engine)
  */
 enum class GamePlatform(val displayName: String) {
     NES("NES"),
@@ -17,6 +22,8 @@ enum class GamePlatform(val displayName: String) {
     GB("GB/GBC"),
     GBA("GBA"),
     DOS("DOS"),
+    ARCADE("Arcade"),
+    MD("MD/SEGA"),
     JAVA("Java");
 
     companion object {
@@ -33,6 +40,22 @@ enum class GamePlatform(val displayName: String) {
          * .com (small DOS executable), .dosz (dosbox-pure zip bundle),
          * .conf (dosbox config), .iso/.cue/.img (CD images),
          * .ima/.vhd/.hd (hard disk images).
+         *
+         * FBNeo (Arcade) accepts: .zip / .7z archives (the archive itself
+         * IS the ROM — arcade ROMs are stored as zip files named after
+         * their MAME-style driver, e.g. "mvc.zip", "kof97.zip").
+         *
+         * Genesis-Plus-GX (MD) accepts MD/Genesis ROMs (.md/.smd/.gen),
+         * Master System (.sms), Game Gear (.gg), SG-1000 (.sg),
+         * and Mega-CD images (.cue/.chd/.iso).
+         *
+         * NOTE on .zip: arcade ROMs are .zip files, but users may also
+         * store other ROM types in .zip archives. The fromExtension()
+         * function returns null for .zip so the caller (detectPlatformFromUri)
+         * can peek inside the zip to find the actual ROM extension. If
+         * the zip contains no recognized ROM extension, the caller should
+         * default to ARCADE (since arcade zips contain raw .bin ROM files
+         * which are not part of any other platform's standard).
          */
         fun fromExtension(ext: String): GamePlatform? {
             return when (ext.lowercase()) {
@@ -42,7 +65,21 @@ enum class GamePlatform(val displayName: String) {
                 "gba" -> GBA
                 // DOSBox-Pure — executable launchers and bundle formats.
                 "bat", "exe", "com", "dosz", "conf", "iso", "cue", "img", "ima", "vhd", "hd" -> DOS
+                // FBNeo (Arcade) — .7z is unambiguously arcade (no other
+                // platform uses .7z in this app). .zip is handled by the
+                // caller (detectPlatformFromUri) because users may store
+                // other ROM types in zip archives.
+                "7z" -> ARCADE
+                // Genesis-Plus-GX — MD/SMS/GG/SG cartridge + Mega-CD images.
+                // .bin is shared with DOS but in practice a SEGA .bin comes
+                // paired with a .cue or as a raw MD cart dump, so we route
+                // .bin to MD (more common in user libraries). The user can
+                // manually tag a DOS .bin via the platform filter if needed.
+                "md", "smd", "gen", "sms", "gg", "sg", "68k", "bin" -> MD
+                "chd" -> MD   // SEGA CD / Mega-CD CHD images
                 "jar", "jad" -> JAVA
+                // .zip is intentionally NOT mapped — see detectPlatformFromUri
+                // for the disambiguation logic.
                 else -> null
             }
         }

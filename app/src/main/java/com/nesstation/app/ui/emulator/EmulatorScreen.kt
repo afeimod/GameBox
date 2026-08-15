@@ -123,8 +123,12 @@ private fun isTvMode(context: android.content.Context): Boolean {
 // Bit layout must match the BTN_* constants below.
 // ---------------------------------------------------------------------------
 private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
-    val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
-    val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
+    // L/R bit values differ by platform:
+    //   SNES: L=bit10 R=bit11 (X=bit8 Y=bit9 — SNES face layout)
+    //   GBA:  L=bit8  R=bit9  (no X/Y face buttons)
+    //   ARCADE/MD: L=bit10 R=bit11 (same as SNES — 6-button layout)
+    val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
+    val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
     return when (keyCode) {
         KeyEvent.KEYCODE_DPAD_UP       -> BTN_UP
         KeyEvent.KEYCODE_DPAD_DOWN     -> BTN_DOWN
@@ -482,7 +486,16 @@ fun EmulatorScreen(
         // Created here to guarantee it exists before the native core tries
         // to write the .srm file.
         val savesDir = java.io.File(context.filesDir, "saves").apply { mkdirs() }
-        val filesDir = context.filesDir.absolutePath
+        // System directory: each core looks for BIOS files in this dir.
+        // FBNeo expects BIOS zips (neogeo.zip, pgm.zip, etc.) in <filesDir>/fbneo/.
+        // Genesis-Plus-GX expects Mega-CD BIOS zips in <filesDir>/genesis/.
+        // Other cores (NES/SNES/GBA/DOS) use the root filesDir.
+        val systemDir = when (platform) {
+            GamePlatform.ARCADE -> java.io.File(context.filesDir, "fbneo").apply { mkdirs() }.absolutePath
+            GamePlatform.MD     -> java.io.File(context.filesDir, "genesis").apply { mkdirs() }.absolutePath
+            else                -> context.filesDir.absolutePath
+        }
+        val filesDir = systemDir  // pass the platform-specific system dir to the core
         val savesDirPath = savesDir.absolutePath
 
         // Tell the native core to use this stable name for the .srm file.
@@ -541,6 +554,20 @@ fun EmulatorScreen(
                         origName.endsWith(".gba", ignoreCase = true) -> ".gba"
                         origName.endsWith(".gb", ignoreCase = true) -> ".gb"
                         origName.endsWith(".sgb", ignoreCase = true) -> ".sgb"
+                        // SEGA MD / SMS / GG / SG extensions
+                        origName.endsWith(".md", ignoreCase = true) -> ".md"
+                        origName.endsWith(".smd", ignoreCase = true) -> ".smd"
+                        origName.endsWith(".gen", ignoreCase = true) -> ".gen"
+                        origName.endsWith(".sms", ignoreCase = true) -> ".sms"
+                        origName.endsWith(".gg", ignoreCase = true) -> ".gg"
+                        origName.endsWith(".sg", ignoreCase = true) -> ".sg"
+                        origName.endsWith(".68k", ignoreCase = true) -> ".68k"
+                        origName.endsWith(".bin", ignoreCase = true) -> ".bin"
+                        origName.endsWith(".cue", ignoreCase = true) -> ".cue"
+                        origName.endsWith(".chd", ignoreCase = true) -> ".chd"
+                        // Arcade: FBNeo loads .zip / .7z archives
+                        origName.endsWith(".zip", ignoreCase = true) -> ".zip"
+                        origName.endsWith(".7z", ignoreCase = true) -> ".7z"
                         romPath.contains(".fds", ignoreCase = true) -> ".fds"
                         romPath.contains(".unf", ignoreCase = true) -> ".unf"
                         romPath.contains(".sfc", ignoreCase = true) -> ".sfc"
@@ -548,6 +575,9 @@ fun EmulatorScreen(
                         romPath.contains(".gba", ignoreCase = true) -> ".gba"
                         romPath.contains(".gbc", ignoreCase = true) -> ".gbc"
                         romPath.contains(".gb", ignoreCase = true) -> ".gb"
+                        // Default extension based on platform
+                        platform == GamePlatform.ARCADE -> ".zip"
+                        platform == GamePlatform.MD -> ".md"
                         else -> ".nes"
                     }
                     val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
@@ -881,6 +911,40 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("dosbox_pure_force60fps", layout.dosForce60fps)
             engine.setCoreOption("dosbox_pure_time_announce", layout.dosTimeAnnounce)
         }
+        GamePlatform.ARCADE -> {
+            // FBNeo core options — keys match libretro_core_options.h.
+            engine.setCoreOption("fbneo-aspect", layout.arcadeAspect)
+            engine.setCoreOption("fbneo-rotate-mode", layout.arcadeRotate)
+            engine.setCoreOption("fbneo-vertical-mode", layout.arcadeVerticalMode)
+            engine.setCoreOption("fbneo-crop-overscan", layout.arcadeCropOverscan)
+            engine.setCoreOption("fbneo-cpu-speed", layout.arcadeCpuSpeed)
+            engine.setCoreOption("fbneo-cpu-frameskip", layout.arcadeFrameskip)
+            engine.setCoreOption("fbneo-force-60hz", layout.arcadeForce60hz)
+            engine.setCoreOption("fbneo-samplerate", layout.arcadeSampleRate)
+            engine.setCoreOption("fbneo-audio-interpolation", layout.arcadeAudioInterp)
+            engine.setCoreOption("fbneo-lowpass", layout.arcadeLowpass)
+            engine.setCoreOption("fbneo-neogeo-mode", layout.arcadeNeogeomode)
+            engine.setCoreOption("fbneo-memcard-mode", layout.arcadeMemcard)
+        }
+        GamePlatform.MD -> {
+            // Genesis-Plus-GX core options — keys match libretro_core_options.h.
+            engine.setCoreOption("genesis_plus_gx_region", layout.mdRegion)
+            engine.setCoreOption("genesis_plus_gx_system", layout.mdSystem)
+            engine.setCoreOption("genesis_plus_gx_aspect_ratio", layout.mdAspect)
+            engine.setCoreOption("genesis_plus_gx_render", layout.mdRender)
+            engine.setCoreOption("genesis_plus_gx_blargg_ntsc_filter", layout.mdNtscFilter)
+            engine.setCoreOption("genesis_plus_gx_lcd_filter", layout.mdLcdFilter)
+            engine.setCoreOption("genesis_plus_gx_overscan", layout.mdOverscan)
+            engine.setCoreOption("genesis_plus_gx_gg_extra", layout.mdGgExtra)
+            engine.setCoreOption("genesis_plus_gx_left_border", layout.mdLeftBorder)
+            engine.setCoreOption("genesis_plus_gx_input", layout.mdInput)
+            engine.setCoreOption("genesis_plus_gx_allow_up_down_allowed", layout.mdAllowUpDown)
+            engine.setCoreOption("genesis_plus_gx_overclock", layout.mdOverclock)
+            engine.setCoreOption("genesis_plus_gx_frameskip", layout.mdFrameskip)
+            engine.setCoreOption("genesis_plus_gx_cd_fastboot", layout.mdCdFastboot)
+            engine.setCoreOption("genesis_plus_gx_sms_fm", layout.mdSmsFm)
+            engine.setCoreOption("genesis_plus_gx_gg_stretch", layout.mdGgStretch)
+        }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
 }
@@ -1174,13 +1238,18 @@ private fun OnScreenController(
     val density = LocalDensity.current
     val opacity = padLayout.opacity
 
-    // Which extra buttons to show based on platform
-    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC
-    val showXY = platform == GamePlatform.SFC
+    // Which extra buttons to show based on platform.
+    // SNES / ARCADE / MD: 6-button layout — show all of A/B/X/Y/L/R.
+    // GBA: 4 face buttons — show L/R but no X/Y.
+    // NES / GB: only A/B + Start/Select.
+    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+    val showXY = platform == GamePlatform.SFC ||
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
 
-    // L/R bit values differ between GBA (bit8/9) and SNES (bit10/11)
-    val lBit = if (platform == GamePlatform.SFC) BTN_L_SNES else BTN_L_GBA
-    val rBit = if (platform == GamePlatform.SFC) BTN_R_SNES else BTN_R_GBA
+    // L/R bit values differ between GBA (bit8/9) and SNES/ARCADE/MD (bit10/11)
+    val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
+    val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
 
     // === 横竖屏布局选择 ===
     // 横屏用 dpad / btnA / btnB / ...，竖屏用 dpadP / btnAP / btnBP / ...
@@ -2977,8 +3046,10 @@ private fun PadLayoutEditor(
     val density = LocalDensity.current
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
 
-    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC
-    val showXY = platform == GamePlatform.SFC
+    val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+    val showXY = platform == GamePlatform.SFC ||
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
 
     // === 横竖屏布局选择 ===
     // 横屏编辑修改 dpad / btnA / ...，竖屏编辑修改 dpadP / btnAP / ...
@@ -3967,6 +4038,218 @@ private fun SettingsPanel(
                     padLayout.dosInputMode
                 ) { onLayoutChange(padLayout.copy(dosInputMode = it)) }
             }
+            GamePlatform.ARCADE -> {
+                Text("Arcade (FBNeo) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("画面比例",
+                    listOf("auto" to "自动", "4:3" to "4:3 (标准)",
+                           "3:4" to "3:4 (竖屏)", "16:9" to "16:9", "16:15" to "16:15"),
+                    padLayout.arcadeAspect
+                ) { onLayoutChange(padLayout.copy(arcadeAspect = it)) }
+
+                DropdownSetting("画面旋转",
+                    listOf("norotate" to "不旋转", "cw" to "顺时针90°",
+                           "ccw" to "逆时针90°", "flip" to "翻转180°"),
+                    padLayout.arcadeRotate
+                ) { onLayoutChange(padLayout.copy(arcadeRotate = it)) }
+
+                DropdownSetting("竖屏模式",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.arcadeVerticalMode
+                ) { onLayoutChange(padLayout.copy(arcadeVerticalMode = it)) }
+
+                DropdownSetting("裁剪过扫描",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.arcadeCropOverscan
+                ) { onLayoutChange(padLayout.copy(arcadeCropOverscan = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("CPU速度",
+                    listOf("100" to "100%", "75" to "75%", "50" to "50%",
+                           "150" to "150%", "200" to "200%", "250" to "250%"),
+                    padLayout.arcadeCpuSpeed
+                ) { onLayoutChange(padLayout.copy(arcadeCpuSpeed = it)) }
+
+                DropdownSetting("跳帧",
+                    listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
+                           "4" to "4", "5" to "5", "6" to "6", "8" to "8", "10" to "10"),
+                    padLayout.arcadeFrameskip
+                ) { onLayoutChange(padLayout.copy(arcadeFrameskip = it)) }
+
+                DropdownSetting("强制60Hz",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.arcadeForce60hz
+                ) { onLayoutChange(padLayout.copy(arcadeForce60hz = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("采样率",
+                    listOf("48000" to "48000 Hz", "44100" to "44100 Hz",
+                           "22050" to "22050 Hz"),
+                    padLayout.arcadeSampleRate
+                ) { onLayoutChange(padLayout.copy(arcadeSampleRate = it)) }
+
+                DropdownSetting("音频插值",
+                    listOf("0" to "关闭", "1" to "最近邻", "2" to "线性(推荐)", "3" to "三次"),
+                    padLayout.arcadeAudioInterp
+                ) { onLayoutChange(padLayout.copy(arcadeAudioInterp = it)) }
+
+                DropdownSetting("低通滤波",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.arcadeLowpass
+                ) { onLayoutChange(padLayout.copy(arcadeLowpass = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("NeoGeo", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("NeoGeo模式",
+                    listOf("MVS" to "MVS(街机)", "AES" to "AES(家用)"),
+                    padLayout.arcadeNeogeomode
+                ) { onLayoutChange(padLayout.copy(arcadeNeogeomode = it)) }
+
+                DropdownSetting("记忆卡",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.arcadeMemcard
+                ) { onLayoutChange(padLayout.copy(arcadeMemcard = it)) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("FBNeo BIOS 管理", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "街机游戏需要BIOS文件放在系统目录(<filesDir>/fbneo/)。" +
+                    "NeoGeo游戏需要 neogeo.zip, PGM游戏(三国战纪/魔窟等)需要 pgm.zip。" +
+                    "下方可手动导入BIOS zip文件。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                ArcadeBiosImportSection()
+            }
+            GamePlatform.MD -> {
+                Text("MD/SEGA (Genesis-Plus-GX) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+                Text("注意: SS(Saturn)不在本核心支持范围内, 仅MD/SMS/GG/SG/Mega-CD。",
+                    color = Color(0xFFFFAAAA), fontSize = 10.sp, lineHeight = 14.sp)
+                Spacer(Modifier.size(6.dp))
+
+                Text("系统", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("区域",
+                    listOf("auto" to "自动", "ntsc-u" to "NTSC-U(美)",
+                           "pal" to "PAL(欧)", "ntsc-j" to "NTSC-J(日)"),
+                    padLayout.mdRegion
+                ) { onLayoutChange(padLayout.copy(mdRegion = it)) }
+
+                DropdownSetting("系统型号",
+                    listOf("auto" to "自动", "md" to "Mega Drive",
+                           "sms" to "Master System", "gg" to "Game Gear", "sg" to "SG-1000"),
+                    padLayout.mdSystem
+                ) { onLayoutChange(padLayout.copy(mdSystem = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("画面比例",
+                    listOf("auto" to "自动", "4:3" to "4:3 (标准)",
+                           "16:9" to "16:9", "stretch" to "全屏拉伸"),
+                    padLayout.mdAspect
+                ) { onLayoutChange(padLayout.copy(mdAspect = it)) }
+
+                DropdownSetting("渲染模式",
+                    listOf("normal" to "普通", "double" to "双倍",
+                           "interlaced" to "隔行扫描"),
+                    padLayout.mdRender
+                ) { onLayoutChange(padLayout.copy(mdRender = it)) }
+
+                DropdownSetting("NTSC滤镜",
+                    listOf("disabled" to "关闭", "monochrome" to "黑白", "rf" to "RF",
+                           "composite" to "复合", "s-video" to "S-Video", "rgb" to "RGB"),
+                    padLayout.mdNtscFilter
+                ) { onLayoutChange(padLayout.copy(mdNtscFilter = it)) }
+
+                DropdownSetting("LCD滤镜",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.mdLcdFilter
+                ) { onLayoutChange(padLayout.copy(mdLcdFilter = it)) }
+
+                DropdownSetting("过扫描",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.mdOverscan
+                ) { onLayoutChange(padLayout.copy(mdOverscan = it)) }
+
+                DropdownSetting("GG扩展屏幕",
+                    listOf("disabled" to "关闭(原始160x144)", "enabled" to "开启(扩展256x144)"),
+                    padLayout.mdGgExtra
+                ) { onLayoutChange(padLayout.copy(mdGgExtra = it)) }
+
+                DropdownSetting("GG画面拉伸",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.mdGgStretch
+                ) { onLayoutChange(padLayout.copy(mdGgStretch = it)) }
+
+                DropdownSetting("左侧边框",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.mdLeftBorder
+                ) { onLayoutChange(padLayout.copy(mdLeftBorder = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("手柄类型",
+                    listOf("3 button" to "3键手柄(经典)", "6 button" to "6键手柄(街机)"),
+                    padLayout.mdInput
+                ) { onLayoutChange(padLayout.copy(mdInput = it)) }
+
+                DropdownSetting("允许上下同时输入",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.mdAllowUpDown
+                ) { onLayoutChange(padLayout.copy(mdAllowUpDown = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("超频",
+                    listOf("100%" to "100%", "125%" to "125%",
+                           "150%" to "150%", "200%" to "200%"),
+                    padLayout.mdOverclock
+                ) { onLayoutChange(padLayout.copy(mdOverclock = it)) }
+
+                DropdownSetting("跳帧",
+                    listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3", "4" to "4", "5" to "5"),
+                    padLayout.mdFrameskip
+                ) { onLayoutChange(padLayout.copy(mdFrameskip = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("Mega-CD", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("CD快速启动",
+                    listOf("enabled" to "开启(跳过BIOS动画)", "disabled" to "关闭"),
+                    padLayout.mdCdFastboot
+                ) { onLayoutChange(padLayout.copy(mdCdFastboot = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("Master System", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("FM音源",
+                    listOf("auto" to "自动", "on" to "开启", "off" to "关闭"),
+                    padLayout.mdSmsFm
+                ) { onLayoutChange(padLayout.copy(mdSmsFm = it)) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("Mega-CD BIOS 管理", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "Mega-CD/SEGA-CD游戏需要BIOS文件放在系统目录(< filesDir >/genesis/)。" +
+                    "卡带游戏(MD/SMS/GG/SG)无需BIOS。" +
+                    "需要: bios_CD_E.zip(欧), bios_CD_J.zip(日), bios_CD_U.zip(美)。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                GenesisBiosImportSection()
+            }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }
 
@@ -4082,6 +4365,187 @@ private fun FdsBiosImportSection(
                 .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
                 .padding(8.dp)
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FBNeo (Arcade) BIOS management — lets the user import BIOS zip files
+// (neogeo.zip, pgm.zip, etc.) into <filesDir>/fbneo/.
+// ---------------------------------------------------------------------------
+@Composable
+private fun ArcadeBiosImportSection() {
+    val context = LocalContext.current
+    val biosDir = remember { java.io.File(context.filesDir, "fbneo").apply { mkdirs() } }
+    var statusText by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    // Refresh BIOS status on first composition and after each import.
+    LaunchedEffect(refreshKey) {
+        statusText = buildString {
+            val known = listOf(
+                "neogeo.zip" to "NeoGeo",
+                "pgm.zip" to "PGM",
+                "neocdz.zip" to "NeoGeo CD",
+                "cvs2.zip" to "Capcom VS SNK 2",
+                "cps1.zip" to "CPS1",
+                "cps2.zip" to "CPS2",
+                "stvbios.zip" to "ST-V"
+            )
+            var found = 0
+            for ((name, label) in known) {
+                val f = java.io.File(biosDir, name)
+                if (f.exists() && f.length() > 0) {
+                    append("✓ $label ($name, ${f.length() / 1024}KB)\n")
+                    found++
+                }
+            }
+            if (found == 0) {
+                append("未检测到任何BIOS文件\n")
+            }
+            append("\n目录: ${biosDir.absolutePath}")
+        }
+    }
+
+    val biosPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            // Determine destination filename from URI's display name.
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast('%')
+                ?: "bios.zip"
+            val safeName = if (name.endsWith(".zip", ignoreCase = true)) name else "$name.zip"
+            val dest = java.io.File(biosDir, safeName)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                refreshKey++
+            } catch (e: Exception) {
+                statusText = "导入失败: ${e.message}"
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            statusText,
+            color = Color(0xFF88DD88),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "导入BIOS zip",
+                color = Color(0xFFFFD66B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
+                    .padding(8.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Text(
+                "刷新",
+                color = Color(0xFF8899AA),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { refreshKey++ }
+                    .padding(8.dp)
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Genesis-Plus-GX (Mega-CD) BIOS management — lets the user import
+// bios_CD_E.zip / bios_CD_J.zip / bios_CD_U.zip into <filesDir>/genesis/.
+// ---------------------------------------------------------------------------
+@Composable
+private fun GenesisBiosImportSection() {
+    val context = LocalContext.current
+    val biosDir = remember { java.io.File(context.filesDir, "genesis").apply { mkdirs() } }
+    var statusText by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshKey) {
+        statusText = buildString {
+            val known = listOf(
+                "bios_CD_E.zip" to "Mega-CD (欧洲)",
+                "bios_CD_J.zip" to "Mega-CD (日本)",
+                "bios_CD_U.zip" to "SEGA-CD (美国)"
+            )
+            var found = 0
+            for ((name, label) in known) {
+                val f = java.io.File(biosDir, name)
+                if (f.exists() && f.length() > 0) {
+                    append("✓ $label ($name, ${f.length() / 1024}KB)\n")
+                    found++
+                }
+            }
+            if (found == 0) {
+                append("未检测到Mega-CD BIOS文件\n")
+                append("卡带游戏(MD/SMS/GG/SG)无需BIOS, 仅Mega-CD游戏需要。\n")
+            }
+            append("\n目录: ${biosDir.absolutePath}")
+        }
+    }
+
+    val biosPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast('%')
+                ?: "bios.zip"
+            val safeName = if (name.endsWith(".zip", ignoreCase = true)) name else "$name.zip"
+            val dest = java.io.File(biosDir, safeName)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                refreshKey++
+            } catch (e: Exception) {
+                statusText = "导入失败: ${e.message}"
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            statusText,
+            color = Color(0xFF88DD88),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "导入BIOS zip",
+                color = Color(0xFFFFD66B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
+                    .padding(8.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Text(
+                "刷新",
+                color = Color(0xFF8899AA),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { refreshKey++ }
+                    .padding(8.dp)
+            )
+        }
     }
 }
 

@@ -390,6 +390,107 @@ target_compile_options(doscore PRIVATE
 target_link_libraries(doscore log android dl)
 
 # ---------------------------------------------------------------------------
+# FBNeo (Arcade) — built as libfbneocore.so, which dlopen()s the prebuilt
+# libfbneo_libretro_android.so from app/src/main/jniLibs/<abi>/ at runtime.
+# Same dlopen pattern as DOSBox-Pure: avoids compiling the huge FBNeo source
+# tree (and the uploaded snapshot doesn't include FBNeo's libretro port).
+#
+# The prebuilt .so comes from the libretro buildbot (or you can build it
+# yourself by running `make -f Makefile.libretro platform=unix` inside the
+# FBNeo source tree with the libretro subdir restored).
+#
+# Our JNI bridge (fbneo_bridge.cpp) + libretro frontend (fbneo_loader.cpp)
+# drive the core through the standard retro_* API. Supports the HQX library
+# for video filter upscalers. BIOS files (neogeo.zip, pgm.zip, etc.) are
+# looked up by the core in the system directory — see NesApp.ensureFbNeoBios.
+# ---------------------------------------------------------------------------
+set(FBNEO_JNI_SOURCES
+    "${APP_JNI_DIR}/fbneo_bridge.cpp"
+    "${APP_JNI_DIR}/fbneo_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(fbneocore SHARED ${FBNEO_JNI_SOURCES})
+
+target_include_directories(fbneocore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(fbneocore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(fbneocore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt FBNeo .so.
+target_link_libraries(fbneocore log android dl)
+
+# ---------------------------------------------------------------------------
+# Genesis-Plus-GX (SEGA MD / SMS / GG / SG / Mega-CD) — built as
+# libgenesicore.so, which dlopen()s the prebuilt
+# libgenesis_plus_gx_libretro_android.so from app/src/main/jniLibs/<abi>/.
+# Same dlopen pattern as DOSBox-Pure / FBNeo.
+#
+# NOTE: Genesis-Plus-GX does NOT support the SEGA Saturn (SS). Saturn
+# requires a separate Saturn core (Yabause / Mednafen). The MD platform
+# covers MD / SMS / GG / SG / Mega-CD only.
+#
+# BIOS files (bios_CD_E.zip, bios_CD_J.zip, bios_CD_U.zip) for Mega-CD
+# games are looked up by the core in the system directory — see
+# NesApp.ensureGenesisBios.
+# ---------------------------------------------------------------------------
+set(GENESIS_JNI_SOURCES
+    "${APP_JNI_DIR}/genesis_bridge.cpp"
+    "${APP_JNI_DIR}/genesis_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(genesicore SHARED ${GENESIS_JNI_SOURCES})
+
+target_include_directories(genesicore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(genesicore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(genesicore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt Genesis-Plus-GX .so.
+target_link_libraries(genesicore log android dl)
+
+# ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
 # Converted from J2ME-Loader's Android.mk to CMake
 # ---------------------------------------------------------------------------
