@@ -164,7 +164,7 @@ data class PadLayout(
     val dosSbAdlibMode: String = "off",                // on | off
     val dosSbAdlibEmu: String = "default",             // default | cms | dual
     val dosGus: String = "off",                        // off | on
-    val dosMouseInput: String = "emulated",            // emulated | absolute | ps2 | none
+    val dosMouseInput: String = "touchpad",            // touchpad | auto | virtual | direct | off
     val dosMouseTimeout: String = "off",               // off | 3 | 5 | 10
     val dosKeyboardLayout: String = "us",              // us | uk | br | de | it | fr | ru | es | ...
     val dosKeyboardDelay: String = "300",              // 100 | 200 | 300 | 400 | 500
@@ -550,7 +550,12 @@ object PadLayoutStore {
             dosSbAdlibMode = p.getString("dos_sb_adlib_mode", "off") ?: "off",
             dosSbAdlibEmu = p.getString("dos_sb_adlib_emu", "default") ?: "default",
             dosGus = p.getString("dos_gus", "off") ?: "off",
-            dosMouseInput = p.getString("dos_mouse_input", "emulated") ?: "emulated",
+            // Migrate the old invalid dosbox_pure_mouse_input values
+            // ("emulated"/"absolute"/"ps2"/"none") to the valid "touchpad".
+            dosMouseInput = run {
+                val v = p.getString("dos_mouse_input", "touchpad") ?: "touchpad"
+                if (v in setOf("emulated", "absolute", "ps2", "none")) "touchpad" else v
+            },
             dosMouseTimeout = p.getString("dos_mouse_timeout", "off") ?: "off",
             dosKeyboardLayout = p.getString("dos_keyboard_layout", "us") ?: "us",
             dosKeyboardDelay = p.getString("dos_keyboard_delay", "300") ?: "300",

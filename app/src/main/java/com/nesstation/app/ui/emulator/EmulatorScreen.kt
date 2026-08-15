@@ -3855,10 +3855,11 @@ private fun SettingsPanel(
                 Text("鼠标", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("鼠标输入模式",
                     listOf(
-                        "emulated" to "模拟(推荐·游戏)",
-                        "absolute" to "绝对坐标",
-                        "ps2" to "PS/2 鼠标",
-                        "none" to "关闭"
+                        "touchpad" to "触控板(推荐·默认)",
+                        "auto" to "自动",
+                        "virtual" to "虚拟鼠标",
+                        "direct" to "直接控制",
+                        "off" to "关闭"
                     ),
                     padLayout.dosMouseInput
                 ) { onLayoutChange(padLayout.copy(dosMouseInput = it)) }

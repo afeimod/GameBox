@@ -153,7 +153,7 @@ object DosNative {
      *   "dosbox_pure_sblaster_adlib_mode"-> "on" | "off"
      *   "dosbox_pure_sblaster_adlib_emu" -> "default" | "cms" | "dual"
      *   "dosbox_pure_gus"                -> "off" | "on"
-     *   "dosbox_pure_mouse_input"        -> "emulated" | "absolute" | "ps2" | "none"
+     *   "dosbox_pure_mouse_input"        -> "touchpad" | "auto" | "virtual" | "direct" | "off"
      *   "dosbox_pure_mouse_timeout"      -> "off" | "3" | "5" | "10"
      *   "dosbox_pure_keyboard_layout"    -> "us" | "uk" | "br" | "de" | "it" | "fr" | "ru" | "es" | ...
      *   "dosbox_pure_keyboard_delay"     -> "100" | "200" | "300" | "400" | "500"

@@ -163,6 +163,14 @@ static std::atomic<int>  s_mouseDY{0};
 // Mouse buttons: index 0=left, 1=right, 2=middle, 3=wheel_up, 4=wheel_down,
 // 5=horiz_wheel_up, 6=horiz_wheel_down, 7=button_4, 8=button_5
 static std::atomic<bool> s_mouseBtn[9]{};
+// Click latch: after a mouse button press, keep the button reported as
+// pressed for at least kMinClickFrames polls. The frontend's tap gestures
+// send press+release back-to-back (both land within one emulation frame),
+// so without a latch the core's per-frame input polling would never observe
+// the button in the pressed state and every tap-click would be dropped.
+// The latch guarantees a click is seen regardless of how short the press was.
+static constexpr int kMinClickFrames = 4;
+static std::atomic<int> s_mouseBtnHold[9]{};
 static std::atomic<int>  s_inputDeviceMode{0};  // 0=joypad,1=kbd,2=mouse,3=all
 
 // Keyboard event callback — registered by the core via
@@ -209,7 +217,10 @@ static void initDefaultOptions() {
     s_options["dosbox_pure_sblaster_adlib_mode"]= "off";
     s_options["dosbox_pure_sblaster_adlib_emu"] = "default";
     s_options["dosbox_pure_gus"]                = "off";
-    s_options["dosbox_pure_mouse_input"]        = "emulated";
+    // "touchpad" matches the frontend's gesture mapping (drag to move, tap to
+    // click, two-finger tap to right-click). Valid values are:
+    //   touchpad | auto | virtual | direct | off
+    s_options["dosbox_pure_mouse_input"]        = "touchpad";
     s_options["dosbox_pure_mouse_timeout"]      = "off";
     s_options["dosbox_pure_keyboard_layout"]    = "us";
     s_options["dosbox_pure_keyboard_delay"]     = "300";
@@ -550,6 +561,18 @@ static void cb_input_poll(void) {
     // No-op — input state is pushed via setControllerInput / keyboardDown etc.
 }
 
+// Read a mouse button, honoring the click latch. The latch drains over
+// kMinClickFrames polls so a very short press (e.g. a tap gesture) is still
+// observed by the core as a genuine button press.
+static int16_t readMouseButton(int idx) {
+    int hold = s_mouseBtnHold[idx].load(std::memory_order_relaxed);
+    if (hold > 0) {
+        s_mouseBtnHold[idx].store(hold - 1, std::memory_order_relaxed);
+        return 1;
+    }
+    return s_mouseBtn[idx].load(std::memory_order_relaxed) ? 1 : 0;
+}
+
 static int16_t cb_input_state(unsigned port, unsigned device,
                               unsigned index, unsigned id) {
     if (port != 0) return 0;
@@ -576,15 +599,15 @@ static int16_t cb_input_state(unsigned port, unsigned device,
                     int dy = s_mouseDY.exchange(0, std::memory_order_acq_rel);
                     return (int16_t)dy;
                 }
-                case RETRO_DEVICE_ID_MOUSE_LEFT:    return s_mouseBtn[0].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_RIGHT:   return s_mouseBtn[1].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_MIDDLE:  return s_mouseBtn[2].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_WHEELUP:   return s_mouseBtn[3].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_WHEELDOWN: return s_mouseBtn[4].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP:   return s_mouseBtn[5].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN: return s_mouseBtn[6].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_BUTTON_4: return s_mouseBtn[7].load() ? 1 : 0;
-                case RETRO_DEVICE_ID_MOUSE_BUTTON_5: return s_mouseBtn[8].load() ? 1 : 0;
+                case RETRO_DEVICE_ID_MOUSE_LEFT:    return readMouseButton(0);
+                case RETRO_DEVICE_ID_MOUSE_RIGHT:   return readMouseButton(1);
+                case RETRO_DEVICE_ID_MOUSE_MIDDLE:  return readMouseButton(2);
+                case RETRO_DEVICE_ID_MOUSE_WHEELUP:   return readMouseButton(3);
+                case RETRO_DEVICE_ID_MOUSE_WHEELDOWN: return readMouseButton(4);
+                case RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP:   return readMouseButton(5);
+                case RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN: return readMouseButton(6);
+                case RETRO_DEVICE_ID_MOUSE_BUTTON_4: return readMouseButton(7);
+                case RETRO_DEVICE_ID_MOUSE_BUTTON_5: return readMouseButton(8);
                 default: return 0;
             }
         }
@@ -750,6 +773,7 @@ void unload() {
     }
     for (int i = 0; i < 9; ++i) {
         s_mouseBtn[i].store(false, std::memory_order_relaxed);
+        s_mouseBtnHold[i].store(0, std::memory_order_relaxed);
     }
     s_pad1.store(0, std::memory_order_relaxed);
     s_mouseDX.store(0, std::memory_order_relaxed);
@@ -857,6 +881,11 @@ void mouseMove(int dx, int dy) {
 void mouseButton(int button, bool pressed) {
     if (button >= 0 && button < 9) {
         s_mouseBtn[button].store(pressed, std::memory_order_relaxed);
+        if (pressed) {
+            // Start the click latch so the core observes this press even if
+            // the frontend releases the button within the same frame (tap).
+            s_mouseBtnHold[button].store(kMinClickFrames, std::memory_order_relaxed);
+        }
     }
 }
 
