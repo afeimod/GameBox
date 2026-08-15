@@ -458,6 +458,12 @@ fun EmulatorScreen(
 
     // Load ROM
     LaunchedEffect(game) {
+        // Ensure previous game is fully cleaned up before loading a new one.
+        // loadRom() internally calls cleanup(), but an explicit unload() here
+        // guarantees the audio thread, emulation thread, and native core are
+        // fully torn down — preventing stale state when switching games.
+        try { engine.unload() } catch (_: Throwable) {}
+
         val romPath = game.romPath
         if (romPath.isNullOrEmpty()) {
             errorMsg = "该游戏未关联 ROM 文件"
@@ -2047,69 +2053,7 @@ private fun DosPadLayoutEditor(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0x66000000))) {
-        // === Top toolbar (compact) ===
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "DOS 按键设置",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                if (isPortrait) "(竖屏)" else "(横屏)",
-                color = Color(0xFF8899AA),
-                fontSize = 10.sp
-            )
-            Spacer(Modifier.size(6.dp))
-            IconButton(onClick = {
-                val defaults = PadLayout()
-                onLayoutChange(padLayout.copy(
-                    dosDpad = defaults.dosDpad, dosBtnEsc = defaults.dosBtnEsc,
-                    dosBtnEnter = defaults.dosBtnEnter, dosBtnSpace = defaults.dosBtnSpace,
-                    dosBtnTab = defaults.dosBtnTab, dosBtnCtrl = defaults.dosBtnCtrl,
-                    dosBtnAlt = defaults.dosBtnAlt, dosBtnShift = defaults.dosBtnShift,
-                    dosBtnBack = defaults.dosBtnBack,
-                    dosBtnMouseL = defaults.dosBtnMouseL, dosBtnMouseR = defaults.dosBtnMouseR,
-                    dosBtnInsert = defaults.dosBtnInsert, dosBtnDelete = defaults.dosBtnDelete,
-                    dosBtnHome = defaults.dosBtnHome, dosBtnEnd = defaults.dosBtnEnd,
-                    dosBtnPageUp = defaults.dosBtnPageUp, dosBtnPageDown = defaults.dosBtnPageDown,
-                    dosDpadP = defaults.dosDpadP, dosBtnEscP = defaults.dosBtnEscP,
-                    dosBtnEnterP = defaults.dosBtnEnterP, dosBtnSpaceP = defaults.dosBtnSpaceP,
-                    dosBtnTabP = defaults.dosBtnTabP, dosBtnCtrlP = defaults.dosBtnCtrlP,
-                    dosBtnAltP = defaults.dosBtnAltP, dosBtnShiftP = defaults.dosBtnShiftP,
-                    dosBtnBackP = defaults.dosBtnBackP,
-                    dosBtnMouseLP = defaults.dosBtnMouseLP, dosBtnMouseRP = defaults.dosBtnMouseRP,
-                    dosBtnInsertP = defaults.dosBtnInsertP, dosBtnDeleteP = defaults.dosBtnDeleteP,
-                    dosBtnHomeP = defaults.dosBtnHomeP, dosBtnEndP = defaults.dosBtnEndP,
-                    dosBtnPageUpP = defaults.dosBtnPageUpP, dosBtnPageDownP = defaults.dosBtnPageDownP,
-                    dosShowDpad = true, dosShowEsc = true, dosShowEnter = true,
-                    dosShowSpace = true, dosShowTab = true, dosShowCtrl = true,
-                    dosShowAlt = true, dosShowShift = true, dosShowBack = true,
-                    dosShowMouseL = true, dosShowMouseR = true,
-                    dosShowInsert = false, dosShowDelete = false, dosShowHome = false,
-                    dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false,
-                    dosExtraKeys = "", dosExtraKeysP = ""
-                ))
-            }) {
-                Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
-            }
-            IconButton(onClick = onClose) {
-                Text(
-                    "完成",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                )
-            }
-        }
-
-        // === Editable button previews ===
+        // === Editable button previews (full screen, behind the control panel) ===
         Box(modifier = Modifier.fillMaxSize()) {
             DosBtnType.values().forEach { btnType ->
                 val layout = getLayout(btnType)
@@ -2153,15 +2097,72 @@ private fun DosPadLayoutEditor(
             }
         }
 
-        // === Compact centered bottom panel ===
+        // === Centered control panel (combines toolbar + controls) ===
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.78f)
-                .padding(bottom = 4.dp)
-                .background(Color(0xBB1E2A3A), RoundedCornerShape(10.dp))
-                .padding(horizontal = 10.dp, vertical = 5.dp)
+                .align(Alignment.Center)
+                .fillMaxWidth(0.82f)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
+            // --- Top toolbar row ---
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "DOS 按键设置",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (isPortrait) "(竖屏)" else "(横屏)",
+                    color = Color(0xFF8899AA),
+                    fontSize = 10.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                IconButton(onClick = {
+                    val defaults = PadLayout()
+                    onLayoutChange(padLayout.copy(
+                        dosDpad = defaults.dosDpad, dosBtnEsc = defaults.dosBtnEsc,
+                        dosBtnEnter = defaults.dosBtnEnter, dosBtnSpace = defaults.dosBtnSpace,
+                        dosBtnTab = defaults.dosBtnTab, dosBtnCtrl = defaults.dosBtnCtrl,
+                        dosBtnAlt = defaults.dosBtnAlt, dosBtnShift = defaults.dosBtnShift,
+                        dosBtnBack = defaults.dosBtnBack,
+                        dosBtnMouseL = defaults.dosBtnMouseL, dosBtnMouseR = defaults.dosBtnMouseR,
+                        dosBtnInsert = defaults.dosBtnInsert, dosBtnDelete = defaults.dosBtnDelete,
+                        dosBtnHome = defaults.dosBtnHome, dosBtnEnd = defaults.dosBtnEnd,
+                        dosBtnPageUp = defaults.dosBtnPageUp, dosBtnPageDown = defaults.dosBtnPageDown,
+                        dosDpadP = defaults.dosDpadP, dosBtnEscP = defaults.dosBtnEscP,
+                        dosBtnEnterP = defaults.dosBtnEnterP, dosBtnSpaceP = defaults.dosBtnSpaceP,
+                        dosBtnTabP = defaults.dosBtnTabP, dosBtnCtrlP = defaults.dosBtnCtrlP,
+                        dosBtnAltP = defaults.dosBtnAltP, dosBtnShiftP = defaults.dosBtnShiftP,
+                        dosBtnBackP = defaults.dosBtnBackP,
+                        dosBtnMouseLP = defaults.dosBtnMouseLP, dosBtnMouseRP = defaults.dosBtnMouseRP,
+                        dosBtnInsertP = defaults.dosBtnInsertP, dosBtnDeleteP = defaults.dosBtnDeleteP,
+                        dosBtnHomeP = defaults.dosBtnHomeP, dosBtnEndP = defaults.dosBtnEndP,
+                        dosBtnPageUpP = defaults.dosBtnPageUpP, dosBtnPageDownP = defaults.dosBtnPageDownP,
+                        dosShowDpad = true, dosShowEsc = true, dosShowEnter = true,
+                        dosShowSpace = true, dosShowTab = true, dosShowCtrl = true,
+                        dosShowAlt = true, dosShowShift = true, dosShowBack = true,
+                        dosShowMouseL = true, dosShowMouseR = true,
+                        dosShowInsert = false, dosShowDelete = false, dosShowHome = false,
+                        dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false,
+                        dosExtraKeys = "", dosExtraKeysP = ""
+                    ))
+                }) {
+                    Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
+                }
+                IconButton(onClick = onClose) {
+                    Text(
+                        "完成",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(Modifier.size(4.dp))
             // --- Opacity row (compact) ---
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("透明度", color = Color.White, fontSize = 10.sp,
@@ -3013,48 +3014,7 @@ private fun PadLayoutEditor(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
-        // Top toolbar — 加上当前编辑方向提示
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                if (isPortrait) "竖屏布局 · 拖动移动 · 点击选大小"
-                else "横屏布局 · 拖动移动 · 点击选大小",
-                color = Color.White, fontSize = 13.sp
-            )
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = {
-                // 重置当前方向的布局（不动另一方向）
-                val defaults = PadLayout()
-                if (isPortrait) {
-                    onLayoutChange(padLayout.copy(
-                        dpadP = defaults.dpadP, btnAP = defaults.btnAP, btnBP = defaults.btnBP,
-                        btnTurboAP = defaults.btnTurboAP, btnTurboBP = defaults.btnTurboBP,
-                        btnStartP = defaults.btnStartP, btnSelectP = defaults.btnSelectP,
-                        btnLP = defaults.btnLP, btnRP = defaults.btnRP,
-                        btnXP = defaults.btnXP, btnYP = defaults.btnYP
-                    ))
-                } else {
-                    onLayoutChange(padLayout.copy(
-                        dpad = defaults.dpad, btnA = defaults.btnA, btnB = defaults.btnB,
-                        btnTurboA = defaults.btnTurboA, btnTurboB = defaults.btnTurboB,
-                        btnStart = defaults.btnStart, btnSelect = defaults.btnSelect,
-                        btnL = defaults.btnL, btnR = defaults.btnR,
-                        btnX = defaults.btnX, btnY = defaults.btnY
-                    ))
-                }
-            }) {
-                Icon(Icons.Rounded.Refresh, "重置当前方向", tint = Color(0xFFFFD66B))
-            }
-            IconButton(onClick = onClose) {
-                Text("完成", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            }
-        }
-
-        // Draggable button previews — use Unit key so gesture doesn't restart
+        // Draggable button previews — full screen, behind the control panel
         Box(modifier = Modifier.fillMaxSize()) {
             EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD, isPortrait = isPortrait,
                 onMove = { targetX, targetY ->
@@ -3154,41 +3114,77 @@ private fun PadLayoutEditor(
             }
         }
 
-        // Size slider at bottom — shown when a button is selected
-        val sel = selectedBtn
-        if (sel != null) {
-            val currentSize: Int
-            val minSize: Int
-            val maxSize: Int
-            val label: String
-            when (sel) {
-                BtnType.DPAD -> { currentSize = dpad.sizeDp; minSize = 80; maxSize = 220; label = "十字键大小" }
-                BtnType.A -> { currentSize = btnA.sizeDp; minSize = 40; maxSize = 120; label = "A键大小" }
-                BtnType.B -> { currentSize = btnB.sizeDp; minSize = 40; maxSize = 120; label = "B键大小" }
-                BtnType.TURBO_A -> { currentSize = btnTurboA.sizeDp; minSize = 30; maxSize = 90; label = "连射A大小" }
-                BtnType.TURBO_B -> { currentSize = btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
-                BtnType.START -> { currentSize = btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
-                BtnType.SELECT -> { currentSize = btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
-                BtnType.L -> { currentSize = btnL.sizeDp; minSize = 36; maxSize = 90; label = "L键大小" }
-                BtnType.R -> { currentSize = btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
-                BtnType.X -> { currentSize = btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
-                BtnType.Y -> { currentSize = btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
+        // === Centered control panel ===
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.85f)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            // --- Toolbar row ---
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (isPortrait) "竖屏布局" else "横屏布局",
+                    color = Color.White, fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = {
+                    val defaults = PadLayout()
+                    if (isPortrait) {
+                        onLayoutChange(padLayout.copy(
+                            dpadP = defaults.dpadP, btnAP = defaults.btnAP, btnBP = defaults.btnBP,
+                            btnTurboAP = defaults.btnTurboAP, btnTurboBP = defaults.btnTurboBP,
+                            btnStartP = defaults.btnStartP, btnSelectP = defaults.btnSelectP,
+                            btnLP = defaults.btnLP, btnRP = defaults.btnRP,
+                            btnXP = defaults.btnXP, btnYP = defaults.btnYP
+                        ))
+                    } else {
+                        onLayoutChange(padLayout.copy(
+                            dpad = defaults.dpad, btnA = defaults.btnA, btnB = defaults.btnB,
+                            btnTurboA = defaults.btnTurboA, btnTurboB = defaults.btnTurboB,
+                            btnStart = defaults.btnStart, btnSelect = defaults.btnSelect,
+                            btnL = defaults.btnL, btnR = defaults.btnR,
+                            btnX = defaults.btnX, btnY = defaults.btnY
+                        ))
+                    }
+                }) {
+                    Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
+                }
+                IconButton(onClick = onClose) {
+                    Text("完成", color = Color.White, fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
             }
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                    Spacer(Modifier.weight(1f))
-                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 13.sp)
+            // --- Size slider when a button is selected ---
+            val sel = selectedBtn
+            if (sel != null) {
+                val currentSize: Int
+                val minSize: Int
+                val maxSize: Int
+                val label: String
+                when (sel) {
+                    BtnType.DPAD -> { currentSize = dpad.sizeDp; minSize = 80; maxSize = 220; label = "十字键大小" }
+                    BtnType.A -> { currentSize = btnA.sizeDp; minSize = 40; maxSize = 120; label = "A键大小" }
+                    BtnType.B -> { currentSize = btnB.sizeDp; minSize = 40; maxSize = 120; label = "B键大小" }
+                    BtnType.TURBO_A -> { currentSize = btnTurboA.sizeDp; minSize = 30; maxSize = 90; label = "连射A大小" }
+                    BtnType.TURBO_B -> { currentSize = btnTurboB.sizeDp; minSize = 30; maxSize = 90; label = "连射B大小" }
+                    BtnType.START -> { currentSize = btnStart.sizeDp; minSize = 30; maxSize = 100; label = "START大小" }
+                    BtnType.SELECT -> { currentSize = btnSelect.sizeDp; minSize = 30; maxSize = 100; label = "SELECT大小" }
+                    BtnType.L -> { currentSize = btnL.sizeDp; minSize = 36; maxSize = 90; label = "L键大小" }
+                    BtnType.R -> { currentSize = btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
+                    BtnType.X -> { currentSize = btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
+                    BtnType.Y -> { currentSize = btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
                 }
-                Spacer(Modifier.size(8.dp))
+
+                Spacer(Modifier.size(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${currentSize}dp", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                }
                 Slider(
                     value = currentSize.toFloat(),
                     onValueChange = { newVal ->
@@ -3215,6 +3211,8 @@ private fun PadLayoutEditor(
                         inactiveTrackColor = Color(0xFF4A5568)
                     )
                 )
+            } else {
+                Text("拖动移动 · 点击选中调大小", color = Color(0xFF8899AA), fontSize = 9.sp)
             }
         }
     }

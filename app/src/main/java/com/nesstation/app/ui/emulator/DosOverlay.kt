@@ -135,9 +135,10 @@ fun DosOnScreenController(
 //   2. Single-tap      -> left mouse click (down + up)
 //   3. Two-finger tap  -> right mouse click (down + up)
 //
-// DESIGN: Single awaitEachGesture loop.  awaitFirstDown(requireUnconsumed=true)
-// only fires for touches on empty screen (buttons at higher z-order consume
-// their own events first).  Subsequent events via awaitPointerEvent().
+// DESIGN: Single awaitEachGesture loop.  We use awaitFirstDown with
+// requireUnconsumed=false and then check isConsumed, because some Compose
+// versions / layouts have issues with requireUnconsumed=true not firing
+// for unconsumed events on sibling elements behind buttons.
 //
 // Tap detection strategy (SIMPLE & ROBUST):
 //   - If primary pointer lifts WITHOUT having entered drag mode → tap
@@ -159,10 +160,13 @@ private fun FullScreenMouseGestureBox(
                 val sensitivity = 1.5f           // mouse speed multiplier
 
                 awaitEachGesture {
-                    val firstDown = awaitFirstDown(requireUnconsumed = true)
+                    // Use requireUnconsumed=false to ensure we get the event,
+                    // then skip if a button at higher z-order already consumed it.
+                    val firstDown = awaitFirstDown(requireUnconsumed = false)
+                    if (firstDown.isConsumed) return@awaitEachGesture
                     firstDown.consume()
 
-                    val primaryId = firstDown.id
+                    val primaryId = firstDown.id.value  // Long for reliable comparison
                     val primaryDownX = firstDown.position.x
                     val primaryDownY = firstDown.position.y
                     var prevX = primaryDownX
@@ -175,7 +179,6 @@ private fun FullScreenMouseGestureBox(
 
                     // Secondary pointer tracking (for two-finger tap → right click)
                     var secondPointerId: Long? = null
-                    var secondPointerLifted = false
 
                     // Process events until primary pointer lifts
                     while (true) {
@@ -183,7 +186,7 @@ private fun FullScreenMouseGestureBox(
                         var primaryUp = false
 
                         for (change in event.changes) {
-                            if (change.id == primaryId) {
+                            if (change.id.value == primaryId) {
                                 if (change.pressed) {
                                     // Primary pointer MOVE
                                     val dx = change.position.x - prevX
@@ -220,9 +223,6 @@ private fun FullScreenMouseGestureBox(
                             } else if (change.pressed && !isDrag && secondPointerId == null) {
                                 // Second finger arrived while not dragging — potential two-finger tap
                                 secondPointerId = change.id.value
-                            } else if (!change.pressed && change.id.value == secondPointerId) {
-                                // Second finger lifted
-                                secondPointerLifted = true
                             }
                             change.consume()
                         }
@@ -235,7 +235,6 @@ private fun FullScreenMouseGestureBox(
                         // No significant movement → it's a tap
                         if (secondPointerId != null) {
                             // Two-finger tap → right click
-                            // (Don't wait for secondary to lift — the gesture intent is clear)
                             engine.injectMouseButton(1, true)
                             engine.injectMouseButton(1, false)
                         } else {
