@@ -30,6 +30,31 @@ object RomStore {
         0xFF1E2A3A.toInt()
     )
 
+    /** SharedPreferences keys for the last-imported SAF folder URI (for refresh). */
+    private const val KEY_LAST_IMPORT_FOLDER_URI = "last_import_folder_uri"
+    private const val KEY_LAST_IMPORT_PLATFORM = "last_import_platform"
+
+    /** Persist the SAF folder URI the user just imported from, so the Refresh
+     *  button can re-scan the same folder without asking again. */
+    fun setLastImportFolder(ctx: Context, folderUri: String?, platform: GamePlatform?) {
+        val p = prefs(ctx).edit()
+        if (folderUri == null) {
+            p.remove(KEY_LAST_IMPORT_FOLDER_URI).remove(KEY_LAST_IMPORT_PLATFORM)
+        } else {
+            p.putString(KEY_LAST_IMPORT_FOLDER_URI, folderUri)
+            p.putString(KEY_LAST_IMPORT_PLATFORM, platform?.name ?: GamePlatform.NES.name)
+        }
+        p.apply()
+    }
+
+    /** Returns (folderUri, platform) pair, or null if no folder was ever imported. */
+    fun getLastImportFolder(ctx: Context): Pair<String, GamePlatform>? {
+        val p = prefs(ctx)
+        val uri = p.getString(KEY_LAST_IMPORT_FOLDER_URI, null) ?: return null
+        val platName = p.getString(KEY_LAST_IMPORT_PLATFORM, GamePlatform.NES.name)
+        return uri to GamePlatform.fromString(platName)
+    }
+
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 

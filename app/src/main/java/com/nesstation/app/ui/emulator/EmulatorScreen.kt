@@ -706,12 +706,54 @@ fun EmulatorScreen(
                     .onSizeChanged { surfaceSize = it }
             )
         } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = errorMsg ?: "正在加载…",
-                    color = Color.White,
-                    fontSize = 16.sp
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (errorMsg != null && errorMsg!!.length > 60) {
+                    // Multi-line error (e.g. FBNeo ROM missing files) — show in
+                    // a scrollable panel so the user can read the full message.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.92f)
+                            .verticalScroll(rememberScrollState())
+                            .background(Color(0xDD1E2A3A), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "ROM 加载失败",
+                            color = Color(0xFFFF6B6B),
+                            fontSize = 15.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            text = errorMsg!!,
+                            color = Color(0xFFE0E0E0),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        if (platform == GamePlatform.ARCADE) {
+                            Spacer(Modifier.size(10.dp))
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                text = "提示：街机游戏常见问题请查看 设置 → 街机 → ROM 兼容性帮助",
+                                color = Color(0xFFFFD66B),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = errorMsg ?: "正在加载…",
+                        color = Color.White,
+                        fontSize = 16.sp
+                    )
+                }
             }
         }
 
@@ -4462,6 +4504,75 @@ private fun SettingsPanel(
                 )
                 Spacer(Modifier.size(6.dp))
                 ArcadeBiosImportSection()
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("街机 ROM 兼容性帮助", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "FBNeo 对 ROM 集要求严格。若打开游戏时出现 \"Romset is unknown\"、" +
+                    "\"missing files\"、\"Verify the following romsets\" 等错误，请按下列步骤排查：",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("1. BIOS 缺失", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(
+                    "• NeoGeo 游戏（拳皇/合金弹头/侍魂/月华等）必须将 neogeo.zip " +
+                    "放在系统目录。\n" +
+                    "• PGM 游戏（三国战纪/西游释厄传/形意拳/神剑伏魔录）必须将 " +
+                    "pgm.zip 放在系统目录。\n" +
+                    "• CPS1/CPS2 游戏一般不需要 BIOS，但部分需要 cps1.zip/cps2.zip。\n" +
+                    "• 用上方 \"FBNeo BIOS 管理\" 导入，或把 zip 文件放入 " +
+                    "app/src/main/assets/fbneo/ 重新构建。",
+                    color = Color(0xFFB0BEC5), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("2. 父 ROM 缺失（克隆版/测试版/改版）", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(
+                    "• 克隆版（如 kof98h）需要父 ROM（如 kof98.zip）同时存在。\n" +
+                    "• 测试版（如 kof97t，拳皇97三问测试版）需要 kof97.zip 父 ROM " +
+                    "和 neogeo.zip BIOS。\n" +
+                    "• 改版/魔改版（带 bl/h/x 后缀）通常也需要父 ROM。\n" +
+                    "• 把父 ROM 和克隆版放在同一目录即可，FBNeo 会自动加载。",
+                    color = Color(0xFFB0BEC5), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("3. ROM 版本不匹配", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(
+                    "• FBNeo 核心 ROM 集定义会随版本更新。若你的 ROM 是从老版本 " +
+                    "FBNeo/MAME 提取的，可能在新版核心中找不到对应驱动。\n" +
+                    "• 解决：使用与本核心版本匹配的 ROM 集（推荐从 " +
+                    "https://docs.libretro.com/development/roms/ 查找兼容 ROM）。\n" +
+                    "• 不要随意重命名 zip 文件 — 文件名就是驱动名，错了就找不到。",
+                    color = Color(0xFFB0BEC5), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("4. CRC 校验失败", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(
+                    "• FBNeo 会校验每个 ROM 文件的 CRC32。若 ROM 被修改过或损坏，" +
+                    "会报 \"ROM with name XXX and CRC 0xYYYY is missing\"。\n" +
+                    "• 这不是 app 的 bug，而是 ROM 集本身不完整。请重新下载完整 ROM。",
+                    color = Color(0xFFB0BEC5), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("常见错误示例", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(
+                    "• kof97t.zip 报 \"Verify: kof97t kof97 neogeo\" + 缺 232-p1t.dif 等:\n" +
+                    "  → 需要把 kof97.zip（父 ROM）和 neogeo.zip（BIOS）放入同目录。\n" +
+                    "  → kof97t.zip 必须是匹配本 FBNeo 版本的完整测试版 ROM 集。\n" +
+                    "• mslug3.zip 报 \"missing neogeo BIOS\":\n" +
+                    "  → 把 neogeo.zip 放入系统目录（Settings → 街机 → BIOS 管理）。\n" +
+                    "• kof98.zip 报 \"Romset is unknown\":\n" +
+                    "  → FBNeo 不认识这个 ROM，可能版本太老或文件名错误。",
+                    color = Color(0xFFB0BEC5), fontSize = 10.sp, lineHeight = 14.sp
+                )
             }
             GamePlatform.MD -> {
                 Text("MD/SEGA (Genesis-Plus-GX) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,

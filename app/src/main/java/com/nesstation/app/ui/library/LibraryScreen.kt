@@ -92,7 +92,9 @@ val ROM_EXTENSIONS = listOf(
     "smc", "sfc", "swc", "fig", "bs",            // SNES/SFC
     "gb", "sgb", "gbc", "gba",                    // GB/GBC/GBA
     "dosz",                                          // DOSBox-Pure bundle
-    "iso", "cue",                                    // DOS / Mega-CD CD images
+    // CD images — used by BOTH DOSBox (DOS CD games) and Mega-CD.
+    // Platform disambiguation uses the user's selected tab as a hint.
+    "iso", "cue", "img", "ccd", "sub",
     // SEGA Mega Drive / Genesis / Master System / Game Gear / SG-1000
     "md", "smd", "gen", "sms", "gg", "sg", "68k",
     "bin",                                           // MD cart dump (ambiguous; see note above)
@@ -150,7 +152,77 @@ fun LibraryScreen(
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
 
     fun refreshList() {
-        // 同时加载 NES 与 Java 游戏，按 id 去重
+        // 1) If we have a saved "last imported folder URI", re-scan it
+        //    to discover newly added ROMs and remove ROMs that have been
+        //    deleted from disk. This makes the refresh button actually
+        //    useful instead of just reloading SharedPreferences.
+        val lastFolder = RomStore.getLastImportFolder(context)
+        if (lastFolder != null) {
+            val (folderUriStr, hintPlatform) = lastFolder
+            try {
+                val folderUri = Uri.parse(folderUriStr)
+                // Try to list children — if this throws SecurityException,
+                // the persistable URI permission was revoked (e.g. user
+                // cleared app data), so we just fall through to the basic
+                // refresh path.
+                val romFiles = scanUriForRomsRecursive(context, folderUri, folderUri, maxDepth = 5)
+
+                // Collect all URIs currently found in the folder
+                val foundUris = romFiles.map { it.second.toString() }.toMutableSet()
+
+                // Remove games whose ROM path is in the last-imported folder
+                // but no longer exists there.
+                val existing = RomStore.loadAll(context)
+                val toRemove = existing.filter { game ->
+                    val p = game.romPath ?: return@filter false
+                    // Only touch games that look like they came from this folder
+                    // (i.e. content:// URIs whose authority matches the folder URI's
+                    // authority, OR file:// paths under the folder's tree).
+                    if (p.startsWith("content://")) {
+                        val gameAuth = Uri.parse(p).authority
+                        val folderAuth = folderUri.authority
+                        val sameAuth = gameAuth != null && gameAuth == folderAuth
+                        // Only delete if we can confirm the file is gone (i.e. the
+                        // folder re-scan returned zero matching URIs). If the re-scan
+                        // itself failed and returned 0 results, we don't delete anything.
+                        sameAuth && p !in foundUris && romFiles.isNotEmpty()
+                    } else false
+                }
+                if (toRemove.isNotEmpty()) {
+                    toRemove.forEach { RomStore.remove(context, it.id) }
+                }
+
+                // Add new ROMs found in the folder that aren't yet in the library
+                val existingPaths = existing.mapNotNull { it.romPath }.toSet()
+                var added = 0
+                romFiles.forEach { (name, fileUri) ->
+                    val uriStr = fileUri.toString()
+                    if (uriStr !in existingPaths) {
+                        try {
+                            val platform = detectPlatformFromUri(context, fileUri, name, hintPlatform = hintPlatform)
+                            val title = if (platform == GamePlatform.ARCADE) {
+                                ArcadeTitleMapper.resolveDisplayTitle(name)
+                            } else {
+                                name.substringBeforeLast('.')
+                            }
+                            RomStore.add(context, title, uriStr, platform)
+                            added++
+                        } catch (_: Exception) { }
+                    }
+                }
+                if (added > 0 || toRemove.isNotEmpty()) {
+                    dialogMsg = "刷新完成：新增 $added 个，移除 ${toRemove.size} 个"
+                }
+            } catch (_: SecurityException) {
+                // Persistable URI permission lost — fall through to basic refresh
+                dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
+            } catch (_: Exception) {
+                // Any other failure — fall through to basic refresh
+            }
+        }
+
+        // 2) Load everything back from RomStore (this picks up the changes above
+        //    plus filters out any games whose local files no longer exist).
         val nes = RomStore.loadAll(context)
         val java = JavaGameStore.loadAll(context)
 
@@ -215,7 +287,11 @@ fun LibraryScreen(
             val name = queryDisplayName(uri) ?: "unknown.nes"
             val ext = name.substringAfterLast('.', "").lowercase()
             if (ext in ROM_EXTENSIONS) {
-                val platform = detectPlatformFromUri(context, uri, name)
+                // Pass the user's selected platform tab as a hint so that
+                // ambiguous CD-image extensions (.cue/.img/.iso/.ccd/.sub)
+                // are resolved in favor of the user's intent. Without a hint,
+                // SEGA-CD games would default to DOS.
+                val platform = detectPlatformFromUri(context, uri, name, hintPlatform = selectedPlatform)
                 // 街机游戏使用中文名映射（kof98h → 拳皇98 - ...）
                 val title = if (platform == GamePlatform.ARCADE) {
                     ArcadeTitleMapper.resolveDisplayTitle(name)
@@ -285,12 +361,15 @@ fun LibraryScreen(
             if (romFiles.isEmpty()) {
                 dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .md .smd .gen .sms .gg .sg .zip .7z .dosz .cue .chd）"
             } else {
+                // Save the folder URI so the Refresh button can re-scan it
+                // later (without re-asking the user to pick the folder again).
+                RomStore.setLastImportFolder(context, uri.toString(), selectedPlatform)
                 var count = 0
                 var failed = 0
                 romFiles.forEach { (name, fileUri) ->
                     try {
                         val ext = name.substringAfterLast('.', "").lowercase()
-                        val platform = detectPlatformFromUri(context, fileUri, name)
+                        val platform = detectPlatformFromUri(context, fileUri, name, hintPlatform = selectedPlatform)
                         // 街机游戏使用中文名映射
                         val title = if (platform == GamePlatform.ARCADE) {
                             ArcadeTitleMapper.resolveDisplayTitle(name)
@@ -323,7 +402,7 @@ fun LibraryScreen(
             if (entries.isNotEmpty()) {
                 entries.forEach { (name, path) ->
                     val ext = name.substringAfterLast('.', "").lowercase()
-                    val platform = detectPlatformFromFile(File(path))
+                    val platform = detectPlatformFromFile(File(path), hintPlatform = selectedPlatform)
                     val title = if (platform == GamePlatform.ARCADE) {
                         ArcadeTitleMapper.resolveDisplayTitle(name)
                     } else {
@@ -431,7 +510,7 @@ fun LibraryScreen(
                 val entries = scanForRoms(context)
                 if (entries.isNotEmpty()) {
                     entries.forEach { (name, path) ->
-                        val platform = detectPlatformFromFile(File(path))
+                        val platform = detectPlatformFromFile(File(path), hintPlatform = selectedPlatform)
                         RomStore.add(context, name.substringBeforeLast('.'), path, platform)
                     }
                     refreshList()
@@ -729,7 +808,7 @@ fun LibraryScreen(
                     var failed = 0
                     romFiles.forEach { file ->
                         try {
-                            val platform = detectPlatformFromFile(file)
+                            val platform = detectPlatformFromFile(file, hintPlatform = selectedPlatform)
                             RomStore.add(
                                 context,
                                 file.nameWithoutExtension,
@@ -897,6 +976,24 @@ private fun scanUriForRomsRecursive(
                 } else {
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext in ROM_EXTENSIONS) {
+                        // For multi-file CD images (.cue + .img/.sub/.ccd), only
+                        // import the .cue sheet — the .img/.sub are referenced
+                        // relative to the .cue file and would create duplicate
+                        // entries in the library.
+                        if (ext in setOf("img", "sub", "ccd")) {
+                            // Skip — these are companion files for .cue/.ccd
+                            // sheets and shouldn't appear as separate entries.
+                            // Exception: if the folder has NO .cue, the user
+                            // might have a standalone .img (e.g. raw Mega-CD
+                            // dump); we still pick the .cue over .img when both
+                            // exist (handled in deduplication below).
+                            // For now, we keep .img/.sub but mark them for
+                            // later deduplication — pass through.
+                            // Actually, simplest behavior: skip .sub entirely
+                            // (it's always a companion file). Keep .img/.ccd
+                            // since they could be standalone.
+                            if (ext == "sub") continue
+                        }
                         val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                         results.add(name to fileUri)
                     }
@@ -926,7 +1023,11 @@ private fun scanLocalFolderForRoms(folder: File, maxDepth: Int): List<File> {
         if (f.name.startsWith(".")) continue
         if (f.isFile) {
             val ext = f.extension.lowercase()
-            if (ext in ROM_EXTENSIONS) results.add(f)
+            if (ext in ROM_EXTENSIONS) {
+                // .sub is always a companion file for a .cue/.ccd — skip.
+                if (ext == "sub") continue
+                results.add(f)
+            }
         } else if (f.isDirectory) {
             results.addAll(scanLocalFolderForRoms(f, maxDepth - 1))
         }
@@ -993,13 +1094,29 @@ private val ARCADE_ROM_EXTENSIONS = setOf(
  *   3. If any entry has another platform's extension → that platform.
  *   4. Otherwise → ARCADE (default for unrecognized zips, since arcade
  *      ROMs use arbitrary driver-name extensions).
+ *
+ * @param hintPlatform When the user has explicitly chosen a platform tab
+ *   (e.g. MD), pass it here so ambiguous CD-image extensions (.cue/.img/.iso/.ccd/.sub)
+ *   are resolved in favor of the user's choice. Without a hint, these extensions
+ *   default to DOS (DOSBox-Pure), which would misclassify SEGA-CD/Mega-CD games
+ *   stored as .cue/.img/.ccd as DOS games.
  */
 private fun detectPlatformFromUri(
     context: android.content.Context,
     uri: Uri,
-    fileName: String
+    fileName: String,
+    hintPlatform: GamePlatform? = null
 ): GamePlatform {
     val ext = fileName.substringAfterLast('.', "").lowercase()
+
+    // === CD-image extension ambiguity ===
+    // .cue/.img/.iso/.ccd/.sub are used by BOTH DOSBox-Pure (DOS CD games)
+    // AND Genesis-Plus-GX (SEGA-CD / Mega-CD). We disambiguate using the
+    // user's selected platform tab. If no hint, default to MD (more common
+    // for retro console users than DOS).
+    if (ext in CD_IMAGE_EXTENSIONS) {
+        return hintPlatform ?: GamePlatform.MD
+    }
 
     // Direct ROM extension — use it immediately
     GamePlatform.fromExtension(ext)?.let { return it }
@@ -1032,7 +1149,13 @@ private fun detectPlatformFromUri(
             GamePlatform.fromExtension(entryExt)?.let { return it }
         }
 
-        // Pass 3: no recognized extension → default to arcade
+        // Pass 3: if the zip contains CD-image extensions (.cue/.img) and the
+        // user picked the MD tab, treat as MD (Mega-CD). Otherwise arcade.
+        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.MD) {
+            return GamePlatform.MD
+        }
+
+        // Pass 4: no recognized extension → default to arcade
         return GamePlatform.ARCADE
     }
 
@@ -1051,11 +1174,29 @@ private fun detectPlatformFromUri(
 }
 
 /**
+ * CD-image extensions shared by DOSBox (DOS CD games) and Genesis-Plus-GX
+ * (SEGA-CD / Mega-CD). Disambiguation requires either the user's platform
+ * tab or folder context (e.g. presence of a .bat/.exe suggests DOS).
+ */
+private val CD_IMAGE_EXTENSIONS = setOf(
+    "cue", "img", "iso", "ccd", "sub", "bin", "chd"
+)
+
+/**
  * Detect the game platform from a local File.
  * For ZIP archives, looks inside to find the actual ROM extension.
+ *
+ * @param hintPlatform When the user has chosen a platform tab, CD-image
+ *   extensions (.cue/.img/.iso/.ccd/.sub) are resolved to that platform.
  */
-private fun detectPlatformFromFile(file: File): GamePlatform {
+private fun detectPlatformFromFile(file: File, hintPlatform: GamePlatform? = null): GamePlatform {
     val ext = file.extension.lowercase()
+
+    // CD-image extensions: ambiguous between DOS (DOSBox) and MD (Mega-CD).
+    // Use the user's selected platform tab as hint; default to MD.
+    if (ext in CD_IMAGE_EXTENSIONS) {
+        return hintPlatform ?: GamePlatform.MD
+    }
 
     GamePlatform.fromExtension(ext)?.let { return it }
 
@@ -1080,6 +1221,11 @@ private fun detectPlatformFromFile(file: File): GamePlatform {
         // Pass 2: any other recognized platform extension
         for (entryExt in entryExts) {
             GamePlatform.fromExtension(entryExt)?.let { return it }
+        }
+
+        // Pass 3: if zip contains CD-image extensions and user picked MD
+        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.MD) {
+            return GamePlatform.MD
         }
 
         return GamePlatform.ARCADE

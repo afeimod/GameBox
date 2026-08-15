@@ -615,11 +615,20 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             s_coreError += ")";
             s_coreMessage.clear();
         }
-        // Common cause: missing BIOS zip (neogeo.zip / pgm.zip) — FBNeo
-        // requires these to be in the system directory or alongside the ROM.
-        s_coreError += "\nCheck that required BIOS files (neogeo.zip, pgm.zip, "
-                        "etc.) are present in the system directory. See the "
-                        "BIOS section in Settings.";
+        // Provide a detailed Chinese explanation of common FBNeo load failures.
+        // FBNeo rejects ROMs for several reasons:
+        //   1. Missing BIOS (neogeo.zip / pgm.zip) — most common for NeoGeo/PGM
+        //   2. Missing parent ROM (clone/test versions need parent)
+        //   3. CRC mismatch (modified or corrupted ROM)
+        //   4. Unknown romset (ROM from incompatible FBNeo/MAME version)
+        s_coreError += "\n\n常见原因:\n";
+        s_coreError += "  1. BIOS 缺失: NeoGeo游戏需要 neogeo.zip, PGM游戏需要 pgm.zip "
+                        "(Settings → 街机 → BIOS 管理).\n";
+        s_coreError += "  2. 父 ROM 缺失: 克隆版/测试版/改版需要父 ROM 同时存在 "
+                        "(如 kof97t.zip 需要 kof97.zip).\n";
+        s_coreError += "  3. CRC 校验失败: ROM 被修改或损坏, 请重新下载完整 ROM 集.\n";
+        s_coreError += "  4. ROM 版本不匹配: ROM 集版本与本 FBNeo 核心不兼容.\n";
+        s_coreError += "\n详细帮助请查看: Settings → 街机 → ROM 兼容性帮助";
         LOGE("%s", s_coreError.c_str());
         return s_coreError;
     }

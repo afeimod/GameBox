@@ -550,6 +550,86 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         size_t rd = std::fread(romData.data(), 1, (size_t)sz, f);
         std::fclose(f);
         if (rd != (size_t)sz) { retro_deinit(); return "Cannot read ROM file"; }
+
+        // === iNES Header Patching for Multicarts ===
+        // Many pirate multicarts (500-in-1, 1000000-in-1, COOLBOY etc.)
+        // ship with an iNES header whose PRG/CHR size byte is wrong —
+        // typically reporting 1MB PRG when the actual file is 2MB+.
+        // FCEUmm will silently truncate to the header-indicated size,
+        // reading only the first 1MB and leaving the upper banks
+        // inaccessible. The multicart menu then can't switch banks
+        // and the screen stays gray.
+        //
+        // Fix: if the file is larger than the iNES header claims, patch
+        // the header (in our in-memory copy) so the PRG_size field
+        // reflects the actual file size.
+        //
+        // iNES header layout (16 bytes, matching FCEUmm's iNES_HEADER):
+        //   [0..3]   "NES\x1a" magic
+        //   [4]      PRG ROM size, low 8 bits (in 16KB units)
+        //   [5]      CHR ROM size, low 8 bits (in 8KB units)
+        //   [6]      flags 6 (mapper low 4 bits + mirroring + trainer + 4-screen)
+        //   [7]      flags 7 (mapper high 4 bits + NES2 marker bits 2-3)
+        //   [8]      NES 2.0: submapper (high nibble) + mapper bits 8-11 (low nibble)
+        //   [9]      NES 2.0: PRG size bits 8-11 (low nibble) + CHR size bits 8-11 (high nibble)
+        //   [10..15] NES 2.0: PRG RAM, CHR RAM, region, VS, misc, exp device
+        //
+        // PRG size encoding (NES 2.0):
+        //   12-bit merged value = byte4 | ((byte9 & 0x0F) << 8)
+        //   If merged < 0xF00:  PRG bytes = merged * 16KB    (up to ~60MB)
+        //   If merged >= 0xF00: exponent mode (rare; not used here)
+        //
+        // NES 2.0 identifier: byte 7 bits 2-3 == 0b10
+        //   (byte 7 & 0x0C) == 0x08
+        // We must set this marker so that byte 9's low nibble is read.
+        if (romData.size() >= 16 &&
+            romData[0] == 0x4E && romData[1] == 0x45 &&
+            romData[2] == 0x53 && romData[3] == 0x1A) {
+
+            // Decode legacy PRG/CHR sizes
+            uint32_t hdrPrgBytes = (romData[4] == 0 ? 256 : romData[4]) * 16 * 1024;
+            uint32_t hdrChrBytes = romData[5] * 8 * 1024;
+            bool hasTrainer = (romData[6] & 0x04) != 0;
+            uint64_t headerClaimedSize = 16ULL + (hasTrainer ? 512ULL : 0ULL) +
+                                          hdrPrgBytes + hdrChrBytes;
+            uint64_t actualSize = romData.size();
+
+            // If the file is significantly larger than the header claims
+            // (more than 16KB extra = one PRG bank), patch the header.
+            if (actualSize > headerClaimedSize + 16 * 1024) {
+                uint64_t extraBytes = actualSize - headerClaimedSize;
+                uint32_t newPrgBytes = hdrPrgBytes + (uint32_t)extraBytes;
+                // Round up to a multiple of 16KB (PRG size is in 16KB units)
+                uint32_t prgUnits = (newPrgBytes + 16 * 1024 - 1) / (16 * 1024);
+
+                // Cap at 0xEFF (3775 units = ~60MB) to stay in the
+                // legacy-style encoding. Anything larger would require
+                // the broken exponent mode and isn't realistic anyway.
+                if (prgUnits > 0xEFF) prgUnits = 0xEFF;
+
+                LOGI("iNES header mismatch: file=%llu bytes, header claims=%llu "
+                     "(PRG=%u CHR=%u trainer=%d). Patching PRG size to %u units (%u bytes).",
+                     (unsigned long long)actualSize,
+                     (unsigned long long)headerClaimedSize,
+                     hdrPrgBytes, hdrChrBytes, hasTrainer ? 1 : 0,
+                     prgUnits, prgUnits * 16 * 1024);
+
+                // Set PRG size: byte 4 = low 8 bits, byte 9 low nibble = high 4 bits
+                romData[4] = (uint8_t)(prgUnits & 0xFF);
+                uint8_t highNibble = (uint8_t)((prgUnits >> 8) & 0x0F);
+
+                if (highNibble > 0) {
+                    // Need NES 2.0 marker so byte 9's low nibble is read.
+                    // Set byte 7 bits 2-3 = 0b10 (preserve other bits).
+                    romData[7] = (romData[7] & 0xF3) | 0x08;
+                    // Set byte 9 low nibble = highNibble (preserve high nibble)
+                    romData[9] = (romData[9] & 0xF0) | highNibble;
+                }
+                // If highNibble == 0, we don't need NES 2.0 marker —
+                // byte 4 alone holds the full PRG size (legacy mode).
+            }
+        }
+
         game.path = path.c_str();
         game.data = romData.data();
         game.size = romData.size();
