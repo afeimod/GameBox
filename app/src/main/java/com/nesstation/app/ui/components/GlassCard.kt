@@ -231,12 +231,14 @@ fun GameCard(
 @Composable
 private fun PlatformBadge(platform: GamePlatform, modifier: Modifier = Modifier) {
     val (label, bgColor) = when (platform) {
-        GamePlatform.NES  -> "FC"  to Color(0xFFD32F2F)   // red — Famicom
-        GamePlatform.SFC  -> "SFC" to Color(0xFF1565C0)   // blue — Super Famicom
-        GamePlatform.GB   -> "GB"  to Color(0xFF558B2F)   // green — Game Boy/GBC
-        GamePlatform.GBA  -> "GBA" to Color(0xFF6A1B9A)   // purple — GBA
-        GamePlatform.DOS  -> "DOS" to Color(0xFF37474F)   // blue-grey — DOS/PC
-        GamePlatform.JAVA -> "Java" to Color(0xFF4E342E)  // brown — J2ME
+        GamePlatform.NES    -> "FC"   to Color(0xFFD32F2F)   // red — Famicom
+        GamePlatform.SFC    -> "SFC"  to Color(0xFF1565C0)   // blue — Super Famicom
+        GamePlatform.GB     -> "GB"   to Color(0xFF558B2F)   // green — Game Boy/GBC
+        GamePlatform.GBA    -> "GBA"  to Color(0xFF6A1B9A)   // purple — GBA
+        GamePlatform.DOS    -> "DOS"  to Color(0xFF37474F)   // blue-grey — DOS/PC
+        GamePlatform.ARCADE -> "ARC"  to Color(0xFFF57C00)   // amber — Arcade (FBNeo)
+        GamePlatform.MD     -> "MD"   to Color(0xFF00695C)   // teal — Mega Drive / SEGA
+        GamePlatform.JAVA   -> "Java" to Color(0xFF4E342E)   // brown — J2ME
     }
     Box(
         modifier = modifier

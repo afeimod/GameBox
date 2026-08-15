@@ -1,0 +1,46 @@
+DOSBox-Pure — License Notice
+=============================
+
+The DOSBox-Pure libretro core (libdosbox_pure_libretro_android.so)
+bundled with this app is distributed under the GNU General Public
+License version 2 (GPLv2) or, at your option, any later version.
+
+License summary
+---------------
+GPLv2 permits:
+  - Free use of the software for any purpose
+  - Studying and modifying the source code
+  - Redistributing the source code and binaries, provided:
+    * The copyright notice and license text are preserved
+    * Source code is made available for any binary distribution
+    * Modifications are clearly marked and licensed under the same GPLv2
+
+Copyright
+---------
+DOSBox-Pure is Copyright (c) 2019-2024 by Markus Mertama and the
+DOSBox-Pure contributors. Based on DOSBox by the DOSBox Team.
+
+The full source code is available at:
+  https://github.com/schellingb/dosbox-pure
+
+Libretro port
+-------------
+The prebuilt libdosbox_pure_libretro_android.so shipped in
+app/src/main/jniLibs/<abi>/ was obtained from the official libretro
+buildbot (https://buildbot.libretro.com/) and is unmodified.
+
+As required by GPLv2 section 3, the corresponding source code is
+publicly available at the GitHub repository linked above. To rebuild
+the .so from source, follow the build instructions in the DOSBox-Pure
+repository's README.
+
+BIOS / ROM files
+----------------
+DOSBox-Pure does NOT require any BIOS files. DOS games are loaded
+directly via their launcher (.bat / .exe / .com / .dosz) and bundled
+assets. However, the games themselves are typically copyrighted and
+must be obtained legally — see assets/legal/ROM_NOTICE.txt.
+
+This notice is provided for informational purposes only. The full GPLv2
+license text is available at:
+  https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt

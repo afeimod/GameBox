@@ -126,13 +126,55 @@ private val JAVA_ACTIONS = listOf(
     KeyAction("java_start", "右软键",  Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Start")
 )
 
+// Arcade (FBNeo) — 6-button fight-stick layout (CPS / NeoGeo style).
+// Coin + Start correspond to MAME's "Insert Coin" and "Start Game" inputs.
+// L/R map to the 5th/6th buttons on NeoGeo layouts (A/B/C/D + E/F).
+private val ARCADE_ACTIONS = listOf(
+    KeyAction("arc_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
+    KeyAction("arc_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
+    KeyAction("arc_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
+    KeyAction("arc_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
+    KeyAction("arc_a",      "A / 弱拳", Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "手柄 A"),
+    KeyAction("arc_b",      "B / 中拳", Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "手柄 B"),
+    KeyAction("arc_x",      "X / 弱脚", Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_X, "手柄 X"),
+    KeyAction("arc_y",      "Y / 中脚", Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_Y, "手柄 Y"),
+    KeyAction("arc_l",      "L / 强拳", Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_L1, "L1"),
+    KeyAction("arc_r",      "R / 强脚", Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R1, "R1"),
+    KeyAction("arc_l2",     "L2 / 投币", Color(0xFFF57C00), KeyEvent.KEYCODE_BUTTON_L2, "L2 / 投币"),
+    KeyAction("arc_r2",     "R2 / 开始", Color(0xFFF57C00), KeyEvent.KEYCODE_BUTTON_R2, "R2 / 开始"),
+    KeyAction("arc_select", "Select / 投币", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_SELECT, "Select"),
+    KeyAction("arc_start",  "Start / 开始", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Start")
+)
+
+// SEGA Mega Drive / Genesis — supports both 3-button (B/A/C + Start) and
+// 6-button (X/Y/Z + Mode) controllers. Genesis-Plus-GX auto-detects the
+// layout per game. A/B/C are the primary 3-button face buttons; X/Y/Z are
+// the extra 6-button row; Mode toggles 3-button compatibility mode.
+// SMS / Game Gear / SG-1000 only use buttons 1 and 2 (mapped to A and B).
+private val MD_ACTIONS = listOf(
+    KeyAction("md_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
+    KeyAction("md_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
+    KeyAction("md_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
+    KeyAction("md_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
+    KeyAction("md_a",      "A",      Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "手柄 A"),
+    KeyAction("md_b",      "B",      Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "手柄 B"),
+    KeyAction("md_c",      "C",      Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R1, "R1 / C"),
+    KeyAction("md_x",      "X",      Color(0xFF9C27B0), KeyEvent.KEYCODE_BUTTON_X, "手柄 X"),
+    KeyAction("md_y",      "Y",      Color(0xFF00BCD4), KeyEvent.KEYCODE_BUTTON_Y, "手柄 Y"),
+    KeyAction("md_z",      "Z",      Color(0xFFFFEB3B), KeyEvent.KEYCODE_BUTTON_L1, "L1 / Z"),
+    KeyAction("md_mode",   "Mode",   Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_MODE, "Mode"),
+    KeyAction("md_start",  "Start",  Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START, "Start")
+)
+
 private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform) {
-    GamePlatform.NES  -> NES_ACTIONS
-    GamePlatform.SFC  -> SNES_ACTIONS
-    GamePlatform.GB   -> NES_ACTIONS
-    GamePlatform.GBA  -> GBA_ACTIONS
-    GamePlatform.DOS  -> DOS_ACTIONS
-    GamePlatform.JAVA -> JAVA_ACTIONS
+    GamePlatform.NES    -> NES_ACTIONS
+    GamePlatform.SFC    -> SNES_ACTIONS
+    GamePlatform.GB     -> NES_ACTIONS
+    GamePlatform.GBA    -> GBA_ACTIONS
+    GamePlatform.DOS    -> DOS_ACTIONS
+    GamePlatform.ARCADE -> ARCADE_ACTIONS
+    GamePlatform.MD     -> MD_ACTIONS
+    GamePlatform.JAVA   -> JAVA_ACTIONS
 }
 
 // ---------------------------------------------------------------------------

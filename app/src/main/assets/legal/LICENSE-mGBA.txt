@@ -1,0 +1,38 @@
+mGBA — License Notice
+=====================
+
+The mGBA libretro core (libgbacore.so) is compiled from source as part
+of the NesStation build. mGBA is distributed under the Mozilla Public
+License version 2.0 (MPL-2.0), which is a permissive copyleft license.
+
+License summary
+---------------
+MPL-2.0 permits:
+  - Free use of the software for any purpose, including commercial use
+  - Modification of the source code
+  - Redistribution of the source code and binaries, provided:
+    * Modified source files must be made available under MPL-2.0
+    * The copyright notice and license text are preserved
+
+MPL-2.0 file-level copyleft:
+  - Only modified MPL-licensed files need to be shared under MPL-2.0
+  - Larger works (combining MPL code with proprietary code) can be
+    distributed under any license
+
+Copyright
+---------
+mGBA is Copyright (c) 2013-2024 by Vicki Pfau and the mGBA contributors.
+
+The full source code is available at:
+  https://github.com/mgba-emu/mgba
+
+Libretro port
+-------------
+The libretro port (libretro.c) is included in the mGBA source tree
+(src/platform/libretro/) and compiled as a static library via mGBA's
+own CMake, then linked with NesStation's JNI bridge — see
+core/cmake/CMakeLists.txt for build configuration.
+
+This notice is provided for informational purposes only. The full MPL-2.0
+license text is available at:
+  https://www.mozilla.org/en-US/MPL/2.0/

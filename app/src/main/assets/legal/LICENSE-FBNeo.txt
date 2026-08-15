@@ -1,0 +1,46 @@
+FBNeo (Final Burn Neo) — License Notice
+========================================
+
+The FBNeo libretro core (libfbneo_libretro_android.so) bundled with this
+app is distributed under the FBNeo license, which is a non-commercial
+license based on the original FinalBurn license by Dave.
+
+License summary
+---------------
+The FBNeo license permits:
+  - Free use of the emulator for non-commercial purposes
+  - Redistribution of the source code and binaries, provided:
+    * The copyright notice and license text are preserved
+    * The binary is not bundled with copyrighted ROM or BIOS files
+    * No fee is charged for the binary itself
+
+The FBNeo license PROHIBITS:
+  - Commercial use of the emulator without explicit permission
+  - Selling the emulator as part of a product or service
+  - Bundling copyrighted ROMs or BIOS files with the emulator
+  - Removing or altering the copyright notices
+
+Copyright
+---------
+FBNeo is Copyright (c) 2003-2024 by the FBNeo team.
+Based on FinalBurn by Dave, Copyright (c) 2002-2003.
+
+The full source code is available at:
+  https://github.com/finalburnneo/FBNeo
+
+Libretro port
+-------------
+The libretro port of FBNeo is licensed under the same non-commercial
+license as the main FBNeo project. The prebuilt libfbneo_libretro_android.so
+shipped in app/src/main/jniLibs/<abi>/ was obtained from the official
+libretro buildbot (https://buildbot.libretro.com/) and is unmodified.
+
+BIOS files
+----------
+FBNeo requires BIOS zip files (neogeo.zip, pgm.zip, etc.) for certain
+hardware platforms. These BIOS files contain copyrighted code and are
+NOT bundled with this app. See assets/fbneo/README.txt for details on
+how to obtain and install them.
+
+This notice is provided for informational purposes only. The full FBNeo
+license text is available in the source repository linked above.

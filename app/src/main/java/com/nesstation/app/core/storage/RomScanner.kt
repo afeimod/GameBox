@@ -31,6 +31,7 @@ class RomScanner(private val context: Context) {
         name.endsWith(".unf", ignoreCase = true) ||
         name.endsWith(".unif", ignoreCase = true) ||
         name.endsWith(".zip", ignoreCase = true) ||
+        name.endsWith(".7z", ignoreCase = true) ||
         // SNES / SFC
         name.endsWith(".smc", ignoreCase = true) ||
         name.endsWith(".sfc", ignoreCase = true) ||
@@ -46,7 +47,19 @@ class RomScanner(private val context: Context) {
         // picking up unrelated system binaries).
         name.endsWith(".dosz", ignoreCase = true) ||
         name.endsWith(".iso", ignoreCase = true) ||
-        name.endsWith(".cue", ignoreCase = true)
+        // SEGA Mega Drive / Genesis / Master System / Game Gear / SG-1000
+        // (Genesis-Plus-GX core). .bin is ambiguous (also DOS), so we don't
+        // pick it up here — users import SEGA .bin files manually.
+        name.endsWith(".md", ignoreCase = true) ||
+        name.endsWith(".smd", ignoreCase = true) ||
+        name.endsWith(".gen", ignoreCase = true) ||
+        name.endsWith(".sms", ignoreCase = true) ||
+        name.endsWith(".gg", ignoreCase = true) ||
+        name.endsWith(".sg", ignoreCase = true) ||
+        name.endsWith(".68k", ignoreCase = true) ||
+        // Mega-CD / SEGA-CD disc images
+        name.endsWith(".cue", ignoreCase = true) ||
+        name.endsWith(".chd", ignoreCase = true)
 
     /**
      * Whether a file name looks like a DOS launcher (.bat / .exe / .com).

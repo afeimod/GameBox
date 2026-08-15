@@ -1,0 +1,59 @@
+Genesis-Plus-GX — License Notice
+==================================
+
+The Genesis-Plus-GX libretro core (libgenesis_plus_gx_libretro_android.so)
+bundled with this app is distributed under the GNU General Public License
+version 2 (GPLv2) or, at your option, any later version.
+
+License summary
+---------------
+GPLv2 permits:
+  - Free use of the software for any purpose
+  - Studying and modifying the source code
+  - Redistributing the source code and binaries, provided:
+    * The copyright notice and license text are preserved
+    * Source code is made available for any binary distribution
+    * Modifications are clearly marked and licensed under the same GPLv2
+
+GPLv2 requires:
+  - Any binary distributed must be accompanied by the corresponding
+    source code (or a written offer to provide it)
+  - The source for libgenesis_plus_gx_libretro_android.so can be
+    obtained from https://github.com/libretro/Genesis-Plus-GX
+
+Copyright
+---------
+Genesis-Plus-GX is Copyright (c) 2002-2024 by:
+  - Charles MacDonald (original Genesis Plus author)
+  - Eke-Eke (Genesis-Plus-GX maintainer)
+  - The libretro / Genesis-Plus-GX contributors
+
+The full source code is available at:
+  https://github.com/libretro/Genesis-Plus-GX
+
+Libretro port
+-------------
+The prebuilt libgenesis_plus_gx_libretro_android.so shipped in
+app/src/main/jniLibs/<abi>/ was obtained from the official libretro
+buildbot (https://buildbot.libretro.com/) and is unmodified.
+
+As required by GPLv2 section 3, the corresponding source code is
+publicly available at the GitHub repository linked above. To rebuild
+the .so from source:
+  1. Clone https://github.com/libretro/Genesis-Plus-GX
+  2. Run: make -f Makefile.libretro platform=android-arm64
+     (or platform=android-armv7 / platform=android-x86_64)
+  3. Copy the resulting libgenesis_plus_gx_libretro_android.so to
+     app/src/main/jniLibs/<abi>/
+
+BIOS files
+----------
+Genesis-Plus-GX requires BIOS files (bios_CD_E.zip, bios_CD_J.zip,
+bios_CD_U.zip) only for Mega-CD / SEGA-CD disc games. Cartridge games
+(MD / SMS / GG / SG) boot directly without BIOS. The BIOS files contain
+copyrighted SEGA firmware code and are NOT bundled with this app. See
+assets/genesis/README.txt for details on how to obtain and install them.
+
+This notice is provided for informational purposes only. The full GPLv2
+license text is available at:
+  https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt

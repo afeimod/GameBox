@@ -1,18 +1,93 @@
-NesStation does NOT ship with any Nintendo Entertainment System (NES) or
-Famicom ROM files. The user is solely responsible for obtaining legally
-dumpable ROMs (i.e. ROMs from cartridges they personally own, or ROMs
-explicitly released into the public domain by their rights-holders).
+NesStation does NOT ship with any copyrighted ROM files, BIOS files, or
+game cartridges/discs. The user is solely responsible for obtaining legally
+distributable ROMs and BIOS files (i.e. dumps from cartridges/discs/arcade
+boards they personally own, or files explicitly released into the public
+domain by their rights-holders).
 
-Common sources of legally distributable NES homebrew / public-domain ROMs:
+================================================================================
+PLATFORM-SPECIFIC ROM SOURCES
+================================================================================
 
-  * https://pdroms.de/         (Public-Domain ROMs)
-  * https://www.nesdev.org/    (NESdev community homebrew hub)
-  * itch.io  (search "NES homebrew")
+NES / FC (FCEUmm core):
+  - https://pdroms.de/         (Public-Domain ROMs)
+  - https://www.nesdev.org/    (NESdev community homebrew hub)
+  - itch.io  (search "NES homebrew")
 
-By installing this application you agree that:
+SNES / SFC (snes9x core):
+  - https://pdroms.de/         (Public-Domain ROMs)
+  - itch.io  (search "SNES homebrew")
 
-  1. You will not download or distribute copyrighted ROMs you do not own.
-  2. The NesStation authors and contributors assume no responsibility for
-     the ROMs you choose to load.
-  3. NES / Famicom is a trademark of Nintendo Co., Ltd. This project is
-     not affiliated with, endorsed by, or sponsored by Nintendo.
+GB / GBC / GBA (mGBA core):
+  - https://pdroms.de/         (Public-Domain ROMs)
+  - itch.io  (search "GB homebrew" / "GBA homebrew")
+
+DOS (DOSBox-Pure core):
+  - https://www.dosgamesarchive.com/
+  - https://dosbox.com/  (commercial DOS games must be purchased)
+
+Arcade / FBNeo:
+  - https://pdroms.de/   (homebrew arcade ROMs)
+  - FBNeo "hacks" section in the official FBNeo GitHub repo
+  - Most commercial arcade ROMs (KOF, Metal Slug, Street Fighter II)
+    are copyrighted and NOT freely distributable
+
+MD / SMS / GG / SG (Genesis-Plus-GX core):
+  - https://pdroms.de/
+  - itch.io  (search "Mega Drive homebrew" / "Master System homebrew")
+  - SEGA officially allows some non-commercial use of certain old ROMs;
+    check SEGA's current licensing terms
+
+J2ME / Java ME:
+  - itch.io  (search "J2ME")
+  - Personal MIDlet files you have developed
+
+================================================================================
+BIOS FILES — READ CAREFULLY
+================================================================================
+
+Some cores require BIOS files to boot certain games:
+
+  Core              | BIOS file(s) needed             | When required
+-------------------|---------------------------------|---------------------------
+  FCEUmm (NES)      | disksys.rom                     | FDS games only (.fds)
+  FBNeo (Arcade)    | neogeo.zip, pgm.zip, etc.       | NeoGeo / PGM games
+                    |                                 | (CPS1/2/3 games don't
+                    |                                 |  need BIOS)
+  Genesis-Plus-GX   | bios_CD_E/J/U.zip               | Mega-CD / SEGA-CD games
+                    |                                 | (MD/SMS/GG/SG carts
+                    |                                 |  don't need BIOS)
+
+ALL BIOS files contain copyrighted code (Nintendo, SNK, IGS, Capcom, SEGA).
+NesStation does NOT bundle them — you must obtain them yourself for your
+own personal use on hardware you own. See:
+  - assets/fbneo/README.txt   for FBNeo BIOS requirements
+  - assets/genesis/README.txt for Genesis-Plus-GX BIOS requirements
+
+================================================================================
+LEGAL AGREEMENT
+================================================================================
+
+By installing and using NesStation you agree that:
+
+  1. You will not download, distribute, or use copyrighted ROMs or BIOS
+     files you do not legally own.
+
+  2. The NesStation authors and contributors assume no responsibility
+     for the ROMs, BIOS files, or game data you choose to load.
+
+  3. NES / Famicom is a trademark of Nintendo Co., Ltd.
+     SNES / Super Famicom is a trademark of Nintendo Co., Ltd.
+     Game Boy / Game Boy Color / Game Boy Advance are trademarks of
+       Nintendo Co., Ltd.
+     NeoGeo is a trademark of SNK Corporation.
+     Mega Drive / Mega-CD / Master System / Game Gear / SG-1000 are
+       trademarks of SEGA Holdings Co., Ltd.
+     Street Fighter, Marvel vs Capcom, etc. are trademarks of Capcom.
+     Java / J2ME / MIDP are trademarks of Oracle Corporation.
+
+  4. This project is not affiliated with, endorsed by, or sponsored by
+     any of the above trademark holders.
+
+  5. The native emulator cores (FCEUmm, snes9x, mGBA, DOSBox-Pure,
+     FBNeo, Genesis-Plus-GX) are licensed under their respective
+     open-source licenses — see assets/legal/LICENSE-*.txt for details.

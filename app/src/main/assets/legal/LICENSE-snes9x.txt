@@ -1,0 +1,39 @@
+snes9x — License Notice
+========================
+
+The snes9x libretro core (libsnescore.so) is compiled from source as part
+of the NesStation build. snes9x is distributed under a non-commercial
+license — it permits free use and source redistribution, but prohibits
+commercial use.
+
+License summary
+---------------
+The snes9x license permits:
+  - Free use of the emulator for non-commercial purposes
+  - Redistribution of the source code, provided:
+    * The copyright notice and license text are preserved
+    * The binary is not sold or used in a commercial product
+
+The snes9x license PROHIBITS:
+  - Commercial use of the emulator without explicit permission
+  - Selling the emulator as part of a product or service
+  - Bundling copyrighted ROM files with the emulator
+
+Copyright
+---------
+snes9x is Copyright (c) 1996-2024 by:
+  - Gary Henderson, Jerremy Koot, zones, Matthew Kendora, AnS,
+    Nach, OV2, anomie, et al.
+  - The snes9x contributors
+
+The full source code is available at:
+  https://github.com/snes9xgit/snes9x
+
+Libretro port
+-------------
+The libretro port (libretro.cpp) is included in the snes9x source tree
+and compiled directly with the NesStation CMake build — see
+core/cmake/CMakeLists.txt for build configuration.
+
+This notice is provided for informational purposes only. The full snes9x
+license text is available in the source repository linked above.
