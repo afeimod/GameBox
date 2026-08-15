@@ -508,6 +508,36 @@ fun EmulatorScreen(
         // retro_load_game() returns and we read the .srm into SAVE_RAM.
         engine.setSaveName(saveName)
 
+        // === Mega-CD BIOS pre-check ===
+        // If the user is launching a Mega-CD / SEGA-CD game (.cue/.iso/.chd),
+        // verify at least one BIOS file (bios_CD_E.bin / .J.bin / .U.bin) is
+        // present in <filesDir>/genesis/. Without a BIOS the genplus core
+        // produces a black screen — this pre-check gives the user a clear,
+        // actionable error instead of leaving them wondering what went wrong.
+        if (platform == GamePlatform.MD) {
+            val isCdExt = romPath.endsWith(".cue", ignoreCase = true) ||
+                          romPath.endsWith(".iso", ignoreCase = true) ||
+                          romPath.endsWith(".chd", ignoreCase = true)
+            // game.title may contain "Mega-CD" / "SEGA CD" hint for cue sheets
+            // that don't have a CD-specific extension at the romPath level.
+            val titleHint = game.title.contains("CD", ignoreCase = true) ||
+                            game.title.contains("Mega-CD", ignoreCase = true) ||
+                            game.title.contains("SEGA-CD", ignoreCase = true)
+            if (isCdExt || titleHint) {
+                val genesisDir = java.io.File(context.filesDir, "genesis")
+                val hasBios = listOf("bios_CD_E.bin", "bios_CD_J.bin", "bios_CD_U.bin",
+                                     "bios_CD_E.zip", "bios_CD_J.zip", "bios_CD_U.zip")
+                    .any { java.io.File(genesisDir, it).exists() }
+                if (!hasBios) {
+                    errorMsg = "Mega-CD/SEGA-CD 游戏需要 BIOS 文件才能运行（当前未检测到）。\n\n" +
+                               "请先到 设置 → MD/SEGA → Mega-CD BIOS 管理，" +
+                               "导入 bios_CD_E.bin (欧) 或 bios_CD_J.bin (日) 或 bios_CD_U.bin (美)。\n" +
+                               "支持导入 .bin 或 .zip（自动解压）。"
+                    return@LaunchedEffect
+                }
+            }
+        }
+
         val romFile = java.io.File(romPath)
         if (platform == GamePlatform.DOS) {
             // === DOS-specific loading ===
@@ -536,6 +566,22 @@ fun EmulatorScreen(
         } else if (romFile.exists()) {
             // FDS BIOS is auto-extracted from assets by NesApp on startup.
             // If missing, the core will report the error; user can import via Settings.
+            //
+            // === iNES Header Patching for pirate multicarts (500-in-1 etc.) ===
+            // Patch the header in the actual file so FCEUmm sees the correct
+            // PRG/CHR size regardless of whether it uses game.data or game.path.
+            // This is a Kotlin-side backup for the in-memory patching done in
+            // rom_loader.cpp — both layers patch, ensuring the patch always
+            // takes effect.
+            if (platform == GamePlatform.NES) {
+                try {
+                    val patchResult = com.nesstation.app.core.storage.InesHeaderPatcher
+                        .patchIfNeeded(romFile)
+                    android.util.Log.i("EmulatorScreen", "iNES patch: $patchResult")
+                } catch (e: Exception) {
+                    android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
+                }
+            }
             val ok = engine.loadRom(romFile, filesDir, savesDirPath) { }
             if (!ok) {
                 val err = engine.lastError()
@@ -659,6 +705,21 @@ fun EmulatorScreen(
                     }
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
+                    // === iNES Header Patching for pirate multicarts (500-in-1) ===
+                    // Patch the temp file's iNES header so FCEUmm loads the
+                    // full PRG ROM (the header often claims 1MB but the file
+                    // is 16MB+). Without this, FCEUmm truncates to the header
+                    // size and the multicart menu can't switch banks → gray
+                    // screen.
+                    if (platform == GamePlatform.NES) {
+                        try {
+                            val patchResult = com.nesstation.app.core.storage.InesHeaderPatcher
+                                .patchIfNeeded(tempFile)
+                            android.util.Log.i("EmulatorScreen", "iNES patch: $patchResult")
+                        } catch (e: Exception) {
+                            android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
+                        }
+                    }
                     val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { }
                     if (!ok) {
                         val err = engine.lastError()
@@ -1442,6 +1503,20 @@ private fun OnScreenController(
     // layout) — they map to bit12/bit13 (L2/R2 in libretro joypad).
     val showL2R2 = platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2
 
+    // === Arcade input mode: D-Pad vs Analog Stick ===
+    // When arcadeInputMode == "analog", we render a circular analog stick
+    // instead of the cross-shaped D-Pad. Both produce the same BTN_UP/DOWN/
+    // LEFT/RIGHT bits — the difference is purely visual + how direction is
+    // computed (analog uses thumb position relative to center, with a
+    // deadzone; D-Pad uses quadrant hit-test).
+    // This implements the user's request: "街机fbneo切换摇杆没有成功切换摇杆的ui".
+    val useAnalogStick = platform == GamePlatform.ARCADE &&
+                         padLayout.arcadeInputMode == "analog"
+    // Track analog thumb offset (in fraction of stick radius, -1..1 on each axis)
+    // for rendering. Updated by the analog gesture handler below.
+    var analogThumbX by remember { mutableStateOf(0f) }
+    var analogThumbY by remember { mutableStateOf(0f) }
+
     // L/R bit values differ between GBA (bit8/9) and SNES/ARCADE/MD (bit10/11)
     val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
     val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
@@ -1526,9 +1601,17 @@ private fun OnScreenController(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(padLayout, surfaceSize, isPortrait) {
+            .pointerInput(padLayout, surfaceSize, isPortrait, useAnalogStick) {
                 // Compute hit areas once (recomputed when key changes)
-                val dpadRect = btnRect(dpad)
+                // For analog stick mode, expand the hit area to a square around
+                // the stick center so the user can drag outside the visual base.
+                val dpadRect = if (useAnalogStick) {
+                    // Analog stick hit area: 1.5x the visual size, so the user
+                    // can drag their thumb beyond the stick base for large movements.
+                    btnRect(dpad, 1.5f, 1.5f)
+                } else {
+                    btnRect(dpad)
+                }
                 val aRect = btnRect(btnA)
                 val bRect = btnRect(btnB)
                 // Turbo A/B hit areas only for non-SNES platforms
@@ -1545,6 +1628,63 @@ private fun OnScreenController(
                 // Combo button hit areas
                 val comboRects = comboList.map { c ->
                     c.id to btnRect(ButtonLayout(c.x, c.y, c.sizeDp))
+                }
+
+                // Compute direction bits from a touch position within the
+                // dpad/stick rect. For analog mode, use a radial deadzone
+                // and allow continuous thumb tracking. For D-Pad mode, use
+                // the quadrant hit-test (8-direction).
+                // Returns (bits, thumbX, thumbY) where thumbX/Y are in [-1, 1].
+                fun computeDirection(pos: Offset): Triple<Int, Float, Float> {
+                    if (useAnalogStick) {
+                        // Analog mode: thumb offset relative to stick center,
+                        // normalized to [-1, 1] based on stick radius.
+                        val cx = dpadRect.center.x
+                        val cy = dpadRect.center.y
+                        val radius = dpadRect.width / 2f
+                        val dx = (pos.x - cx) / radius
+                        val dy = (pos.y - cy) / radius
+                        // Clamp magnitude to 1.0 (allow dragging outside, but
+                        // thumb visual stays within the stick base)
+                        val mag = kotlin.math.sqrt(dx * dx + dy * dy)
+                        val clampedDx: Float
+                        val clampedDy: Float
+                        if (mag > 1f) {
+                            clampedDx = dx / mag
+                            clampedDy = dy / mag
+                        } else {
+                            clampedDx = dx
+                            clampedDy = dy
+                        }
+                        // Radial deadzone: 0.25 of radius. Below this, no direction.
+                        val deadzone = 0.25f
+                        var bits = 0
+                        if (mag > deadzone) {
+                            // Use clamped values for direction test (so diagonals work)
+                            val absX = kotlin.math.abs(clampedDx)
+                            val absY = kotlin.math.abs(clampedDy)
+                            // Cardinal + diagonal: threshold at 0.4
+                            val cardThreshold = 0.4f
+                            if (clampedDx < -cardThreshold) bits = bits or BTN_LEFT
+                            else if (clampedDx > cardThreshold) bits = bits or BTN_RIGHT
+                            if (clampedDy < -cardThreshold) bits = bits or BTN_UP
+                            else if (clampedDy > cardThreshold) bits = bits or BTN_DOWN
+                            // If no cardinal direction triggered but we're past
+                            // the deadzone, fall back to the dominant axis so
+                            // small movements still register.
+                            if (bits == 0) {
+                                if (absX > absY) {
+                                    bits = bits or (if (clampedDx < 0) BTN_LEFT else BTN_RIGHT)
+                                } else {
+                                    bits = bits or (if (clampedDy < 0) BTN_UP else BTN_DOWN)
+                                }
+                            }
+                        }
+                        return Triple(bits, clampedDx, clampedDy)
+                    } else {
+                        // D-Pad mode: 8-direction quadrant hit-test.
+                        return Triple(computeDpadDirection(pos, dpadRect), 0f, 0f)
+                    }
                 }
 
                 // Process a pointer DOWN at the given position.
@@ -1579,7 +1719,14 @@ private fun OnScreenController(
                         var bits = 0
                         var turboBits = 0
                         when (btnType) {
-                            BtnType.DPAD -> bits = computeDpadDirection(pos, dpadRect)
+                            BtnType.DPAD -> {
+                                val (b, tx, ty) = computeDirection(pos)
+                                bits = b
+                                if (useAnalogStick) {
+                                    analogThumbX = tx
+                                    analogThumbY = ty
+                                }
+                            }
                             BtnType.A -> bits = BTN_A
                             BtnType.B -> bits = BTN_B
                             BtnType.TURBO_A -> turboBits = BTN_A
@@ -1641,6 +1788,11 @@ private fun OnScreenController(
                                             BtnType.COMBO -> {
                                                 visualState = visualState and heldBits.inv()
                                                 sendStateNow(visualState, turboState)
+                                                // Reset analog thumb when DPAD is released
+                                                if (bt == BtnType.DPAD && useAnalogStick) {
+                                                    analogThumbX = 0f
+                                                    analogThumbY = 0f
+                                                }
                                             }
                                             BtnType.TURBO_A, BtnType.TURBO_B -> {
                                                 turboState = turboState and heldBits.inv()
@@ -1653,9 +1805,13 @@ private fun OnScreenController(
                                     if (entry != null && entry.first == BtnType.DPAD) {
                                         val oldBits = entry.second
                                         visualState = visualState and oldBits.inv()
-                                        val newBits = computeDpadDirection(change.position, dpadRect)
+                                        val (newBits, tx, ty) = computeDirection(change.position)
                                         visualState = visualState or newBits
                                         activePointers[pid] = BtnType.DPAD to newBits
+                                        if (useAnalogStick) {
+                                            analogThumbX = tx
+                                            analogThumbY = ty
+                                        }
                                         sendStateNow(visualState, turboState)
                                     }
                                 }
@@ -1667,13 +1823,24 @@ private fun OnScreenController(
                 }
             }
     ) {
-        // Draw D-pad (用横屏/竖屏对应的布局)
-        DpadCanvas(
-            layout = dpad,
-            surfaceSize = surfaceSize,
-            opacity = opacity,
-            pressedDirs = visualState and 0xF0
-        )
+        // Draw D-pad OR Analog Stick depending on arcadeInputMode.
+        if (useAnalogStick) {
+            AnalogStickCanvas(
+                layout = dpad,
+                surfaceSize = surfaceSize,
+                opacity = opacity,
+                pressedDirs = visualState and 0xF0,
+                thumbX = analogThumbX,
+                thumbY = analogThumbY
+            )
+        } else {
+            DpadCanvas(
+                layout = dpad,
+                surfaceSize = surfaceSize,
+                opacity = opacity,
+                pressedDirs = visualState and 0xF0
+            )
+        }
         // Draw A
         ActionButtonCanvas("A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
         // Draw B
@@ -1812,6 +1979,104 @@ private fun DrawScope.drawTriangle(cx: Float, cy: Float, dx: Float, dy: Float, s
     val ex = cx + dy * size; val ey = cy - dx * size
     val tx = cx + dx * size * 1.5f; val ty = cy + dy * size * 1.5f
     drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(sx, sy); lineTo(ex, ey); lineTo(tx, ty); close() }, color)
+}
+
+// ---------------------------------------------------------------------------
+// AnalogStickCanvas — circular analog stick used when arcadeInputMode == "analog"
+// ---------------------------------------------------------------------------
+// Renders a circular base with directional arrows and a movable thumb circle.
+// The thumb position is driven by `thumbX`/`thumbY` (in [-1, 1]) which are
+// updated by the gesture handler in OnScreenController.
+// Pressed directions (BTN_UP/DOWN/LEFT/RIGHT) highlight the corresponding
+// arrow on the base rim, matching the D-Pad visual feedback style.
+@Composable
+private fun AnalogStickCanvas(
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    opacity: Float,
+    pressedDirs: Int,
+    thumbX: Float,
+    thumbY: Float
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val (px, py) = buttonOffset(layout, surfaceSize, density)
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(sizeDp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val baseR = size.width * 0.48f  // outer base radius
+            val thumbR = size.width * 0.22f // thumb cap radius
+
+            val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
+            val ringColor = Color(0xFF2C2C38).copy(alpha = opacity)
+            val thumbColor = Color(0xFFFFD66B).copy(alpha = opacity)
+            val thumbPressedColor = Color(0xFFFFE57F).copy(alpha = (opacity * 1.2f).coerceAtMost(1f))
+            val arrowColor = Color(0x99FFFFFF)
+
+            // Outer base (filled circle)
+            drawCircle(baseColor, baseR, Offset(cx, cy))
+            // Outer ring
+            drawCircle(ringColor, baseR, Offset(cx, cy), style = Stroke(width = 2.dp.toPx()))
+            // Inner well (slightly darker)
+            drawCircle(Color(0xFF101015).copy(alpha = opacity), baseR * 0.78f, Offset(cx, cy))
+
+            // Directional arrows on the rim (same style as D-Pad)
+            val arrowSize = baseR * 0.16f
+            val arrowOffset = baseR * 0.72f
+            val dirs = listOf(
+                Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN),
+                Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT)
+            )
+            for ((dx, dy, bit) in dirs) {
+                val ax = cx + dx * arrowOffset
+                val ay = cy + dy * arrowOffset
+                val isActive = pressedDirs and bit != 0
+                // When active, draw a small highlight circle behind the arrow
+                if (isActive) {
+                    drawCircle(
+                        Color(0xFFFFD66B).copy(alpha = opacity * 0.4f),
+                        arrowSize * 1.8f,
+                        Offset(ax, ay)
+                    )
+                }
+                drawTriangle(
+                    ax, ay, dx, dy, arrowSize,
+                    if (isActive) Color(0xFFFFD66B).copy(alpha = opacity) else arrowColor
+                )
+            }
+
+            // Thumb cap position: center + offset * (baseR - thumbR)
+            // (so the thumb stays within the base circle)
+            val maxOffset = baseR - thumbR - 2.dp.toPx()
+            val thumbCx = cx + thumbX * maxOffset
+            val thumbCy = cy + thumbY * maxOffset
+            val isPressed = pressedDirs != 0
+            // Thumb shadow (slight offset for depth)
+            drawCircle(
+                Color(0x44000000),
+                thumbR + 1.dp.toPx(),
+                Offset(thumbCx + 1f, thumbCy + 2f)
+            )
+            // Thumb cap
+            drawCircle(
+                if (isPressed) thumbPressedColor else thumbColor,
+                thumbR,
+                Offset(thumbCx, thumbCy)
+            )
+            // Thumb highlight (top-left, gives 3D feel)
+            drawCircle(
+                Color.White.copy(alpha = opacity * 0.25f),
+                thumbR * 0.5f,
+                Offset(thumbCx - thumbR * 0.25f, thumbCy - thumbR * 0.25f)
+            )
+        }
+    }
 }
 
 @Composable
@@ -3286,6 +3551,9 @@ private fun PadLayoutEditor(
 
     val density = LocalDensity.current
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
+    // Combo button picker dialog state — when true, shows a dialog that lets
+    // the user pick 2-4 buttons to combine into a single on-screen combo key.
+    var showComboPickerDialog by remember { mutableStateOf(false) }
 
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD
@@ -3586,37 +3854,18 @@ private fun PadLayoutEditor(
 
             // === Combo button management ===
             // Per-platform: each platform tab has its own combo button list.
-            // Tapping "添加组合键" creates a new AB combo at center-bottom;
-            // the user can then drag it, and long-press to delete.
+            // Tapping "+ 添加组合键" opens a dialog where the user picks
+            // 2-4 buttons (A/B/X/Y/L/R/L2/R2/Start/Select) to combine into
+            // a single on-screen button. Previously this was hardcoded to AB
+            // only — now any 2-4 button combo is supported per the user's
+            // request ("组合键不应该只是添加ab，而且可以任意自定义2-4个按键组合").
             Spacer(Modifier.size(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("组合键", color = Color(0xFFFFD66B), fontSize = 11.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 androidx.compose.material3.TextButton(
-                    onClick = {
-                        val current = parseComboButtons(padLayout, platform)
-                        val newCombo = ComboButtonEntry(
-                            id = "combo_${System.currentTimeMillis()}",
-                            label = "AB",
-                            bits = BTN_A or BTN_B,
-                            x = 0.5f,
-                            y = 0.85f,
-                            sizeDp = 56,
-                            color = 0xFF9C27B0.toInt()
-                        )
-                        val updated = current + newCombo
-                        val json = serializeComboButtons(updated)
-                        val newLayout = when (platform) {
-                            GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
-                            GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
-                            GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
-                            GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
-                            GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
-                            else -> padLayout
-                        }
-                        onLayoutChange(newLayout)
-                    }
+                    onClick = { showComboPickerDialog = true }
                 ) {
                     Text("+ 添加组合键", color = Color(0xFFFFD66B), fontSize = 11.sp)
                 }
@@ -3651,6 +3900,204 @@ private fun PadLayoutEditor(
             }
         }
     }
+
+    // === Combo Button Picker Dialog ===
+    // Lets the user pick 2-4 buttons to combine into a single on-screen combo key.
+    // Available buttons depend on the platform (NES only has A/B/Start/Select,
+    // SNES/Arcade/MD also have X/Y/L/R, Arcade may have L2/R2).
+    if (showComboPickerDialog) {
+        ComboButtonPickerDialog(
+            platform = platform,
+            onConfirm = { selectedBits, label ->
+                showComboPickerDialog = false
+                if (selectedBits != 0) {
+                    val current = parseComboButtons(padLayout, platform)
+                    val newCombo = ComboButtonEntry(
+                        id = "combo_${System.currentTimeMillis()}",
+                        label = label,
+                        bits = selectedBits,
+                        x = 0.5f,
+                        y = 0.85f,
+                        sizeDp = 56,
+                        color = 0xFF9C27B0.toInt()
+                    )
+                    val updated = current + newCombo
+                    val json = serializeComboButtons(updated)
+                    val newLayout = when (platform) {
+                        GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
+                        GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
+                        GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
+                        GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
+                        GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                        else -> padLayout
+                    }
+                    onLayoutChange(newLayout)
+                }
+            },
+            onDismiss = { showComboPickerDialog = false }
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Combo Button Picker Dialog — lets the user choose 2-4 buttons to combine
+// ---------------------------------------------------------------------------
+// Lists the platform's available buttons (A/B/X/Y/L/R/L2/R2/Start/Select)
+// as toggleable chips. The user must select 2-4 buttons. The dialog shows
+// the resulting label (auto-generated from selected button names) and the
+// bitmask value in real time. On confirm, the combo is added to the layout.
+@Composable
+private fun ComboButtonPickerDialog(
+    platform: GamePlatform,
+    onConfirm: (bits: Int, label: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // L/R bit values differ between GBA (bit8/9) and SNES/ARCADE/MD (bit10/11)
+    val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
+    val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
+
+    // Available buttons for this platform
+    data class ButtonOption(val name: String, val bit: Int)
+    val availableButtons = remember(platform) {
+        val list = mutableListOf(
+            ButtonOption("A", BTN_A),
+            ButtonOption("B", BTN_B),
+            ButtonOption("Start", BTN_START),
+            ButtonOption("Select", BTN_SELECT)
+        )
+        // X/Y available on SNES/Arcade/MD
+        if (platform == GamePlatform.SFC || platform == GamePlatform.ARCADE || platform == GamePlatform.MD) {
+            list.add(ButtonOption("X", BTN_X))
+            list.add(ButtonOption("Y", BTN_Y))
+        }
+        // L/R available on GBA/SNES/Arcade/MD
+        if (platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
+            platform == GamePlatform.ARCADE || platform == GamePlatform.MD) {
+            list.add(ButtonOption("L", lBit))
+            list.add(ButtonOption("R", rBit))
+        }
+        // L2/R2 only on Arcade (6-button fight layout)
+        if (platform == GamePlatform.ARCADE) {
+            list.add(ButtonOption("L2", BTN_L2))
+            list.add(ButtonOption("R2", BTN_R2))
+        }
+        list.toList()
+    }
+
+    // Track selected buttons (by name, to support toggling)
+    val selected = remember { mutableStateListOf<String>() }
+
+    fun toggle(name: String) {
+        if (name in selected) {
+            selected.remove(name)
+        } else if (selected.size < 4) {
+            selected.add(name)
+        }
+    }
+
+    // Compute bits and label from selected buttons
+    val bits = selected.sumOf { name ->
+        availableButtons.firstOrNull { it.name == name }?.bit ?: 0
+    }
+    val label = selected.joinToString("")
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("添加组合键", color = Color.White,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "选择 2-4 个按键组合为一个虚拟按键：",
+                    color = Color(0xFFB0BEC5), fontSize = 12.sp
+                )
+                Spacer(Modifier.size(8.dp))
+                // Button chips grid — use a simple Column+Row layout to avoid
+                // FlowRow API version issues across Compose versions.
+                val rows = availableButtons.chunked(4)
+                rows.forEach { rowButtons ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        rowButtons.forEach { opt ->
+                            val isSelected = opt.name in selected
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) Color(0xFFFFD66B)
+                                        else Color(0xFF2C2C38)
+                                    )
+                                    .clickable { toggle(opt.name) }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    opt.name,
+                                    color = if (isSelected) Color.Black else Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        // Fill empty slots so layout stays aligned
+                        repeat(4 - rowButtons.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+                Spacer(Modifier.size(12.dp))
+                // Live preview
+                val previewLabel = if (selected.isEmpty()) "（请选择按键）" else label
+                val countColor = when {
+                    selected.size < 2 -> Color(0xFFE74C3C)  // red - too few
+                    selected.size > 4 -> Color(0xFFE74C3C)  // red - too many (shouldn't happen)
+                    else -> Color(0xFF88DD88)               // green - valid
+                }
+                Text(
+                    "已选: $previewLabel  (${selected.size}/4)",
+                    color = countColor, fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                )
+                if (bits != 0) {
+                    Text(
+                        "按键位: 0x${bits.toString(16)}",
+                        color = Color(0xFF8899AA), fontSize = 10.sp
+                    )
+                }
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    "提示: 组合键按下时会同时触发所选的全部按键。常见用途:\n" +
+                    "• A+B → 跑/跳/滑铲 (FC/MD动作游戏)\n" +
+                    "• A+B+X+Y → 必杀技 (格斗游戏)\n" +
+                    "• L+R → 特殊操作 (SNES/GBA)",
+                    color = Color(0xFF8899AA), fontSize = 9.sp, lineHeight = 12.sp
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = selected.size in 2..4,
+                onClick = { onConfirm(bits, label) }
+            ) {
+                Text(
+                    "添加",
+                    color = if (selected.size in 2..4) Color(0xFFFFD66B) else Color(0xFF555555),
+                    fontSize = 13.sp
+                )
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("取消", color = Color(0xFF8899AA), fontSize = 13.sp)
+            }
+        },
+        containerColor = Color(0xFF1A1A22)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -4907,7 +5354,16 @@ private fun ArcadeBiosImportSection() {
 
 // ---------------------------------------------------------------------------
 // Genesis-Plus-GX (Mega-CD) BIOS management — lets the user import
-// bios_CD_E.zip / bios_CD_J.zip / bios_CD_U.zip into <filesDir>/genesis/.
+// BIOS files into <filesDir>/genesis/. Supports BOTH .bin and .zip:
+//   - .bin  → saved directly as bios_CD_E.bin / bios_CD_J.bin / bios_CD_U.bin
+//             (region auto-detected from original filename: _E/_J/_U or 欧区/日区/美区)
+//   - .zip  → extracted: the .bin file inside is saved as bios_CD_<region>.bin
+//             (the .zip itself is also kept for compatibility with cores that
+//              accept .zip directly)
+//
+// The genplus core logs "BIOS should be located at: .../bios_CD_E.bin" — i.e.
+// it expects a .bin file. Previously we saved as .zip only, which is why MD-CD
+// games showed a black screen even after the user imported the BIOS.
 // ---------------------------------------------------------------------------
 @Composable
 private fun GenesisBiosImportSection() {
@@ -4916,24 +5372,47 @@ private fun GenesisBiosImportSection() {
     var statusText by remember { mutableStateOf("") }
     var refreshKey by remember { mutableStateOf(0) }
 
+    // Region detection from BIOS filename.
+    // Accepted cues: bios_CD_E / bios_CD_J / bios_CD_U, or 1 / 2 / 3 suffix,
+    // or EU/JP/US, or 欧区/日区/美区. Returns 'E'|'J'|'U'|null.
+    fun detectRegion(name: String): Char? {
+        val n = name.uppercase()
+        return when {
+            n.contains("_E") || n.contains("EU") || n.contains("PAL") ||
+            n.contains("欧") || n.contains("欧洲") -> 'E'
+            n.contains("_J") || n.contains("JP") || n.contains("NTSC_J") ||
+            n.contains("日") || n.contains("日本") -> 'J'
+            n.contains("_U") || n.contains("US") || n.contains("USA") ||
+            n.contains("NTSC_U") || n.contains("美") || n.contains("美国") -> 'U'
+            else -> null
+        }
+    }
+
     LaunchedEffect(refreshKey) {
         statusText = buildString {
+            // Check BOTH .bin (preferred by genplus core) and .zip (legacy)
             val known = listOf(
-                "bios_CD_E.zip" to "Mega-CD (欧洲)",
-                "bios_CD_J.zip" to "Mega-CD (日本)",
-                "bios_CD_U.zip" to "SEGA-CD (美国)"
+                "bios_CD_E.bin" to "Mega-CD (欧洲)",
+                "bios_CD_J.bin" to "Mega-CD (日本)",
+                "bios_CD_U.bin" to "SEGA-CD (美国)"
             )
             var found = 0
             for ((name, label) in known) {
-                val f = java.io.File(biosDir, name)
-                if (f.exists() && f.length() > 0) {
-                    append("✓ $label ($name, ${f.length() / 1024}KB)\n")
+                val binFile = java.io.File(biosDir, name)
+                val zipFile = java.io.File(biosDir, name.replace(".bin", ".zip"))
+                val binOk = binFile.exists() && binFile.length() > 0
+                val zipOk = zipFile.exists() && zipFile.length() > 0
+                if (binOk) {
+                    append("✓ $label ($name, ${binFile.length() / 1024}KB)\n")
                     found++
+                } else if (zipOk) {
+                    append("⚠ $label (有.zip但无.bin — 建议重新导入以自动解压)\n")
                 }
             }
             if (found == 0) {
                 append("未检测到Mega-CD BIOS文件\n")
                 append("卡带游戏(MD/SMS/GG/SG)无需BIOS, 仅Mega-CD游戏需要。\n")
+                append("支持导入 .bin 或 .zip 文件, 文件名含_E/_J/_U 或 欧/日/美 自动识别区域。\n")
             }
             append("\n目录: ${biosDir.absolutePath}")
         }
@@ -4948,18 +5427,77 @@ private fun GenesisBiosImportSection() {
                     uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) { }
-            val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast('%')
-                ?: "bios.zip"
-            val safeName = if (name.endsWith(".zip", ignoreCase = true)) name else "$name.zip"
-            val dest = java.io.File(biosDir, safeName)
+            // Query original display name (handles SAF percent-encoded URIs)
+            var origName = ""
             try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(
+                        android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    )
+                    if (idx >= 0 && c.moveToFirst()) {
+                        val n = c.getString(idx)
+                        if (!n.isNullOrBlank()) origName = n
+                    }
+                }
+            } catch (_: Exception) { }
+            if (origName.isBlank()) {
+                origName = uri.lastPathSegment?.let { android.net.Uri.decode(it) }
+                    ?.substringAfterLast('/')?.substringAfterLast(':') ?: "bios.bin"
+            }
+
+            val region = detectRegion(origName) ?: 'E'  // default to EU if unknown
+            val isZip = origName.endsWith(".zip", ignoreCase = true)
+            val msg = try {
+                // Always copy the original file first (preserves user's input format)
+                val origExt = if (isZip) ".zip" else ".bin"
+                val origDestName = "bios_CD_$region$origExt"
+                val origDest = java.io.File(biosDir, origDestName)
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
+                    origDest.outputStream().use { output -> input.copyTo(output) }
+                }
+
+                // If it's a zip, extract the .bin file inside and save as
+                // bios_CD_<region>.bin (this is what the genplus core looks for).
+                if (isZip) {
+                    try {
+                        val zipIn = java.util.zip.ZipInputStream(origDest.inputStream())
+                        var extracted = false
+                        while (true) {
+                            val entry = zipIn.nextEntry ?: break
+                            val entryName = entry.name.lowercase()
+                            if (entryName.endsWith(".bin") || entryName.endsWith(".rom")) {
+                                val binDest = java.io.File(biosDir, "bios_CD_$region.bin")
+                                binDest.outputStream().use { out ->
+                                    val buf = ByteArray(8192)
+                                    while (true) {
+                                        val n = zipIn.read(buf)
+                                        if (n <= 0) break
+                                        out.write(buf, 0, n)
+                                    }
+                                }
+                                extracted = true
+                                break
+                            }
+                            zipIn.closeEntry()
+                        }
+                        zipIn.close()
+                        if (extracted) {
+                            "已导入 BIOS (区域=$region): ${origDest.name} + 已解压 bios_CD_$region.bin"
+                        } else {
+                            "已导入 ${origDest.name}, 但 zip 中未找到 .bin 文件 — 请确认 zip 内含 BIOS .bin"
+                        }
+                    } catch (e: Exception) {
+                        "已导入 ${origDest.name}, 但解压 .bin 失败: ${e.message}"
+                    }
+                } else {
+                    // .bin file: already saved with correct name. Done.
+                    "已导入 BIOS (区域=$region): ${origDest.name} (${origDest.length() / 1024}KB)"
                 }
                 refreshKey++
             } catch (e: Exception) {
-                statusText = "导入失败: ${e.message}"
+                "导入失败: ${e.message}"
             }
+            statusText = msg
         }
     }
 
@@ -4973,7 +5511,7 @@ private fun GenesisBiosImportSection() {
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "导入BIOS zip",
+                "导入BIOS (.bin 或 .zip)",
                 color = Color(0xFFFFD66B),
                 fontSize = 13.sp,
                 modifier = Modifier

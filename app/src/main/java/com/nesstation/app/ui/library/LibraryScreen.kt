@@ -723,12 +723,19 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(displayGames) { g ->
+                    // Resolve icon path: custom icon > built-in icon (Java/arcade)
+                    // > cover path. GameIconExtractor handles Java MIDlet-Icon
+                    // extraction and arcade zip preview png extraction.
+                    val resolvedIcon = remember(g.id, g.customIconPath, g.coverPath) {
+                        com.nesstation.app.core.storage.GameIconExtractor
+                            .resolveIconPath(context, g)
+                    }
                     GameCard(
                         title = g.title,
                         accent = g.accent,
                         onClick = { onOpenGame(g) },
                         onLongClick = { longPressGame = g },
-                        coverPath = g.customIconPath ?: g.coverPath,
+                        coverPath = resolvedIcon,
                         platform = g.platform,
                         modifier = Modifier.height(if (isPortrait) 140.dp else 130.dp)
                     )

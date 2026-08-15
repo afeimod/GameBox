@@ -131,20 +131,44 @@ fun GameCard(
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.08f else 1f, label = "card-scale")
 
-    // Load a custom cover bitmap when coverPath points to an existing file.
-    // Returns null when there is no path or the file cannot be decoded, in which
-    // case the default gamepad icon is shown.
-    val coverBitmap = remember(coverPath) {
+    // Load cover bitmap:
+    // 1. Try the provided coverPath (custom icon, Java icon.png, etc.)
+    // 2. If that fails, generate a title-based fallback cover with the game's
+    //    accent color and initials. This makes the library look much nicer
+    //    than a generic gamepad icon for every game without a custom cover.
+    //    Implements the user's request to show "built-in" icons — for Java
+    //    games this is the MIDlet-Icon, for other platforms we generate a
+    //    title-based cover as a visual placeholder.
+    val coverBitmap = remember(coverPath, title, accent) {
+        var bmp: android.graphics.Bitmap? = null
         if (coverPath != null) {
             val file = File(coverPath)
             if (file.exists()) {
                 try {
-                    BitmapFactory.decodeFile(coverPath)
+                    bmp = BitmapFactory.decodeFile(coverPath)
                 } catch (_: Exception) {
-                    null
+                    bmp = null
                 }
-            } else null
-        } else null
+            }
+        }
+        // Fallback: generate a title-based cover if no icon available.
+        // This produces a colored tile with the game's initials, which is
+        // much more visually appealing than a generic gamepad icon.
+        if (bmp == null) {
+            try {
+                val entry = com.nesstation.app.core.model.GameEntry(
+                    id = title,
+                    title = title,
+                    accent = accent,
+                    platform = platform
+                )
+                bmp = com.nesstation.app.core.storage.GameIconExtractor
+                    .generateFallbackCover(entry)
+            } catch (_: Exception) {
+                bmp = null
+            }
+        }
+        bmp
     }
 
     Box(
