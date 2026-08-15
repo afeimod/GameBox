@@ -58,6 +58,9 @@ class NesEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    /** Lock for all lifecycle methods to prevent restart conflicts. */
+    private val lifecycleLock = Any()
+
     override fun ensureLoaded(): Boolean = NesNative.ensureLoaded()
 
     override fun loadRom(
@@ -65,15 +68,19 @@ class NesEngine private constructor() : EmulatorEngine {
         systemDir: String,
         saveDir: String,
         onFrame: () -> Unit
-    ): Boolean {
-        if (!ensureLoaded()) return false
+    ): Boolean = synchronized(lifecycleLock) {
+        if (!ensureLoaded()) return@synchronized false
 
-        stop()
+        // Full cleanup of any previous session before loading new ROM.
+        // This is critical for the "exit game → launch another game" flow:
+        // without it, stale emulation thread / audio thread / native state
+        // from the previous game can collide with the new load and crash.
+        cleanup()
 
         NesNative.setPaths(systemDir, saveDir)
 
         if (!NesNative.loadRom(rom.absolutePath)) {
-            return false
+            return@synchronized false
         }
         isLoaded = true
 
@@ -158,7 +165,7 @@ class NesEngine private constructor() : EmulatorEngine {
                 android.util.Log.e("NesEngine", "Emulation thread crashed", t)
             }
         }
-        return true
+        true
     }
 
     override fun setSurface(surface: Surface?) {
@@ -270,24 +277,29 @@ class NesEngine private constructor() : EmulatorEngine {
 
     override fun reset(hard: Boolean) = NesNative.reset(hard)
 
-    override fun unload() {
+    override fun unload() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    override fun shutdown() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    /**
+     * Complete, idempotent resource cleanup. Mirrors [FbNeoEngine.cleanup].
+     * Safe to call multiple times — every step is guarded by try/catch and
+     * null/flag checks. This is what makes the "exit game → launch another
+     * game" flow safe: the previous session's threads are fully joined and
+     * native state fully released before [loadRom] starts the new session.
+     */
+    private fun cleanup() {
         // === 卸载顺序很重要，避免闪退 ===
         // 1. 先 setSurface(null) —— 通知 native 不再 blit 到 surface，
         //    避免 emulation thread 在 surfaceDestroyed 之后还调用
         //    ANativeWindow_lock 操作已释放的窗口（这是最常见的闪退源）。
-        //    native 端 setSurface 会获取 s_windowMtx，blitToSurface 也会
-        //    获取同一把锁，所以这里返回后保证不会有 blit 在进行中。
         // 2. stop() —— 停 emulation thread，等线程退出 retro_run()。
         // 3. stopAudio() —— 停 audio thread，释放 AudioTrack。
         // 4. NesNative.unload() —— 卸载核心（retro_unload_game + retro_deinit）。
-        //
-        // 之前顺序是 stop → stopAudio → setSurface(null) → unload，
-        // 问题：surfaceDestroyed 由 Compose 在 onDispose 之前或之后异步触发，
-        // 可能发生 emulation thread 还在 retro_run() 里写 framebuffer、
-        // native video callback 在 blitToSurface 里锁 s_windowMtx ——
-        // 这时 setSurface(null) 还没执行，blit 到一个正在被销毁的 surface
-        // 上 → ANativeWindow_lock 返回错误或直接 SIGSEGV。
-        // 重新排序 + try/catch 兜底后这种偶发闪退消除。
         try { setSurface(null) } catch (_: Throwable) {}
         try { stop() } catch (_: Throwable) {}
         try { stopAudio() } catch (_: Throwable) {}
@@ -295,9 +307,10 @@ class NesEngine private constructor() : EmulatorEngine {
             try { NesNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
+        _paused = false
+        _ffSpeed = 0
+        hasSurface = false
     }
-
-    override fun shutdown() = unload()
 
     override fun setPad1(bits: Int) = NesNative.setPad1(bits)
     override fun setRegion(region: Int) = NesNative.setRegion(region)

@@ -52,6 +52,9 @@ class GbaEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    /** Lock for all lifecycle methods to prevent restart conflicts. */
+    private val lifecycleLock = Any()
+
     override fun ensureLoaded(): Boolean = GbaNative.ensureLoaded()
 
     override fun loadRom(
@@ -59,15 +62,17 @@ class GbaEngine private constructor() : EmulatorEngine {
         systemDir: String,
         saveDir: String,
         onFrame: () -> Unit
-    ): Boolean {
-        if (!ensureLoaded()) return false
+    ): Boolean = synchronized(lifecycleLock) {
+        if (!ensureLoaded()) return@synchronized false
 
-        stop()
+        // Full cleanup of any previous session before loading new ROM.
+        // Critical for "exit game → launch another game" crash-free flow.
+        cleanup()
 
         GbaNative.setPaths(systemDir, saveDir)
 
         if (!GbaNative.loadRom(rom.absolutePath)) {
-            return false
+            return@synchronized false
         }
         isLoaded = true
 
@@ -139,7 +144,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 android.util.Log.e("GbaEngine", "Emulation thread crashed", t)
             }
         }
-        return true
+        true
     }
 
     override fun setSurface(surface: Surface?) {
@@ -246,11 +251,21 @@ class GbaEngine private constructor() : EmulatorEngine {
 
     override fun reset(hard: Boolean) = GbaNative.reset(hard)
 
-    override fun unload() {
+    override fun unload() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    override fun shutdown() = synchronized(lifecycleLock) {
+        cleanup()
+    }
+
+    /**
+     * Complete, idempotent resource cleanup. Mirrors [FbNeoEngine.cleanup].
+     * Safe to call multiple times — ensures "exit → relaunch" flow is crash-free.
+     */
+    private fun cleanup() {
         // === 卸载顺序很重要，避免闪退（同 NesEngine）===
         // 先 setSurface(null) 让 native blit 提前退出，再停线程，再卸载核心。
-        // 之前顺序 stop → stopAudio → setSurface(null) → unload 会让 emulation
-        // thread 在 surface 即将销毁时还在 blit，偶发 SIGSEGV。
         try { setSurface(null) } catch (_: Throwable) {}
         try { stop() } catch (_: Throwable) {}
         try { stopAudio() } catch (_: Throwable) {}
@@ -258,9 +273,10 @@ class GbaEngine private constructor() : EmulatorEngine {
             try { GbaNative.unload() } catch (_: Throwable) {}
             isLoaded = false
         }
+        _paused = false
+        _ffSpeed = 0
+        hasSurface = false
     }
-
-    override fun shutdown() = unload()
 
     override fun setPad1(bits: Int) = GbaNative.setPad1(bits)
     override fun setRegion(region: Int) = GbaNative.setRegion(region)

@@ -288,7 +288,39 @@ data class PadLayout(
     val mdFrameskip: String = "0",                      // 0..5
     val mdCdFastboot: String = "enabled",               // enabled | disabled
     val mdSmsFm: String = "auto",                       // auto | on | off (SMS FM sound)
-    val mdGgStretch: String = "disabled"                // disabled | enabled (Game Gear stretch)
+    val mdGgStretch: String = "disabled",               // disabled | enabled (Game Gear stretch)
+
+    // === Arcade (FBNeo) on-screen pad extras ===
+    // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
+    // Used for 6-button fight-stick layouts and as Coin/Start shortcuts.
+    val btnL2: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48),
+    val btnR2: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48),
+    val btnL2P: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46),
+    val btnR2P: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46),
+    // Whether to show L2/R2 buttons on the arcade overlay (hidden by default —
+    // 4 face buttons + L/R is enough for most arcade games; 6-button fight
+    // games like SFII/KOF benefit from L2/R2 mapped to strong punch/kick).
+    val arcadeShowL2R2: Boolean = false,
+    // Arcade input mode: "dpad" (digital D-pad) or "analog" (left stick →
+    // D-pad bits). FBNeo uses the same bit layout for both; this toggle only
+    // affects which on-screen control is drawn — "analog" draws a circular
+    // analog-stick widget whose 8 directions map to the same bits as D-pad.
+    val arcadeInputMode: String = "dpad",               // dpad | analog
+
+    // === Combo buttons (per-platform) ===
+    // JSON-encoded list of ComboButton entries. Each combo button is a single
+    // on-screen button that, when pressed, activates multiple pad bits
+    // simultaneously — e.g. "AB" (jump+attack in NES Mario), "A+B+↓" (slide
+    // in some MD games), "L+R" (special move charge in SNES).
+    //
+    // Format: [{"id":"combo1","label":"AB","bits":3,"x":0.5,"y":0.85,"size":56,"color":-14031360}]
+    // bits is the OR'd bit mask (BTN_A|BTN_B = 0x01|0x02 = 3).
+    // This is per-platform: each platform tab has its own combo list.
+    val comboButtons: String = "",         // NES combo list (JSON)
+    val comboButtonsSfc: String = "",      // SNES combo list (JSON)
+    val comboButtonsGba: String = "",      // GBA combo list (JSON)
+    val comboButtonsArcade: String = "",   // Arcade combo list (JSON)
+    val comboButtonsMd: String = ""        // MD combo list (JSON)
 )
 
 /**
@@ -693,7 +725,20 @@ object PadLayoutStore {
             mdFrameskip = p.getString("md_frameskip", "0") ?: "0",
             mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled",
             mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto",
-            mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled"
+            mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled",
+            // === Arcade extras ===
+            btnL2 = loadBtn(p, "btn_l2", ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48)),
+            btnR2 = loadBtn(p, "btn_r2", ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48)),
+            btnL2P = loadBtn(p, "p_btn_l2", ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46)),
+            btnR2P = loadBtn(p, "p_btn_r2", ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46)),
+            arcadeShowL2R2 = p.getBoolean("arcade_show_l2r2", false),
+            arcadeInputMode = p.getString("arcade_input_mode", "dpad") ?: "dpad",
+            // === Combo buttons (per-platform JSON) ===
+            comboButtons = p.getString("combo_buttons", "") ?: "",
+            comboButtonsSfc = p.getString("combo_buttons_sfc", "") ?: "",
+            comboButtonsGba = p.getString("combo_buttons_gba", "") ?: "",
+            comboButtonsArcade = p.getString("combo_buttons_arcade", "") ?: "",
+            comboButtonsMd = p.getString("combo_buttons_md", "") ?: ""
         )
     }
 
@@ -956,6 +1001,19 @@ object PadLayoutStore {
             putString("md_cd_fastboot", layout.mdCdFastboot)
             putString("md_sms_fm", layout.mdSmsFm)
             putString("md_gg_stretch", layout.mdGgStretch)
+            // === Arcade extras ===
+            saveBtn("btn_l2", layout.btnL2)
+            saveBtn("btn_r2", layout.btnR2)
+            saveBtn("p_btn_l2", layout.btnL2P)
+            saveBtn("p_btn_r2", layout.btnR2P)
+            putBoolean("arcade_show_l2r2", layout.arcadeShowL2R2)
+            putString("arcade_input_mode", layout.arcadeInputMode)
+            // === Combo buttons (per-platform JSON) ===
+            putString("combo_buttons", layout.comboButtons)
+            putString("combo_buttons_sfc", layout.comboButtonsSfc)
+            putString("combo_buttons_gba", layout.comboButtonsGba)
+            putString("combo_buttons_arcade", layout.comboButtonsArcade)
+            putString("combo_buttons_md", layout.comboButtonsMd)
         }.apply()
     }
 }

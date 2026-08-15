@@ -150,12 +150,13 @@ private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
 // ---------------------------------------------------------------------------
 // Button types for multi-touch tracking
 // ---------------------------------------------------------------------------
-private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y }
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, COMBO }
 
 // Bit masks for NES/SNES/GBA controller
 // NES/GB/GBC: A B SEL STA U D L R (8 buttons)
 // GBA: adds L(bit8) R(bit9) (10 buttons)
 // SNES: adds X(bit8) Y(bit9) L(bit10) R(bit11) (12 buttons)
+// Arcade/MD: extends with L2(bit12) R2(bit13) for 6-button fight sticks
 private const val BTN_UP = 0x10
 private const val BTN_DOWN = 0x20
 private const val BTN_LEFT = 0x40
@@ -164,12 +165,16 @@ private const val BTN_A = 0x01
 private const val BTN_B = 0x02
 private const val BTN_SELECT = 0x04
 private const val BTN_START = 0x08
-private const val BTN_X = 0x100       // bit8 — SNES X
-private const val BTN_Y = 0x200       // bit9 — SNES Y (or GBA L)
-private const val BTN_L_SNES = 0x400  // bit10 — SNES L
-private const val BTN_R_SNES = 0x800  // bit11 — SNES R
+private const val BTN_X = 0x100       // bit8 — SNES X / Arcade button 3
+private const val BTN_Y = 0x200       // bit9 — SNES Y / Arcade button 4
+private const val BTN_L_SNES = 0x400  // bit10 — SNES L / Arcade button 5
+private const val BTN_R_SNES = 0x800  // bit11 — SNES R / Arcade button 6
 private const val BTN_L_GBA = 0x100   // bit8 — GBA L
 private const val BTN_R_GBA = 0x200   // bit9 — GBA R
+private const val BTN_L2 = 0x1000     // bit12 — L2 (Arcade / extra)
+private const val BTN_R2 = 0x2000     // bit13 — R2 (Arcade / extra)
+private const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
+private const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
 
 // ---------------------------------------------------------------------------
 // DOS game folder loader
@@ -1274,6 +1279,80 @@ private fun createDotPattern(): Bitmap {
 }
 
 // ---------------------------------------------------------------------------
+// Combo buttons — single on-screen button that activates multiple pad bits
+// ---------------------------------------------------------------------------
+// Example: "AB" combo button → pressing it sets bits BTN_A|BTN_B = 0x03.
+// Used for simultaneous button presses that are awkward on a touchscreen
+// (e.g. A+B for slide/dash in NES/MD games, L+R for special moves in SNES).
+
+/**
+ * A single combo button definition. [bits] is the OR'd bit mask of all
+ * pad bits this combo activates when pressed (e.g. BTN_A or BTN_B = 0x03).
+ */
+data class ComboButtonEntry(
+    val id: String,
+    val label: String,
+    val bits: Int,
+    val x: Float,
+    val y: Float,
+    val sizeDp: Int,
+    val color: Int          // ARGB int (e.g. 0xFFE74C3C)
+)
+
+/**
+ * Parse the per-platform combo button JSON from PadLayout into a list of
+ * [ComboButtonEntry]. Returns empty list on parse error or empty JSON.
+ */
+private fun parseComboButtons(padLayout: PadLayout, platform: GamePlatform): List<ComboButtonEntry> {
+    val json = when (platform) {
+        GamePlatform.NES    -> padLayout.comboButtons
+        GamePlatform.SFC    -> padLayout.comboButtonsSfc
+        GamePlatform.GB     -> padLayout.comboButtons      // GB shares NES combos
+        GamePlatform.GBA    -> padLayout.comboButtonsGba
+        GamePlatform.ARCADE -> padLayout.comboButtonsArcade
+        GamePlatform.MD     -> padLayout.comboButtonsMd
+        GamePlatform.DOS    -> ""
+        GamePlatform.JAVA   -> ""
+    }
+    if (json.isBlank()) return emptyList()
+    return try {
+        val arr = org.json.JSONArray(json)
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            ComboButtonEntry(
+                id = o.optString("id", "combo$i"),
+                label = o.optString("label", "AB"),
+                bits = o.optInt("bits", 0),
+                x = o.optDouble("x", 0.5).toFloat(),
+                y = o.optDouble("y", 0.85).toFloat(),
+                sizeDp = o.optInt("size", 56),
+                color = o.optInt("color", 0xFF9C27B0.toInt())
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/** Serialize a list of [ComboButtonEntry] back to JSON for persistence. */
+private fun serializeComboButtons(list: List<ComboButtonEntry>): String {
+    if (list.isEmpty()) return ""
+    val arr = org.json.JSONArray()
+    for (c in list) {
+        val o = org.json.JSONObject()
+        o.put("id", c.id)
+        o.put("label", c.label)
+        o.put("bits", c.bits)
+        o.put("x", c.x.toDouble())
+        o.put("y", c.y.toDouble())
+        o.put("size", c.sizeDp)
+        o.put("color", c.color)
+        arr.put(o)
+    }
+    return arr.toString()
+}
+
+// ---------------------------------------------------------------------------
 // OnScreenController — SINGLE pointerInput for true multi-touch
 // ---------------------------------------------------------------------------
 @Composable
@@ -1295,6 +1374,9 @@ private fun OnScreenController(
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+    // L2/R2 are only drawn when explicitly enabled (arcade 6-button fight
+    // layout) — they map to bit12/bit13 (L2/R2 in libretro joypad).
+    val showL2R2 = platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2
 
     // L/R bit values differ between GBA (bit8/9) and SNES/ARCADE/MD (bit10/11)
     val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
@@ -1314,6 +1396,12 @@ private fun OnScreenController(
     val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
     val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
     val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
+    val btnL2 = if (isPortrait) padLayout.btnL2P else padLayout.btnL2
+    val btnR2 = if (isPortrait) padLayout.btnR2P else padLayout.btnR2
+
+    // === Combo buttons for this platform ===
+    // Parse the per-platform JSON combo list. Each entry has {id,label,bits,x,y,size,color}.
+    val comboList = remember(padLayout, platform) { parseComboButtons(padLayout, platform) }
 
     // Compute button hit-areas in pixels
     fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): androidx.compose.ui.geometry.Rect {
@@ -1388,11 +1476,26 @@ private fun OnScreenController(
                 val rRect = if (showLR) btnRect(btnR, 1.6f, 0.7f) else null
                 val xRect = if (showXY) btnRect(btnX) else null
                 val yRect = if (showXY) btnRect(btnY) else null
+                val l2Rect = if (showL2R2) btnRect(btnL2) else null
+                val r2Rect = if (showL2R2) btnRect(btnR2) else null
+                // Combo button hit areas
+                val comboRects = comboList.map { c ->
+                    c.id to btnRect(ButtonLayout(c.x, c.y, c.sizeDp))
+                }
 
                 // Process a pointer DOWN at the given position.
                 // Returns true if the pointer landed on a button.
                 fun processDown(pid: Long, pos: Offset) {
+                    // Check combo buttons first (they may overlap regular buttons)
+                    var comboMatch: ComboButtonEntry? = null
+                    for ((cid, rect) in comboRects) {
+                        if (rect.contains(pos)) {
+                            comboMatch = comboList.firstOrNull { it.id == cid }
+                            break
+                        }
+                    }
                     val btnType = when {
+                        comboMatch != null -> BtnType.COMBO
                         dpadRect.contains(pos) -> BtnType.DPAD
                         aRect.contains(pos) -> BtnType.A
                         bRect.contains(pos) -> BtnType.B
@@ -1404,6 +1507,8 @@ private fun OnScreenController(
                         rRect?.contains(pos) == true -> BtnType.R
                         xRect?.contains(pos) == true -> BtnType.X
                         yRect?.contains(pos) == true -> BtnType.Y
+                        l2Rect?.contains(pos) == true -> BtnType.L2
+                        r2Rect?.contains(pos) == true -> BtnType.R2
                         else -> null
                     }
                     if (btnType != null) {
@@ -1421,6 +1526,9 @@ private fun OnScreenController(
                             BtnType.R -> bits = rBit
                             BtnType.X -> bits = BTN_X
                             BtnType.Y -> bits = BTN_Y
+                            BtnType.L2 -> bits = BTN_L2
+                            BtnType.R2 -> bits = BTN_R2
+                            BtnType.COMBO -> bits = comboMatch?.bits ?: 0
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -1464,7 +1572,9 @@ private fun OnScreenController(
                                             BtnType.DPAD, BtnType.A, BtnType.B,
                                             BtnType.START, BtnType.SELECT,
                                             BtnType.L, BtnType.R,
-                                            BtnType.X, BtnType.Y -> {
+                                            BtnType.X, BtnType.Y,
+                                            BtnType.L2, BtnType.R2,
+                                            BtnType.COMBO -> {
                                                 visualState = visualState and heldBits.inv()
                                                 sendStateNow(visualState, turboState)
                                             }
@@ -1518,10 +1628,28 @@ private fun OnScreenController(
             ShoulderButtonCanvas("L", btnL, surfaceSize, opacity, visualState and lBit != 0)
             ShoulderButtonCanvas("R", btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
-        // X/Y face buttons (SNES only)
+        // X/Y face buttons (SNES/Arcade/MD)
         if (showXY) {
             ActionButtonCanvas("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
             ActionButtonCanvas("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
+        }
+        // L2/R2 extra buttons (Arcade 6-button fight layout — hidden by default,
+        // enabled via Settings → Arcade → Show L2/R2)
+        if (showL2R2) {
+            ActionButtonCanvas("L2", Color(0xFFFF9800), btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
+            ActionButtonCanvas("R2", Color(0xFFFF9800), btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
+        }
+        // Combo buttons (per-platform, user-defined)
+        comboList.forEach { combo ->
+            val pressed = (visualState and combo.bits) == combo.bits
+            ActionButtonCanvas(
+                combo.label,
+                Color(combo.color),
+                ButtonLayout(combo.x, combo.y, combo.sizeDp),
+                surfaceSize,
+                opacity,
+                pressed
+            )
         }
     }
 }
@@ -3129,6 +3257,9 @@ private fun PadLayoutEditor(
             BtnType.R -> if (isPortrait) padLayout.copy(btnRP = newLayout) else padLayout.copy(btnR = newLayout)
             BtnType.X -> if (isPortrait) padLayout.copy(btnXP = newLayout) else padLayout.copy(btnX = newLayout)
             BtnType.Y -> if (isPortrait) padLayout.copy(btnYP = newLayout) else padLayout.copy(btnY = newLayout)
+            BtnType.L2 -> if (isPortrait) padLayout.copy(btnL2P = newLayout) else padLayout.copy(btnL2 = newLayout)
+            BtnType.R2 -> if (isPortrait) padLayout.copy(btnR2P = newLayout) else padLayout.copy(btnR2 = newLayout)
+            BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
         }
         onLayoutChange(updated)
     }
@@ -3213,7 +3344,7 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.R }
                 )
             }
-            // X/Y face buttons (SNES only)
+            // X/Y face buttons (SNES/Arcade/MD)
             if (showXY) {
                 EditableRoundBtn("X", Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
                     onMove = { targetX, targetY ->
@@ -3230,6 +3361,52 @@ private fun PadLayoutEditor(
                         updateBtn(BtnType.Y, btnY.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.Y }
+                )
+            }
+            // L2/R2 extra buttons (Arcade only, when enabled)
+            if (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) {
+                EditableRoundBtn("L2", Color(0xFFFF9800), btnL2, surfaceSize, selectedBtn == BtnType.L2,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.02f, 0.4f)
+                        val ny = targetY.coerceIn(0.1f, 0.6f)
+                        updateBtn(BtnType.L2, btnL2.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.L2 }
+                )
+                EditableRoundBtn("R2", Color(0xFFFF9800), btnR2, surfaceSize, selectedBtn == BtnType.R2,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.6f, 0.98f)
+                        val ny = targetY.coerceIn(0.1f, 0.6f)
+                        updateBtn(BtnType.R2, btnR2.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.R2 }
+                )
+            }
+            // Combo buttons (draggable, per-platform)
+            val combos = remember(padLayout, platform) { parseComboButtons(padLayout, platform) }
+            combos.forEach { combo ->
+                EditableRoundBtn(
+                    combo.label,
+                    Color(combo.color),
+                    ButtonLayout(combo.x, combo.y, combo.sizeDp),
+                    surfaceSize,
+                    selectedBtn == BtnType.COMBO,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.05f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        val updated = combos.map { if (it.id == combo.id) it.copy(x = nx, y = ny) else it }
+                        val json = serializeComboButtons(updated)
+                        val newLayout = when (platform) {
+                            GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
+                            GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
+                            GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
+                            GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
+                            GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                            else -> padLayout
+                        }
+                        onLayoutChange(newLayout)
+                    },
+                    onSelect = { selectedBtn = BtnType.COMBO }
                 )
             }
         }
@@ -3297,6 +3474,9 @@ private fun PadLayoutEditor(
                     BtnType.R -> { currentSize = btnR.sizeDp; minSize = 36; maxSize = 90; label = "R键大小" }
                     BtnType.X -> { currentSize = btnX.sizeDp; minSize = 40; maxSize = 120; label = "X键大小" }
                     BtnType.Y -> { currentSize = btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
+                    BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
+                    BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
+                    BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -3321,6 +3501,9 @@ private fun PadLayoutEditor(
                             BtnType.R -> btnR
                             BtnType.X -> btnX
                             BtnType.Y -> btnY
+                            BtnType.L2 -> btnL2
+                            BtnType.R2 -> btnR2
+                            BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },
@@ -3333,6 +3516,72 @@ private fun PadLayoutEditor(
                 )
             } else {
                 Text("拖动移动 · 点击选中调大小", color = Color(0xFF8899AA), fontSize = 9.sp)
+            }
+
+            // === Combo button management ===
+            // Per-platform: each platform tab has its own combo button list.
+            // Tapping "添加组合键" creates a new AB combo at center-bottom;
+            // the user can then drag it, and long-press to delete.
+            Spacer(Modifier.size(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("组合键", color = Color(0xFFFFD66B), fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val current = parseComboButtons(padLayout, platform)
+                        val newCombo = ComboButtonEntry(
+                            id = "combo_${System.currentTimeMillis()}",
+                            label = "AB",
+                            bits = BTN_A or BTN_B,
+                            x = 0.5f,
+                            y = 0.85f,
+                            sizeDp = 56,
+                            color = 0xFF9C27B0.toInt()
+                        )
+                        val updated = current + newCombo
+                        val json = serializeComboButtons(updated)
+                        val newLayout = when (platform) {
+                            GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
+                            GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
+                            GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
+                            GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
+                            GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                            else -> padLayout
+                        }
+                        onLayoutChange(newLayout)
+                    }
+                ) {
+                    Text("+ 添加组合键", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                }
+            }
+            // List existing combos with delete option
+            val combos2 = remember(padLayout, platform) { parseComboButtons(padLayout, platform) }
+            combos2.forEach { combo ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("• ${combo.label} (bits=0x${combo.bits.toString(16)})",
+                        color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            val updated = combos2.filter { it.id != combo.id }
+                            val json = serializeComboButtons(updated)
+                            val newLayout = when (platform) {
+                                GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
+                                GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
+                                GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
+                                GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
+                                GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                                else -> padLayout
+                            }
+                            onLayoutChange(newLayout)
+                        }
+                    ) {
+                        Text("删除", color = Color(0xFFE74C3C), fontSize = 10.sp)
+                    }
+                }
             }
         }
     }
@@ -4092,6 +4341,17 @@ private fun SettingsPanel(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(6.dp))
 
+                Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("方向控制",
+                    listOf("dpad" to "十字键 D-Pad", "analog" to "摇杆 Analog Stick"),
+                    padLayout.arcadeInputMode
+                ) { onLayoutChange(padLayout.copy(arcadeInputMode = it)) }
+                DropdownSetting("显示 L2/R2 按键",
+                    listOf("false" to "关闭 (4键默认)", "true" to "开启 (6键格斗)"),
+                    padLayout.arcadeShowL2R2.toString()
+                ) { onLayoutChange(padLayout.copy(arcadeShowL2R2 = it.toBoolean())) }
+
+                Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("画面比例",
                     listOf("auto" to "自动", "4:3" to "4:3 (标准)",
