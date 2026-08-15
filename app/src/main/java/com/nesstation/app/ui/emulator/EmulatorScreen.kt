@@ -2197,11 +2197,28 @@ private fun DosPadLayoutEditor(
                 }
             }
 
-            // --- Add button (currently hidden buttons) ---
+            // --- Add / Delete sections (collapsible) ---
+            Spacer(Modifier.size(12.dp))
+
+            // Add section
             val hiddenBtns = DosBtnType.values().filter { !it.isVisible(padLayout) }
-            if (hiddenBtns.isNotEmpty()) {
-                Spacer(Modifier.size(12.dp))
-                Text("添加按键 (点击添加)", color = Color(0xFF2ECC71), fontSize = 11.sp)
+            var showAdd by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF2ECC71).copy(alpha = 0.15f))
+                    .border(1.dp, Color(0xFF2ECC71), RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) { detectTapGestures { showAdd = !showAdd } }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("＋ 添加按键", color = Color(0xFF2ECC71), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text("${hiddenBtns.size} 个可添加", color = Color(0xFF2ECC71).copy(alpha = 0.7f), fontSize = 11.sp)
+            }
+            if (showAdd && hiddenBtns.isNotEmpty()) {
                 Spacer(Modifier.size(6.dp))
                 val addRows = hiddenBtns.chunked(4)
                 addRows.forEach { rowBtns ->
@@ -2238,58 +2255,66 @@ private fun DosPadLayoutEditor(
                 }
             }
 
-            // --- Button visibility list (scrollable) ---
-            Spacer(Modifier.size(12.dp))
-            Text("已添加按键 (点击删除)", color = Color(0xFF8899AA), fontSize = 11.sp)
-            Spacer(Modifier.size(6.dp))
-            // Two-column grid of toggle chips
-            val allBtns = DosBtnType.values().toList()
-            val rows = allBtns.chunked(3)
-            rows.forEach { rowBtns ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
-                ) {
-                    rowBtns.forEach { btnType ->
-                        val visible = btnType.isVisible(padLayout)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (visible) Color(0xFF2ECC71).copy(alpha = 0.3f)
-                                    else Color(0xFF4A5568).copy(alpha = 0.3f)
+            Spacer(Modifier.size(8.dp))
+
+            // Delete section
+            val visibleBtns = DosBtnType.values().filter { it.isVisible(padLayout) }
+            var showDelete by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFFF8888).copy(alpha = 0.12f))
+                    .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) { detectTapGestures { showDelete = !showDelete } }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("✕ 删除按键", color = Color(0xFFFF8888), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text("${visibleBtns.size} 个已添加", color = Color(0xFFFF8888).copy(alpha = 0.7f), fontSize = 11.sp)
+            }
+            if (showDelete && visibleBtns.isNotEmpty()) {
+                Spacer(Modifier.size(6.dp))
+                val delRows = visibleBtns.chunked(4)
+                delRows.forEach { rowBtns ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+                    ) {
+                        rowBtns.forEach { btnType ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFF8888).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFFFF8888), RoundedCornerShape(8.dp))
+                                    .pointerInput(btnType) {
+                                        detectTapGestures { toggleVisible(btnType); selectedBtn = null }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "− ${btnType.label}",
+                                    color = Color(0xFFFF8888),
+                                    fontSize = 10.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                                 )
-                                .border(
-                                    1.dp,
-                                    if (visible) Color(0xFF2ECC71) else Color(0xFF4A5568),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .pointerInput(btnType) {
-                                    detectTapGestures { toggleVisible(btnType) }
-                                }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                btnType.label,
-                                color = if (visible) Color.White else Color(0xFF8899AA),
-                                fontSize = 11.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                            )
+                            }
+                        }
+                        repeat(4 - rowBtns.size) {
+                            Spacer(Modifier.weight(1f))
                         }
                     }
-                    // Fill remaining space if row has < 3 items
-                    repeat(3 - rowBtns.size) {
-                        Spacer(Modifier.weight(1f))
-                    }
+                    Spacer(Modifier.size(4.dp))
                 }
-                Spacer(Modifier.size(4.dp))
             }
 
             Spacer(Modifier.size(4.dp))
             Text(
-                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 点击 \"+\" 添加按键 · 点击已添加按键可删除",
+                "提示: 拖动按键移动位置 · 点击选中后调整大小 · 点击「添加」展开可添加列表 · 点击「删除」展开已添加列表",
                 color = Color(0xFF8899AA),
                 fontSize = 10.sp
             )
