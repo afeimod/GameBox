@@ -30,9 +30,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -170,41 +168,35 @@ private fun FullScreenMouseGestureBox(
                 val tapSlopPx = 8.dp.toPx()      // movement tolerance for tap detection
                 val tapTimeoutMs = 250L          // max time between down and up for a tap
 
-                data class PointerInfo(
-                    val id: Long,
-                    val downTimeMs: Long,
-                    val downX: Float,
-                    val downY: Float,
-                    var lastX: Float,
-                    var lastY: Float,
-                    var movedTooMuch: Boolean,
-                    var lifted: Boolean = false,
-                    var liftTimeMs: Long = 0L
-                )
-
                 awaitEachGesture {
                     // Wait for the first unconsumed down (i.e., a touch that
                     // didn't land on any button).
                     val firstDown = awaitFirstDown(requireUnconsumed = true)
-                    val now = android.os.SystemClock.uptimeMillis()
-                    val primaryId = firstDown.id.value
+                    firstDown.consume()
 
-                    // Primary pointer = the one that may drag or single-tap.
-                    // Secondary pointer = arrives later, may turn it into a
-                    // two-finger tap (right click).
-                    val primary = PointerInfo(
-                        id = primaryId, downTimeMs = now,
-                        downX = firstDown.position.x, downY = firstDown.position.y,
-                        lastX = firstDown.position.x, lastY = firstDown.position.y,
-                        movedTooMuch = false
-                    )
-                    var secondary: PointerInfo? = null
-                    var dragStarted = false
+                    val primaryId = firstDown.id.value
+                    var primaryDownX = firstDown.position.x
+                    var primaryDownY = firstDown.position.y
+                    // Track the LAST INJECTED position so we can compute
+                    // delta manually instead of relying on positionChange().
+                    var primaryLastX = firstDown.position.x
+                    var primaryLastY = firstDown.position.y
+                    var primaryMovedTooMuch = false
+                    var primaryLifted = false
+                    var primaryDownTime = android.os.SystemClock.uptimeMillis()
+                    var primaryLiftTime = 0L
+
+                    var secondaryId: Long? = null
+                    var secondaryDownX = 0f
+                    var secondaryDownY = 0f
+                    var secondaryMovedTooMuch = false
+                    var secondaryLifted = false
+                    var secondaryDownTime = 0L
+                    var secondaryLiftTime = 0L
+
                     // Once drag starts, we lock into drag mode and ignore
                     // the secondary pointer for click detection.
                     var dragLocked = false
-
-                    firstDown.consume()
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -212,61 +204,61 @@ private fun FullScreenMouseGestureBox(
                             change.consume()
                             val cpid = change.id.value
 
-                            if (cpid == primary.id) {
+                            if (cpid == primaryId) {
                                 // === Primary pointer update ===
-                                primary.lastX = change.position.x
-                                primary.lastY = change.position.y
+                                val newX = change.position.x
+                                val newY = change.position.y
 
-                                val dx = change.position.x - primary.downX
-                                val dy = change.position.y - primary.downY
-                                if (!primary.movedTooMuch && hypot(dx, dy) > tapSlopPx) {
-                                    primary.movedTooMuch = true
-                                    dragStarted = true
-                                    dragLocked = true
-                                }
-
-                                if (change.pressed && dragStarted) {
-                                    // Inject mouse move only from the primary pointer
-                                    val mdx = change.positionChange().x
-                                    val mdy = change.positionChange().y
+                                if (change.pressed) {
+                                    // Inject mouse delta from the LAST position
+                                    // (computed manually — avoids any issues with
+                                    // positionChange() after consume()).
+                                    val mdx = newX - primaryLastX
+                                    val mdy = newY - primaryLastY
                                     if (mdx != 0f || mdy != 0f) {
                                         engine.injectMouseMove(
                                             (mdx * 1.5f).toInt(),
                                             (mdy * 1.5f).toInt()
                                         )
                                     }
-                                }
+                                    primaryLastX = newX
+                                    primaryLastY = newY
 
-                                if (!change.pressed) {
-                                    primary.lifted = true
-                                    primary.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                                    // Check if total movement exceeds tap slop
+                                    // (only for tap-vs-drag classification, does
+                                    // NOT gate mouse movement injection).
+                                    val totalDx = newX - primaryDownX
+                                    val totalDy = newY - primaryDownY
+                                    if (!primaryMovedTooMuch && hypot(totalDx, totalDy) > tapSlopPx) {
+                                        primaryMovedTooMuch = true
+                                        dragLocked = true
+                                    }
+                                } else {
+                                    primaryLifted = true
+                                    primaryLiftTime = android.os.SystemClock.uptimeMillis()
                                 }
                             } else {
                                 // === Secondary pointer ===
-                                val sec = secondary
-                                if (sec == null && change.pressed && !dragLocked) {
+                                val secId = secondaryId
+                                if (secId == null && change.pressed && !dragLocked) {
                                     // New secondary finger arrived (only if not already dragging)
-                                    secondary = PointerInfo(
-                                        id = cpid,
-                                        downTimeMs = android.os.SystemClock.uptimeMillis(),
-                                        downX = change.position.x, downY = change.position.y,
-                                        lastX = change.position.x, lastY = change.position.y,
-                                        movedTooMuch = false
-                                    )
-                                } else if (sec != null && cpid == sec.id) {
-                                    sec.lastX = change.position.x
-                                    sec.lastY = change.position.y
-                                    val sdx = change.position.x - sec.downX
-                                    val sdy = change.position.y - sec.downY
-                                    if (hypot(sdx, sdy) > tapSlopPx) {
-                                        sec.movedTooMuch = true
-                                        // Secondary moved too much — cancel two-finger tap,
-                                        // but don't break the primary's drag.
-                                        dragLocked = true
-                                    }
-                                    if (!change.pressed) {
-                                        sec.lifted = true
-                                        sec.liftTimeMs = android.os.SystemClock.uptimeMillis()
+                                    secondaryId = cpid
+                                    secondaryDownX = change.position.x
+                                    secondaryDownY = change.position.y
+                                    secondaryDownTime = android.os.SystemClock.uptimeMillis()
+                                } else if (secId != null && cpid == secId) {
+                                    if (change.pressed) {
+                                        val sdx = change.position.x - secondaryDownX
+                                        val sdy = change.position.y - secondaryDownY
+                                        if (hypot(sdx, sdy) > tapSlopPx) {
+                                            secondaryMovedTooMuch = true
+                                            // Secondary moved too much — cancel two-finger tap,
+                                            // but don't break the primary's drag.
+                                            dragLocked = true
+                                        }
+                                    } else {
+                                        secondaryLifted = true
+                                        secondaryLiftTime = android.os.SystemClock.uptimeMillis()
                                     }
                                 }
                                 // Ignore any additional pointers beyond 2
@@ -274,18 +266,18 @@ private fun FullScreenMouseGestureBox(
                         }
 
                         // Check if all tracked pointers have lifted -> gesture complete
-                        val sec = secondary
-                        val allLifted = if (sec != null && !sec.lifted) false else primary.lifted
+                        val secId = secondaryId
+                        val allLifted = if (secId != null && !secondaryLifted) false else primaryLifted
 
                         if (allLifted) {
-                            val hasSecondary = sec != null && sec.lifted
-                            if (!dragLocked && !primary.movedTooMuch) {
-                                val primaryElapsed = primary.liftTimeMs - primary.downTimeMs
-                                if (hasSecondary && !sec!!.movedTooMuch) {
-                                    val secondaryElapsed = sec.liftTimeMs - sec.downTimeMs
+                            val hasSecondary = secId != null && secondaryLifted
+                            if (!dragLocked && !primaryMovedTooMuch) {
+                                val primaryElapsed = primaryLiftTime - primaryDownTime
+                                if (hasSecondary && !secondaryMovedTooMuch) {
+                                    val secElapsed = secondaryLiftTime - secondaryDownTime
                                     // Both fingers lifted with minimal movement within timeout
                                     if (primaryElapsed <= tapTimeoutMs * 2 &&
-                                        secondaryElapsed <= tapTimeoutMs * 2) {
+                                        secElapsed <= tapTimeoutMs * 2) {
                                         // Two-finger tap -> right click
                                         engine.injectMouseButton(1, true)
                                         engine.injectMouseButton(1, false)
@@ -300,7 +292,7 @@ private fun FullScreenMouseGestureBox(
                             break
                         }
 
-                        if (primary.lifted) {
+                        if (primaryLifted) {
                             // Primary lifted but secondary hasn't — just end the gesture.
                             // (Secondary arriving after primary lift is meaningless.)
                             break
