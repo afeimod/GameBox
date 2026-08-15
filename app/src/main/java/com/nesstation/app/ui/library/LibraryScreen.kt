@@ -79,14 +79,25 @@ import java.io.File
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
-/// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA, DOSBox)
+/// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA, DOSBox,
+/// Arcade, SEGA MD/SMS/GG/SG, Mega-CD).
+/// NOTE on .bin: ambiguous (could be SEGA MD cart, arcade ROM, or DOS
+/// disk image). It IS in this list so the file picker accepts it; the
+/// platform is then resolved by detectPlatformFromUri — bare .bin files
+/// (not inside a zip) default to MD (most common usage in user libraries).
+/// Inside a zip, .bin is treated as arcade content (see ARCADE_ROM_EXTENSIONS).
 val ROM_EXTENSIONS = listOf(
     "nes", "fds", "unf", "unif", "nez", "unh",  // NES/Famicom
     "smc", "sfc", "swc", "fig", "bs",            // SNES/SFC
     "gb", "sgb", "gbc", "gba",                    // GB/GBC/GBA
     "dosz",                                          // DOSBox-Pure bundle
-    "iso", "cue",                                    // DOS CD images
-    "zip", "7z", "gz"                                // compressed archives
+    "iso", "cue",                                    // DOS / Mega-CD CD images
+    // SEGA Mega Drive / Genesis / Master System / Game Gear / SG-1000
+    "md", "smd", "gen", "sms", "gg", "sg", "68k",
+    "bin",                                           // MD cart dump (ambiguous; see note above)
+    "chd",                                           // Mega-CD CHD images
+    // Arcade (FBNeo) — archives only; the filename IS the driver name
+    "zip", "7z", "gz"
 )
 
 /// DOSBox launcher extensions (only these are imported as game entries when
@@ -265,7 +276,7 @@ fun LibraryScreen(
             // Recursively scan the selected folder for ROM files
             val romFiles = scanUriForRomsRecursive(context, uri, uri, maxDepth = 5)
             if (romFiles.isEmpty()) {
-                dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .zip .dosz）"
+                dialogMsg = "所选文件夹未找到ROM文件（支持 .nes .smc .sfc .gb .gbc .gba .fds .md .smd .gen .sms .gg .sg .zip .7z .dosz .cue .chd）"
             } else {
                 var count = 0
                 var failed = 0
@@ -932,8 +943,38 @@ private fun scanForRoms(context: android.content.Context): List<Pair<String, Str
 }
 
 /**
+ * Extensions that are unambiguously FBNeo arcade ROM content, found inside
+ * .zip archives. NeoGeo uses .p1/.p2/.sp1 (program), .s1 (fix layer),
+ * .m1 (Z80 program), .v1/.v2 (ADPCM audio), .c1..c4 (sprites), .lo (lookup).
+ * CPS1/CPS2 use .prg/.gfx/.snd etc. These extensions never appear in MD/SMS
+ * ROM dumps, so their presence is a strong signal the zip is an arcade ROM.
+ */
+private val ARCADE_ROM_EXTENSIONS = setOf(
+    // NeoGeo
+    "p1", "p2", "sp1", "sp2", "p3", "p4", "s1", "s2", "m1", "m2",
+    "v1", "v2", "v3", "v4", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8",
+    "lo", "sm1", "sfix",
+    // CPS1 / CPS2 / CPS3
+    "prg", "gfx", "snd", "qsf", "q1", "q2", "q3", "q4", "q5",
+    // PGM
+    "b1", "b2", "t1", "t2", "u1", "u2", "v10", "v20", "v30", "v40",
+    // Generic arcade dumps
+    "rom", "bin"   // .bin inside a zip is most likely arcade (CPS/MD carts are usually bare .md/.bin)
+)
+
+/**
  * Detect the game platform from a file URI.
  * For ZIP/7z/gz archives, looks inside to find the actual ROM extension.
+ *
+ * Disambiguation priority for zips:
+ *   1. If any entry has a known ARCADE extension (.p1, .s1, .c1, .rom, etc.)
+ *      → ARCADE (arcade zips often contain .bin files that would otherwise
+ *      match MD detection).
+ *   2. If any entry has a known MD extension (.md, .smd, .gen, .sms, .gg,
+ *      .sg, .68k) → MD.
+ *   3. If any entry has another platform's extension → that platform.
+ *   4. Otherwise → ARCADE (default for unrecognized zips, since arcade
+ *      ROMs use arbitrary driver-name extensions).
  */
 private fun detectPlatformFromUri(
     context: android.content.Context,
@@ -947,6 +988,8 @@ private fun detectPlatformFromUri(
 
     // For compressed archives, inspect contents to determine platform
     if (ext == "zip") {
+        // Collect all entry extensions for two-pass detection
+        val entryExts = mutableListOf<String>()
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 ZipInputStream(stream).use { zis ->
@@ -954,7 +997,7 @@ private fun detectPlatformFromUri(
                     while (entry != null) {
                         if (!entry.isDirectory) {
                             val entryExt = entry.name.substringAfterLast('.', "").lowercase()
-                            GamePlatform.fromExtension(entryExt)?.let { return it }
+                            if (entryExt.isNotEmpty()) entryExts.add(entryExt)
                         }
                         zis.closeEntry()
                         entry = zis.nextEntry
@@ -962,15 +1005,29 @@ private fun detectPlatformFromUri(
                 }
             }
         } catch (_: Exception) { }
-        // No recognized ROM extension inside the zip — assume FBNeo arcade.
-        // Arcade ROMs are .zip files containing raw .bin/.rom files whose
-        // names are MAME-style driver names (e.g. "mvc.rom"), which don't
-        // match any other platform's extension list.
+
+        // Pass 1: arcade-specific extensions (highest priority for zips)
+        if (entryExts.any { it in ARCADE_ROM_EXTENSIONS }) return GamePlatform.ARCADE
+
+        // Pass 2: any other recognized platform extension (NES/SFC/GB/GBA/MD/DOS)
+        for (entryExt in entryExts) {
+            GamePlatform.fromExtension(entryExt)?.let { return it }
+        }
+
+        // Pass 3: no recognized extension → default to arcade
         return GamePlatform.ARCADE
     }
 
     // .7z is always arcade (FBNeo).
     if (ext == "7z") return GamePlatform.ARCADE
+
+    // .gz — decompress and inspect (rare; treated as arcade default)
+    if (ext == "gz") return GamePlatform.ARCADE
+
+    // Bare .bin file (not in a zip) — most commonly a SEGA Mega Drive
+    // cart dump. The user can manually re-tag via the platform filter if
+    // it's actually a DOS image or arcade ROM.
+    if (ext == "bin") return GamePlatform.MD
 
     return GamePlatform.NES // fallback
 }
@@ -985,6 +1042,7 @@ private fun detectPlatformFromFile(file: File): GamePlatform {
     GamePlatform.fromExtension(ext)?.let { return it }
 
     if (ext == "zip") {
+        val entryExts = mutableListOf<String>()
         try {
             ZipFile(file).use { zip ->
                 val entries = zip.entries()
@@ -992,17 +1050,29 @@ private fun detectPlatformFromFile(file: File): GamePlatform {
                     val entry = entries.nextElement()
                     if (!entry.isDirectory) {
                         val entryExt = entry.name.substringAfterLast('.', "").lowercase()
-                        GamePlatform.fromExtension(entryExt)?.let { return it }
+                        if (entryExt.isNotEmpty()) entryExts.add(entryExt)
                     }
                 }
             }
         } catch (_: Exception) { }
-        // No recognized ROM extension inside the zip — assume FBNeo arcade.
+
+        // Pass 1: arcade-specific extensions (highest priority for zips)
+        if (entryExts.any { it in ARCADE_ROM_EXTENSIONS }) return GamePlatform.ARCADE
+
+        // Pass 2: any other recognized platform extension
+        for (entryExt in entryExts) {
+            GamePlatform.fromExtension(entryExt)?.let { return it }
+        }
+
         return GamePlatform.ARCADE
     }
 
     // .7z is always arcade (FBNeo).
     if (ext == "7z") return GamePlatform.ARCADE
+
+    // Bare .bin file (not in a zip) — most commonly a SEGA Mega Drive
+    // cart dump.
+    if (ext == "bin") return GamePlatform.MD
 
     return GamePlatform.NES
 }

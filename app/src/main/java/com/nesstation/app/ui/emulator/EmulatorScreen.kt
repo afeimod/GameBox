@@ -542,7 +542,48 @@ fun EmulatorScreen(
             try {
                 val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
                 if (input != null) {
-                    val origName = game.title.ifBlank { romPath.substringAfterLast('/') }
+                    // ----------------------------------------------------------------
+                    // FBNeo arcade ROMs MUST preserve their original filename —
+                    // FBNeo uses the .zip filename (minus extension) as the
+                    // MAME-style driver name to identify the ROM set. Copying
+                    // kof98h.zip → temp_rom.zip would make FBNeo reject it
+                    // with "Romset is unknown". Same applies to .7z archives.
+                    //
+                    // For arcade we therefore query the SAF for the original
+                    // display name (NOT game.title, which may be a localized
+                    // user-facing name like "拳皇98"). For other platforms the
+                    // filename is irrelevant to the core, so we keep the
+                    // legacy temp_rom.<ext> path.
+                    // ----------------------------------------------------------------
+                    val origName: String = if (platform == GamePlatform.ARCADE) {
+                        // Query SAF for the original filename — this preserves
+                        // the driver name (kof98h.zip, mvc.zip, etc.).
+                        var name = game.title.ifBlank { romPath.substringAfterLast('/') }
+                        try {
+                            val uri = android.net.Uri.parse(romPath)
+                            context.contentResolver.query(
+                                uri, null, null, null, null
+                            )?.use { c ->
+                                val idx = c.getColumnIndex(
+                                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                                )
+                                if (idx >= 0 && c.moveToFirst()) {
+                                    val n = c.getString(idx)
+                                    if (!n.isNullOrBlank()) name = n
+                                }
+                            }
+                        } catch (_: Exception) { }
+                        name
+                    } else {
+                        game.title.ifBlank { romPath.substringAfterLast('/') }
+                    }
+                    // Sanitize to filesystem-safe characters (SAF display names
+                    // are usually safe, but we want to be defensive).
+                    val sanitizedOrigName = origName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val tempFileName = when {
+                        platform == GamePlatform.ARCADE && sanitizedOrigName.isNotBlank() -> sanitizedOrigName
+                        else -> "temp_rom"
+                    }
                     val ext = when {
                         origName.endsWith(".fds", ignoreCase = true) -> ".fds"
                         origName.endsWith(".unf", ignoreCase = true) || origName.endsWith(".unif", ignoreCase = true) -> ".unf"
@@ -580,7 +621,15 @@ fun EmulatorScreen(
                         platform == GamePlatform.MD -> ".md"
                         else -> ".nes"
                     }
-                    val tempFile = java.io.File(context.cacheDir, "temp_rom$ext")
+                    // For arcade, tempFileName already includes the extension
+                    // (sanitizedOrigName keeps the original .zip/.7z suffix).
+                    // For other platforms, append ext to tempFileName.
+                    val tempFile = if (platform == GamePlatform.ARCADE &&
+                                       sanitizedOrigName.endsWith(ext, ignoreCase = true)) {
+                        java.io.File(context.cacheDir, tempFileName)
+                    } else {
+                        java.io.File(context.cacheDir, "$tempFileName$ext")
+                    }
                     tempFile.outputStream().use { out -> input.copyTo(out) }
                     input.close()
                     val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { }

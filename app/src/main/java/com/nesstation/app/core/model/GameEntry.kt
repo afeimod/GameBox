@@ -71,15 +71,18 @@ enum class GamePlatform(val displayName: String) {
                 // other ROM types in zip archives.
                 "7z" -> ARCADE
                 // Genesis-Plus-GX — MD/SMS/GG/SG cartridge + Mega-CD images.
-                // .bin is shared with DOS but in practice a SEGA .bin comes
-                // paired with a .cue or as a raw MD cart dump, so we route
-                // .bin to MD (more common in user libraries). The user can
-                // manually tag a DOS .bin via the platform filter if needed.
-                "md", "smd", "gen", "sms", "gg", "sg", "68k", "bin" -> MD
+                // NOTE: .bin is intentionally NOT mapped here — it is too
+                // ambiguous (also used by arcade ROMs and DOS disk images).
+                // .bin files inside .zip archives are inspected by
+                // detectPlatformFromUri, which checks for arcade-style
+                // extensions first. Bare .bin files default to MD via
+                // the platform-tab selection in the import flow.
+                "md", "smd", "gen", "sms", "gg", "sg", "68k" -> MD
                 "chd" -> MD   // SEGA CD / Mega-CD CHD images
                 "jar", "jad" -> JAVA
                 // .zip is intentionally NOT mapped — see detectPlatformFromUri
                 // for the disambiguation logic.
+                // .bin is intentionally NOT mapped — too ambiguous.
                 else -> null
             }
         }
