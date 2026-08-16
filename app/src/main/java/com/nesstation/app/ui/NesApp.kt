@@ -56,6 +56,7 @@ import com.nesstation.app.ui.files.FileListScreen
 import com.nesstation.app.ui.swf.SwfListScreen
 import com.nesstation.app.ui.swf.SwfPlayerScreen
 import com.nesstation.app.ui.about.AboutScreen
+import com.nesstation.app.ui.battle.BattleMatchArgs
 import com.nesstation.app.ui.battle.BattleMatchScreen
 import com.nesstation.app.ui.battle.BattleScreen
 import com.nesstation.app.ui.online.OnlineGamesScreen

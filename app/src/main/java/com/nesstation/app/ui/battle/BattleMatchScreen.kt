@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +80,20 @@ private val BtnKick = Color(0xFF3498DB)
 private val BtnGray = Color(0xFF2D3436)
 private val BtnCoin = Color(0xFF6C5CE7)
 private val BtnStart = Color(0xFF00B894)
+
+/**
+ * 解析 "host:port" 格式的中继 TCP 地址。使用最后一个冒号分割以兼容 IPv6。
+ * 空地址回退到默认端口。
+ */
+private fun parseTcpAddr(addr: String): Pair<String, Int> {
+    val trimmed = addr.trim()
+    if (trimmed.isEmpty()) return "127.0.0.1" to 9090
+    val idx = trimmed.lastIndexOf(':')
+    if (idx <= 0 || idx == trimmed.length - 1) return trimmed to 9090
+    val host = trimmed.substring(0, idx)
+    val port = trimmed.substring(idx + 1).toIntOrNull() ?: 9090
+    return host to port
+}
 
 /**
  * 对战界面：连接中继 -> 加载 ROM -> 帧同步对战。
@@ -445,8 +460,8 @@ private fun TouchControls(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            PressBtn("投币", BIT_SELECT, press, release, BtnCoin, Modifier.weight(1f).height(34.dp))
-            PressBtn("START", BIT_START, press, release, BtnStart, Modifier.weight(1f).height(34.dp))
+            PressBtn("投币", BIT_SELECT, ::press, ::release, BtnCoin, Modifier.weight(1f).height(34.dp))
+            PressBtn("START", BIT_START, ::press, ::release, BtnStart, Modifier.weight(1f).height(34.dp))
         }
 
         // 底部：方向键 + 攻击键
@@ -457,21 +472,21 @@ private fun TouchControls(
         ) {
             // 方向键（十字布局）
             Box(modifier = Modifier.width(132.dp).height(132.dp)) {
-                PressBtn("▲", BIT_UP, press, release, BtnGray, Modifier.align(Alignment.TopCenter).size(width = 64.dp, height = 44.dp), square = false)
-                PressBtn("◀", BIT_LEFT, press, release, BtnGray, Modifier.align(Alignment.CenterStart).size(width = 44.dp, height = 44.dp), square = false)
-                PressBtn("▶", BIT_RIGHT, press, release, BtnGray, Modifier.align(Alignment.CenterEnd).size(width = 44.dp, height = 44.dp), square = false)
-                PressBtn("▼", BIT_DOWN, press, release, BtnGray, Modifier.align(Alignment.BottomCenter).size(width = 64.dp, height = 44.dp), square = false)
+                PressBtn("▲", BIT_UP, ::press, ::release, BtnGray, Modifier.align(Alignment.TopCenter).size(width = 64.dp, height = 44.dp), square = false)
+                PressBtn("◀", BIT_LEFT, ::press, ::release, BtnGray, Modifier.align(Alignment.CenterStart).size(width = 44.dp, height = 44.dp), square = false)
+                PressBtn("▶", BIT_RIGHT, ::press, ::release, BtnGray, Modifier.align(Alignment.CenterEnd).size(width = 44.dp, height = 44.dp), square = false)
+                PressBtn("▼", BIT_DOWN, ::press, ::release, BtnGray, Modifier.align(Alignment.BottomCenter).size(width = 64.dp, height = 44.dp), square = false)
             }
 
             // 攻击键（2x2）
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PressBtn("B", BIT_B, press, release, BtnPunch, Modifier.size(56.dp))
-                    PressBtn("A", BIT_A, press, release, BtnPunch, Modifier.size(56.dp))
+                    PressBtn("B", BIT_B, ::press, ::release, BtnPunch, Modifier.size(56.dp))
+                    PressBtn("A", BIT_A, ::press, ::release, BtnPunch, Modifier.size(56.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PressBtn("D", BIT_Y, press, release, BtnKick, Modifier.size(56.dp))
-                    PressBtn("C", BIT_X, press, release, BtnKick, Modifier.size(56.dp))
+                    PressBtn("D", BIT_Y, ::press, ::release, BtnKick, Modifier.size(56.dp))
+                    PressBtn("C", BIT_X, ::press, ::release, BtnKick, Modifier.size(56.dp))
                 }
             }
         }
