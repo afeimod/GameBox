@@ -2,7 +2,7 @@
 
 一个为 Android 手机与 Android TV 打造的高质感多平台复古游戏模拟器。
 
-支持 **8 大平台**：NES / SFC / GB / GBA / DOS / Arcade / MD / Java ME，通过
+支持 **9 大平台**：NES / SFC / GB / GBA / PCE / DOS / Arcade / MD / Java ME，通过
 统一的 Compose UI 与一致的游戏内菜单体验，让你在 TV 大屏和手机小屏上都能
 畅玩从 8-bit 到街机的所有经典游戏。
 
@@ -12,6 +12,7 @@
 | **SNES / SFC** | snes9x            | `.smc` `.sfc` `.fig` `.swc`   | 否 |
 | **GB / GBC**   | mGBA              | `.gb` `.gbc` `.sgb`           | 否 |
 | **GBA**        | mGBA              | `.gba`                        | 否 |
+| **PCE / TG16** | **Geargrafx**     | `.pce` `.sgx` `.hes` `.cue` `.chd` | PCE-CD 游戏需要 System Card（`syscard1/2/3.pce`、`gameexpress.pce`） |
 | **DOS**        | DOSBox-Pure       | `.bat` `.exe` `.dosz` `.conf` `.iso` | 否 |
 | **Arcade**     | **FBNeo**         | `.zip` `.7z`                  | NeoGeo / PGM / Mega-CD 游戏需要 |
 | **MD / SEGA**  | **Genesis-Plus-GX** | `.md` `.smd` `.sms` `.gg` `.sg` `.cue` `.chd` | Mega-CD 游戏需要 |
@@ -25,11 +26,12 @@
 
 | 模块 | 功能 |
 | --- | --- |
-| **8 大核心** | NES（FCEUmm）、SNES（snes9x）、GB/GBC/GBA（mGBA）、DOS（DOSBox-Pure）、Arcade（FBNeo）、MD/SEGA（Genesis-Plus-GX）、Java ME（J2ME-Loader） |
+| **9 大核心** | NES（FCEUmm）、SNES（snes9x）、GB/GBC/GBA（mGBA）、PCE/TG16（Geargrafx）、DOS（DOSBox-Pure）、Arcade（FBNeo）、MD/SEGA（Genesis-Plus-GX）、Java ME（J2ME-Loader） |
 | **画面** | 多种滤镜（Nearest、Scanline、CRT、Dot、XBR、HQ2X、HQ4X），画面比例（4:3 / 16:9 / 自动 / 拉伸），横竖屏旋转 |
 | **音频** | 48000 Hz 重采样 + AudioTrack BLOCKING 写入，消除 TV HDMI 输出爆音 |
-| **输入** | 屏幕手柄（可自定义布局）、蓝牙手柄 / 键盘 / TV D-pad 焦点导航、自定义按键映射 |
-| **游戏库** | 横向平台分类（NES / SFC / GB / GBA / DOS / Arcade / MD / Java），自动扫描 ROM，收藏、最近游玩、搜索、封面 |
+| **输入** | 屏幕手柄（可自定义布局）、蓝牙手柄 / 键盘 / TV D-pad 焦点导航、自定义按键映射；PCE 布局编辑器支持逐键显示/隐藏（含 Turbo 连发键） |
+| **游戏库** | 横向平台分类（NES / SFC / GB / GBA / PCE / DOS / Arcade / MD / Java），自动扫描 ROM，收藏、最近游玩、搜索、封面 |
+| **游戏库刷新** | 刷新按钮重扫**所有**已导入的文件夹（SAF 文件夹 + 本地文件夹），自动补全新 ROM、清理已删除/失效条目；无导入文件夹时回退扫描标准 ROM 目录 |
 | **存档** | 10 个存档槽位 + 自动存档 + 电池存档（SRAM / Flash / Mapper 电池） |
 | **截图** | 一键截图保存到相册 |
 | **快进/慢放** | 2×/4×/6×/8× 快进 |
@@ -51,10 +53,10 @@ GameBox-main/
 │   │   │   ├── core/
 │   │   │   │   ├── model/            # GameEntry, GamePlatform 等数据模型
 │   │   │   │   ├── storage/          # RomStore, RomScanner, PadLayoutStore
-│   │   │   │   ├── engine/           # NesEngine, SnesEngine, GbaEngine, DosEngine,
-│   │   │   │   │                     # FbNeoEngine, GenesisEngine (8 大引擎)
-│   │   │   │   └── jni/              # NesNative, SnesNative, GbaNative, DosNative,
-│   │   │   │                         # FbNeoNative, GenesisNative
+│   │   │   │   ├── engine/           # NesEngine, SnesEngine, GbaEngine, PceEngine,
+│   │   │   │   │                     # DosEngine, FbNeoEngine, GenesisEngine (9 大引擎)
+│   │   │   │   └── jni/              # NesNative, SnesNative, GbaNative, PceNative,
+│   │   │   │                         # DosNative, FbNeoNative, GenesisNative
 │   │   │   └── ui/                   # Compose UI（Home, Library, Settings,
 │   │   │                             #   EmulatorScreen, etc.）
 │   │   ├── java/javax/microedition/  # J2ME-Loader 引擎代码
@@ -81,6 +83,7 @@ GameBox-main/
 │   │   ├── bridge.cpp / rom_loader.cpp         # NES（FCEUmm）
 │   │   ├── snes_bridge.cpp / snes_loader.cpp   # SNES（snes9x）
 │   │   ├── gba_bridge.cpp / gba_loader.cpp     # GBA（mGBA）
+│   │   ├── pce_bridge.cpp / pce_loader.cpp     # PCE/TG16（Geargrafx，dlopen 预编译核心）
 │   │   ├── dos_bridge.cpp / dos_loader.cpp     # DOS（DOSBox-Pure）
 │   │   ├── fbneo_bridge.cpp / fbneo_loader.cpp # Arcade（FBNeo）
 │   │   ├── genesis_bridge.cpp / genesis_loader.cpp  # MD（Genesis-Plus-GX）
@@ -123,6 +126,15 @@ GameBox-main/
 - 帧跳类型（自动 / 无 / 帧跳 / VBI）
 - 强制 RTC（实时时钟，用于宝可梦等游戏）
 - 允许相反方向输入
+
+### PCE / TG16（Geargrafx 核心）
+- Geargrafx 支持 PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD
+- 主机类型（自动 / PC Engine 日版 / SuperGrafx / TurboGrafx-16 美版）
+- 画面比例（1:1 PAR / 4:3 DAR / 6:5 DAR / 16:9 DAR / 16:10 DAR）
+- 过扫描裁剪、精灵数量上限开关、调色板（Standard RGB / Turboxray / Kitrinx）
+- 支持 5 人 TurboTap 手柄扩展、Memory Base 128 存档、允许相反方向输入
+- **虚拟按键显隐**：布局编辑器内可单独显示/隐藏每个按键（十字键 / I / II / RUN / SELECT / V / VI / IV / III / TURBO I / TURBO II），适合清理屏幕或仅保留常用键
+- **BIOS 需求**：卡带游戏（`.pce` / `.sgx`）与 HES 音乐（`.hes`）无需 BIOS；PCE-CD 光盘游戏（`.cue` / `.chd`）需要 System Card（`syscard3.pce` 最常见），存放在系统目录
 
 ### DOS（DOSBox-Pure 核心）
 - DOSBox-Pure 是为 RetroArch 优化的 DOSBox 分支
@@ -184,6 +196,25 @@ GameBox-main/
 
 支持自定义映射：进入 **设置 → 按键映射**。
 
+### PCE / TG16 专属
+PCE 使用与 SNES 相同的共享屏幕布局槽位，但按钮名映射为 PCE 原生按键：
+
+| 屏幕按钮 | PCE 原生按键 | 物理手柄 / 键盘 |
+| --- | --- | --- |
+| Up / Down / Left / Right | 十字键 | 方向键 / D-pad |
+| A | **I**（动作 / 部分游戏攻击） | X / Button A |
+| B | **II**（跳跃 / 部分游戏射击） | Z / Button B |
+| X | **IV** | S / Button X |
+| Y | **III** | A / Button Y |
+| L | **V** | Q / Button L1 |
+| R | **VI** | W / Button R1 |
+| L2 | **TURBO II**（II 连发开关） | L2 |
+| R2 | **TURBO I**（I 连发开关） | R2 |
+| Start | RUN | Enter / Button Start |
+| Select | SELECT | Shift / Button Select |
+
+> 大多数 2 键 PCE 游戏只用到 I（A）和 II（B）；IV/III/V/VI 用于部分 6 键格斗游戏。连发开关（TURBO I/II）按下后开启/关闭对应键的自动连发。
+
 ### Arcade（FBNeo）专属
 - Select 键 = **投币（Coin）** — 街机游戏必须投币才能开始
 - Start 键 = 开始游戏 / 服务菜单
@@ -226,6 +257,13 @@ J2ME 游戏使用 J2ME-Loader 的虚拟键盘系统，支持：
 - BIOS 文件位置：`<filesDir>/genesis/`
 - **两种添加方式**：同 FBNeo
 - 详见 `app/src/main/assets/genesis/README.txt`
+
+### Geargrafx（PCE-CD）BIOS
+- **必需**：PCE-CD 光盘游戏 → `syscard3.pce`（System Card 3 / Arcade Card Pro，最常用）
+- 可选：`syscard1.pce` / `syscard2.pce`（旧 System Card）/ `gameexpress.pce`（少量游戏需要）
+- 卡带游戏（`.pce` / `.sgx`）与 HES 音乐（`.hes`）无需 BIOS
+- BIOS 文件位置：`<filesDir>/pce/`
+- **添加方式**：游戏中按返回键 → 设置 → PCE BIOS 导入，从文件选择器导入 `.pce` 文件并自动命名
 
 > ⚠️ **法律声明**：所有 BIOS 文件（neogeo.zip、pgm.zip、bios_CD_*.zip 等）都包含受版权保护的代码（SNK、IGS、SEGA 等）。本仓库不包含任何 BIOS 文件，仅提供占位说明文档。你只能将合法获取的 BIOS 文件打包到私有 APK 中供个人使用，不能在公开渠道（GitHub、应用商店等）分发包含 BIOS 的 APK。
 
@@ -303,7 +341,7 @@ cp /path/to/bios_CD_U.zip app/src/main/assets/genesis/
 
 4. **MultiDex**：J2ME-Loader 代码量较大，已启用 `multiDexEnabled = true`。
 
-5. **预编译 .so 文件**：FBNeo / Genesis-Plus-GX / DOSBox-Pure 的 libretro 核心通过 dlopen() 模式加载，预编译 .so 文件位于 `app/src/main/jniLibs/<abi>/`。FCEUmm / snes9x / mGBA 从源码编译（需要 git submodule）。
+5. **预编译 .so 文件**：FBNeo / Genesis-Plus-GX / DOSBox-Pure / Geargrafx（PCE）的 libretro 核心通过 dlopen() 模式加载，预编译 .so 文件位于 `app/src/main/jniLibs/<abi>/`。FCEUmm / snes9x / mGBA 从源码编译（需要 git submodule）。
 
 6. **`useStubCore`**：如果只想跑起来看 UI，可以在 `gradle.properties` 里设置 `useStubCore=true`，使用占位核心。
 
@@ -334,6 +372,7 @@ APK 会在 workflow 完成后作为 artifact 上传。
 - **NES**：NTSC 滤镜、调色板、区域、超频、裁剪过扫描
 - **SNES**：图层开关、减少精灵闪烁、减少卡顿、音频插值、图形透明、高分辨率、阻止无效 VRAM
 - **GBA**：GBC/GBA 颜色预设、帧跳类型、强制 RTC、允许相反方向输入
+- **PCE/TG16**：主机类型、画面比例、过扫描、精灵数量上限、调色板、CD-ROM BIOS、TurboTap、MB128、允许相反方向输入
 - **DOS**：机器型号、CPU 速度、声卡、鼠标输入、键盘布局、Voodoo、暗屏超时
 - **Arcade**：画面比例、旋转、竖屏模式、CPU 速度、跳帧、采样率、音频插值、NeoGeo 模式（MVS/AES）、记忆卡、BIOS 管理
 - **MD/SEGA**：区域、系统型号、画面比例、渲染模式、NTSC 滤镜、LCD 滤镜、过扫描、GG 扩展屏幕、手柄类型（3/6 键）、超频、跳帧、Mega-CD 快速启动、SMS FM 音源、BIOS 管理
@@ -352,7 +391,7 @@ APK 会在 workflow 完成后作为 artifact 上传。
 7. 在 `PadLayoutStore.kt` 中添加引擎专属设置字段
 8. 在 `EmulatorScreen.kt` 中添加设置 UI 和 `applyCoreOptions()` 分支
 
-### dlopen 模式的核心（Arcade / MD / DOS）
+### dlopen 模式的核心（PCE / Arcade / MD / DOS）
 1. 用 `./scripts/download_prebuilt_cores.sh <name>` 下载预编译 .so
 2. 步骤同上 3-8
 3. CMakeLists.txt 中 `target_link_libraries(... dl)` 添加 `dl` 库

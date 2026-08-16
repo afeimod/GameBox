@@ -1631,6 +1631,22 @@ private fun OnScreenController(
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
                    platform == GamePlatform.PCE
 
+    // === Per-button visibility for PCE ===
+    // Non-PCE platforms always show every button their platform supports;
+    // PCE lets the user hide/show individual buttons via the layout editor
+    // (flags persisted in PadLayout.pceShow*, shared landscape/portrait).
+    val showDpadBtn = platform != GamePlatform.PCE || padLayout.pceShowDpad
+    val showABtn = platform != GamePlatform.PCE || padLayout.pceShowA
+    val showBBtn = platform != GamePlatform.PCE || padLayout.pceShowB
+    val showStartBtn = platform != GamePlatform.PCE || padLayout.pceShowStart
+    val showSelectBtn = platform != GamePlatform.PCE || padLayout.pceShowSelect
+    val showLBtn = platform != GamePlatform.PCE || padLayout.pceShowL
+    val showRBtn = platform != GamePlatform.PCE || padLayout.pceShowR
+    val showXBtn = platform != GamePlatform.PCE || padLayout.pceShowX
+    val showYBtn = platform != GamePlatform.PCE || padLayout.pceShowY
+    val showL2Btn = platform != GamePlatform.PCE || padLayout.pceShowL2
+    val showR2Btn = platform != GamePlatform.PCE || padLayout.pceShowR2
+
     // === Arcade input mode: D-Pad vs Analog Stick ===
     // When arcadeInputMode == "analog", we render a circular analog stick
     // instead of the cross-shaped D-Pad. Both produce the same BTN_UP/DOWN/
@@ -1733,26 +1749,30 @@ private fun OnScreenController(
                 // Compute hit areas once (recomputed when key changes)
                 // For analog stick mode, expand the hit area to a square around
                 // the stick center so the user can drag outside the visual base.
-                val dpadRect = if (useAnalogStick) {
-                    // Analog stick hit area: 1.5x the visual size, so the user
-                    // can drag their thumb beyond the stick base for large movements.
-                    btnRect(dpad, 1.5f, 1.5f)
-                } else {
-                    btnRect(dpad)
-                }
-                val aRect = btnRect(btnA)
-                val bRect = btnRect(btnB)
+                // Hidden buttons (PCE per-button visibility) get a null rect so
+                // touches on them are ignored.
+                val dpadRect = if (showDpadBtn) {
+                    if (useAnalogStick) {
+                        // Analog stick hit area: 1.5x the visual size, so the user
+                        // can drag their thumb beyond the stick base for large movements.
+                        btnRect(dpad, 1.5f, 1.5f)
+                    } else {
+                        btnRect(dpad)
+                    }
+                } else null
+                val aRect = if (showABtn) btnRect(btnA) else null
+                val bRect = if (showBBtn) btnRect(btnB) else null
                 // Turbo A/B hit areas only for non-SNES platforms
                 val taRect = if (!showXY) btnRect(btnTurboA) else null
                 val tbRect = if (!showXY) btnRect(btnTurboB) else null
-                val startRect = btnRect(btnStart, 2.2f, 0.7f)
-                val selectRect = btnRect(btnSelect, 2.2f, 0.7f)
-                val lRect = if (showLR) btnRect(btnL, 1.6f, 0.7f) else null
-                val rRect = if (showLR) btnRect(btnR, 1.6f, 0.7f) else null
-                val xRect = if (showXY) btnRect(btnX) else null
-                val yRect = if (showXY) btnRect(btnY) else null
-                val l2Rect = if (showL2R2) btnRect(btnL2) else null
-                val r2Rect = if (showL2R2) btnRect(btnR2) else null
+                val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
+                val selectRect = if (showSelectBtn) btnRect(btnSelect, 2.2f, 0.7f) else null
+                val lRect = if (showLR && showLBtn) btnRect(btnL, 1.6f, 0.7f) else null
+                val rRect = if (showLR && showRBtn) btnRect(btnR, 1.6f, 0.7f) else null
+                val xRect = if (showXY && showXBtn) btnRect(btnX) else null
+                val yRect = if (showXY && showYBtn) btnRect(btnY) else null
+                val l2Rect = if (showL2R2 && showL2Btn) btnRect(btnL2) else null
+                val r2Rect = if (showL2R2 && showR2Btn) btnRect(btnR2) else null
                 // Combo button hit areas
                 val comboRects = comboList.map { c ->
                     c.id to btnRect(ButtonLayout(c.x, c.y, c.sizeDp))
@@ -1828,13 +1848,13 @@ private fun OnScreenController(
                     }
                     val btnType = when {
                         comboMatch != null -> BtnType.COMBO
-                        dpadRect.contains(pos) -> BtnType.DPAD
-                        aRect.contains(pos) -> BtnType.A
-                        bRect.contains(pos) -> BtnType.B
+                        dpadRect?.contains(pos) == true -> BtnType.DPAD
+                        aRect?.contains(pos) == true -> BtnType.A
+                        bRect?.contains(pos) == true -> BtnType.B
                         taRect?.contains(pos) == true -> BtnType.TURBO_A
                         tbRect?.contains(pos) == true -> BtnType.TURBO_B
-                        startRect.contains(pos) -> BtnType.START
-                        selectRect.contains(pos) -> BtnType.SELECT
+                        startRect?.contains(pos) == true -> BtnType.START
+                        selectRect?.contains(pos) == true -> BtnType.SELECT
                         lRect?.contains(pos) == true -> BtnType.L
                         rRect?.contains(pos) == true -> BtnType.R
                         xRect?.contains(pos) == true -> BtnType.X
@@ -1952,22 +1972,24 @@ private fun OnScreenController(
             }
     ) {
         // Draw D-pad OR Analog Stick depending on arcadeInputMode.
-        if (useAnalogStick) {
-            AnalogStickCanvas(
-                layout = dpad,
-                surfaceSize = surfaceSize,
-                opacity = opacity,
-                pressedDirs = visualState and 0xF0,
-                thumbX = analogThumbX,
-                thumbY = analogThumbY
-            )
-        } else {
-            DpadCanvas(
-                layout = dpad,
-                surfaceSize = surfaceSize,
-                opacity = opacity,
-                pressedDirs = visualState and 0xF0
-            )
+        if (showDpadBtn) {
+            if (useAnalogStick) {
+                AnalogStickCanvas(
+                    layout = dpad,
+                    surfaceSize = surfaceSize,
+                    opacity = opacity,
+                    pressedDirs = visualState and 0xF0,
+                    thumbX = analogThumbX,
+                    thumbY = analogThumbY
+                )
+            } else {
+                DpadCanvas(
+                    layout = dpad,
+                    surfaceSize = surfaceSize,
+                    opacity = opacity,
+                    pressedDirs = visualState and 0xF0
+                )
+            }
         }
         // Draw A
         // For PCE the buttons are labeled with PCE's native names.
@@ -1982,33 +2004,47 @@ private fun OnScreenController(
         val labelR = if (platform == GamePlatform.PCE) "VI" else "R"
         val labelL2 = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
         val labelR2 = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
-        ActionButtonCanvas(labelA, Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
+        if (showABtn) {
+            ActionButtonCanvas(labelA, Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
+        }
         // Draw B
-        ActionButtonCanvas(labelB, Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and BTN_B != 0)
+        if (showBBtn) {
+            ActionButtonCanvas(labelB, Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and BTN_B != 0)
+        }
         // Turbo A/B — hidden on SNES/PCE/ARCADE/MD (X/Y buttons take their place)
         if (!showXY) {
             TurboButtonCanvas(labelA, Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
             TurboButtonCanvas(labelB, Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
         }
         // Start
-        PillButtonCanvas(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
+        if (showStartBtn) {
+            PillButtonCanvas(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
+        }
         // Select
-        PillButtonCanvas("SELECT", btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
+        if (showSelectBtn) {
+            PillButtonCanvas("SELECT", btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
+        }
         // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
-        if (showLR) {
+        if (showLR && showLBtn) {
             ShoulderButtonCanvas(labelL, btnL, surfaceSize, opacity, visualState and lBit != 0)
+        }
+        if (showLR && showRBtn) {
             ShoulderButtonCanvas(labelR, btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
         // X/Y face buttons (SNES/Arcade/MD/PCE)
-        if (showXY) {
+        if (showXY && showXBtn) {
             ActionButtonCanvas(labelX, Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
+        }
+        if (showXY && showYBtn) {
             ActionButtonCanvas(labelY, Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
         }
         // L2/R2 extra buttons:
         //   Arcade 6-button fight layout — hidden by default, enabled via Settings
         //   PCE — Turbo toggle buttons (L2=Toggle Turbo II, R2=Toggle Turbo I)
-        if (showL2R2) {
+        if (showL2R2 && showL2Btn) {
             ActionButtonCanvas(labelL2, Color(0xFFFF9800), btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
+        }
+        if (showL2R2 && showR2Btn) {
             ActionButtonCanvas(labelR2, Color(0xFFFF9800), btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
         }
         // Combo buttons (per-platform, user-defined)
@@ -3711,6 +3747,25 @@ private fun PadLayoutEditor(
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
                    platform == GamePlatform.PCE
 
+    // === Per-button visibility for PCE ===
+    // Non-PCE platforms always show every button; PCE reads the user toggles
+    // from padLayout.pceShow* (shared landscape/portrait).
+    val showDpadBtn = platform != GamePlatform.PCE || padLayout.pceShowDpad
+    val showABtn = platform != GamePlatform.PCE || padLayout.pceShowA
+    val showBBtn = platform != GamePlatform.PCE || padLayout.pceShowB
+    val showStartBtn = platform != GamePlatform.PCE || padLayout.pceShowStart
+    val showSelectBtn = platform != GamePlatform.PCE || padLayout.pceShowSelect
+    val showLBtn = platform != GamePlatform.PCE || padLayout.pceShowL
+    val showRBtn = platform != GamePlatform.PCE || padLayout.pceShowR
+    val showXBtn = platform != GamePlatform.PCE || padLayout.pceShowX
+    val showYBtn = platform != GamePlatform.PCE || padLayout.pceShowY
+    val showL2Btn = platform != GamePlatform.PCE || padLayout.pceShowL2
+    val showR2Btn = platform != GamePlatform.PCE || padLayout.pceShowR2
+
+    // "显示/隐藏按键" dialog for PCE — lets the user toggle each button's
+    // visibility so the on-screen overlay only shows the keys they need.
+    var showKeyVisibilityDialog by remember { mutableStateOf(false) }
+
     // === 横竖屏布局选择 ===
     // 横屏编辑修改 dpad / btnA / ...，竖屏编辑修改 dpadP / btnAP / ...
     // 全局设置（透明度、核心选项等）在两个方向共享，编辑器不动这些。
@@ -3752,30 +3807,36 @@ private fun PadLayoutEditor(
     Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
         // Draggable button previews — full screen, behind the control panel
         Box(modifier = Modifier.fillMaxSize()) {
-            EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD, isPortrait = isPortrait,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.05f, 0.45f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    updateBtn(BtnType.DPAD, dpad.copy(x = nx, y = ny))
-                },
-                onSelect = { selectedBtn = BtnType.DPAD }
-            )
-            EditableRoundBtn(if (platform == GamePlatform.PCE) "I" else "A", Color(0xFFE74C3C), btnA, surfaceSize, selectedBtn == BtnType.A,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.4f, 0.95f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    updateBtn(BtnType.A, btnA.copy(x = nx, y = ny))
-                },
-                onSelect = { selectedBtn = BtnType.A }
-            )
-            EditableRoundBtn(if (platform == GamePlatform.PCE) "II" else "B", Color(0xFFE67E22), btnB, surfaceSize, selectedBtn == BtnType.B,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.4f, 0.95f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    updateBtn(BtnType.B, btnB.copy(x = nx, y = ny))
-                },
-                onSelect = { selectedBtn = BtnType.B }
-            )
+            if (showDpadBtn) {
+                EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD, isPortrait = isPortrait,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.05f, 0.45f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.DPAD, dpad.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.DPAD }
+                )
+            }
+            if (showABtn) {
+                EditableRoundBtn(if (platform == GamePlatform.PCE) "I" else "A", Color(0xFFE74C3C), btnA, surfaceSize, selectedBtn == BtnType.A,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.A, btnA.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.A }
+                )
+            }
+            if (showBBtn) {
+                EditableRoundBtn(if (platform == GamePlatform.PCE) "II" else "B", Color(0xFFE67E22), btnB, surfaceSize, selectedBtn == BtnType.B,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.4f, 0.95f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.B, btnB.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.B }
+                )
+            }
             if (!showXY) {
                 EditableRoundBtn("TA", Color(0xFFE74C3C), btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
                     onMove = { targetX, targetY ->
@@ -3794,26 +3855,29 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.TURBO_B }
                 )
             }
-            EditablePillBtn(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, selectedBtn == BtnType.START,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.1f, 0.9f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    updateBtn(BtnType.START, btnStart.copy(x = nx, y = ny))
-                },
-                onSelect = { selectedBtn = BtnType.START }
-            )
-            EditablePillBtn("SELECT", btnSelect, surfaceSize, selectedBtn == BtnType.SELECT,
-                onMove = { targetX, targetY ->
-                    val nx = targetX.coerceIn(0.1f, 0.9f)
-                    val ny = targetY.coerceIn(0.3f, 0.97f)
-                    updateBtn(BtnType.SELECT, btnSelect.copy(x = nx, y = ny))
-                },
-                onSelect = { selectedBtn = BtnType.SELECT }
-            )
+            if (showStartBtn) {
+                EditablePillBtn(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, selectedBtn == BtnType.START,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.1f, 0.9f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.START, btnStart.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.START }
+                )
+            }
+            if (showSelectBtn) {
+                EditablePillBtn("SELECT", btnSelect, surfaceSize, selectedBtn == BtnType.SELECT,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.1f, 0.9f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.SELECT, btnSelect.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.SELECT }
+                )
+            }
             // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
-            if (showLR) {
+            if (showLR && showLBtn) {
                 val lLabel = if (platform == GamePlatform.PCE) "V" else "L"
-                val rLabel = if (platform == GamePlatform.PCE) "VI" else "R"
                 EditablePillBtn(lLabel, btnL, surfaceSize, selectedBtn == BtnType.L,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.05f, 0.4f)
@@ -3822,6 +3886,9 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.L }
                 )
+            }
+            if (showLR && showRBtn) {
+                val rLabel = if (platform == GamePlatform.PCE) "VI" else "R"
                 EditablePillBtn(rLabel, btnR, surfaceSize, selectedBtn == BtnType.R,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.6f, 0.95f)
@@ -3832,9 +3899,8 @@ private fun PadLayoutEditor(
                 )
             }
             // X/Y face buttons (SNES/Arcade/MD/PCE)
-            if (showXY) {
+            if (showXY && showXBtn) {
                 val xLabel = if (platform == GamePlatform.PCE) "IV" else "X"
-                val yLabel = if (platform == GamePlatform.PCE) "III" else "Y"
                 EditableRoundBtn(xLabel, Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -3843,6 +3909,9 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.X }
                 )
+            }
+            if (showXY && showYBtn) {
+                val yLabel = if (platform == GamePlatform.PCE) "III" else "Y"
                 EditableRoundBtn(yLabel, Color(0xFF2ECC71), btnY, surfaceSize, selectedBtn == BtnType.Y,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -3853,9 +3922,8 @@ private fun PadLayoutEditor(
                 )
             }
             // L2/R2 extra buttons (Arcade when enabled, PCE turbo toggle always)
-            if (showL2R2) {
+            if (showL2R2 && showL2Btn) {
                 val l2Label = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
-                val r2Label = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
                 EditableRoundBtn(l2Label, Color(0xFFFF9800), btnL2, surfaceSize, selectedBtn == BtnType.L2,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.02f, 0.4f)
@@ -3864,6 +3932,9 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.L2 }
                 )
+            }
+            if (showL2R2 && showR2Btn) {
+                val r2Label = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
                 EditableRoundBtn(r2Label, Color(0xFFFF9800), btnR2, surfaceSize, selectedBtn == BtnType.R2,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.6f, 0.98f)
@@ -3926,6 +3997,14 @@ private fun PadLayoutEditor(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
                 Spacer(Modifier.weight(1f))
+                // PCE-only: open the per-button show/hide dialog.
+                if (platform == GamePlatform.PCE) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { showKeyVisibilityDialog = true }
+                    ) {
+                        Text("显隐按键", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                    }
+                }
                 IconButton(onClick = {
                     val defaults = PadLayout()
                     if (isPortrait) {
@@ -3934,7 +4013,13 @@ private fun PadLayoutEditor(
                             btnTurboAP = defaults.btnTurboAP, btnTurboBP = defaults.btnTurboBP,
                             btnStartP = defaults.btnStartP, btnSelectP = defaults.btnSelectP,
                             btnLP = defaults.btnLP, btnRP = defaults.btnRP,
-                            btnXP = defaults.btnXP, btnYP = defaults.btnYP
+                            btnXP = defaults.btnXP, btnYP = defaults.btnYP,
+                            pceShowDpad = defaults.pceShowDpad, pceShowA = defaults.pceShowA,
+                            pceShowB = defaults.pceShowB, pceShowStart = defaults.pceShowStart,
+                            pceShowSelect = defaults.pceShowSelect, pceShowL = defaults.pceShowL,
+                            pceShowR = defaults.pceShowR, pceShowX = defaults.pceShowX,
+                            pceShowY = defaults.pceShowY, pceShowL2 = defaults.pceShowL2,
+                            pceShowR2 = defaults.pceShowR2
                         ))
                     } else {
                         onLayoutChange(padLayout.copy(
@@ -3942,7 +4027,13 @@ private fun PadLayoutEditor(
                             btnTurboA = defaults.btnTurboA, btnTurboB = defaults.btnTurboB,
                             btnStart = defaults.btnStart, btnSelect = defaults.btnSelect,
                             btnL = defaults.btnL, btnR = defaults.btnR,
-                            btnX = defaults.btnX, btnY = defaults.btnY
+                            btnX = defaults.btnX, btnY = defaults.btnY,
+                            pceShowDpad = defaults.pceShowDpad, pceShowA = defaults.pceShowA,
+                            pceShowB = defaults.pceShowB, pceShowStart = defaults.pceShowStart,
+                            pceShowSelect = defaults.pceShowSelect, pceShowL = defaults.pceShowL,
+                            pceShowR = defaults.pceShowR, pceShowX = defaults.pceShowX,
+                            pceShowY = defaults.pceShowY, pceShowL2 = defaults.pceShowL2,
+                            pceShowR2 = defaults.pceShowR2
                         ))
                     }
                 }) {
@@ -4103,6 +4194,146 @@ private fun PadLayoutEditor(
             },
             onDismiss = { showComboPickerDialog = false }
         )
+    }
+
+    // === PCE Key Visibility Dialog ===
+    // Lets the user show/hide each PCE on-screen button independently.
+    if (showKeyVisibilityDialog) {
+        PceKeyVisibilityDialog(
+            padLayout = padLayout,
+            onToggle = { key, show ->
+                val newLayout = when (key) {
+                    "dpad" -> padLayout.copy(pceShowDpad = show)
+                    "a" -> padLayout.copy(pceShowA = show)
+                    "b" -> padLayout.copy(pceShowB = show)
+                    "start" -> padLayout.copy(pceShowStart = show)
+                    "select" -> padLayout.copy(pceShowSelect = show)
+                    "l" -> padLayout.copy(pceShowL = show)
+                    "r" -> padLayout.copy(pceShowR = show)
+                    "x" -> padLayout.copy(pceShowX = show)
+                    "y" -> padLayout.copy(pceShowY = show)
+                    "l2" -> padLayout.copy(pceShowL2 = show)
+                    "r2" -> padLayout.copy(pceShowR2 = show)
+                    else -> padLayout
+                }
+                onLayoutChange(newLayout)
+                // If the hidden button was selected in the editor, deselect it
+                // (its draggable preview is no longer rendered).
+                if (!show) {
+                    val hiddenBtn = when (key) {
+                        "dpad" -> BtnType.DPAD
+                        "a" -> BtnType.A
+                        "b" -> BtnType.B
+                        "start" -> BtnType.START
+                        "select" -> BtnType.SELECT
+                        "l" -> BtnType.L
+                        "r" -> BtnType.R
+                        "x" -> BtnType.X
+                        "y" -> BtnType.Y
+                        "l2" -> BtnType.L2
+                        "r2" -> BtnType.R2
+                        else -> null
+                    }
+                    if (hiddenBtn != null && selectedBtn == hiddenBtn) {
+                        selectedBtn = null
+                    }
+                }
+            },
+            onDismiss = { showKeyVisibilityDialog = false }
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PCE Key Visibility Dialog — lets the user show/hide each PCE on-screen button
+// ---------------------------------------------------------------------------
+// Lists all 11 PCE buttons (D-pad, I, II, RUN, SELECT, V, VI, IV, III,
+// TURBO II, TURBO I) with a toggle per row. Toggling a key off hides it from
+// the in-game overlay (and from the layout editor); toggling it back on
+// restores it. The flags are persisted in PadLayout.pceShow*.
+@Composable
+private fun PceKeyVisibilityDialog(
+    padLayout: PadLayout,
+    onToggle: (key: String, show: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    data class KeyItem(val key: String, val label: String, val isVisible: Boolean)
+    val items = listOf(
+        KeyItem("dpad", "十字键", padLayout.pceShowDpad),
+        KeyItem("a", "I", padLayout.pceShowA),
+        KeyItem("b", "II", padLayout.pceShowB),
+        KeyItem("start", "RUN", padLayout.pceShowStart),
+        KeyItem("select", "SELECT", padLayout.pceShowSelect),
+        KeyItem("l", "V", padLayout.pceShowL),
+        KeyItem("r", "VI", padLayout.pceShowR),
+        KeyItem("x", "IV", padLayout.pceShowX),
+        KeyItem("y", "III", padLayout.pceShowY),
+        KeyItem("l2", "TURBO II", padLayout.pceShowL2),
+        KeyItem("r2", "TURBO I", padLayout.pceShowR2)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xAA000000))
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 460.dp)
+                .background(Color(0xEE1E2A3A), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("显示 / 隐藏按键", color = Color.White, fontSize = 15.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text("点击外部关闭", color = Color(0xFF8899AA), fontSize = 10.sp)
+            }
+            Spacer(Modifier.size(8.dp))
+            items.forEach { item ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onToggle(item.key, !item.isVisible) }
+                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(item.label, color = Color.White, fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    // Simple switch-style toggle
+                    Box(
+                        modifier = Modifier
+                            .size(width = 42.dp, height = 24.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (item.isVisible) Color(0xFF2ECC71) else Color(0xFF4A5568))
+                            .padding(2.dp),
+                        contentAlignment = if (item.isVisible) Alignment.CenterEnd else Alignment.CenterStart
+                    ) {
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .background(Color.White, androidx.compose.foundation.shape.CircleShape)
+                        )
+                    }
+                }
+                Spacer(Modifier.size(2.dp))
+            }
+            Spacer(Modifier.size(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("隐藏的按键在游戏中不显示", color = Color(0xFF8899AA), fontSize = 10.sp)
+                Spacer(Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = onDismiss) {
+                    Text("完成", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 

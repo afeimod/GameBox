@@ -127,6 +127,7 @@ fun LibraryScreen(
     onImport: () -> Unit,
     onSearch: () -> Unit,
     onLongClickGame: (GameEntry) -> Unit = {},
+    onGamesChanged: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -154,77 +155,65 @@ fun LibraryScreen(
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
 
     fun refreshList() {
-        // 1) If we have a saved "last imported folder URI", re-scan it
-        //    to discover newly added ROMs and remove ROMs that have been
-        //    deleted from disk. This makes the refresh button actually
-        //    useful instead of just reloading SharedPreferences.
-        //
-        // === FIX: refresh button did nothing for local-folder imports ===
-        // Previously this branch only handled `content://` URIs (SAF picker).
-        // Imports done via the built-in FileBrowserDialog (which produces
-        // plain filesystem paths like "/sdcard/ROMs/...") were saved by
-        // RomStore.setLastImportFolder() but never re-scanned, so the refresh
-        // button appeared to do nothing when the user added/removed games.
-        // We now also handle local paths and remove games whose files no
-        // longer exist.
-        val lastFolder = RomStore.getLastImportFolder(context)
-        if (lastFolder != null) {
-            val (folderUriStr, hintPlatform) = lastFolder
+        // 1) Re-scan every folder the user has imported games from, to pick up
+        //    newly added ROMs and remove ROMs that have been deleted from disk.
+        //    Previously only the LAST imported folder was re-scanned, and only
+        //    when the scan returned non-empty results, so:
+        //      - ROMs added/deleted in folders imported earlier were never seen
+        //      - deleting ALL ROMs in a folder left stale entries in the list
+        //    Now every imported folder is re-scanned; SAF entries are removed
+        //    when the folder no longer lists them (an empty result from a
+        //    successful scan means the folder is genuinely empty), and local
+        //    entries are removed when their file no longer exists or the
+        //    folder itself is gone.
+        var stepAdded = 0
+        var stepRemoved = 0
+        var lostFolderAccess = false
+        val folders = RomStore.getImportedFolders(context)
+        folders.forEach { (folderUriStr, hintPlatform) ->
             if (folderUriStr.startsWith("content://")) {
                 try {
                     val folderUri = Uri.parse(folderUriStr)
-                    // Try to list children — if this throws SecurityException,
-                    // the persistable URI permission was revoked (e.g. user
-                    // cleared app data), so we just fall through to the basic
-                    // refresh path.
+                    // If this throws SecurityException the persistable URI
+                    // permission was revoked (e.g. user cleared app data);
+                    // we skip this folder instead of deleting its games.
                     val romFiles = scanUriForRomsRecursive(context, folderUri, folderUri, maxDepth = 5)
 
-                    // Collect all URIs currently found in the folder
+                    // Scan succeeded — even an empty list means the folder has
+                    // no ROM files right now, so entries no longer listed here
+                    // are safe to remove.
                     val foundUris = romFiles.map { it.second.toString() }.toMutableSet()
 
-                    // Remove games whose ROM path was in this folder
-                    // but no longer exists there.
-                    //
-                    // === FIX: narrow the matching criterion ===
-                    // Previously we matched any game whose URI authority equaled
-                    // the folder URI's authority — but every SAF document URI
-                    // from the same provider (e.g. com.android.externalstorage.documents)
-                    // shares that authority. If the user imported from two
-                    // different folders served by the same provider, refreshing
-                    // after the second import would incorrectly mark all games
-                    // from the first folder for removal.
-                    //
-                    // We now match only games whose URI starts with the folder
-                    // tree's prefix (everything up to the document id), which
-                    // is unique per folder.
                     val existing = RomStore.loadAll(context)
                     val folderTreePrefix = run {
                         // content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fsms/document/primary%3AROMs%2Fsms%2F...
-                        // We want to match anything that starts with the tree
-                        // prefix: "content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fsms"
+                        // Match anything that starts with the tree prefix:
+                        // "content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fsms"
                         val s = folderUri.toString()
                         // Strip trailing "/document/..." if present
                         val docIdx = s.indexOf("/document/")
                         if (docIdx > 0) s.substring(0, docIdx) else s
                     }
+                    // Boundary-safe prefix match: only games under THIS folder
+                    // tree (e.g. ".../tree/primary%3AROMs/document/...") count.
+                    // A sibling folder ".../tree/primary%3AROMs2/document/..."
+                    // must NOT match — otherwise we'd delete the wrong games.
+                    fun isUnderFolder(uriStr: String): Boolean =
+                        uriStr == folderTreePrefix || uriStr.startsWith("$folderTreePrefix/document/")
+
                     val toRemove = existing.filter { game ->
                         val p = game.romPath ?: return@filter false
-                        // Only touch games that look like they came from this folder
                         if (!p.startsWith("content://")) return@filter false
-                        // Match games whose URI is under this folder's tree
-                        if (!p.startsWith(folderTreePrefix)) return@filter false
-                        // Only delete if we can confirm the file is gone (i.e. the
-                        // folder re-scan returned non-empty results — an empty
-                        // result usually means the scan itself failed and we
-                        // must not delete everything).
-                        p !in foundUris && romFiles.isNotEmpty()
+                        if (!isUnderFolder(p)) return@filter false
+                        p !in foundUris
                     }
                     if (toRemove.isNotEmpty()) {
                         toRemove.forEach { RomStore.remove(context, it.id) }
+                        stepRemoved += toRemove.size
                     }
 
                     // Add new ROMs found in the folder that aren't yet in the library
-                    val existingPaths = existing.mapNotNull { it.romPath }.toSet()
+                    val existingPaths = RomStore.loadAll(context).mapNotNull { it.romPath }.toSet()
                     var added = 0
                     romFiles.forEach { (name, fileUri) ->
                         val uriStr = fileUri.toString()
@@ -241,45 +230,57 @@ fun LibraryScreen(
                             } catch (_: Exception) { }
                         }
                     }
-                    if (added > 0 || toRemove.isNotEmpty()) {
-                        dialogMsg = "刷新完成：新增 $added 个，移除 ${toRemove.size} 个"
-                    } else {
-                        dialogMsg = "已是最新（无新增/移除）"
-                    }
+                    stepAdded += added
                 } catch (_: SecurityException) {
-                    // Persistable URI permission lost — fall through to basic refresh
-                    dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
-                } catch (e: Exception) {
-                    // Any other failure — show the error so the user knows it happened
-                    dialogMsg = "刷新失败：${e.message ?: e.javaClass.simpleName}"
+                    // Persistable URI permission lost — we can't verify the
+                    // folder's contents, so skip it without deleting anything.
+                    lostFolderAccess = true
+                } catch (_: Exception) {
+                    // Any other scan failure — skip rather than deleting games
+                    // based on an incomplete scan.
                 }
             } else {
                 // === FIX: local filesystem folder re-scan ===
                 // RomStore.setLastImportFolder() was called with a plain path
-                // (e.g. "/sdcard/ROMs/sms") by FileBrowserDialog. Re-walk that
+                // (e.g. "/sdcard/ROMs/sms") by FileBrowserDialog. Re-walk the
                 // folder, remove games whose files are gone, and add new ones.
                 try {
                     val folder = java.io.File(folderUriStr)
-                    if (folder.exists() && folder.isDirectory) {
-                        val romFiles = scanLocalFolderForRoms(folder, maxDepth = 5)
-                        val foundPaths = romFiles.map { it.absolutePath }.toMutableSet()
-                        val existing = RomStore.loadAll(context)
-
-                        // Match games whose local file path is under this folder
+                    if (!folder.exists() || !folder.isDirectory) {
+                        // The imported folder itself is gone — remove every
+                        // game that lived under it.
                         val folderAbs = folder.absolutePath
+                        val existing = RomStore.loadAll(context)
                         val toRemove = existing.filter { game ->
                             val p = game.romPath ?: return@filter false
-                            if (!p.startsWith("/")) return@filter false
-                            if (!p.startsWith(folderAbs)) return@filter false
-                            // Only remove if scan succeeded (non-empty) AND the file is gone
-                            p !in foundPaths && romFiles.isNotEmpty()
+                            p.startsWith("/") && (p == folderAbs || p.startsWith("$folderAbs/"))
                         }
                         if (toRemove.isNotEmpty()) {
                             toRemove.forEach { RomStore.remove(context, it.id) }
+                            stepRemoved += toRemove.size
+                        }
+                    } else {
+                        val romFiles = scanLocalFolderForRoms(folder, maxDepth = 5)
+                        val folderAbs = folder.absolutePath
+                        val existing = RomStore.loadAll(context)
+
+                        // Remove games under this folder whose file no longer
+                        // exists on disk. File.exists() is exact, so this works
+                        // even when ALL ROMs were deleted (an empty scan result
+                        // used to block removal entirely).
+                        val toRemove = existing.filter { game ->
+                            val p = game.romPath ?: return@filter false
+                            if (!p.startsWith("/")) return@filter false
+                            if (p != folderAbs && !p.startsWith("$folderAbs/")) return@filter false
+                            !java.io.File(p).exists()
+                        }
+                        if (toRemove.isNotEmpty()) {
+                            toRemove.forEach { RomStore.remove(context, it.id) }
+                            stepRemoved += toRemove.size
                         }
 
                         // Add new ROMs
-                        val existingPaths = existing.mapNotNull { it.romPath }.toSet()
+                        val existingPaths = RomStore.loadAll(context).mapNotNull { it.romPath }.toSet()
                         var added = 0
                         romFiles.forEach { file ->
                             val path = file.absolutePath
@@ -296,16 +297,10 @@ fun LibraryScreen(
                                 } catch (_: Exception) { }
                             }
                         }
-                        if (added > 0 || toRemove.isNotEmpty()) {
-                            dialogMsg = "刷新完成：新增 $added 个，移除 ${toRemove.size} 个"
-                        } else {
-                            dialogMsg = "已是最新（无新增/移除）"
-                        }
-                    } else {
-                        dialogMsg = "导入的文件夹已不存在：$folderUriStr"
+                        stepAdded += added
                     }
-                } catch (e: Exception) {
-                    dialogMsg = "刷新失败：${e.message ?: e.javaClass.simpleName}"
+                } catch (_: Exception) {
+                    // Skip failed folders rather than removing entries.
                 }
             }
         }
@@ -375,15 +370,28 @@ fun LibraryScreen(
         }
 
         val removedCount = finalNes.size - validNes.size
-        if (newFound > 0 || removedCount > 0) {
-            if (dialogMsg.isNullOrBlank()) {
-                dialogMsg = "刷新完成：新增 $newFound 个，移除 $removedCount 个"
-            }
+
+        // Combined summary from step 1 (imported folders) and step 2 (standard
+        // directories). The "已是最新" message is only shown when every
+        // imported folder was scanned successfully and nothing changed.
+        val totalAdded = stepAdded + newFound
+        val totalRemoved = stepRemoved + removedCount
+        if (totalAdded > 0 || totalRemoved > 0) {
+            dialogMsg = "刷新完成：新增 $totalAdded 个，移除 $totalRemoved 个"
+        } else if (lostFolderAccess) {
+            dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
+        } else if (folders.isNotEmpty()) {
+            dialogMsg = "已是最新（无新增/移除）"
         }
 
         val merged = (validNes + java).distinctBy { it.id }
         importedGames.clear()
         importedGames.addAll(merged)
+
+        // Notify the parent (NesApp) so the Home screen / other Library
+        // instances reload the latest list — otherwise the refreshed list
+        // is replaced by stale data when navigating back.
+        onGamesChanged?.invoke()
     }
 
     // 当外部传入的 games 列表变化时（父级 NavHost 在 ON_RESUME 时重新加载），

@@ -111,7 +111,7 @@ fun NesApp() {
     val reloadGames: () -> Unit = { games = loadAllGames(ctx) }
 
     if (isTv) {
-        TvNavHost(nav = nav, games = games)
+        TvNavHost(nav = nav, games = games, reloadGames = reloadGames)
     } else {
         PhoneNavHost(nav = nav, games = games, reloadGames = reloadGames)
     }
@@ -201,7 +201,8 @@ private fun PhoneNavHost(
                 },
                 onImport = { /* TODO: ACTION_OPEN_DOCUMENT */ },
                 onSearch = { /* TODO */ },
-                onLongClickGame = { }   // LibraryScreen 自身处理长按菜单
+                onLongClickGame = { },   // LibraryScreen 自身处理长按菜单
+                onGamesChanged = reloadGames
             )
         }
         composable(Routes.FILE_LIST) {
@@ -259,7 +260,8 @@ private fun PhoneNavHost(
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
                 onSearch = { },
-                onLongClickGame = { }
+                onLongClickGame = { },
+                onGamesChanged = reloadGames
             )
         }
         composable(Routes.HISTORY) {
@@ -270,7 +272,8 @@ private fun PhoneNavHost(
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
                 onSearch = { },
-                onLongClickGame = { }
+                onLongClickGame = { },
+                onGamesChanged = reloadGames
             )
         }
         composable(Routes.SETTINGS) {
@@ -420,7 +423,11 @@ private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Uni
 }
 
 @Composable
-private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<GameEntry>) {
+private fun TvNavHost(
+    nav: androidx.navigation.NavHostController,
+    games: List<GameEntry>,
+    reloadGames: () -> Unit
+) {
     val ctx = LocalContext.current
 
     // Platform-aware openGame: Java games launch via J2ME engine, NES via emulator
@@ -457,7 +464,8 @@ private fun TvNavHost(nav: androidx.navigation.NavHostController, games: List<Ga
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onImport = { },
-                onSearch = { }
+                onSearch = { },
+                onGamesChanged = reloadGames
             )
         }
         composable(Routes.SWF_LIST) {

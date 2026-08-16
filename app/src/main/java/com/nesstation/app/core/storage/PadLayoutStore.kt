@@ -336,7 +336,24 @@ data class PadLayout(
     val comboButtonsGba: String = "",      // GBA combo list (JSON)
     val comboButtonsArcade: String = "",   // Arcade combo list (JSON)
     val comboButtonsMd: String = "",       // MD combo list (JSON)
-    val comboButtonsPce: String = ""       // PCE combo list (JSON)
+    val comboButtonsPce: String = "",      // PCE combo list (JSON)
+
+    // === PCE button visibility toggles (which on-screen buttons are shown) ===
+    // PCE uses the shared SNES/Arcade/MD layout slots (D-pad, I/II, RUN,
+    // SELECT, V/VI, IV/III, Turbo I/II). Each can be individually shown or
+    // hidden from the layout editor so the user can declutter the overlay.
+    // These flags are global (shared between landscape and portrait).
+    val pceShowDpad: Boolean = true,
+    val pceShowA: Boolean = true,          // PCE "I"
+    val pceShowB: Boolean = true,          // PCE "II"
+    val pceShowStart: Boolean = true,      // PCE "RUN"
+    val pceShowSelect: Boolean = true,
+    val pceShowL: Boolean = true,          // PCE "V"
+    val pceShowR: Boolean = true,          // PCE "VI"
+    val pceShowX: Boolean = true,          // PCE "IV"
+    val pceShowY: Boolean = true,          // PCE "III"
+    val pceShowL2: Boolean = true,         // PCE "TURBO II"
+    val pceShowR2: Boolean = true          // PCE "TURBO I"
 )
 
 /**
@@ -755,7 +772,19 @@ object PadLayoutStore {
             comboButtonsGba = p.getString("combo_buttons_gba", "") ?: "",
             comboButtonsArcade = p.getString("combo_buttons_arcade", "") ?: "",
             comboButtonsMd = p.getString("combo_buttons_md", "") ?: "",
-            comboButtonsPce = p.getString("combo_buttons_pce", "") ?: ""
+            comboButtonsPce = p.getString("combo_buttons_pce", "") ?: "",
+            // PCE button visibility toggles
+            pceShowDpad = p.getBoolean("pce_show_dpad", true),
+            pceShowA = p.getBoolean("pce_show_a", true),
+            pceShowB = p.getBoolean("pce_show_b", true),
+            pceShowStart = p.getBoolean("pce_show_start", true),
+            pceShowSelect = p.getBoolean("pce_show_select", true),
+            pceShowL = p.getBoolean("pce_show_l", true),
+            pceShowR = p.getBoolean("pce_show_r", true),
+            pceShowX = p.getBoolean("pce_show_x", true),
+            pceShowY = p.getBoolean("pce_show_y", true),
+            pceShowL2 = p.getBoolean("pce_show_l2", true),
+            pceShowR2 = p.getBoolean("pce_show_r2", true)
         )
     }
 
@@ -1032,6 +1061,18 @@ object PadLayoutStore {
             putString("combo_buttons_arcade", layout.comboButtonsArcade)
             putString("combo_buttons_md", layout.comboButtonsMd)
             putString("combo_buttons_pce", layout.comboButtonsPce)
+            // PCE button visibility toggles
+            putBoolean("pce_show_dpad", layout.pceShowDpad)
+            putBoolean("pce_show_a", layout.pceShowA)
+            putBoolean("pce_show_b", layout.pceShowB)
+            putBoolean("pce_show_start", layout.pceShowStart)
+            putBoolean("pce_show_select", layout.pceShowSelect)
+            putBoolean("pce_show_l", layout.pceShowL)
+            putBoolean("pce_show_r", layout.pceShowR)
+            putBoolean("pce_show_x", layout.pceShowX)
+            putBoolean("pce_show_y", layout.pceShowY)
+            putBoolean("pce_show_l2", layout.pceShowL2)
+            putBoolean("pce_show_r2", layout.pceShowR2)
         }.apply()
     }
 }

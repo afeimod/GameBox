@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import androidx.compose.ui.graphics.Color
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Persistent ROM library store using SharedPreferences.
@@ -34,6 +36,9 @@ object RomStore {
     private const val KEY_LAST_IMPORT_FOLDER_URI = "last_import_folder_uri"
     private const val KEY_LAST_IMPORT_PLATFORM = "last_import_platform"
 
+    /** SharedPreferences key for ALL folders the user has imported games from. */
+    private const val KEY_IMPORTED_FOLDERS = "imported_folders"
+
     /** Persist the SAF folder URI the user just imported from, so the Refresh
      *  button can re-scan the same folder without asking again. */
     fun setLastImportFolder(ctx: Context, folderUri: String?, platform: GamePlatform?) {
@@ -43,6 +48,15 @@ object RomStore {
         } else {
             p.putString(KEY_LAST_IMPORT_FOLDER_URI, folderUri)
             p.putString(KEY_LAST_IMPORT_PLATFORM, platform?.name ?: GamePlatform.NES.name)
+            // Also remember this folder in the persistent multi-folder list so
+            // the Refresh button re-scans EVERY imported folder (not just the
+            // most recent one). Without this, ROMs added/removed in folders
+            // imported earlier were never picked up by the refresh button.
+            val folders = getImportedFolders(ctx).toMutableList()
+            if (folders.none { it.first == folderUri }) {
+                folders.add(folderUri to (platform ?: GamePlatform.NES))
+                p.putString(KEY_IMPORTED_FOLDERS, encodeImportedFolders(folders))
+            }
         }
         p.apply()
     }
@@ -53,6 +67,45 @@ object RomStore {
         val uri = p.getString(KEY_LAST_IMPORT_FOLDER_URI, null) ?: return null
         val platName = p.getString(KEY_LAST_IMPORT_PLATFORM, GamePlatform.NES.name)
         return uri to GamePlatform.fromString(platName)
+    }
+
+    /**
+     * All folders the user has imported games from, as (folderUriOrPath,
+     * platform) pairs. The Refresh button re-scans every one of them so newly
+     * added or deleted ROMs are reflected correctly even when the user has
+     * imported multiple folders.
+     */
+    fun getImportedFolders(ctx: Context): List<Pair<String, GamePlatform>> {
+        val p = prefs(ctx)
+        val raw = p.getString(KEY_IMPORTED_FOLDERS, null)
+        val list = mutableListOf<Pair<String, GamePlatform>>()
+        if (!raw.isNullOrBlank()) {
+            try {
+                val arr = JSONArray(raw)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val uri = obj.optString("uri", null) ?: continue
+                    val plat = GamePlatform.fromString(obj.optString("platform", GamePlatform.NES.name))
+                    list.add(uri to plat)
+                }
+            } catch (_: Exception) {
+                // Malformed data — fall through to the migration path below.
+            }
+        }
+        // Migration: older versions only saved a single last-import folder.
+        // If the multi-folder list is empty, treat that folder as the only one.
+        if (list.isEmpty()) {
+            getLastImportFolder(ctx)?.let { list.add(it) }
+        }
+        return list
+    }
+
+    private fun encodeImportedFolders(folders: List<Pair<String, GamePlatform>>): String {
+        val arr = JSONArray()
+        folders.forEach { (uri, platform) ->
+            arr.put(JSONObject().put("uri", uri).put("platform", platform.name))
+        }
+        return arr.toString()
     }
 
     private fun prefs(ctx: Context): SharedPreferences =
