@@ -56,6 +56,8 @@ import com.nesstation.app.ui.files.FileListScreen
 import com.nesstation.app.ui.swf.SwfListScreen
 import com.nesstation.app.ui.swf.SwfPlayerScreen
 import com.nesstation.app.ui.about.AboutScreen
+import com.nesstation.app.ui.battle.BattleMatchScreen
+import com.nesstation.app.ui.battle.BattleScreen
 import com.nesstation.app.ui.online.OnlineGamesScreen
 import com.nesstation.app.ui.online.WebGameScreen
 import java.io.File
@@ -70,6 +72,8 @@ object Routes {
     const val FILE_LIST = "file_list"
     const val SWF_LIST = "swf_list"
     const val ONLINE_GAMES = "online_games"
+    const val BATTLE = "battle"
+    const val BATTLE_MATCH = "battle_match/{roomId}/{gameId}/{isHost}/{tcpAddr}"
     const val WEB_GAME = "web_game/{url}/{uaMode}"
     const val ABOUT = "about"
     const val EMULATOR = "emulator/{gameId}"
@@ -78,6 +82,8 @@ object Routes {
     fun swfPlayer(path: String) = "swf_player/${java.net.URLEncoder.encode(path, "UTF-8")}"
     fun webGame(url: String, uaMode: String) =
         "web_game/${java.net.URLEncoder.encode(url, "UTF-8")}/$uaMode"
+    fun battleMatch(roomId: String, gameId: String, isHost: Boolean, tcpAddr: String) =
+        "battle_match/$roomId/$gameId/$isHost/${java.net.URLEncoder.encode(tcpAddr, "UTF-8")}"
 }
 
 @Composable
@@ -183,11 +189,49 @@ private fun PhoneNavHost(
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
                 onOpenFileList = { nav.navigate(Routes.FILE_LIST) },
                 onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
+                onOpenBattle = { nav.navigate(Routes.BATTLE) },
                 onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
                 onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } },
                 onLongClickGame = { longPressGame = it }
+            )
+        }
+        composable(Routes.BATTLE) {
+            BattleScreen(
+                onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
+                onOpenMatch = { args ->
+                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr))
+                }
+            )
+        }
+        composable(
+            Routes.BATTLE_MATCH,
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType },
+                navArgument("gameId") { type = NavType.StringType },
+                navArgument("isHost") { type = NavType.BoolType },
+                navArgument("tcpAddr") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val roomId = entry.arguments?.getString("roomId") ?: ""
+            val gameId = entry.arguments?.getString("gameId") ?: ""
+            val isHost = entry.arguments?.getBoolean("isHost") ?: false
+            val tcpAddr = java.net.URLDecoder.decode(
+                entry.arguments?.getString("tcpAddr") ?: "",
+                "UTF-8"
+            )
+            BattleMatchScreen(
+                args = BattleMatchArgs(
+                    roomId = roomId,
+                    gameId = gameId,
+                    isHost = isHost,
+                    tcpAddr = tcpAddr
+                ),
+                onExit = {
+                    nav.popBackStack(Routes.BATTLE, inclusive = false)
+                }
             )
         }
         composable(Routes.LIBRARY) {
@@ -451,10 +495,48 @@ private fun TvNavHost(
                 onOpenGame = openGame,
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
                 onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
+                onOpenBattle = { nav.navigate(Routes.BATTLE) },
                 onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
                 onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } }
+            )
+        }
+        composable(Routes.BATTLE) {
+            BattleScreen(
+                onBack = { nav.popBackStack() },
+                onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
+                onOpenMatch = { args ->
+                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr))
+                }
+            )
+        }
+        composable(
+            Routes.BATTLE_MATCH,
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType },
+                navArgument("gameId") { type = NavType.StringType },
+                navArgument("isHost") { type = NavType.BoolType },
+                navArgument("tcpAddr") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val roomId = entry.arguments?.getString("roomId") ?: ""
+            val gameId = entry.arguments?.getString("gameId") ?: ""
+            val isHost = entry.arguments?.getBoolean("isHost") ?: false
+            val tcpAddr = java.net.URLDecoder.decode(
+                entry.arguments?.getString("tcpAddr") ?: "",
+                "UTF-8"
+            )
+            BattleMatchScreen(
+                args = BattleMatchArgs(
+                    roomId = roomId,
+                    gameId = gameId,
+                    isHost = isHost,
+                    tcpAddr = tcpAddr
+                ),
+                onExit = {
+                    nav.popBackStack(Routes.BATTLE, inclusive = false)
+                }
             )
         }
         composable(Routes.LIBRARY) {

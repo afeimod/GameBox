@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +53,7 @@ fun BottomDock(
 ) {
     val items = listOf(
         DockItem("游戏库", Icons.Rounded.GridView),
+        DockItem("对战平台", Icons.Rounded.SportsEsports),
         DockItem("在线游戏", Icons.Rounded.Public),
         DockItem("SWF", Icons.Rounded.PlayArrow),
         DockItem("设置", Icons.Rounded.Settings),
@@ -102,6 +104,7 @@ fun VerticalDock(
 ) {
     val items = listOf(
         DockItem("游戏库", Icons.Rounded.GridView),
+        DockItem("对战平台", Icons.Rounded.SportsEsports),
         DockItem("浏览器", Icons.Rounded.Public),
         DockItem("SWF", Icons.Rounded.PlayArrow),
         DockItem("设置", Icons.Rounded.Settings),

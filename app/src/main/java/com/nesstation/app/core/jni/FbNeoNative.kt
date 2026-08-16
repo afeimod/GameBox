@@ -91,6 +91,12 @@ object FbNeoNative {
     /** Standard libretro gamepad (port 0). See class doc for bit layout. */
     @JvmStatic external fun setPad1(bits: Int)
 
+    /**
+     * Second controller (port 1, player 2). Same bit layout as [setPad1].
+     * Used for netplay: injects the remote opponent's input each frame.
+     */
+    @JvmStatic external fun setPad2(bits: Int)
+
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)
     @JvmStatic external fun setFastForward(speed: Int)

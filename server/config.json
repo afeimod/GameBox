@@ -1,0 +1,22 @@
+{
+  "httpAddr": ":8080",
+  "tcpAddr": ":9090",
+  "publicHttpAddr": "your-server-ip-or-domain:8080",
+  "publicTcpAddr": "your-server-ip-or-domain:9090",
+  "jwtSecret": "446b67edfa4d11d61d88e9ae61f8b1abd316482b3916e2868acb94b482d5c7f3",
+  "dataDir": "./data",
+  "maxRooms": 200,
+  "inputDelay": 4,
+  "romCacheMax": 67108864,
+  "games": [
+    {
+      "id": "kof97",
+      "title": "拳皇97",
+      "platform": "arcade",
+      "romUrl": "https://github.com/your-name/GameBox-Roms/releases/download/v1/kof97.zip",
+      "fileName": "kof97.zip",
+      "size": 0,
+      "needsBios": ["neogeo.zip"]
+    }
+  ]
+}

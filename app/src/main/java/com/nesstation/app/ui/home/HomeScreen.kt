@@ -70,6 +70,7 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenFileList: () -> Unit,
     onOpenOnlineGames: () -> Unit,
+    onOpenBattle: () -> Unit,
     onOpenSwf: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -123,11 +124,12 @@ fun HomeScreen(
                     onSelect = { idx ->
                         when (idx) {
                             0 -> onOpenLibrary()         // 游戏库
-                            1 -> onOpenOnlineGames()     // 在线游戏
-                            2 -> onOpenSwf()             // SWF
-                            3 -> onOpenSettings()        // 设置
-                            4 -> onOpenAbout()           // 关于
-                            5 -> onExit()                // 退出
+                            1 -> onOpenBattle()          // 对战平台
+                            2 -> onOpenOnlineGames()     // 在线游戏
+                            3 -> onOpenSwf()             // SWF
+                            4 -> onOpenSettings()        // 设置
+                            5 -> onOpenAbout()           // 关于
+                            6 -> onExit()                // 退出
                         }
                     },
                     modifier = Modifier.padding(start = 4.dp, top = 60.dp)
@@ -352,11 +354,12 @@ fun HomeScreen(
                     onSelect = { idx ->
                         when (idx) {
                             0 -> onOpenLibrary()
-                            1 -> onOpenOnlineGames()
-                            2 -> onOpenSwf()
-                            3 -> onOpenSettings()
-                            4 -> onOpenAbout()
-                            5 -> onExit()
+                            1 -> onOpenBattle()
+                            2 -> onOpenOnlineGames()
+                            3 -> onOpenSwf()
+                            4 -> onOpenSettings()
+                            5 -> onOpenAbout()
+                            6 -> onExit()
                         }
                     }
                 )

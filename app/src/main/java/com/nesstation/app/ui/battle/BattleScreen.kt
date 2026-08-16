@@ -1,0 +1,753 @@
+package com.nesstation.app.ui.battle
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Login
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.nesstation.app.battle.BattleApi
+import com.nesstation.app.battle.BattleRomStore
+import com.nesstation.app.battle.BattleSession
+import com.nesstation.app.ui.components.PixelBackdrop
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private val PrimaryText = Color(0xFF1E2A3A)
+private val SecondaryText = Color(0xFF4A5568)
+private val SecondaryTextLight = Color(0xFF8899AA)
+private val Accent = Color(0xFF8A7BFF)
+private val Accent2 = Color(0xFF4F8AC4)
+private val DeleteColor = Color(0xFFE74C3C)
+private val AccentPalette = listOf(
+    Color(0xFF8A7BFF), Color(0xFFE74C3C), Color(0xFF27AE60),
+    Color(0xFF3498DB), Color(0xFFE67E22), Color(0xFF1ABC9C)
+)
+
+/** 对战平台主页：服务器配置 + 登录注册 + 游戏列表 + 房间。 */
+@Composable
+fun BattleScreen(
+    onBack: () -> Unit,
+    onHome: () -> Unit,
+    onOpenMatch: (BattleMatchArgs) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var loggedIn by remember { mutableStateOf(BattleSession.isLoggedIn(context)) }
+    var username by remember { mutableStateOf(BattleSession.getUsername(context) ?: "") }
+
+    // 服务器地址编辑
+    var showServerDialog by remember { mutableStateOf(false) }
+
+    // 游戏与房间数据
+    var games by remember { mutableStateOf<List<BattleApi.Game>>(emptyList()) }
+    var rooms by remember { mutableStateOf<List<BattleApi.Room>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var statusMsg by remember { mutableStateOf<String?>(null) }
+    var downloading by remember { mutableStateOf<DownloadTask?>(null) }
+
+    // 登录后刷新
+    fun refreshAll() {
+        if (!BattleSession.isLoggedIn(context)) return
+        loading = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val api = BattleApi(context)
+                val g = api.games()
+                val r = api.rooms()
+                withContext(Dispatchers.Main) {
+                    games = g
+                    rooms = r
+                    loading = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    loading = false
+                    statusMsg = e.message
+                }
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        PixelBackdrop()
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ---- 顶部栏 ----
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PrimaryText)
+                }
+                HomePill(onClick = onHome, modifier = Modifier.padding(start = 2.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp)
+                ) {
+                    Text("对战平台", color = PrimaryText, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        if (loggedIn) "已登录：$username" else "虚拟账号 · 实时联机",
+                        color = SecondaryText,
+                        fontSize = 10.sp
+                    )
+                }
+                // 服务器设置入口
+                IconButton(onClick = { showServerDialog = true }) {
+                    Icon(Icons.Rounded.Groups, contentDescription = "服务器设置", tint = Accent2)
+                }
+            }
+
+            if (!loggedIn) {
+                // ---- 登录 / 注册 ----
+                LoginPanel(
+                    serverConfigured = BattleSession.hasConfiguredServer(context),
+                    onOpenServer = { showServerDialog = true },
+                    onLoggedIn = { name ->
+                        loggedIn = true
+                        username = name
+                        refreshAll()
+                    }
+                )
+            } else {
+                // ---- 已登录：游戏 + 房间 ----
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    item { SectionTitle("对战游戏（统一 ROM 分发）") }
+
+                    if (games.isEmpty() && !loading) {
+                        item {
+                            HintCard(
+                                "服务器未返回游戏",
+                                "请确认服务器 config.json 已配置 games 列表（如拳皇97 kof97）。"
+                            )
+                        }
+                    }
+
+                    items(games) { game ->
+                        BattleGameCard(
+                            game = game,
+                            downloaded = BattleRomStore.hasRom(context, game.id, "${game.id}.zip"),
+                            downloadTask = downloading?.takeIf { it.gameId == game.id },
+                            onDownload = {
+                                downloading = DownloadTask(game.id, "${game.id}.zip", 0f)
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        BattleApi(context).downloadRom(
+                                            game,
+                                            BattleRomStore.romFile(context, game.id, "${game.id}.zip")
+                                        ) { done, total ->
+                                            if (total > 0) {
+                                                downloading = DownloadTask(
+                                                    game.id, "${game.id}.zip",
+                                                    (done.toFloat() / total).coerceIn(0f, 1f)
+                                                )
+                                            }
+                                        }
+                                        withContext(Dispatchers.Main) { downloading = null }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            downloading = null
+                                            statusMsg = "下载失败：${e.message}"
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
+
+                    item { Spacer(Modifier.height(4.dp)) }
+                    item { SectionTitle("房间列表") }
+
+                    if (rooms.isEmpty() && !loading) {
+                        item { HintCard("暂无房间", "创建一个房间，等待对手加入。") }
+                    }
+
+                    items(rooms) { room ->
+                        RoomRow(room = room, onJoin = {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val token = BattleSession.getToken(context)!!
+                                    val (joined, tcp) = BattleApi(context).joinRoom(room.id, token)
+                                    withContext(Dispatchers.Main) {
+                                        onOpenMatch(
+                                            BattleMatchArgs(
+                                                roomId = joined.id,
+                                                gameId = joined.gameId,
+                                                isHost = false,
+                                                tcpAddr = tcp
+                                            )
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) { statusMsg = e.message }
+                                }
+                            }
+                        })
+                    }
+
+                    // ---- 创建房间按钮 ----
+                    item {
+                        Button(
+                            onClick = {
+                                val firstGame = games.firstOrNull()
+                                if (firstGame == null) {
+                                    statusMsg = "服务器没有可对战的游戏"
+                                    return@Button
+                                }
+                                val token = BattleSession.getToken(context)
+                                if (token == null) { statusMsg = "未登录"; return@Button }
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val (room, tcp) = BattleApi(context).createRoom(firstGame.id, token)
+                                        withContext(Dispatchers.Main) {
+                                            onOpenMatch(
+                                                BattleMatchArgs(
+                                                    roomId = room.id,
+                                                    gameId = room.gameId,
+                                                    isHost = true,
+                                                    tcpAddr = tcp
+                                                )
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) { statusMsg = e.message }
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Accent,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Rounded.SportsEsports, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("创建房间（${games.firstOrNull()?.title ?: "—"}）", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    item { Spacer(Modifier.height(60.dp)) }
+                }
+            }
+        }
+
+        // 底部状态
+        statusMsg?.let { msg ->
+            androidx.compose.material3.Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+                containerColor = Color(0xFF1E2A3A),
+                contentColor = Color.White
+            ) { Text(msg, fontSize = 12.sp) }
+            LaunchedEffect(msg) {
+                kotlinx.coroutines.delay(2400)
+                statusMsg = null
+            }
+        }
+    }
+
+    if (showServerDialog) {
+        ServerConfigDialog(
+            onDismiss = { showServerDialog = false },
+            onSaved = {
+                showServerDialog = false
+                statusMsg = "服务器地址已保存"
+            }
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 登录 / 注册
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun LoginPanel(
+    serverConfigured: Boolean,
+    onOpenServer: () -> Unit,
+    onLoggedIn: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf("login") } // login | register
+    var busy by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        if (!serverConfigured) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFFFFF3CD))
+                    .clickable(onClick = onOpenServer)
+                    .padding(12.dp)
+            ) {
+                Icon(Icons.Rounded.Groups, contentDescription = null, tint = Color(0xFF8A6D00))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "未配置服务器地址，点击设置",
+                    color = Color(0xFF6B5200),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        // 卡片
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = 0.85f))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                if (mode == "login") "登录对战平台" else "注册虚拟账号",
+                color = PrimaryText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                "虚拟账号由服务器统一管理，不涉及真实手机号",
+                color = SecondaryText,
+                fontSize = 11.sp
+            )
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("用户名（2-20 字符）") },
+                singleLine = true,
+                colors = lightFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("密码（至少 4 位）") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = lightFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            errorMsg?.let {
+                Text(it, color = DeleteColor, fontSize = 12.sp)
+            }
+
+            Button(
+                onClick = {
+                    if (username.isBlank() || password.isBlank()) {
+                        errorMsg = "请输入用户名和密码"
+                        return@Button
+                    }
+                    busy = true
+                    errorMsg = null
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val api = BattleApi(context)
+                            val result = if (mode == "login") {
+                                api.login(username.trim(), password)
+                            } else {
+                                api.register(username.trim(), password)
+                            }
+                            BattleSession.saveAuth(context, result.token, result.nickname)
+                            withContext(Dispatchers.Main) {
+                                busy = false
+                                onLoggedIn(result.nickname)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                busy = false
+                                errorMsg = e.message
+                            }
+                        }
+                    }
+                },
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Accent,
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth().height(44.dp)
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        if (mode == "login") Icons.Rounded.Login else Icons.Rounded.PersonAdd,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (mode == "login") "登录" else "注册并登录", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            TextButton(
+                onClick = {
+                    mode = if (mode == "login") "register" else "login"
+                    errorMsg = null
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text(
+                    if (mode == "login") "没有账号？立即注册" else "已有账号？去登录",
+                    color = Accent,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 游戏卡片
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun BattleGameCard(
+    game: BattleApi.Game,
+    downloaded: Boolean,
+    downloadTask: DownloadTask?,
+    onDownload: () -> Unit
+) {
+    val accent = AccentPalette[game.id.hashCode().mod(AccentPalette.size)]
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.85f))
+            .padding(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = accent, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(game.title, color = PrimaryText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    buildString {
+                        append("平台：${game.platform}")
+                        if (game.size > 0) append(" · ${formatSize(game.size)}")
+                    },
+                    color = SecondaryText,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        when {
+            downloadTask != null -> {
+                LinearProgressIndicator(
+                    progress = { downloadTask.progress },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = accent,
+                    trackColor = accent.copy(alpha = 0.15f)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "下载中 ${(downloadTask.progress * 100).toInt()}%",
+                    color = SecondaryText,
+                    fontSize = 11.sp
+                )
+            }
+            downloaded -> {
+                Text("✓ 已就绪，可直接创建房间对战", color = Color(0xFF27AE60), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            else -> {
+                Button(
+                    onClick = onDownload,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accent,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(38.dp)
+                ) {
+                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("下载 ROM", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 房间行
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RoomRow(room: BattleApi.Room, onJoin: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.8f))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Icon(Icons.Rounded.Groups, contentDescription = null, tint = Accent2, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "${room.gameTitle.ifBlank { room.gameId }}",
+                color = PrimaryText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                buildString {
+                    append("房主：${room.host.ifBlank { "—" }}")
+                    if (room.guest.isNotBlank()) append(" · 已加入：${room.guest}")
+                    else append(" · 等待对手")
+                },
+                color = SecondaryText,
+                fontSize = 10.sp
+            )
+        }
+        TextButton(onClick = onJoin) {
+            Text("加入", color = Accent, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 服务器配置对话框
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ServerConfigDialog(
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val context = LocalContext.current
+    var host by remember { mutableStateOf(BattleSession.getServerHost(context)) }
+    var httpPort by remember { mutableStateOf(BattleSession.getServerHttpPort(context)) }
+    var tcpPort by remember { mutableStateOf(BattleSession.getServerTcpPort(context)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("对战服务器设置", color = PrimaryText) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "填写你的服务器公网 IP 或域名。HTTP 端口用于账号/房间/ROM，TCP 端口用于实时对战。",
+                    color = SecondaryText,
+                    fontSize = 11.sp
+                )
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text("服务器 IP / 域名") },
+                    singleLine = true,
+                    placeholder = { Text("例：203.0.113.5", color = SecondaryTextLight) },
+                    colors = lightFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = httpPort,
+                        onValueChange = { httpPort = it },
+                        label = { Text("HTTP 端口") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = lightFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = tcpPort,
+                        onValueChange = { tcpPort = it },
+                        label = { Text("TCP 端口") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = lightFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        containerColor = Color.White,
+        titleContentColor = PrimaryText,
+        textContentColor = PrimaryText,
+        confirmButton = {
+            TextButton(onClick = {
+                if (host.isNotBlank()) {
+                    BattleSession.saveServer(context, host, httpPort, tcpPort)
+                    onSaved()
+                }
+            }) { Text("保存", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = SecondaryText) }
+        }
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 小组件
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        color = PrimaryText,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 6.dp)
+    )
+}
+
+@Composable
+private fun HintCard(title: String, subtitle: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.6f))
+            .padding(16.dp)
+    ) {
+        Text(title, color = PrimaryText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(3.dp))
+        Text(subtitle, color = SecondaryText, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun HomePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.6f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Icon(Icons.Rounded.Home, contentDescription = "返回主页", tint = PrimaryText, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("主页", color = PrimaryText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun lightFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = PrimaryText,
+    unfocusedTextColor = PrimaryText,
+    cursorColor = Accent,
+    focusedBorderColor = Accent,
+    unfocusedBorderColor = SecondaryTextLight.copy(alpha = 0.5f),
+    focusedLabelColor = Accent,
+    unfocusedLabelColor = SecondaryText
+)
+
+private fun formatSize(bytes: Long): String {
+    if (bytes <= 0) return ""
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 100) "%.0f MB".format(mb) else "%.1f MB".format(mb)
+}
+
+/** 对战匹配参数（导航到对战界面的数据） */
+data class BattleMatchArgs(
+    val roomId: String,
+    val gameId: String,
+    val isHost: Boolean,
+    val tcpAddr: String
+)
+
+/** ROM 下载任务状态（用于大厅进度显示） */
+private data class DownloadTask(val gameId: String, val fileName: String, val progress: Float)

@@ -39,6 +39,10 @@ public:
     //   A=Button1, B=Button2, X=Button3, Y=Button4, L=Button5, R=Button6,
     //   Select=Coin, Start=Start.
     void setPad1(int bits);
+    // Second controller (port 1, RETRO_DEVICE_JOYPAD) — used for local
+    // 2-player or netplay (remote opponent input). Same bit layout as
+    // setPad1. FBNeo maps port 1 to player 2.
+    void setPad2(int bits);
 
     void setRegion(int region);
     void setSampleRate(int hz);

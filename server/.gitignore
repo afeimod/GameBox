@@ -1,0 +1,9 @@
+# 构建产物
+gamebox-server
+server
+
+# 运行日志
+*.log
+
+# 运行时数据（用户账号等，不应提交）
+data/

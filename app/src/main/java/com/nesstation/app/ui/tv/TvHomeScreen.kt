@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,6 +76,7 @@ fun TvHomeScreen(
     onOpenGame: (GameEntry) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenOnlineGames: () -> Unit,
+    onOpenBattle: () -> Unit,
     onOpenSwf: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -88,11 +90,12 @@ fun TvHomeScreen(
             onSelect = { idx ->
                 when (idx) {
                     0 -> onOpenLibrary()
-                    1 -> onOpenOnlineGames()
-                    2 -> onOpenSwf()
-                    3 -> onOpenSettings()
-                    4 -> onOpenAbout()
-                    5 -> onExit()
+                    1 -> onOpenBattle()
+                    2 -> onOpenOnlineGames()
+                    3 -> onOpenSwf()
+                    4 -> onOpenSettings()
+                    5 -> onOpenAbout()
+                    6 -> onExit()
                 }
             },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -226,6 +229,7 @@ private fun TvBottomDock(
 ) {
     val items = listOf(
         TvDockItem("游戏库", Icons.Rounded.GridView),
+        TvDockItem("对战平台", Icons.Rounded.SportsEsports),
         TvDockItem("在线游戏", Icons.Rounded.Public),
         TvDockItem("SWF", Icons.Rounded.PlayArrow),
         TvDockItem("设置", Icons.Rounded.Settings),
