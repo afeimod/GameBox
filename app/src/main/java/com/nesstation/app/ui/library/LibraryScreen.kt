@@ -312,36 +312,73 @@ fun LibraryScreen(
 
         // 2) Load everything back from RomStore (this picks up the changes above
         //    plus filters out any games whose local files no longer exist).
+        //
+        // === FIX: also scan standard ROM directories for NEW files ===
+        // Even if there's no saved "last import folder" (e.g. user imported
+        // individual files, or the folder was imported before the fix), we
+        // still scan the standard ROM directories and add any new files that
+        // aren't yet in RomStore. This makes the refresh button actually
+        // useful for the common case of "I dropped a new ROM into /sdcard/ROMs".
         val nes = RomStore.loadAll(context)
         val java = JavaGameStore.loadAll(context)
 
-        // Remove games whose ROM files no longer exist on disk
+        // Build a set of all existing ROM paths (for fast lookup)
+        val existingPaths = nes.mapNotNull { it.romPath }.toMutableSet()
+
+        // Scan all standard ROM directories for existing files AND new files
         val validRomPaths = mutableSetOf<String>()
-        // Scan all standard ROM directories for existing files
         val sd = Environment.getExternalStorageDirectory()
         val scanDirs = listOf(
             File(sd, "ROMs"), File(sd, "NesStation"), File(sd, "Download/NesStation"),
+            File(sd, "Games"), File(sd, "Games/NES"), File(sd, "Games/MD"),
+            File(sd, "Games/SEGA"), File(sd, "Games/PCE"), File(sd, "Games/Arcade"),
             context.getExternalFilesDir("roms") ?: File(context.filesDir, "roms")
         )
+        var newFound = 0
         for (dir in scanDirs) {
             if (dir.exists() && dir.isDirectory) {
                 dir.walkTopDown().forEach { f ->
                     if (f.isFile && f.name.substringAfterLast('.', "").lowercase() in ROM_EXTENSIONS) {
-                        validRomPaths.add(f.absolutePath)
+                        val absPath = f.absolutePath
+                        validRomPaths.add(absPath)
+                        // If this file isn't in RomStore yet, add it
+                        if (absPath !in existingPaths) {
+                            try {
+                                val platform = detectPlatformFromFile(f, hintPlatform = selectedPlatform)
+                                val title = if (platform == GamePlatform.ARCADE) {
+                                    ArcadeTitleMapper.resolveDisplayTitle(f.name)
+                                } else {
+                                    f.nameWithoutExtension
+                                }
+                                RomStore.add(context, title, absPath, platform)
+                                existingPaths.add(absPath)
+                                newFound++
+                            } catch (_: Exception) { }
+                        }
                     }
                 }
             }
         }
 
+        // Reload from RomStore to pick up any additions from step 1 or step 2
+        val finalNes = if (newFound > 0) RomStore.loadAll(context) else nes
+
         // Filter out games whose ROM file no longer exists
-        val validNes = nes.filter { game ->
+        val validNes = finalNes.filter { game ->
             val path = game.romPath ?: ""
             // Keep games with content:// URIs (SAF-imported) or files that still exist
             path.startsWith("content://") || path.startsWith("/") && File(path).exists()
         }
-        // If any NES games were removed, persist the updated list
-        if (validNes.size != nes.size) {
+        // If any games were removed, persist the updated list
+        if (validNes.size != finalNes.size) {
             RomStore.saveAll(context, validNes)
+        }
+
+        val removedCount = finalNes.size - validNes.size
+        if (newFound > 0 || removedCount > 0) {
+            if (dialogMsg.isNullOrBlank()) {
+                dialogMsg = "刷新完成：新增 $newFound 个，移除 $removedCount 个"
+            }
         }
 
         val merged = (validNes + java).distinctBy { it.id }

@@ -63,10 +63,15 @@ namespace pcecore::rom {
 
 // ---------------------------------------------------------------------------
 // Maximum video resolution. PCE rare hi-res mode is 512x224.
-// 512x512 covers every supported PCE system with margin.
+// Maximum video resolution.
+// PCE standard: 256x242 (NTSC) / 256x263 (PAL)
+// PCE high-res: 512x242 (width_scale=2)
+// PCE scaled: 1024x242 or 1120x242 (width_scale=3, with/without overscan)
+// Geargrafx's MAX_SCREEN_WIDTH=1120, MAX_SCREEN_HEIGHT=263.
+// 1120x264 covers every supported PCE system with minimal static memory.
 // ---------------------------------------------------------------------------
-static constexpr int kMaxW = 512;
-static constexpr int kMaxH = 512;
+static constexpr int kMaxW = 1120;
+static constexpr int kMaxH = 264;
 
 static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
@@ -133,6 +138,17 @@ static std::string s_lastRomPath;
 static std::string s_coreMessage;
 static std::string s_coreError;
 static std::string s_coreLibPath;
+
+// === Pre-loaded ROM buffer (persists for the game's lifetime) ===
+// Geargrafx's load_hucard() has two paths:
+//   1. If info->data != NULL → LoadHuCardFromBuffer (copies data, works)
+//   2. If info->data == NULL → uses VFS interface to open the file
+// We do NOT implement VFS (RETRO_ENVIRONMENT_GET_VFS_INTERFACE returns false),
+// so we MUST pre-load the ROM into memory and pass it via info->data.
+// The buffer persists in s_extRomData so the pointer stays valid throughout
+// the game session (Geargrafx copies it internally, but we keep it alive
+// defensively in case any deferred access happens).
+static std::vector<uint8_t> s_extRomData;
 
 // Dynamic frame buffer (ARGB, 0xAARRGGBB).
 static std::mutex s_frameMtx;
@@ -365,9 +381,16 @@ static bool cb_environment(unsigned cmd, void* data) {
 
         case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
         case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+#endif
             return true;
 
         case RETRO_ENVIRONMENT_SET_GEOMETRY:
+            // Geargrafx calls this when screen dimensions change mid-game.
+            // We don't need to do anything — cb_video already updates
+            // s_videoW/s_videoH from the width/height parameters every frame.
             return true;
 
         case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
@@ -430,7 +453,18 @@ static bool cb_environment(unsigned cmd, void* data) {
 }
 
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
-    if (!data) return;
+    if (!data) {
+        LOGW("cb_video: data is NULL (width=%u, height=%u) — core has no frame to render", width, height);
+        return;
+    }
+
+    // Log the first few frames for debugging
+    static int s_frameCount = 0;
+    if (s_frameCount < 3) {
+        LOGI("cb_video: frame#%d  %ux%u  pitch=%zu  pixelFormat=%u  data=%p",
+             s_frameCount, width, height, pitch, s_pixelFormat, data);
+        s_frameCount++;
+    }
 
     s_videoW = width;
     s_videoH = height;
@@ -504,6 +538,17 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     }
 
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
+
+    // Check if surface is attached before blitting
+    {
+        std::lock_guard<std::mutex> lk(s_windowMtx);
+        if (!s_window) {
+            // No surface attached yet — frame is stored in s_frame for later
+            // retrieval via getFrameBuffer(). This is normal during startup.
+            return;
+        }
+    }
+
     coreshared::applyFilterAndBlit(
         s_window, s_windowMtx,
         s_frame.data(), width, height, width,
@@ -574,40 +619,71 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_resampler.reset();
 
-    // Geargrafx accepts file paths directly. For .cue / .chd (PCE-CD),
-    // the path points to the cue sheet which references the bin.
-    // For .pce / .sgx / .hes, the path is the ROM file itself.
+    // === Pre-load ROM into memory ===
+    // Geargrafx's load_hucard() requires either info->data (in-memory buffer)
+    // OR a VFS interface (which we don't implement). We MUST pre-load the ROM
+    // and pass it via info->data. The buffer persists in s_extRomData for the
+    // game's lifetime.
+    //
+    // For PCE-CD (.cue/.chd), we pass only the path — Geargrafx's LoadMedia
+    // uses its own CD-ROM image parsing which works with file paths directly
+    // (it opens the .bin files referenced by the .cue using standard C I/O).
+    s_extRomData.clear();
+
+    // Determine if this is a CD image (cue/chd/iso) or a cartridge (pce/sgx/hes)
+    std::string ext;
+    size_t lastDot = path.find_last_of('.');
+    if (lastDot != std::string::npos) {
+        ext = path.substr(lastDot + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    }
+    bool isCdImage = (ext == "cue" || ext == "chd" || ext == "iso");
+
     retro_game_info gameInfo{};
     gameInfo.path = path.c_str();
-    gameInfo.data = nullptr;
-    gameInfo.size = 0;
     gameInfo.meta = nullptr;
 
-    LOGI("About to call retro_load_game for: %s (systemDir=%s)",
-         path.c_str(), s_systemDir.c_str());
+    if (!isCdImage) {
+        // Cartridge: pre-load into s_extRomData
+        FILE* fp = fopen(path.c_str(), "rb");
+        if (!fp) {
+            s_coreError = "Cannot open ROM file: " + path;
+            LOGE("%s", s_coreError.c_str());
+            return s_coreError;
+        }
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        if (sz <= 0 || sz > 64 * 1024 * 1024) {
+            fclose(fp);
+            s_coreError = "ROM size out of range: " + std::to_string(sz) + " bytes";
+            LOGE("%s", s_coreError.c_str());
+            return s_coreError;
+        }
+        s_extRomData.resize((size_t)sz);
+        size_t rd = fread(s_extRomData.data(), 1, (size_t)sz, fp);
+        fclose(fp);
+        if (rd != (size_t)sz) {
+            s_coreError = "ROM read incomplete: got " + std::to_string(rd) +
+                          " of " + std::to_string(sz) + " bytes";
+            LOGE("%s", s_coreError.c_str());
+            return s_coreError;
+        }
+        gameInfo.data = s_extRomData.data();
+        gameInfo.size = s_extRomData.size();
+        LOGI("Pre-loaded ROM: %s (%zu bytes, ext=%s)",
+             path.c_str(), s_extRomData.size(), ext.c_str());
+    } else {
+        // CD image: pass path only, no pre-load
+        gameInfo.data = nullptr;
+        gameInfo.size = 0;
+        LOGI("Loading CD image: %s (ext=%s)", path.c_str(), ext.c_str());
+    }
+
+    LOGI("About to call retro_load_game for: %s (systemDir=%s, data=%p, size=%zu)",
+         path.c_str(), s_systemDir.c_str(), gameInfo.data, gameInfo.size);
 
     bool ok = s_retro_load_game(&gameInfo);
-    if (!ok) {
-        // Fallback: read ROM into memory and try with data + size.
-        FILE* fp = fopen(path.c_str(), "rb");
-        if (fp) {
-            fseek(fp, 0, SEEK_END);
-            long sz = ftell(fp);
-            fseek(fp, 0, SEEK_SET);
-            if (sz > 0 && sz < 64 * 1024 * 1024) {
-                std::vector<uint8_t> buf(sz);
-                size_t rd = fread(buf.data(), 1, sz, fp);
-                fclose(fp);
-                if (rd == (size_t)sz) {
-                    gameInfo.data = buf.data();
-                    gameInfo.size = sz;
-                    ok = s_retro_load_game(&gameInfo);
-                }
-            } else {
-                fclose(fp);
-            }
-        }
-    }
 
     if (!ok) {
         s_coreError = "retro_load_game() failed for: " + path;
@@ -714,6 +790,9 @@ void unload() {
     s_saveName.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
+    // Clear the pre-loaded ROM buffer so memory is freed between games.
+    s_extRomData.clear();
+    s_extRomData.shrink_to_fit();
 }
 
 void resetEmulation(bool /*hard*/) {
