@@ -1784,12 +1784,16 @@ private fun OnScreenController(
                 // the quadrant hit-test (8-direction).
                 // Returns (bits, thumbX, thumbY) where thumbX/Y are in [-1, 1].
                 fun computeDirection(pos: Offset): Triple<Int, Float, Float> {
+                    // This is only reached when a touch landed on the dpad/stick
+                    // hit area, so the rect is non-null there; bail out safely
+                    // if the dpad button is hidden.
+                    val rect = dpadRect ?: return Triple(0, 0f, 0f)
                     if (useAnalogStick) {
                         // Analog mode: thumb offset relative to stick center,
                         // normalized to [-1, 1] based on stick radius.
-                        val cx = dpadRect.center.x
-                        val cy = dpadRect.center.y
-                        val radius = dpadRect.width / 2f
+                        val cx = rect.center.x
+                        val cy = rect.center.y
+                        val radius = rect.width / 2f
                         val dx = (pos.x - cx) / radius
                         val dy = (pos.y - cy) / radius
                         // Clamp magnitude to 1.0 (allow dragging outside, but
@@ -1831,7 +1835,7 @@ private fun OnScreenController(
                         return Triple(bits, clampedDx, clampedDy)
                     } else {
                         // D-Pad mode: 8-direction quadrant hit-test.
-                        return Triple(computeDpadDirection(pos, dpadRect), 0f, 0f)
+                        return Triple(computeDpadDirection(pos, rect), 0f, 0f)
                     }
                 }
 
