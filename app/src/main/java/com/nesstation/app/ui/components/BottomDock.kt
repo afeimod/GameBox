@@ -83,6 +83,7 @@ fun BottomDock(
             DockItemView(
                 item = item,
                 selected = idx == selected,
+                highlight = item.label == "对战平台",
                 onClick = {
                     selected = idx
                     onSelect(idx)
@@ -134,6 +135,7 @@ fun VerticalDock(
             VerticalDockItemView(
                 item = item,
                 selected = idx == selected,
+                highlight = item.label == "对战平台",
                 onClick = {
                     selected = idx
                     onSelect(idx)
@@ -146,7 +148,7 @@ fun VerticalDock(
 private data class DockItem(val label: String, val icon: ImageVector)
 
 @Composable
-private fun DockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit) {
+private fun DockItemView(item: DockItem, selected: Boolean, highlight: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val active = selected || pressed
@@ -162,18 +164,26 @@ private fun DockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit)
     ) {
         Box(
             modifier = Modifier
-                .size(28.dp)
+                .size(if (highlight) 32.dp else 28.dp)
                 .clip(CircleShape)
                 .background(
-                    if (active) Brush.radialGradient(
-                        listOf(Color(0xFF8A7BFF), Color(0xFF4F8AC4))
-                    ) else Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
-                    )
+                    when {
+                        active -> Brush.radialGradient(
+                            listOf(Color(0xFF8A7BFF), Color(0xFF4F8AC4))
+                        )
+                        highlight -> Brush.radialGradient(
+                            listOf(Color(0xFF8A7BFF).copy(alpha = 0.45f), Color(0xFF4F8AC4).copy(alpha = 0.20f))
+                        )
+                        else -> Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
+                        )
+                    }
                 )
                 .border(
-                    width = if (active) 1.5.dp else 0.dp,
-                    color = if (active) Color(0xFF8A7BFF).copy(alpha = 0.7f) else Color.Transparent,
+                    width = if (active || highlight) 1.5.dp else 0.dp,
+                    color = if (active) Color(0xFF8A7BFF).copy(alpha = 0.7f)
+                        else if (highlight) Color(0xFF8A7BFF).copy(alpha = 0.5f)
+                        else Color.Transparent,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -181,15 +191,15 @@ private fun DockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit)
             Icon(
                 imageVector = item.icon,
                 contentDescription = item.label,
-                tint = if (active) Color.White else Color(0xFF3A4A5C),
-                modifier = Modifier.size(16.dp)
+                tint = if (active) Color.White else if (highlight) Color(0xFF6F5FE0) else Color(0xFF3A4A5C),
+                modifier = Modifier.size(if (highlight) 18.dp else 16.dp)
             )
         }
     }
 }
 
 @Composable
-private fun VerticalDockItemView(item: DockItem, selected: Boolean, onClick: () -> Unit) {
+private fun VerticalDockItemView(item: DockItem, selected: Boolean, highlight: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val active = selected || pressed
@@ -205,18 +215,26 @@ private fun VerticalDockItemView(item: DockItem, selected: Boolean, onClick: () 
     ) {
         Box(
             modifier = Modifier
-                .size(26.dp)
+                .size(if (highlight) 30.dp else 26.dp)
                 .clip(CircleShape)
                 .background(
-                    if (active) Brush.radialGradient(
-                        listOf(Color(0xFF8A7BFF), Color(0xFF4F8AC4))
-                    ) else Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
-                    )
+                    when {
+                        active -> Brush.radialGradient(
+                            listOf(Color(0xFF8A7BFF), Color(0xFF4F8AC4))
+                        )
+                        highlight -> Brush.radialGradient(
+                            listOf(Color(0xFF8A7BFF).copy(alpha = 0.45f), Color(0xFF4F8AC4).copy(alpha = 0.20f))
+                        )
+                        else -> Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
+                        )
+                    }
                 )
                 .border(
-                    width = if (active) 1.5.dp else 0.dp,
-                    color = if (active) Color(0xFF8A7BFF).copy(alpha = 0.7f) else Color.Transparent,
+                    width = if (active || highlight) 1.5.dp else 0.dp,
+                    color = if (active) Color(0xFF8A7BFF).copy(alpha = 0.7f)
+                        else if (highlight) Color(0xFF8A7BFF).copy(alpha = 0.5f)
+                        else Color.Transparent,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -224,13 +242,13 @@ private fun VerticalDockItemView(item: DockItem, selected: Boolean, onClick: () 
             Icon(
                 imageVector = item.icon,
                 contentDescription = item.label,
-                tint = if (active) Color.White else Color(0xFF3A4A5C),
-                modifier = Modifier.size(14.dp)
+                tint = if (active) Color.White else if (highlight) Color(0xFF6F5FE0) else Color(0xFF3A4A5C),
+                modifier = Modifier.size(if (highlight) 16.dp else 14.dp)
             )
         }
         Text(
             text = item.label,
-            color = if (active) Color(0xFF8A7BFF) else Color(0xFF3A4A5C),
+            color = if (active) Color(0xFF8A7BFF) else if (highlight) Color(0xFF6F5FE0) else Color(0xFF3A4A5C),
             fontSize = 8.sp,
             maxLines = 1
         )

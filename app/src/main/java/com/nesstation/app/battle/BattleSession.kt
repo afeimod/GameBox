@@ -2,21 +2,22 @@ package com.nesstation.app.battle
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nesstation.app.BuildConfig
 
 /**
  * 对战平台会话 + 服务器配置存储。
  *
- * 服务器地址后期由用户告知后填入（设置页/对战平台首页可改）。
- * 默认值是本地占位地址，实际使用前必须修改。
+ * 服务器地址在打包时通过 BuildConfig 内置（见 app/build.gradle.kts），
+ * 用户无需手动配置。设置页/对战平台首页仍保留手动覆盖作为高级选项。
  */
 object BattleSession {
 
     private const val PREFS = "battle_session"
 
-    // 默认服务器地址（占位）。后期改为用户提供的服务器 IP。
-    var defaultServerHost: String = "192.168.1.100"
-    var defaultServerHttpPort: String = "8080"
-    var defaultServerTcpPort: String = "9090"
+    // 默认服务器地址（打包时内置，可通过 gradle 参数覆盖）。
+    val defaultServerHost: String = BuildConfig.BATTLE_SERVER_HOST
+    val defaultServerHttpPort: String = BuildConfig.BATTLE_SERVER_HTTP_PORT
+    val defaultServerTcpPort: String = BuildConfig.BATTLE_SERVER_TCP_PORT
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -75,11 +76,5 @@ object BattleSession {
 
     fun logout(ctx: Context) {
         prefs(ctx).edit().remove("token").remove("username").apply()
-    }
-
-    /** 服务器连通性快速检查 */
-    fun hasConfiguredServer(ctx: Context): Boolean {
-        val host = getServerHost(ctx)
-        return host.isNotBlank() && host != "192.168.1.100"
     }
 }

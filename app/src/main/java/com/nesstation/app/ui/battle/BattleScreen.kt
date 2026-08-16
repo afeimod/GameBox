@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,8 +19,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Download
@@ -93,6 +96,8 @@ fun BattleScreen(
 
     // 服务器地址编辑
     var showServerDialog by remember { mutableStateOf(false) }
+    // 登录 / 注册对话框（未登录时创建/加入房间触发）
+    var showLoginDialog by remember { mutableStateOf(false) }
 
     // 游戏与房间数据
     var games by remember { mutableStateOf<List<BattleApi.Game>>(emptyList()) }
@@ -101,15 +106,14 @@ fun BattleScreen(
     var statusMsg by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf<DownloadTask?>(null) }
 
-    // 登录后刷新
+    // 加载游戏与房间（未登录也可浏览，进游戏时才需登录）
     fun refreshAll() {
-        if (!BattleSession.isLoggedIn(context)) return
         loading = true
         scope.launch(Dispatchers.IO) {
             try {
                 val api = BattleApi(context)
                 val g = api.games()
-                val r = api.rooms()
+                val r = if (BattleSession.isLoggedIn(context)) api.rooms() else emptyList()
                 withContext(Dispatchers.Main) {
                     games = g
                     rooms = r
@@ -123,6 +127,9 @@ fun BattleScreen(
             }
         }
     }
+
+    // 进入对战平台即加载游戏/房间（未登录也可浏览）
+    LaunchedEffect(Unit) { refreshAll() }
 
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
@@ -158,24 +165,12 @@ fun BattleScreen(
                 }
             }
 
-            if (!loggedIn) {
-                // ---- 登录 / 注册 ----
-                LoginPanel(
-                    serverConfigured = BattleSession.hasConfiguredServer(context),
-                    onOpenServer = { showServerDialog = true },
-                    onLoggedIn = { name ->
-                        loggedIn = true
-                        username = name
-                        refreshAll()
-                    }
-                )
-            } else {
-                // ---- 已登录：游戏 + 房间 ----
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
+            // ---- 游戏 + 房间（未登录也可浏览，进游戏时才需登录） ----
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                     item { SectionTitle("对战游戏（统一 ROM 分发）") }
 
                     if (games.isEmpty() && !loading) {
@@ -228,6 +223,10 @@ fun BattleScreen(
 
                     items(rooms) { room ->
                         RoomRow(room = room, onJoin = {
+                            if (!BattleSession.isLoggedIn(context)) {
+                                showLoginDialog = true
+                                return@RoomRow
+                            }
                             scope.launch(Dispatchers.IO) {
                                 try {
                                     val token = BattleSession.getToken(context)!!
@@ -259,7 +258,10 @@ fun BattleScreen(
                                     return@Button
                                 }
                                 val token = BattleSession.getToken(context)
-                                if (token == null) { statusMsg = "未登录"; return@Button }
+                                if (token == null) {
+                                    showLoginDialog = true
+                                    return@Button
+                                }
                                 scope.launch(Dispatchers.IO) {
                                     try {
                                         val (room, tcp) = BattleApi(context).createRoom(firstGame.id, token)
@@ -294,7 +296,6 @@ fun BattleScreen(
 
                     item { Spacer(Modifier.height(60.dp)) }
                 }
-            }
         }
 
         // 底部状态
@@ -323,16 +324,27 @@ fun BattleScreen(
             }
         )
     }
+
+    if (showLoginDialog) {
+        LoginDialog(
+            onDismiss = { showLoginDialog = false },
+            onLoggedIn = { name ->
+                showLoginDialog = false
+                loggedIn = true
+                username = name
+                refreshAll()
+            }
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
-// 登录 / 注册
+// 登录 / 注册（对话框形式，进游戏时弹出；可滚动以适配横屏）
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun LoginPanel(
-    serverConfigured: Boolean,
-    onOpenServer: () -> Unit,
+private fun LoginDialog(
+    onDismiss: () -> Unit,
     onLoggedIn: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -343,144 +355,126 @@ private fun LoginPanel(
     var busy by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        if (!serverConfigured) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFFFF3CD))
-                    .clickable(onClick = onOpenServer)
-                    .padding(12.dp)
-            ) {
-                Icon(Icons.Rounded.Groups, contentDescription = null, tint = Color(0xFF8A6D00))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "未配置服务器地址，点击设置",
-                    color = Color(0xFF6B5200),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
-        // 卡片
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.White.copy(alpha = 0.85f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
             Text(
                 if (mode == "login") "登录对战平台" else "注册虚拟账号",
                 color = PrimaryText,
-                fontSize = 16.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            Text(
-                "虚拟账号由服务器统一管理，不涉及真实手机号",
-                color = SecondaryText,
-                fontSize = 11.sp
-            )
-
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("用户名（2-20 字符）") },
-                singleLine = true,
-                colors = lightFieldColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("密码（至少 4 位）") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                colors = lightFieldColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            errorMsg?.let {
-                Text(it, color = DeleteColor, fontSize = 12.sp)
-            }
-
-            Button(
-                onClick = {
-                    if (username.isBlank() || password.isBlank()) {
-                        errorMsg = "请输入用户名和密码"
-                        return@Button
-                    }
-                    busy = true
-                    errorMsg = null
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val api = BattleApi(context)
-                            val result = if (mode == "login") {
-                                api.login(username.trim(), password)
-                            } else {
-                                api.register(username.trim(), password)
-                            }
-                            BattleSession.saveAuth(context, result.token, result.nickname)
-                            withContext(Dispatchers.Main) {
-                                busy = false
-                                onLoggedIn(result.nickname)
-                            }
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                busy = false
-                                errorMsg = e.message
-                            }
-                        }
-                    }
-                },
-                enabled = !busy,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Accent,
-                    contentColor = Color.White
-                ),
-                modifier = Modifier.fillMaxWidth().height(44.dp)
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        if (mode == "login") Icons.Rounded.Login else Icons.Rounded.PersonAdd,
-                        contentDescription = null
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (mode == "login") "登录" else "注册并登录", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            TextButton(
-                onClick = {
-                    mode = if (mode == "login") "register" else "login"
-                    errorMsg = null
-                },
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    if (mode == "login") "没有账号？立即注册" else "已有账号？去登录",
-                    color = Accent,
-                    fontSize = 12.sp
+                    "开始对战前需要登录。虚拟账号由服务器统一管理，不涉及真实手机号。",
+                    color = SecondaryText,
+                    fontSize = 11.sp
                 )
+
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("用户名（2-20 字符）") },
+                    singleLine = true,
+                    colors = lightFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("密码（至少 4 位）") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = lightFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                errorMsg?.let {
+                    Text(it, color = DeleteColor, fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = {
+                        if (username.isBlank() || password.isBlank()) {
+                            errorMsg = "请输入用户名和密码"
+                            return@Button
+                        }
+                        busy = true
+                        errorMsg = null
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val api = BattleApi(context)
+                                val result = if (mode == "login") {
+                                    api.login(username.trim(), password)
+                                } else {
+                                    api.register(username.trim(), password)
+                                }
+                                BattleSession.saveAuth(context, result.token, result.nickname)
+                                withContext(Dispatchers.Main) {
+                                    busy = false
+                                    onLoggedIn(result.nickname)
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    busy = false
+                                    errorMsg = e.message
+                                }
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Accent,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            if (mode == "login") Icons.Rounded.Login else Icons.Rounded.PersonAdd,
+                            contentDescription = null
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (mode == "login") "登录" else "注册并登录", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                TextButton(
+                    onClick = {
+                        mode = if (mode == "login") "register" else "login"
+                        errorMsg = null
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text(
+                        if (mode == "login") "没有账号？立即注册" else "已有账号？去登录",
+                        color = Accent,
+                        fontSize = 12.sp
+                    )
+                }
             }
+        },
+        containerColor = Color.White,
+        titleContentColor = PrimaryText,
+        textContentColor = PrimaryText,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = SecondaryText) }
         }
-    }
+    )
 }
 
 // ---------------------------------------------------------------------------
