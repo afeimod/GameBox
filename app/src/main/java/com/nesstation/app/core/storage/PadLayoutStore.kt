@@ -335,7 +335,8 @@ data class PadLayout(
     val comboButtonsSfc: String = "",      // SNES combo list (JSON)
     val comboButtonsGba: String = "",      // GBA combo list (JSON)
     val comboButtonsArcade: String = "",   // Arcade combo list (JSON)
-    val comboButtonsMd: String = ""        // MD combo list (JSON)
+    val comboButtonsMd: String = "",       // MD combo list (JSON)
+    val comboButtonsPce: String = ""       // PCE combo list (JSON)
 )
 
 /**
@@ -753,7 +754,8 @@ object PadLayoutStore {
             comboButtonsSfc = p.getString("combo_buttons_sfc", "") ?: "",
             comboButtonsGba = p.getString("combo_buttons_gba", "") ?: "",
             comboButtonsArcade = p.getString("combo_buttons_arcade", "") ?: "",
-            comboButtonsMd = p.getString("combo_buttons_md", "") ?: ""
+            comboButtonsMd = p.getString("combo_buttons_md", "") ?: "",
+            comboButtonsPce = p.getString("combo_buttons_pce", "") ?: ""
         )
     }
 
@@ -1029,6 +1031,7 @@ object PadLayoutStore {
             putString("combo_buttons_gba", layout.comboButtonsGba)
             putString("combo_buttons_arcade", layout.comboButtonsArcade)
             putString("combo_buttons_md", layout.comboButtonsMd)
+            putString("combo_buttons_pce", layout.comboButtonsPce)
         }.apply()
     }
 }

@@ -128,7 +128,7 @@ private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
     // L/R bit values differ by platform:
     //   SNES: L=bit10 R=bit11 (X=bit8 Y=bit9 — SNES face layout)
     //   GBA:  L=bit8  R=bit9  (no X/Y face buttons)
-    //   ARCADE/MD: L=bit10 R=bit11 (same as SNES — 6-button layout)
+    //   ARCADE/MD/PCE: L=bit10 R=bit11 (same as SNES — 6-button layout)
     val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
     val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
     return when (keyCode) {
@@ -142,6 +142,8 @@ private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
         KeyEvent.KEYCODE_BUTTON_Y      -> BTN_Y
         KeyEvent.KEYCODE_BUTTON_L1     -> lBit
         KeyEvent.KEYCODE_BUTTON_R1     -> rBit
+        KeyEvent.KEYCODE_BUTTON_L2     -> BTN_L2
+        KeyEvent.KEYCODE_BUTTON_R2     -> BTN_R2
         KeyEvent.KEYCODE_BUTTON_START,
         KeyEvent.KEYCODE_MENU          -> BTN_START
         KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
@@ -1547,7 +1549,7 @@ private fun parseComboButtons(padLayout: PadLayout, platform: GamePlatform): Lis
         GamePlatform.GBA    -> padLayout.comboButtonsGba
         GamePlatform.ARCADE -> padLayout.comboButtonsArcade
         GamePlatform.MD     -> padLayout.comboButtonsMd
-        GamePlatform.PCE    -> padLayout.comboButtons      // PCE uses same 2-button layout as NES
+        GamePlatform.PCE    -> padLayout.comboButtonsPce
         GamePlatform.DOS    -> ""
         GamePlatform.JAVA   -> ""
     }
@@ -1604,16 +1606,30 @@ private fun OnScreenController(
     val opacity = padLayout.opacity
 
     // Which extra buttons to show based on platform.
-    // SNES / ARCADE / MD: 6-button layout — show all of A/B/X/Y/L/R.
+    // SNES / ARCADE / MD / PCE: 6-button layout — show all of A/B/X/Y/L/R.
     // GBA: 4 face buttons — show L/R but no X/Y.
     // NES / GB: only A/B + Start/Select.
+    //
+    // PCE button mapping (per Geargrafx reference source libretro.cpp):
+    //   bit0 (BTN_A)   → PCE I    (A button label)
+    //   bit1 (BTN_B)   → PCE II   (B button label)
+    //   bit8 (BTN_X)   → PCE IV   (X button label)
+    //   bit9 (BTN_Y)   → PCE III  (Y button label)
+    //   bit10 (BTN_L)  → PCE V    (L button label)
+    //   bit11 (BTN_R)  → PCE VI   (R button label)
+    //   bit12 (BTN_L2) → Toggle Turbo II
+    //   bit13 (BTN_R2) → Toggle Turbo I
+    // PCE uses the SNES/ARCADE/MD bit layout (L/R on bit10/11), not GBA.
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
-                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+                 platform == GamePlatform.PCE
     val showXY = platform == GamePlatform.SFC ||
-                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
-    // L2/R2 are only drawn when explicitly enabled (arcade 6-button fight
-    // layout) — they map to bit12/bit13 (L2/R2 in libretro joypad).
-    val showL2R2 = platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+                 platform == GamePlatform.PCE
+    // L2/R2 (Turbo toggle for PCE) — show for ARCADE when explicitly enabled,
+    // and always for PCE (PCE has turbo toggle as a standard feature).
+    val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
+                   platform == GamePlatform.PCE
 
     // === Arcade input mode: D-Pad vs Analog Stick ===
     // When arcadeInputMode == "analog", we render a circular analog stick
@@ -1954,14 +1970,22 @@ private fun OnScreenController(
             )
         }
         // Draw A
-        // For PCE the buttons are labeled "II" and "I" (PCE's native names).
-        // bit0 (BTN_A) → PCE II, bit1 (BTN_B) → PCE I.
-        val labelA = if (platform == GamePlatform.PCE) "II" else "A"
-        val labelB = if (platform == GamePlatform.PCE) "I" else "B"
+        // For PCE the buttons are labeled with PCE's native names.
+        // Per Geargrafx reference: bit0 (BTN_A) → PCE I, bit1 (BTN_B) → PCE II.
+        // (Earlier comment had I/II swapped — corrected after reading the
+        // reference source's input descriptor: A="I", B="II".)
+        val labelA = if (platform == GamePlatform.PCE) "I" else "A"
+        val labelB = if (platform == GamePlatform.PCE) "II" else "B"
+        val labelX = if (platform == GamePlatform.PCE) "IV" else "X"
+        val labelY = if (platform == GamePlatform.PCE) "III" else "Y"
+        val labelL = if (platform == GamePlatform.PCE) "V" else "L"
+        val labelR = if (platform == GamePlatform.PCE) "VI" else "R"
+        val labelL2 = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
+        val labelR2 = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
         ActionButtonCanvas(labelA, Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
         // Draw B
         ActionButtonCanvas(labelB, Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and BTN_B != 0)
-        // Turbo A/B — hidden on SNES (X/Y buttons take their place)
+        // Turbo A/B — hidden on SNES/PCE/ARCADE/MD (X/Y buttons take their place)
         if (!showXY) {
             TurboButtonCanvas(labelA, Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
             TurboButtonCanvas(labelB, Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
@@ -1970,21 +1994,22 @@ private fun OnScreenController(
         PillButtonCanvas(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, opacity, visualState and BTN_START != 0)
         // Select
         PillButtonCanvas("SELECT", btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0)
-        // L/R shoulder buttons (GBA/SNES)
+        // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
         if (showLR) {
-            ShoulderButtonCanvas("L", btnL, surfaceSize, opacity, visualState and lBit != 0)
-            ShoulderButtonCanvas("R", btnR, surfaceSize, opacity, visualState and rBit != 0)
+            ShoulderButtonCanvas(labelL, btnL, surfaceSize, opacity, visualState and lBit != 0)
+            ShoulderButtonCanvas(labelR, btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
-        // X/Y face buttons (SNES/Arcade/MD)
+        // X/Y face buttons (SNES/Arcade/MD/PCE)
         if (showXY) {
-            ActionButtonCanvas("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
-            ActionButtonCanvas("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
+            ActionButtonCanvas(labelX, Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
+            ActionButtonCanvas(labelY, Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
         }
-        // L2/R2 extra buttons (Arcade 6-button fight layout — hidden by default,
-        // enabled via Settings → Arcade → Show L2/R2)
+        // L2/R2 extra buttons:
+        //   Arcade 6-button fight layout — hidden by default, enabled via Settings
+        //   PCE — Turbo toggle buttons (L2=Toggle Turbo II, R2=Toggle Turbo I)
         if (showL2R2) {
-            ActionButtonCanvas("L2", Color(0xFFFF9800), btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
-            ActionButtonCanvas("R2", Color(0xFFFF9800), btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
+            ActionButtonCanvas(labelL2, Color(0xFFFF9800), btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
+            ActionButtonCanvas(labelR2, Color(0xFFFF9800), btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
         }
         // Combo buttons (per-platform, user-defined)
         comboList.forEach { combo ->
@@ -3677,9 +3702,14 @@ private fun PadLayoutEditor(
     var showComboPickerDialog by remember { mutableStateOf(false) }
 
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
-                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+                 platform == GamePlatform.PCE
     val showXY = platform == GamePlatform.SFC ||
-                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD
+                 platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+                 platform == GamePlatform.PCE
+    // L2/R2 editable in edit mode for Arcade (when enabled) and PCE (turbo toggle)
+    val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
+                   platform == GamePlatform.PCE
 
     // === 横竖屏布局选择 ===
     // 横屏编辑修改 dpad / btnA / ...，竖屏编辑修改 dpadP / btnAP / ...
@@ -3730,7 +3760,7 @@ private fun PadLayoutEditor(
                 },
                 onSelect = { selectedBtn = BtnType.DPAD }
             )
-            EditableRoundBtn("A", Color(0xFFE74C3C), btnA, surfaceSize, selectedBtn == BtnType.A,
+            EditableRoundBtn(if (platform == GamePlatform.PCE) "I" else "A", Color(0xFFE74C3C), btnA, surfaceSize, selectedBtn == BtnType.A,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.4f, 0.95f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
@@ -3738,7 +3768,7 @@ private fun PadLayoutEditor(
                 },
                 onSelect = { selectedBtn = BtnType.A }
             )
-            EditableRoundBtn("B", Color(0xFFE67E22), btnB, surfaceSize, selectedBtn == BtnType.B,
+            EditableRoundBtn(if (platform == GamePlatform.PCE) "II" else "B", Color(0xFFE67E22), btnB, surfaceSize, selectedBtn == BtnType.B,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.4f, 0.95f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
@@ -3764,7 +3794,7 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.TURBO_B }
                 )
             }
-            EditablePillBtn("START", btnStart, surfaceSize, selectedBtn == BtnType.START,
+            EditablePillBtn(if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, selectedBtn == BtnType.START,
                 onMove = { targetX, targetY ->
                     val nx = targetX.coerceIn(0.1f, 0.9f)
                     val ny = targetY.coerceIn(0.3f, 0.97f)
@@ -3780,9 +3810,11 @@ private fun PadLayoutEditor(
                 },
                 onSelect = { selectedBtn = BtnType.SELECT }
             )
-            // L/R shoulder buttons (GBA/SNES)
+            // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
             if (showLR) {
-                EditablePillBtn("L", btnL, surfaceSize, selectedBtn == BtnType.L,
+                val lLabel = if (platform == GamePlatform.PCE) "V" else "L"
+                val rLabel = if (platform == GamePlatform.PCE) "VI" else "R"
+                EditablePillBtn(lLabel, btnL, surfaceSize, selectedBtn == BtnType.L,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.05f, 0.4f)
                         val ny = targetY.coerceIn(0.02f, 0.3f)
@@ -3790,7 +3822,7 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.L }
                 )
-                EditablePillBtn("R", btnR, surfaceSize, selectedBtn == BtnType.R,
+                EditablePillBtn(rLabel, btnR, surfaceSize, selectedBtn == BtnType.R,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.6f, 0.95f)
                         val ny = targetY.coerceIn(0.02f, 0.3f)
@@ -3799,9 +3831,11 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.R }
                 )
             }
-            // X/Y face buttons (SNES/Arcade/MD)
+            // X/Y face buttons (SNES/Arcade/MD/PCE)
             if (showXY) {
-                EditableRoundBtn("X", Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
+                val xLabel = if (platform == GamePlatform.PCE) "IV" else "X"
+                val yLabel = if (platform == GamePlatform.PCE) "III" else "Y"
+                EditableRoundBtn(xLabel, Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
@@ -3809,7 +3843,7 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.X }
                 )
-                EditableRoundBtn("Y", Color(0xFF2ECC71), btnY, surfaceSize, selectedBtn == BtnType.Y,
+                EditableRoundBtn(yLabel, Color(0xFF2ECC71), btnY, surfaceSize, selectedBtn == BtnType.Y,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
                         val ny = targetY.coerceIn(0.3f, 0.97f)
@@ -3818,9 +3852,11 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.Y }
                 )
             }
-            // L2/R2 extra buttons (Arcade only, when enabled)
-            if (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) {
-                EditableRoundBtn("L2", Color(0xFFFF9800), btnL2, surfaceSize, selectedBtn == BtnType.L2,
+            // L2/R2 extra buttons (Arcade when enabled, PCE turbo toggle always)
+            if (showL2R2) {
+                val l2Label = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
+                val r2Label = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
+                EditableRoundBtn(l2Label, Color(0xFFFF9800), btnL2, surfaceSize, selectedBtn == BtnType.L2,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.02f, 0.4f)
                         val ny = targetY.coerceIn(0.1f, 0.6f)
@@ -3828,7 +3864,7 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.L2 }
                 )
-                EditableRoundBtn("R2", Color(0xFFFF9800), btnR2, surfaceSize, selectedBtn == BtnType.R2,
+                EditableRoundBtn(r2Label, Color(0xFFFF9800), btnR2, surfaceSize, selectedBtn == BtnType.R2,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.6f, 0.98f)
                         val ny = targetY.coerceIn(0.1f, 0.6f)
@@ -3857,6 +3893,7 @@ private fun PadLayoutEditor(
                             GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
                             GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
                             GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                            GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
                             else -> padLayout
                         }
                         onLayoutChange(newLayout)
@@ -4017,6 +4054,7 @@ private fun PadLayoutEditor(
                                 GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
                                 GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
                                 GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                                GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
                                 else -> padLayout
                             }
                             onLayoutChange(newLayout)
@@ -4057,6 +4095,7 @@ private fun PadLayoutEditor(
                         GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
                         GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
                         GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
+                        GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
                         else -> padLayout
                     }
                     onLayoutChange(newLayout)
@@ -4093,19 +4132,21 @@ private fun ComboButtonPickerDialog(
             ButtonOption("Start", BTN_START),
             ButtonOption("Select", BTN_SELECT)
         )
-        // X/Y available on SNES/Arcade/MD
-        if (platform == GamePlatform.SFC || platform == GamePlatform.ARCADE || platform == GamePlatform.MD) {
+        // X/Y available on SNES/Arcade/MD/PCE
+        if (platform == GamePlatform.SFC || platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+            platform == GamePlatform.PCE) {
             list.add(ButtonOption("X", BTN_X))
             list.add(ButtonOption("Y", BTN_Y))
         }
-        // L/R available on GBA/SNES/Arcade/MD
+        // L/R available on GBA/SNES/Arcade/MD/PCE
         if (platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
-            platform == GamePlatform.ARCADE || platform == GamePlatform.MD) {
+            platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
+            platform == GamePlatform.PCE) {
             list.add(ButtonOption("L", lBit))
             list.add(ButtonOption("R", rBit))
         }
-        // L2/R2 only on Arcade (6-button fight layout)
-        if (platform == GamePlatform.ARCADE) {
+        // L2/R2 on Arcade (6-button fight layout) and PCE (turbo toggle)
+        if (platform == GamePlatform.ARCADE || platform == GamePlatform.PCE) {
             list.add(ButtonOption("L2", BTN_L2))
             list.add(ButtonOption("R2", BTN_R2))
         }

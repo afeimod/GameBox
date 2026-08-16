@@ -167,19 +167,38 @@ private val MD_ACTIONS = listOf(
 )
 
 // PCE / TurboGrafx-16 / SuperGrafx controller layout.
-// The PCE pad has only 2 face buttons: I (left) and II (right). Plus Select
-// and Run (Start). Geargrafx maps the standard libretro JOYPAD buttons:
-//   SNES A → PCE II (right button — primary action in most games)
-//   SNES B → PCE I  (left button — secondary action)
-//   SNES Select → Select, SNES Start → Run (Start)
-// We label them "II" and "I" so the user sees the original PCE names.
+// Per Geargrafx reference source (libretro.cpp input descriptors):
+//   SNES A   → PCE I    (bit0)
+//   SNES B   → PCE II   (bit1)
+//   SNES Y   → PCE III  (bit9)  [6-button Avenue Pad only]
+//   SNES X   → PCE IV   (bit8)  [6-button Avenue Pad only]
+//   SNES L   → PCE V    (bit10) [6-button Avenue Pad only]
+//   SNES R   → PCE VI   (bit11) [6-button Avenue Pad only]
+//   SNES L2  → Toggle Turbo II (bit12)
+//   SNES R2  → Toggle Turbo I  (bit13)
+//   SNES Select → Select (bit2)
+//   SNES Start  → Run     (bit3)
+// The standard PCE pad only has I/II/Select/Run, but the 6-button Avenue Pad
+// (used by fighting games like Street Fighter II) adds III/IV/V/VI. We include
+// all 12+2 buttons so the user can map a physical 6-button controller.
 private val PCE_ACTIONS = listOf(
+    // D-pad
     KeyAction("pce_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
     KeyAction("pce_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
     KeyAction("pce_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
     KeyAction("pce_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
-    KeyAction("pce_ii",     "II",     Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "PCE II (右)"),
-    KeyAction("pce_i",      "I",      Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "PCE I (左)"),
+    // Face buttons (2-button standard pad)
+    KeyAction("pce_i",      "I",      Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "PCE I (bit0)"),
+    KeyAction("pce_ii",     "II",     Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "PCE II (bit1)"),
+    // 6-button Avenue Pad extra face buttons
+    KeyAction("pce_iii",    "III",    Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_Y, "PCE III (bit9, 6键手柄)"),
+    KeyAction("pce_iv",     "IV",     Color(0xFF3498DB), KeyEvent.KEYCODE_BUTTON_X, "PCE IV (bit8, 6键手柄)"),
+    KeyAction("pce_v",      "V",      Color(0xFF9C27B0), KeyEvent.KEYCODE_BUTTON_L1, "PCE V (bit10, 6键手柄)"),
+    KeyAction("pce_vi",     "VI",     Color(0xFF00BCD4), KeyEvent.KEYCODE_BUTTON_R1, "PCE VI (bit11, 6键手柄)"),
+    // Turbo toggle (L2/R2)
+    KeyAction("pce_turbo_ii", "TURBO II", Color(0xFFFF9800), KeyEvent.KEYCODE_BUTTON_L2, "切换 II 连发 (bit12)"),
+    KeyAction("pce_turbo_i",  "TURBO I",  Color(0xFFFF9800), KeyEvent.KEYCODE_BUTTON_R2, "切换 I 连发 (bit13)"),
+    // Select / Run
     KeyAction("pce_select", "Select", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_SELECT, "Select"),
     KeyAction("pce_run",    "Run",    Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Run (Start)")
 )
