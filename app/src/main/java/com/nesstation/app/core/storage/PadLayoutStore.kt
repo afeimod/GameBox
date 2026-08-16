@@ -291,16 +291,19 @@ data class PadLayout(
     val mdGgStretch: String = "disabled",               // disabled | enabled (Game Gear stretch)
 
     // === Geargrafx (PCE/TG16) core options ===
-    // Keys must match geargrafx's libretro_core_options.h exactly.
+    // Keys AND values must match geargrafx's libretro_core_options.h exactly.
+    // Geargrafx uses case-sensitive strcmp() to compare option values, so
+    // "disabled" (lowercase) will NOT match "Disabled" and the option is
+    // ignored. Values below are copied from the reference source's defaults.
     val pceConsoleType: String = "Auto",                // Auto | PC Engine (JAP) | SuperGrafx (JAP) | TurboGrafx-16 (USA)
     val pceAspect: String = "4:3 DAR",                  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR | 16:10 DAR
-    val pceOverscan: String = "disabled",               // disabled | enabled
-    val pceNoSpriteLimit: String = "disabled",          // disabled | enabled
-    val pcePalette: String = "default",                 // default | real | pch
+    val pceOverscan: String = "Disabled",               // Disabled | Enabled
+    val pceNoSpriteLimit: String = "Disabled",          // Disabled | Enabled
+    val pcePalette: String = "Standard RGB",            // Standard RGB | Turboxray | Kitrinx
     val pceCdromBios: String = "Auto",                  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
-    val pceTurbotap: String = "disabled",               // disabled | enabled (5-player multitap)
-    val pceMb128: String = "disabled",                  // disabled | enabled (Memory Base 128 save)
-    val pceAllowUpDown: String = "disabled",            // disabled | enabled
+    val pceTurbotap: String = "Disabled",               // Disabled | Enabled (5-player multitap)
+    val pceMb128: String = "Auto",                      // Auto | Enabled | Disabled (Memory Base 128 save)
+    val pceAllowUpDown: String = "Disabled",            // Disabled | Enabled
 
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).

@@ -5304,34 +5304,34 @@ private fun SettingsPanel(
                 ) { onLayoutChange(padLayout.copy(pceAspect = it)) }
 
                 DropdownSetting("过扫描",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceOverscan
                 ) { onLayoutChange(padLayout.copy(pceOverscan = it)) }
 
                 DropdownSetting("精灵数限制",
-                    listOf("disabled" to "关闭(原始,可能有闪烁)", "enabled" to "开启(消除闪烁)"),
+                    listOf("Disabled" to "关闭(原始,可能有闪烁)", "Enabled" to "开启(消除闪烁)"),
                     padLayout.pceNoSpriteLimit
                 ) { onLayoutChange(padLayout.copy(pceNoSpriteLimit = it)) }
 
                 DropdownSetting("调色板",
-                    listOf("default" to "默认", "real" to "真实硬件", "pch" to "PCE"),
+                    listOf("Standard RGB" to "标准RGB", "Turboxray" to "Turboxray", "Kitrinx" to "Kitrinx"),
                     padLayout.pcePalette
                 ) { onLayoutChange(padLayout.copy(pcePalette = it)) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("允许上下同时输入",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceAllowUpDown
                 ) { onLayoutChange(padLayout.copy(pceAllowUpDown = it)) }
 
                 DropdownSetting("TurboTap(5人多人)",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceTurbotap
                 ) { onLayoutChange(padLayout.copy(pceTurbotap = it)) }
 
                 DropdownSetting("Memory Base 128",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    listOf("Auto" to "自动", "Enabled" to "开启", "Disabled" to "关闭"),
                     padLayout.pceMb128
                 ) { onLayoutChange(padLayout.copy(pceMb128 = it)) }
 

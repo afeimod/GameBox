@@ -187,7 +187,14 @@ static std::atomic<bool> s_optionsChanged{false};
 
 // ---------------------------------------------------------------------------
 // Initialize Geargrafx core options with sensible defaults.
-// Keys MUST match libretro_core_options.h exactly.
+// Keys AND values MUST match libretro_core_options.h exactly — Geargrafx's
+// check_variables() uses case-sensitive strcmp() to compare values, so
+// "disabled" (lowercase) will NOT match "Disabled" and the option will be
+// ignored, falling back to the core's internal default (which may not be
+// what we want).
+//
+// The values below are copied 1:1 from the reference source's
+// libretro_core_options.h "default" field for each option.
 // ---------------------------------------------------------------------------
 static void initDefaultOptions() {
     // --- System ---
@@ -197,53 +204,74 @@ static void initDefaultOptions() {
     s_options["geargrafx_safe_vdc_defaults"]     = "Disabled";
 
     // --- Video ---
-    s_options["geargrafx_aspect_ratio"]          = "4:3 DAR";  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR
-    s_options["geargrafx_overscan"]              = "disabled";
-    s_options["geargrafx_scanline_count"]        = "0";
-    s_options["geargrafx_scanline_start"]        = "0";
-    s_options["geargrafx_scanline_end"]          = "0";
-    s_options["geargrafx_palette"]               = "default";
-    s_options["geargrafx_no_sprite_limit"]       = "disabled";
+    // CRITICAL: scanline_count/start/end must match the reference defaults
+    // exactly. The reference default for scanline_count is "224p", which
+    // sets visible scanlines to [11, 234] (224 lines). If we pass "0" for
+    // scanline_count, check_variables() falls through to the "Manual" else
+    // branch and uses scanline_start/scanline_end. If those are also "0",
+    // SetScanlineEnd(0) is called, making the visible height = 1 pixel →
+    // BLACK SCREEN with audio. This was the root cause of the PCE black
+    // screen bug.
+    s_options["geargrafx_aspect_ratio"]          = "4:3 DAR";  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR | 16:10 DAR
+    s_options["geargrafx_overscan"]              = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_scanline_count"]        = "224p";      // 224p | 240p | Manual
+    s_options["geargrafx_scanline_start"]        = "3";         // 0..30 (used only when count=Manual)
+    s_options["geargrafx_scanline_end"]          = "241";       // 220..241 (used only when count=Manual)
+    s_options["geargrafx_palette"]               = "Standard RGB";  // Standard RGB | Turboxray | Kitrinx
+    s_options["geargrafx_no_sprite_limit"]       = "Disabled";  // Disabled | Enabled
 
     // --- Audio ---
-    s_options["geargrafx_lowpass_filter"]        = "disabled";
-    s_options["geargrafx_lowpass_intensity"]     = "60";
-    s_options["geargrafx_lowpass_cutoff"]        = "60";
-    s_options["geargrafx_lowpass_speed_536"]     = "60";
-    s_options["geargrafx_lowpass_speed_716"]     = "60";
-    s_options["geargrafx_lowpass_speed_108"]     = "60";
-    s_options["geargrafx_psg_huc6280a"]          = "enabled";
-    s_options["geargrafx_psg_volume"]            = "100";
-    s_options["geargrafx_cdrom_volume"]          = "100";
-    s_options["geargrafx_adpcm_volume"]          = "100";
+    s_options["geargrafx_lowpass_filter"]        = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_lowpass_intensity"]     = "100";       // 0..100
+    s_options["geargrafx_lowpass_cutoff"]        = "5.0 MHz";   // 3.0..7.0 MHz
+    s_options["geargrafx_lowpass_speed_536"]     = "Disabled";  // Disabled | Enabled (256px mode)
+    s_options["geargrafx_lowpass_speed_716"]     = "Enabled";   // Disabled | Enabled (341px mode)
+    s_options["geargrafx_lowpass_speed_108"]     = "Enabled";   // Disabled | Enabled (512px mode)
+    s_options["geargrafx_psg_huc6280a"]          = "Enabled";   // Enabled | Disabled
+    s_options["geargrafx_psg_volume"]            = "100";       // 0..200
+    s_options["geargrafx_cdrom_volume"]          = "100";       // 0..200
+    s_options["geargrafx_adpcm_volume"]          = "100";       // 0..200
 
     // --- CD-ROM ---
     // BIOS files required in <systemDir> for PCE-CD games:
     //   syscard1.pce, syscard2.pce, syscard3.pce, gameexpress.pce
     // syscard3.pce (System Card 3 / Arcade Card Pro) is the most common
     // and is auto-selected by Geargrafx when cdrom_bios = "Auto".
-    s_options["geargrafx_cdrom_type"]            = "Auto";  // Auto | Standard | Super CD-ROM | Arcade CD-ROM
-    s_options["geargrafx_cdrom_bios"]            = "Auto";  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
-    s_options["geargrafx_cdrom_preload"]         = "disabled";
+    s_options["geargrafx_cdrom_type"]            = "Auto";      // Auto | Standard | Super CD-ROM | Arcade CD-ROM
+    s_options["geargrafx_cdrom_bios"]            = "Auto";      // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
+    s_options["geargrafx_cdrom_preload"]         = "Disabled";  // Disabled | Enabled
 
     // --- Input / Accessories ---
-    s_options["geargrafx_up_down_allowed"]       = "disabled";
-    s_options["geargrafx_soft_reset"]            = "disabled";
-    s_options["geargrafx_turbotap"]              = "disabled";  // enables 5-player multitap
-    s_options["geargrafx_mb128"]                 = "disabled";  // Memory Base 128 (save device)
-    s_options["geargrafx_mouse_sensitivity"]     = "100";
-    s_options["geargrafx_avenue_pad_3_switch"]   = "disabled";
+    s_options["geargrafx_up_down_allowed"]       = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_soft_reset"]            = "Enabled";   // Enabled | Disabled
+    s_options["geargrafx_turbotap"]              = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_mb128"]                 = "Auto";      // Auto | Enabled | Disabled
+    s_options["geargrafx_mouse_sensitivity"]     = "5";         // 1..15
+    s_options["geargrafx_avenue_pad_3_switch"]   = "Auto";      // Auto | SELECT | RUN
 
     // --- Turbo / Auto-fire (off by default — user enables per-game) ---
-    s_options["geargrafx_turbo_toggle_hotkey"]   = "disabled";
-    s_options["geargrafx_turbo_p1_i"]            = "disabled";
-    s_options["geargrafx_turbo_speed_p1_i"]      = "Fast";
-    s_options["geargrafx_turbo_p1_ii"]           = "disabled";
-    s_options["geargrafx_turbo_speed_p1_ii"]     = "Fast";
-    s_options["geargrafx_turbo_p2_i"]            = "disabled";
-    s_options["geargrafx_turbo_speed_p2_i"]      = "Fast";
-    s_options["geargrafx_turbo_p2_ii"]           = "disabled";
-    s_options["geargrafx_turbo_speed_p2_ii"]     = "Fast";
+    s_options["geargrafx_turbo_toggle_hotkey"]   = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_turbo_p1_i"]            = "Disabled";  // Disabled | Enabled
+    s_options["geargrafx_turbo_speed_p1_i"]      = "4";         // 1..15
+    s_options["geargrafx_turbo_p1_ii"]           = "Disabled";
+    s_options["geargrafx_turbo_speed_p1_ii"]     = "4";
+    s_options["geargrafx_turbo_p2_i"]            = "Disabled";
+    s_options["geargrafx_turbo_speed_p2_i"]      = "4";
+    s_options["geargrafx_turbo_p2_ii"]           = "Disabled";
+    s_options["geargrafx_turbo_speed_p2_ii"]     = "4";
+    // P3-P5 turbo options (same pattern)
+    s_options["geargrafx_turbo_p3_i"]            = "Disabled";
+    s_options["geargrafx_turbo_speed_p3_i"]      = "4";
+    s_options["geargrafx_turbo_p3_ii"]           = "Disabled";
+    s_options["geargrafx_turbo_speed_p3_ii"]     = "4";
+    s_options["geargrafx_turbo_p4_i"]            = "Disabled";
+    s_options["geargrafx_turbo_speed_p4_i"]      = "4";
+    s_options["geargrafx_turbo_p4_ii"]           = "Disabled";
+    s_options["geargrafx_turbo_speed_p4_ii"]     = "4";
+    s_options["geargrafx_turbo_p5_i"]            = "Disabled";
+    s_options["geargrafx_turbo_speed_p5_i"]      = "4";
+    s_options["geargrafx_turbo_p5_ii"]           = "Disabled";
+    s_options["geargrafx_turbo_speed_p5_ii"]     = "4";
 }
 
 // ---------------------------------------------------------------------------
