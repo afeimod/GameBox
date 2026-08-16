@@ -59,7 +59,14 @@ class RomScanner(private val context: Context) {
         name.endsWith(".68k", ignoreCase = true) ||
         // Mega-CD / SEGA-CD disc images
         name.endsWith(".cue", ignoreCase = true) ||
-        name.endsWith(".chd", ignoreCase = true)
+        name.endsWith(".chd", ignoreCase = true) ||
+        // Geargrafx — PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD
+        // (PCE-CD uses .cue/.chd which are already covered above; the
+        // disambiguation between MD-CD / DOS-CD / PCE-CD happens in
+        // detectPlatformFromUri based on the user's platform tab.)
+        name.endsWith(".pce", ignoreCase = true) ||
+        name.endsWith(".sgx", ignoreCase = true) ||
+        name.endsWith(".hes", ignoreCase = true)
 
     /**
      * Whether a file name looks like a DOS launcher (.bat / .exe / .com).

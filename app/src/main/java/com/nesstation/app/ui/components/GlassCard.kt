@@ -262,6 +262,7 @@ private fun PlatformBadge(platform: GamePlatform, modifier: Modifier = Modifier)
         GamePlatform.DOS    -> "DOS"  to Color(0xFF37474F)   // blue-grey — DOS/PC
         GamePlatform.ARCADE -> "ARC"  to Color(0xFFF57C00)   // amber — Arcade (FBNeo)
         GamePlatform.MD     -> "MD"   to Color(0xFF00695C)   // teal — Mega Drive / SEGA
+        GamePlatform.PCE    -> "PCE"  to Color(0xFFAD1457)   // pink — PC-Engine / TurboGrafx-16
         GamePlatform.JAVA   -> "Java" to Color(0xFF4E342E)   // brown — J2ME
     }
     Box(

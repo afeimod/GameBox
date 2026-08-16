@@ -290,6 +290,18 @@ data class PadLayout(
     val mdSmsFm: String = "auto",                       // auto | on | off (SMS FM sound)
     val mdGgStretch: String = "disabled",               // disabled | enabled (Game Gear stretch)
 
+    // === Geargrafx (PCE/TG16) core options ===
+    // Keys must match geargrafx's libretro_core_options.h exactly.
+    val pceConsoleType: String = "Auto",                // Auto | PC Engine (JAP) | SuperGrafx (JAP) | TurboGrafx-16 (USA)
+    val pceAspect: String = "4:3 DAR",                  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR | 16:10 DAR
+    val pceOverscan: String = "disabled",               // disabled | enabled
+    val pceNoSpriteLimit: String = "disabled",          // disabled | enabled
+    val pcePalette: String = "default",                 // default | real | pch
+    val pceCdromBios: String = "Auto",                  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
+    val pceTurbotap: String = "disabled",               // disabled | enabled (5-player multitap)
+    val pceMb128: String = "disabled",                  // disabled | enabled (Memory Base 128 save)
+    val pceAllowUpDown: String = "disabled",            // disabled | enabled
+
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
     // Used for 6-button fight-stick layouts and as Coin/Start shortcuts.

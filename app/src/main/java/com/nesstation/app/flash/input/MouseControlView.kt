@@ -34,6 +34,16 @@ class MouseControlView @JvmOverloads constructor(
     private var dragOffsetX = 0f
     private var dragOffsetY = 0f
 
+    // === FIX: drag lag (拖慢 / 不跟手) — same debounced-save pattern as
+    // ActionButtonView / DPadView. Previously every ACTION_MOVE wrote to
+    // SharedPreferences synchronously (60+ writes/sec), causing the view
+    // to lag behind the finger. We now debounce disk writes to 400ms after
+    // the last move and flush immediately on ACTION_UP.
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var saveRunnable: Runnable? = null
+    private var pendingPosX = 0f
+    private var pendingPosY = 0f
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     /** 左键按下状态 */
@@ -126,9 +136,24 @@ class MouseControlView @JvmOverloads constructor(
                     val newY = (event.rawY - dragOffsetY).coerceIn(0f, (parent as View).height - height.toFloat())
                     x = newX
                     y = newY
+                    pendingPosX = newX
+                    pendingPosY = newY
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    val r = Runnable {
+                        PrefsManager.sp.edit()
+                            .putFloat("mouse_pos_x", pendingPosX)
+                            .putFloat("mouse_pos_y", pendingPosY)
+                            .apply()
+                    }
+                    saveRunnable = r
+                    saveHandler.postDelayed(r, 400)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    saveRunnable = null
                     PrefsManager.sp.edit()
-                        .putFloat("mouse_pos_x", newX)
-                        .putFloat("mouse_pos_y", newY)
+                        .putFloat("mouse_pos_x", pendingPosX)
+                        .putFloat("mouse_pos_y", pendingPosY)
                         .apply()
                 }
             }

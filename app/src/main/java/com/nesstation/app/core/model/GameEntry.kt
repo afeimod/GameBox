@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.Color
  *           Mega-CD / SG-1000 (Genesis-Plus-GX core)
  *           NOTE: SS (Saturn) is NOT supported by Genesis-Plus-GX —
  *           it requires a separate Saturn core (Yabause/Mednafen).
+ * PCE    = PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD
+ *           (Geargrafx core)
  * JAVA   = J2ME/Java ME games (J2ME-Loader engine)
  */
 enum class GamePlatform(val displayName: String) {
@@ -24,6 +26,7 @@ enum class GamePlatform(val displayName: String) {
     DOS("DOS"),
     ARCADE("Arcade"),
     MD("MD/SEGA"),
+    PCE("PCE/TG16"),
     JAVA("Java");
 
     companion object {
@@ -79,6 +82,12 @@ enum class GamePlatform(val displayName: String) {
                 // the platform-tab selection in the import flow.
                 "md", "smd", "gen", "sms", "gg", "sg", "68k" -> MD
                 "chd" -> MD   // SEGA CD / Mega-CD CHD images
+                // Geargrafx — PC-Engine / TurboGrafx-16 / SuperGrafx /
+                // PCE-CD. .pce = cart, .sgx = SuperGrafx cart, .hes = sound
+                // rip. (.cue/.chd for PCE-CD share extensions with Mega-CD
+                // and DOS — disambiguated by the user's platform tab in
+                // detectPlatformFromUri.)
+                "pce", "sgx", "hes" -> PCE
                 "jar", "jad" -> JAVA
                 // .zip is intentionally NOT mapped — see detectPlatformFromUri
                 // for the disambiguation logic.

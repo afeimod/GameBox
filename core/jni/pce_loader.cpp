@@ -1,39 +1,36 @@
 // SPDX-License-Identifier: MIT
-// libretro frontend that drives the prebuilt Genesis-Plus-GX core.
+// libretro frontend that drives the prebuilt Geargrafx core.
 //
-// Same dlopen() pattern as fbneo_loader.cpp / dos_loader.cpp: we resolve
-// retro_* symbols at runtime from libgenesis_plus_gx_libretro_android.so,
+// Same dlopen() pattern as genesis_loader.cpp / fbneo_loader.cpp: we resolve
+// retro_* symbols at runtime from libgeargrafx_libretro_android.so,
 // which ships in app/src/main/jniLibs/<abi>/.
 //
-// Genesis-Plus-GX supports SEGA:
-//   * Mega Drive / Genesis     (.md .bin .smd .gen .68k)
-//   * Master System            (.sms)
-//   * Game Gear                (.gg)
-//   * SG-1000                  (.sg)
-//   * Mega-CD / SEGA-CD        (.cue .chd .iso — requires BIOS in system dir)
+// Geargrafx supports:
+//   * PC-Engine / TurboGrafx-16  (.pce)
+//   * SuperGrafx                 (.sgx)
+//   * HES (Hudson Entertainment Sound) rip (.hes)
+//   * PCE-CD                     (.cue .chd — requires BIOS in system dir)
 //
-// Video resolution varies by system:
-//   MD:     320x224 (NTSC) / 320x240 (PAL) — H40 mode
-//           256x224 (NTSC) / 256x240 (PAL) — H32 mode
-//           320x448 / 256x448 (interlaced)
-//   SMS:    256x192 / 256x224 (PAL)
-//   GG:     160x144 (native) / 256x144 (cropped)
-//   SG-1k:  256x192
+// Video resolution: 256x224 (typical), 256x242 (NTSC with overscan),
+// 256x263 (PAL with overscan), 512x224 (rare high-res mode).
 // Filter buffers sized to 512x512 max.
 //
-// Audio: Genesis-Plus-GX outputs at 44100 Hz (NTSC) or 53267 Hz (PAL SMS)
-// or 48000 Hz (some configurations). The resampler converts to 48000 Hz.
+// Audio: Geargrafx outputs at 44100 Hz (NTSC) or ~44056 Hz (PAL).
+// The resampler converts to 48000 Hz.
 //
-// Input: 3-button and 6-button SEGA controllers (RETRO_DEVICE_JOYPAD) on
-// port 0, with the SNES-style bit layout remapped to SEGA's button order
-// by the libretro frontend:
-//   SNES A -> SEGA A,  SNES B -> SEGA B,  SNES X -> SEGA C,
-//   SNES Y -> SEGA X (6-btn only),
-//   SNES L -> SEGA Y (6-btn only),
-//   SNES R -> SEGA Z (6-btn only),
-//   SNES Select -> Mode,  SNES Start -> Start.
+// Input: standard PCE 2-button controller (RETRO_DEVICE_JOYPAD) on port 0,
+// with the SNES-style bit layout mapped to PCE's buttons:
+//   SNES A -> PCE II (Jump / Shoot in most games)
+//   SNES B -> PCE I  (Action / Run in most games)
+//   SNES Select -> Select,  SNES Start -> Run (Start)
+//
+// PCE-CD BIOS files (looked up by filename in <systemDir>):
+//   syscard1.pce — System Card 1
+//   syscard2.pce — System Card 2
+//   syscard3.pce — System Card 3 (Arcade Card Pro — most common, recommended)
+//   gameexpress.pce — Games Express BIOS (required for some adult games)
 
-#include "genesis_loader.h"
+#include "pce_loader.h"
 #include "shared/core_shared.h"
 
 #include <libretro.h>
@@ -54,7 +51,7 @@
 #include <string>
 #include <vector>
 
-#define TAG "genesicore-rom"
+#define TAG "pcecore-rom"
 #undef LOGI
 #undef LOGW
 #undef LOGE
@@ -62,11 +59,11 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-namespace genesicore::rom {
+namespace pcecore::rom {
 
 // ---------------------------------------------------------------------------
-// Maximum video resolution. MD interlaced hi-res goes up to 320x448.
-// 512x512 covers every supported SEGA system with margin.
+// Maximum video resolution. PCE rare hi-res mode is 512x224.
+// 512x512 covers every supported PCE system with margin.
 // ---------------------------------------------------------------------------
 static constexpr int kMaxW = 512;
 static constexpr int kMaxH = 512;
@@ -137,24 +134,6 @@ static std::string s_coreMessage;
 static std::string s_coreError;
 static std::string s_coreLibPath;
 
-// === Extended game info for RETRO_ENVIRONMENT_GET_GAME_INFO_EXT ===
-// Genesis-Plus-GX's retro_load_game() queries GET_GAME_INFO_EXT. If we
-// implement it and return the in-memory ROM buffer, GPGX uses the buffer
-// directly (g_rom_data/g_rom_size) and skips filestream_open(). This
-// bypasses any file-path encoding issues (Chinese characters, spaces,
-// brackets in paths like "/storage/emulated/0/游戏/MD/Double Dragon (UE) [!].sms")
-// and lets the core read the ROM from memory.
-//
-// Without this, GPGX relies on info->path and filestream_open() — which
-// can silently fail on certain Android FUSE paths, producing a black screen
-// with no error logged (the user's reported SMS bug).
-static std::vector<uint8_t> s_extRomData;
-static std::string s_extRomDir;
-static std::string s_extRomName;
-static std::string s_extRomExt;
-static struct retro_game_info_ext s_extGameInfo;
-static bool s_extGameInfoValid = false;
-
 // Dynamic frame buffer (ARGB, 0xAARRGGBB).
 static std::mutex s_frameMtx;
 static std::vector<uint32_t> s_frame;
@@ -162,8 +141,8 @@ static unsigned s_frameW = 0;
 static unsigned s_frameH = 0;
 static std::atomic<bool> s_newFrame{false};
 
-static unsigned s_videoW = 320;
-static unsigned s_videoH = 224;
+static unsigned s_videoW = 256;
+static unsigned s_videoH = 240;
 static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 
 // Gamepad bits (port 0 / port 1, RETRO_DEVICE_JOYPAD).
@@ -191,74 +170,64 @@ static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
 
 // ---------------------------------------------------------------------------
-// Initialize Genesis-Plus-GX core options with sensible defaults.
+// Initialize Geargrafx core options with sensible defaults.
 // Keys MUST match libretro_core_options.h exactly.
 // ---------------------------------------------------------------------------
 static void initDefaultOptions() {
-    // --- System / Region ---
-    s_options["genesis_plus_gx_region"]              = "auto";  // auto | ntsc-u | pal | ntsc-j
-    s_options["genesis_plus_gx_system"]              = "auto";  // auto | md | sms | gg | sg
-    s_options["genesis_plus_gx_bios"]                = "disabled";
-    s_options["genesis_plus_gx_force_dtack"]         = "enabled";
-    s_options["genesis_plus_gx_addr_error"]          = "enabled";
-    s_options["genesis_plus_gx_lock_on"]             = "disabled";  // lock-on: game-genie | super
-    s_options["genesis_plus_gx_cartridge_fuson"]     = "disabled";
+    // --- System ---
+    s_options["geargrafx_console_type"]          = "Auto";  // Auto | PC Engine (JAP) | SuperGrafx (JAP) | TurboGrafx-16 (USA)
+    s_options["geargrafx_backup_ram"]            = "Enabled";
+    s_options["geargrafx_deterministic_netplay"] = "Disabled";
+    s_options["geargrafx_safe_vdc_defaults"]     = "Disabled";
 
     // --- Video ---
-    s_options["genesis_plus_gx_left_border"]         = "disabled";
-    s_options["genesis_plus_gx_right_border"]        = "disabled";
-    s_options["genesis_plus_gx_top_border"]          = "disabled";
-    s_options["genesis_plus_gx_bottom_border"]       = "disabled";
-    s_options["genesis_plus_gx_aspect_ratio"]        = "auto";  // auto | 4:3 | 16:9 | stretch
-    s_options["genesis_plus_gx_render"]              = "normal";  // normal | double | interlaced
-    s_options["genesis_plus_gx_filter"]              = "disabled";  // disabled | composite | svideo | rgb
-    s_options["genesis_plus_gx_blargg_ntsc_filter"]  = "disabled";
-    s_options["genesis_plus_gx_lcd_filter"]          = "disabled";
-    s_options["genesis_plus_gx_overscan"]            = "disabled";
-    s_options["genesis_plus_gx_gg_extra"]            = "disabled";  // GG extended screen
-    s_options["genesis_plus_gx_aspect_ratio_pal"]    = "auto";
+    s_options["geargrafx_aspect_ratio"]          = "4:3 DAR";  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR
+    s_options["geargrafx_overscan"]              = "disabled";
+    s_options["geargrafx_scanline_count"]        = "0";
+    s_options["geargrafx_scanline_start"]        = "0";
+    s_options["geargrafx_scanline_end"]          = "0";
+    s_options["geargrafx_palette"]               = "default";
+    s_options["geargrafx_no_sprite_limit"]       = "disabled";
 
     // --- Audio ---
-    s_options["genesis_plus_gx_audio_filter"]        = "disabled";
-    s_options["genesis_plus_gx_audio_filter_range"]  = "60";
-    s_options["genesis_plus_gx_lowpass_range"]       = "60";
-    s_options["genesis_plus_gx_psg_preamp"]          = "150";
-    s_options["genesis_plus_gx_fm_preamp"]           = "100";
-    s_options["genesis_plus_gx_cdda_volume"]         = "100";
-    s_options["genesis_plus_gx_pcm_volume"]          = "100";
-    s_options["genesis_plus_gx_audio_eq_low"]        = "100";
-    s_options["genesis_plus_gx_audio_eq_mid"]        = "100";
-    s_options["genesis_plus_gx_audio_eq_high"]       = "100";
+    s_options["geargrafx_lowpass_filter"]        = "disabled";
+    s_options["geargrafx_lowpass_intensity"]     = "60";
+    s_options["geargrafx_lowpass_cutoff"]        = "60";
+    s_options["geargrafx_lowpass_speed_536"]     = "60";
+    s_options["geargrafx_lowpass_speed_716"]     = "60";
+    s_options["geargrafx_lowpass_speed_108"]     = "60";
+    s_options["geargrafx_psg_huc6280a"]          = "enabled";
+    s_options["geargrafx_psg_volume"]            = "100";
+    s_options["geargrafx_cdrom_volume"]          = "100";
+    s_options["geargrafx_adpcm_volume"]          = "100";
 
-    // --- Input ---
-    // 6-button SEGA controller is the default — Genesis-Plus-GX auto-detects
-    // when a game uses the Mode button or 6-button layout.
-    s_options["genesis_plus_gx_input"]               = "6 button";  // 3 button | 6 button
-    s_options["genesis_plus_gx_mouse"]               = "disabled";  // enabled | disabled
-    s_options["genesis_plus_gx_menacer"]             = "disabled";
-    s_options["genesis_plus_gx_justifier"]           = "disabled";
-    s_options["genesis_plus_gx_multitap"]            = "disabled";
-    s_options["genesis_plus_gx_allow_up_down_allowed"] = "disabled";
+    // --- CD-ROM ---
+    // BIOS files required in <systemDir> for PCE-CD games:
+    //   syscard1.pce, syscard2.pce, syscard3.pce, gameexpress.pce
+    // syscard3.pce (System Card 3 / Arcade Card Pro) is the most common
+    // and is auto-selected by Geargrafx when cdrom_bios = "Auto".
+    s_options["geargrafx_cdrom_type"]            = "Auto";  // Auto | Standard | Super CD-ROM | Arcade CD-ROM
+    s_options["geargrafx_cdrom_bios"]            = "Auto";  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
+    s_options["geargrafx_cdrom_preload"]         = "disabled";
 
-    // --- Mega-CD ---
-    // Bios files required in <systemDir>:
-    //   bios_CD_E.zip — European Mega-CD BIOS
-    //   bios_CD_J.zip — Japanese Mega-CD BIOS
-    //   bios_CD_U.zip — US SEGA-CD BIOS
-    // Each zip contains a single .bin file (e.g. bios_CD_E.bin).
-    s_options["genesis_plus_gx_cd_bios"]             = "auto";
-    s_options["genesis_plus_gx_cd_perfect_sync"]     = "disabled";
-    s_options["genesis_plus_gx_cd_fastboot"]         = "enabled";
+    // --- Input / Accessories ---
+    s_options["geargrafx_up_down_allowed"]       = "disabled";
+    s_options["geargrafx_soft_reset"]            = "disabled";
+    s_options["geargrafx_turbotap"]              = "disabled";  // enables 5-player multitap
+    s_options["geargrafx_mb128"]                 = "disabled";  // Memory Base 128 (save device)
+    s_options["geargrafx_mouse_sensitivity"]     = "100";
+    s_options["geargrafx_avenue_pad_3_switch"]   = "disabled";
 
-    // --- Performance ---
-    s_options["genesis_plus_gx_overclock"]           = "100%";  // 100% | 125% | 150% | 200%
-    s_options["genesis_plus_gx_frameskip"]           = "0";     // 0..5
-
-    // --- SMS/GG-specific ---
-    s_options["genesis_plus_gx_sms_fm"]              = "auto";  // auto | on | off
-    s_options["genesis_plus_gx_sms_fmchannel"]       = "YM2413";
-    s_options["genesis_plus_gx_sms_cart"]            = "disabled";
-    s_options["genesis_plus_gx_gg_stretch"]          = "disabled";
+    // --- Turbo / Auto-fire (off by default — user enables per-game) ---
+    s_options["geargrafx_turbo_toggle_hotkey"]   = "disabled";
+    s_options["geargrafx_turbo_p1_i"]            = "disabled";
+    s_options["geargrafx_turbo_speed_p1_i"]      = "Fast";
+    s_options["geargrafx_turbo_p1_ii"]           = "disabled";
+    s_options["geargrafx_turbo_speed_p1_ii"]     = "Fast";
+    s_options["geargrafx_turbo_p2_i"]            = "disabled";
+    s_options["geargrafx_turbo_speed_p2_i"]      = "Fast";
+    s_options["geargrafx_turbo_p2_ii"]           = "disabled";
+    s_options["geargrafx_turbo_speed_p2_ii"]     = "Fast";
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +238,7 @@ static bool loadCoreLib() {
 
     std::vector<std::string> candidates;
     if (!s_coreLibPath.empty()) candidates.push_back(s_coreLibPath);
-    candidates.push_back("libgenesis_plus_gx_libretro_android.so");
+    candidates.push_back("libgeargrafx_libretro_android.so");
 
     for (const auto& name : candidates) {
         s_coreLib = dlopen(name.c_str(), RTLD_NOW);
@@ -282,13 +251,13 @@ static bool loadCoreLib() {
     }
 
     if (!s_coreLib) {
-        s_coreError = "dlopen(libgenesis_plus_gx_libretro_android.so) failed: ";
+        s_coreError = "dlopen(libgeargrafx_libretro_android.so) failed: ";
         s_coreError += dlerror();
         LOGE("%s", s_coreError.c_str());
         return false;
     }
 
-    LOGI("dlopen(libgenesis_plus_gx_libretro_android.so) OK");
+    LOGI("dlopen(libgeargrafx_libretro_android.so) OK");
 
     #define RESOLVE(name) \
         s_##name = reinterpret_cast<name##_t>(dlsym(s_coreLib, #name)); \
@@ -344,7 +313,7 @@ static void libretroLog(retro_log_level level, const char* fmt, ...) {
     }
     va_list ap;
     va_start(ap, fmt);
-    __android_log_vprint(prio, "genplus", fmt, ap);
+    __android_log_vprint(prio, "geargrafx", fmt, ap);
     va_end(ap);
 }
 
@@ -455,28 +424,6 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
             return true;
 
-        // === Provide extended game info so GPGX uses our in-memory ROM buffer ===
-        // Genesis-Plus-GX's retro_load_game() queries GET_GAME_INFO_EXT. If we
-        // return our pre-loaded ROM buffer here, GPGX copies it directly into
-        // cart.rom via load_archive()'s g_rom_data fast-path — bypassing
-        // filestream_open() on the (possibly Chinese-character-laden) path.
-        // Without this, GPGX falls back to info->path and may fail silently.
-        case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT: {
-            if (!s_extGameInfoValid) {
-                LOGW("GET_GAME_INFO_EXT: no extended info available "
-                     "(s_extGameInfoValid=false) — GPGX will read from path");
-                return false;
-            }
-            if (data) {
-                *static_cast<struct retro_game_info_ext**>(data) = &s_extGameInfo;
-                LOGI("GET_GAME_INFO_EXT: returning in-memory buffer "
-                     "(data=%p, size=%zu, full_path=%s)",
-                     s_extGameInfo.data, s_extGameInfo.size,
-                     s_extGameInfo.full_path ? s_extGameInfo.full_path : "(null)");
-            }
-            return true;
-        }
-
         default:
             return false;
     }
@@ -509,6 +456,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
                 }
             }
         } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
+            // Geargrafx defaults to RGB565
             const uint16_t* src = static_cast<const uint16_t*>(data);
             const size_t stride = pitch / sizeof(uint16_t);
             for (unsigned y = 0; y < height; ++y) {
@@ -526,6 +474,7 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
                 }
             }
         } else {
+            // 0RGB1555
             const uint16_t* src = static_cast<const uint16_t*>(data);
             const size_t stride = pitch / sizeof(uint16_t);
             for (unsigned y = 0; y < height; ++y) {
@@ -593,7 +542,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     regionOut = 0;
 
     if (!loadCoreLib()) {
-        return s_coreError.empty() ? "Failed to load libgenesis_plus_gx_libretro_android.so" : s_coreError;
+        return s_coreError.empty() ? "Failed to load libgeargrafx_libretro_android.so" : s_coreError;
     }
 
     if (!s_loaded) {
@@ -608,7 +557,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 
         s_retro_init();
         s_loaded = true;
-        LOGI("Genesis-Plus-GX core initialized (API version %u)", s_retro_api_version());
+        LOGI("Geargrafx core initialized (API version %u)", s_retro_api_version());
     }
 
     if (s_gameLoaded) {
@@ -625,167 +574,38 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_resampler.reset();
 
-    // === Pre-load ROM into memory and fill extended game info ===
-    // Genesis-Plus-GX queries GET_GAME_INFO_EXT during retro_load_game().
-    // If we provide the in-memory buffer, GPGX uses it directly via
-    // load_archive()'s g_rom_data fast-path — bypassing filestream_open()
-    // which can fail silently on paths with Chinese characters / spaces.
-    // This fixes the SMS black screen bug where the core logs BIOS paths
-    // but never logs "Loading N bytes" because filestream_open returned NULL.
-    std::vector<uint8_t> romData;
-    {
-        FILE* f = std::fopen(path.c_str(), "rb");
-        if (f) {
-            std::fseek(f, 0, SEEK_END);
-            long sz = std::ftell(f);
-            std::fseek(f, 0, SEEK_SET);
-            if (sz > 0 && sz < 64 * 1024 * 1024) {
-                romData.resize((size_t)sz);
-                size_t rd = std::fread(romData.data(), 1, (size_t)sz, f);
-                if (rd == (size_t)sz) {
-                    // Move romData into the persistent s_extRomData so it
-                    // survives beyond this block (GPGX queries
-                    // GET_GAME_INFO_EXT later during retro_load_game()).
-                    s_extRomData = std::move(romData);
-
-                    // Parse path into dir / name / ext for retro_game_info_ext
-                    size_t lastSlash = path.find_last_of('/');
-                    std::string fileName = (lastSlash != std::string::npos)
-                        ? path.substr(lastSlash + 1) : path;
-                    s_extRomDir = (lastSlash != std::string::npos)
-                        ? path.substr(0, lastSlash) : ".";
-                    size_t lastDot = fileName.find_last_of('.');
-                    if (lastDot != std::string::npos) {
-                        s_extRomName = fileName.substr(0, lastDot);
-                        s_extRomExt = fileName.substr(lastDot + 1);
-                        std::transform(s_extRomExt.begin(), s_extRomExt.end(),
-                                       s_extRomExt.begin(),
-                                       [](unsigned char c) { return std::tolower(c); });
-                    } else {
-                        s_extRomName = fileName;
-                        s_extRomExt = "md";
-                    }
-
-                    std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
-                    s_extGameInfo.full_path     = path.c_str();
-                    s_extGameInfo.archive_path  = nullptr;
-                    s_extGameInfo.archive_file  = nullptr;
-                    s_extGameInfo.dir           = s_extRomDir.c_str();
-                    s_extGameInfo.name          = s_extRomName.c_str();
-                    s_extGameInfo.ext           = s_extRomExt.c_str();
-                    s_extGameInfo.meta          = nullptr;
-                    s_extGameInfo.data          = s_extRomData.data();
-                    s_extGameInfo.size          = s_extRomData.size();
-                    s_extGameInfo.file_in_archive = false;
-                    s_extGameInfoValid = true;
-                    LOGI("Filled ext game info: path=%s, dir=%s, name=%s, ext=%s, "
-                         "data=%p, size=%zu",
-                         path.c_str(), s_extRomDir.c_str(), s_extRomName.c_str(),
-                         s_extRomExt.c_str(), s_extGameInfo.data, s_extGameInfo.size);
-                } else {
-                    LOGW("ROM read partial: got %zu of %ld bytes — falling back to path mode",
-                         rd, sz);
-                    s_extRomData.clear();
-                    s_extGameInfoValid = false;
-                }
-            } else {
-                LOGW("ROM size out of range: %ld bytes — falling back to path mode", sz);
-                s_extRomData.clear();
-                s_extGameInfoValid = false;
-            }
-            std::fclose(f);
-        } else {
-            LOGW("Cannot open ROM file for pre-load: %s — falling back to path mode",
-                 path.c_str());
-            s_extRomData.clear();
-            s_extGameInfoValid = false;
-        }
-    }
-
-    // Genesis-Plus-GX accepts file paths directly. For .cue / .chd / .iso
-    // (Mega-CD), the path points to the cue sheet which references the bin.
-    // We also provide game.data (pointing to s_extRomData) so GPGX can use
-    // either path or in-memory data depending on which mode it prefers.
-    //
-    // === FIX: SMS/GG black-screen bug ===
-    // When `genesis_plus_gx_system` is "auto" (the default), GPGX inspects the
-    // file extension to pick the system type. If the temp file was renamed to
-    // .md (a bug we fixed in EmulatorScreen.kt), GPGX would initialise as
-    // Mega Drive, then try to fall back to SMS via header detection — leaving
-    // the VDP in an inconsistent state and producing a black screen.
-    //
-    // As a belt-and-suspenders defence, we explicitly set the system option
-    // based on the file extension we parsed above. This guarantees correct
-    // system detection even if the upstream Kotlin layer ever misnames the
-    // temp file again.
-    if (s_extRomExt == "sms" || s_extRomExt == "sg") {
-        std::lock_guard<std::mutex> lk(s_optMtx);
-        s_options["genesis_plus_gx_system"] = (s_extRomExt == "sg") ? "sg" : "sms";
-        s_optionsChanged.store(true, std::memory_order_release);
-        LOGI("Forced genesis_plus_gx_system = %s (from ext='%s')",
-             s_options["genesis_plus_gx_system"].c_str(), s_extRomExt.c_str());
-    } else if (s_extRomExt == "gg") {
-        std::lock_guard<std::mutex> lk(s_optMtx);
-        s_options["genesis_plus_gx_system"] = "gg";
-        s_optionsChanged.store(true, std::memory_order_release);
-        LOGI("Forced genesis_plus_gx_system = gg (from ext='gg')");
-    } else if (s_extRomExt == "md" || s_extRomExt == "bin" ||
-               s_extRomExt == "smd" || s_extRomExt == "gen" ||
-               s_extRomExt == "68k") {
-        std::lock_guard<std::mutex> lk(s_optMtx);
-        s_options["genesis_plus_gx_system"] = "md";
-        s_optionsChanged.store(true, std::memory_order_release);
-        LOGI("Forced genesis_plus_gx_system = md (from ext='%s')",
-             s_extRomExt.c_str());
-    } else {
-        std::lock_guard<std::mutex> lk(s_optMtx);
-        s_options["genesis_plus_gx_system"] = "auto";
-        s_optionsChanged.store(true, std::memory_order_release);
-    }
-
+    // Geargrafx accepts file paths directly. For .cue / .chd (PCE-CD),
+    // the path points to the cue sheet which references the bin.
+    // For .pce / .sgx / .hes, the path is the ROM file itself.
     retro_game_info gameInfo{};
     gameInfo.path = path.c_str();
-    gameInfo.data = s_extGameInfoValid ? s_extRomData.data() : nullptr;
-    gameInfo.size = s_extGameInfoValid ? s_extRomData.size() : 0;
+    gameInfo.data = nullptr;
+    gameInfo.size = 0;
     gameInfo.meta = nullptr;
 
-    LOGI("About to call retro_load_game for: %s (systemDir=%s, extInfoValid=%d, "
-         "data=%p, size=%zu)",
-         path.c_str(), s_systemDir.c_str(), s_extGameInfoValid ? 1 : 0,
-         gameInfo.data, gameInfo.size);
+    LOGI("About to call retro_load_game for: %s (systemDir=%s)",
+         path.c_str(), s_systemDir.c_str());
 
     bool ok = s_retro_load_game(&gameInfo);
     if (!ok) {
-        // Fallback: read ROM into memory (used for content:// URI temp files
-        // when the core needs data + size rather than just a path).
-        // If we already pre-loaded above, s_extRomData is set — try with
-        // a fresh gameInfo pointing to it (sometimes the first call fails
-        // because GPGX's GET_GAME_INFO_EXT was queried before s_extRomData
-        // was assigned, but on subsequent calls within the same load_game
-        // invocation that's not possible — so this fallback is mainly for
-        // the case where pre-load failed).
-        if (!s_extGameInfoValid) {
-            FILE* fp = fopen(path.c_str(), "rb");
-            if (fp) {
-                fseek(fp, 0, SEEK_END);
-                long sz = ftell(fp);
-                fseek(fp, 0, SEEK_SET);
-                if (sz > 0 && sz < 64 * 1024 * 1024) {
-                    std::vector<uint8_t> buf(sz);
-                    size_t rd = fread(buf.data(), 1, sz, fp);
-                    fclose(fp);
-                    if (rd == (size_t)sz) {
-                        gameInfo.data = buf.data();
-                        gameInfo.size = sz;
-                        ok = s_retro_load_game(&gameInfo);
-                    }
-                } else {
-                    fclose(fp);
+        // Fallback: read ROM into memory and try with data + size.
+        FILE* fp = fopen(path.c_str(), "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            if (sz > 0 && sz < 64 * 1024 * 1024) {
+                std::vector<uint8_t> buf(sz);
+                size_t rd = fread(buf.data(), 1, sz, fp);
+                fclose(fp);
+                if (rd == (size_t)sz) {
+                    gameInfo.data = buf.data();
+                    gameInfo.size = sz;
+                    ok = s_retro_load_game(&gameInfo);
                 }
+            } else {
+                fclose(fp);
             }
-        } else {
-            LOGE("retro_load_game failed even with in-memory buffer — "
-                 "GPGX rejected the ROM (unsupported mapper or corrupt file)");
         }
     }
 
@@ -797,15 +617,16 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             s_coreError += ")";
             s_coreMessage.clear();
         }
-        // For Mega-CD games, suggest checking BIOS files.
+        // For PCE-CD games, suggest checking BIOS files.
         std::string ext;
         size_t dot = path.find_last_of('.');
         if (dot != std::string::npos) ext = path.substr(dot + 1);
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == "cue" || ext == "chd" || ext == "iso") {
-            s_coreError += "\nFor Mega-CD games, ensure BIOS files are "
-                            "in the system directory: bios_CD_E.zip (EU), "
-                            "bios_CD_J.zip (JP), bios_CD_U.zip (US).";
+            s_coreError += "\nFor PCE-CD games, ensure a System Card BIOS "
+                            "is in the system directory: syscard1.pce, "
+                            "syscard2.pce, syscard3.pce (recommended), or "
+                            "gameexpress.pce.";
         }
         LOGE("%s", s_coreError.c_str());
         return s_coreError;
@@ -821,8 +642,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, path, s_saveName);
     }
 
-    // Set up dual controller ports (default = JOYPAD = 3-button SEGA pad;
-    // user can switch to 6-button via core option "genesis_plus_gx_input").
+    // Set up controller port (default = JOYPAD = 2-button PCE pad).
     if (s_retro_set_controller_port_device) {
         s_retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
         s_retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
@@ -840,8 +660,8 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         std::lock_guard<std::mutex> lk(s_frameMtx);
         s_frameW = av.geometry.base_width;
         s_frameH = av.geometry.base_height;
-        if (s_frameW == 0) s_frameW = 320;
-        if (s_frameH == 0) s_frameH = 224;
+        if (s_frameW == 0) s_frameW = 256;
+        if (s_frameH == 0) s_frameH = 240;
         s_frame.assign((size_t)s_frameW * s_frameH, 0xFF000000u);
     }
 
@@ -855,7 +675,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
              s_resampler.ratio, s_resampler.active ? 1 : 0);
     }
 
-    LOGI("SEGA ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
+    LOGI("PCE ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
          av.geometry.base_width, av.geometry.base_height,
          av.geometry.max_width, av.geometry.max_height);
@@ -888,23 +708,12 @@ void unload() {
         s_frameW = 0;
         s_frameH = 0;
     }
-    s_videoW = 320;
-    s_videoH = 224;
+    s_videoW = 256;
+    s_videoH = 240;
     s_lastRomPath.clear();
     s_saveName.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
-
-    // Clear extended game info so a stale buffer is never returned to the
-    // core after unload (would cause use-after-free if GPGX queries
-    // GET_GAME_INFO_EXT for the next game before we fill it again).
-    s_extRomData.clear();
-    s_extRomData.shrink_to_fit();
-    s_extRomDir.clear();
-    s_extRomName.clear();
-    s_extRomExt.clear();
-    std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
-    s_extGameInfoValid = false;
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -1036,8 +845,7 @@ int videoWidth()  { return (int)s_videoW; }
 int videoHeight() { return (int)s_videoH; }
 
 void videoAspectRatio(int& num, int& den) {
-    // MD/SMS: 4:3 (square pixels for 320x240, slightly stretched for 320x224).
-    // GG: 4:3 (160x144 → 4:3 on cabinet), but we keep 4:3 here as default.
+    // PCE: 4:3 (256×242 → 4:3 with slight stretch; matches original cabinet)
     num = 4;
     den = 3;
 }
@@ -1051,4 +859,4 @@ bool isCoreLoaded() {
     return s_coreLib != nullptr;
 }
 
-} // namespace genesicore::rom
+} // namespace pcecore::rom

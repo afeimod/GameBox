@@ -47,6 +47,16 @@ class DPadView @JvmOverloads constructor(
     private var dragOffsetX = 0f
     private var dragOffsetY = 0f
 
+    // === FIX: drag lag (拖慢 / 不跟手) — same debounced-save pattern as
+    // ActionButtonView. Previously every ACTION_MOVE wrote to SharedPreferences
+    // synchronously (60+ writes/sec), causing the button to lag behind the
+    // finger. We now debounce disk writes to 400ms after the last move and
+    // flush immediately on ACTION_UP.
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var saveRunnable: Runnable? = null
+    private var pendingPosX = 0f
+    private var pendingPosY = 0f
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pressed = HashSet<Int>()              // 当前按下的方向 KeyCode
     private val pointerDir = HashMap<Int, Int>()      // 指针 ID → 方向 KeyCode（0 表示无）
@@ -258,9 +268,24 @@ class DPadView @JvmOverloads constructor(
                     val newY = (event.rawY - dragOffsetY).coerceIn(0f, (parent as View).height - height.toFloat())
                     x = newX
                     y = newY
+                    pendingPosX = newX
+                    pendingPosY = newY
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    val r = Runnable {
+                        PrefsManager.sp.edit()
+                            .putFloat("dpad_pos_x", pendingPosX)
+                            .putFloat("dpad_pos_y", pendingPosY)
+                            .apply()
+                    }
+                    saveRunnable = r
+                    saveHandler.postDelayed(r, 400)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    saveRunnable = null
                     PrefsManager.sp.edit()
-                        .putFloat("dpad_pos_x", newX)
-                        .putFloat("dpad_pos_y", newY)
+                        .putFloat("dpad_pos_x", pendingPosX)
+                        .putFloat("dpad_pos_y", pendingPosY)
                         .apply()
                 }
             }

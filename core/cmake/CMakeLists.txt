@@ -491,6 +491,51 @@ target_compile_options(genesicore PRIVATE
 target_link_libraries(genesicore log android dl)
 
 # ---------------------------------------------------------------------------
+# Geargrafx (PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD) — built as
+# libpcecore.so, which dlopen()s the prebuilt
+# libgeargrafx_libretro_android.so from app/src/main/jniLibs/<abi>/.
+# Same dlopen pattern as DOSBox-Pure / FBNeo / Genesis-Plus-GX.
+#
+# BIOS files (syscard1/2/3.pce, gameexpress.pce) for PCE-CD games are looked
+# up by the core in the system directory — see NesApp.ensurePceBios.
+# ---------------------------------------------------------------------------
+set(PCE_JNI_SOURCES
+    "${APP_JNI_DIR}/pce_bridge.cpp"
+    "${APP_JNI_DIR}/pce_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(pcecore SHARED ${PCE_JNI_SOURCES})
+
+target_include_directories(pcecore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(pcecore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(pcecore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt Geargrafx .so.
+target_link_libraries(pcecore log android dl)
+
+# ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
 # Converted from J2ME-Loader's Android.mk to CMake
 # ---------------------------------------------------------------------------

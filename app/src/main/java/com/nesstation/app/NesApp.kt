@@ -8,6 +8,7 @@ import com.nesstation.app.core.engine.GbaEngine
 import com.nesstation.app.core.engine.DosEngine
 import com.nesstation.app.core.engine.FbNeoEngine
 import com.nesstation.app.core.engine.GenesisEngine
+import com.nesstation.app.core.engine.PceEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
 import java.io.File
@@ -71,9 +72,16 @@ class NesApp : Application() {
             com.nesstation.app.core.jni.GenesisNative.appContext = this
             GenesisEngine.ensureLoaded()
         }
+        tryInit("PceEngine")           {
+            // Geargrafx PCE core — dlopen()s
+            // libgeargrafx_libretro_android.so.
+            com.nesstation.app.core.jni.PceNative.appContext = this
+            PceEngine.ensureLoaded()
+        }
         tryInit("FdsBios")            { ensureFdsBios() }
         tryInit("FbNeoBios")          { ensureFbNeoBios() }
         tryInit("GenesisBios")        { ensureGenesisBios() }
+        tryInit("PceBios")            { ensurePceBios() }
         tryInit("ArcadeTitleMigrate") { migrateArcadeTitles() }
     }
 
@@ -288,6 +296,52 @@ class NesApp : Application() {
         } else {
             Log.i("NesApp", "Genesis BIOS: no bundled BIOS files found in assets/genesis/. " +
                     "Import via Settings → MD/SEGA → BIOS Management (only needed for Mega-CD games).")
+        }
+    }
+
+    /**
+     * Auto-extract Geargrafx PCE-CD BIOS files (syscard*.pce) from APK assets
+     * to the system directory (<filesDir>/pce/).
+     *
+     * Geargrafx looks for PCE-CD BIOS files by filename:
+     *   - syscard1.pce — System Card 1
+     *   - syscard2.pce — System Card 2
+     *   - syscard3.pce — System Card 3 / Arcade Card Pro (most common)
+     *   - gameexpress.pce — Games Express BIOS
+     *
+     * Cartridge games (.pce/.sgx) and HES rips (.hes) do NOT require BIOS —
+     * only PCE-CD games need these. Like the other BIOS files, these have
+     * copyright and cannot be bundled in the open-source release; this
+     * function is a no-op if the assets are not present.
+     */
+    private fun ensurePceBios() {
+        val destDir = File(filesDir, "pce")
+        if (!destDir.exists()) destDir.mkdirs()
+
+        val biosFiles = listOf("syscard1.pce", "syscard2.pce", "syscard3.pce", "gameexpress.pce")
+
+        var extracted = 0
+        for (name in biosFiles) {
+            val dest = File(destDir, name)
+            if (dest.exists() && dest.length() > 0) continue
+            try {
+                assets.open("pce/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                extracted++
+                Log.i("NesApp", "PCE BIOS extracted: $name")
+            } catch (_: java.io.FileNotFoundException) {
+                // Not bundled — user imports via Settings
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to extract PCE BIOS $name", e)
+                if (dest.exists()) dest.delete()
+            }
+        }
+        if (extracted > 0) {
+            Log.i("NesApp", "PCE BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
+        } else {
+            Log.i("NesApp", "PCE BIOS: no bundled BIOS files found in assets/pce/. " +
+                    "Import via Settings → PCE → PCE-CD BIOS Management (only needed for PCE-CD games).")
         }
     }
 

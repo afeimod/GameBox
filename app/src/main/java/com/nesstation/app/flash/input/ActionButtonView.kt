@@ -38,6 +38,22 @@ class ActionButtonView @JvmOverloads constructor(
     private var dragOffsetX = 0f
     private var dragOffsetY = 0f
 
+    // === FIX: drag lag (拖慢 / 不跟手) ===
+    // Previously every ACTION_MOVE called PrefsManager.sp.edit().putFloat().apply(),
+    // which writes to disk 60+ times per second during a drag. On low-end devices
+    // this lands the main thread in XmlUtils.writeMapXml() on the prefs I/O thread,
+    // causing severe stutter — the button visibly lags behind the finger.
+    //
+    // Fix: keep the latest position in `pendingPos` and only persist via a
+    // debounced Handler.postDelayed (400ms after the last move). The UI still
+    // updates immediately via setX/setY, so the button tracks the finger in
+    // real time; only the disk write is throttled. ACTION_UP flushes immediately
+    // so the final position is always saved.
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var saveRunnable: Runnable? = null
+    private var pendingPosX = 0f
+    private var pendingPosY = 0f
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     /** 鲜艳多色调色板（刻意区别于参考图的单色青蓝） */
@@ -184,11 +200,29 @@ class ActionButtonView @JvmOverloads constructor(
                 MotionEvent.ACTION_MOVE -> {
                     val newX = (event.rawX - dragOffsetX).coerceIn(0f, (parent as View).width - width.toFloat())
                     val newY = (event.rawY - dragOffsetY).coerceIn(0f, (parent as View).height - height.toFloat())
+                    // UI updates immediately — button tracks finger in real time.
                     x = newX
                     y = newY
+                    // Debounced disk write (see fix comment above).
+                    pendingPosX = newX
+                    pendingPosY = newY
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    val r = Runnable {
+                        PrefsManager.sp.edit()
+                            .putFloat("action_pos_x", pendingPosX)
+                            .putFloat("action_pos_y", pendingPosY)
+                            .apply()
+                    }
+                    saveRunnable = r
+                    saveHandler.postDelayed(r, 400)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // Flush immediately so the final position is always saved.
+                    saveRunnable?.let { saveHandler.removeCallbacks(it) }
+                    saveRunnable = null
                     PrefsManager.sp.edit()
-                        .putFloat("action_pos_x", newX)
-                        .putFloat("action_pos_y", newY)
+                        .putFloat("action_pos_x", pendingPosX)
+                        .putFloat("action_pos_y", pendingPosY)
                         .apply()
                 }
             }

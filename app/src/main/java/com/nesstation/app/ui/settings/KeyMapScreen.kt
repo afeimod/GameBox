@@ -166,6 +166,24 @@ private val MD_ACTIONS = listOf(
     KeyAction("md_start",  "Start",  Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START, "Start")
 )
 
+// PCE / TurboGrafx-16 / SuperGrafx controller layout.
+// The PCE pad has only 2 face buttons: I (left) and II (right). Plus Select
+// and Run (Start). Geargrafx maps the standard libretro JOYPAD buttons:
+//   SNES A → PCE II (right button — primary action in most games)
+//   SNES B → PCE I  (left button — secondary action)
+//   SNES Select → Select, SNES Start → Run (Start)
+// We label them "II" and "I" so the user sees the original PCE names.
+private val PCE_ACTIONS = listOf(
+    KeyAction("pce_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
+    KeyAction("pce_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
+    KeyAction("pce_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
+    KeyAction("pce_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
+    KeyAction("pce_ii",     "II",     Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A, "PCE II (右)"),
+    KeyAction("pce_i",      "I",      Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B, "PCE I (左)"),
+    KeyAction("pce_select", "Select", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_SELECT, "Select"),
+    KeyAction("pce_run",    "Run",    Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Run (Start)")
+)
+
 private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform) {
     GamePlatform.NES    -> NES_ACTIONS
     GamePlatform.SFC    -> SNES_ACTIONS
@@ -174,6 +192,7 @@ private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform
     GamePlatform.DOS    -> DOS_ACTIONS
     GamePlatform.ARCADE -> ARCADE_ACTIONS
     GamePlatform.MD     -> MD_ACTIONS
+    GamePlatform.PCE    -> PCE_ACTIONS
     GamePlatform.JAVA   -> JAVA_ACTIONS
 }
 
