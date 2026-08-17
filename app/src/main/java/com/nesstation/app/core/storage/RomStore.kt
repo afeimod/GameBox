@@ -145,6 +145,11 @@ object RomStore {
     /** Save the entire list, replacing any previous data */
     fun saveAll(ctx: Context, list: List<GameEntry>) {
         val p = prefs(ctx)
+        // 先备份"已导入文件夹"记忆键，否则下方 clear() 会把它们连同 ROM 数据
+        // 一起清掉，导致刷新按钮丢失所有已导入文件夹、无法感知新增/删除游戏。
+        val importedFolders = p.getString(KEY_IMPORTED_FOLDERS, null)
+        val lastFolderUri = p.getString(KEY_LAST_IMPORT_FOLDER_URI, null)
+        val lastPlatform = p.getString(KEY_LAST_IMPORT_PLATFORM, null)
         p.edit().clear().apply()
         p.edit().apply {
             putInt(KEY_COUNT, list.size)
@@ -158,6 +163,10 @@ object RomStore {
                 putLong("${KEY_PREFIX_LASTPLAYED}$i", entry.lastPlayedAt)
                 putBoolean("${KEY_PREFIX_FAVORITE}$i", entry.isFavorite)
             }
+            // 恢复被 clear() 清掉的文件夹记忆键。
+            if (importedFolders != null) putString(KEY_IMPORTED_FOLDERS, importedFolders)
+            if (lastFolderUri != null) putString(KEY_LAST_IMPORT_FOLDER_URI, lastFolderUri)
+            if (lastPlatform != null) putString(KEY_LAST_IMPORT_PLATFORM, lastPlatform)
         }.apply()
     }
 

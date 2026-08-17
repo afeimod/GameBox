@@ -350,7 +350,7 @@ fun SettingsScreen(
                 // === 关于 ===
                 item {
                     SettingsSection("关于") {
-                        SettingsRow("版本", "2.2.1", trailing = { ValueText("2.2.1") })
+                        SettingsRow("版本", "3.0.0", trailing = { ValueText("3.0.0") })
                         SettingsRow("核心", "FCEUmm + Snes9x + mGBA + DOSBox-Pure",
                             trailing = { ValueText("FCEUmm + Snes9x + mGBA + DOSBox-Pure") })
                         SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {

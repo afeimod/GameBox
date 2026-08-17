@@ -12,8 +12,8 @@ android {
         applicationId = "com.nesstation.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.3.9"
+        versionCode = 3
+        versionName = "3.0.0"
         ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "26.3.11579264"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
