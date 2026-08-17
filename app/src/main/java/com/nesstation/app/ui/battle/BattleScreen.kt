@@ -29,7 +29,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Login
@@ -120,6 +119,8 @@ fun BattleScreen(
     var loading by remember { mutableStateOf(false) }
     var statusMsg by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf<DownloadTask?>(null) }
+    // 图标缓存版本号：每次刷新游戏列表时递增，强制 Coil 重新加载图标
+    var iconVersion by remember { mutableStateOf(0) }
 
     // 当前选中的游戏（null = 游戏库宫格；非 null = 该游戏的街机厅桌面）
     var selectedGame by remember { mutableStateOf<BattleApi.Game?>(null) }
@@ -135,6 +136,7 @@ fun BattleScreen(
                 withContext(Dispatchers.Main) {
                     games = g
                     rooms = r
+                    iconVersion++
                     loading = false
                 }
             } catch (e: Exception) {
@@ -218,39 +220,11 @@ fun BattleScreen(
                     games = games,
                     loading = loading,
                     downloading = downloading,
+                    iconVersion = iconVersion,
                     onDownloadAndEnter = { game ->
-                        val has = BattleRomStore.hasRom(context, game.id, "${game.id}.zip")
-                        if (has) {
-                            selectedGame = game
-                            refreshAll()
-                            return@GameLibraryGrid
-                        }
-                        downloading = DownloadTask(game.id, "${game.id}.zip", 0f)
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                BattleApi(context).downloadRom(
-                                    game,
-                                    BattleRomStore.romFile(context, game.id, "${game.id}.zip")
-                                ) { done, total ->
-                                    if (total > 0) {
-                                        downloading = DownloadTask(
-                                            game.id, "${game.id}.zip",
-                                            (done.toFloat() / total).coerceIn(0f, 1f)
-                                        )
-                                    }
-                                }
-                                withContext(Dispatchers.Main) {
-                                    downloading = null
-                                    selectedGame = game
-                                    refreshAll()
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    downloading = null
-                                    statusMsg = "下载失败：${e.message}"
-                                }
-                            }
-                        }
+                        // 点击游戏卡片直接进入街机厅房间列表，ROM 在点击房间进入对战时才下载
+                        selectedGame = game
+                        refreshAll()
                     }
                 )
             } else {
@@ -258,6 +232,7 @@ fun BattleScreen(
                 ArcadeHallGrid(
                     game = selectedGame!!,
                     rooms = rooms,
+                    iconVersion = iconVersion,
                     onBackToLibrary = { selectedGame = null },
                     onJoinTable = { room, isFull ->
                         if (!BattleSession.isLoggedIn(context)) {
@@ -268,11 +243,33 @@ fun BattleScreen(
                             statusMsg = "该桌已满（1P / 2P 都有人）"
                             return@ArcadeHallGrid
                         }
+                        val targetGame = selectedGame!!
+                        // 进入房间前先确保 ROM 已下载；未下载则提示并下载，完成后自动进入房间
+                        val has = BattleRomStore.hasRom(context, targetGame.id, "${targetGame.id}.zip")
+                        if (!has) {
+                            statusMsg = "正在下载 ${targetGame.title}，完成后自动进入房间…"
+                            downloading = DownloadTask(targetGame.id, "${targetGame.id}.zip", 0f)
+                        }
                         scope.launch(Dispatchers.IO) {
                             try {
+                                if (!has) {
+                                    BattleApi(context).downloadRom(
+                                        targetGame,
+                                        BattleRomStore.romFile(context, targetGame.id, "${targetGame.id}.zip")
+                                    ) { done, total ->
+                                        if (total > 0) {
+                                            downloading = DownloadTask(
+                                                targetGame.id, "${targetGame.id}.zip",
+                                                (done.toFloat() / total).coerceIn(0f, 1f)
+                                            )
+                                        }
+                                    }
+                                }
+                                withContext(Dispatchers.Main) { downloading = null }
+                                // ROM 就绪，创建 / 加入房间
                                 val token = BattleSession.getToken(context)!!
                                 val (joined, tcp) = if (room == null) {
-                                    BattleApi(context).createRoom(selectedGame!!.id, token)
+                                    BattleApi(context).createRoom(targetGame.id, token)
                                 } else {
                                     BattleApi(context).joinRoom(room.id, token)
                                 }
@@ -287,7 +284,10 @@ fun BattleScreen(
                                     )
                                 }
                             } catch (e: Exception) {
-                                withContext(Dispatchers.Main) { statusMsg = e.message }
+                                withContext(Dispatchers.Main) {
+                                    downloading = null
+                                    statusMsg = e.message
+                                }
                             }
                         }
                     }
@@ -344,6 +344,7 @@ private fun GameLibraryGrid(
     games: List<BattleApi.Game>,
     loading: Boolean,
     downloading: DownloadTask?,
+    iconVersion: Int,
     onDownloadAndEnter: (BattleApi.Game) -> Unit
 ) {
     val context = LocalContext.current
@@ -390,6 +391,7 @@ private fun GameLibraryGrid(
                         game = game,
                         downloaded = BattleRomStore.hasRom(context, game.id, "${game.id}.zip"),
                         downloadTask = downloading?.takeIf { it.gameId == game.id },
+                        iconVersion = iconVersion,
                         onClick = { onDownloadAndEnter(game) }
                     )
                 }
@@ -407,6 +409,7 @@ private fun BattleGameCard(
     game: BattleApi.Game,
     downloaded: Boolean,
     downloadTask: DownloadTask?,
+    iconVersion: Int,
     onClick: () -> Unit
 ) {
     val accent = CabinetPalette[game.id.hashCode().mod(CabinetPalette.size)]
@@ -447,6 +450,7 @@ private fun BattleGameCard(
                         model = game.iconUrl,
                         contentDescription = game.title,
                         contentScale = ContentScale.Crop,
+                        key = "game_icon_$iconVersion",
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -511,11 +515,7 @@ private fun BattleGameCard(
                     Text("点击进入街机厅", color = Success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Download, contentDescription = null, tint = accent, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("点击下载后进入", color = SecondaryText, fontSize = 11.sp)
-                    }
+                    Text("点击进入街机厅", color = SecondaryText, fontSize = 11.sp)
                 }
             }
         }
@@ -530,6 +530,7 @@ private fun BattleGameCard(
 private fun ArcadeHallGrid(
     game: BattleApi.Game,
     rooms: List<BattleApi.Room>,
+    iconVersion: Int,
     onBackToLibrary: () -> Unit,
     onJoinTable: (BattleApi.Room?, Boolean) -> Unit
 ) {
@@ -573,6 +574,7 @@ private fun ArcadeHallGrid(
                     tableNo = index + 1,
                     game = game,
                     room = room,
+                    iconVersion = iconVersion,
                     accent = CabinetPalette[index % CabinetPalette.size],
                     onClick = { onJoinTable(room, room != null && room.guest.isNotBlank()) }
                 )
@@ -590,6 +592,7 @@ private fun ArcadeTableCard(
     tableNo: Int,
     game: BattleApi.Game,
     room: BattleApi.Room?,
+    iconVersion: Int,
     accent: Color,
     onClick: () -> Unit
 ) {
@@ -629,6 +632,7 @@ private fun ArcadeTableCard(
                     model = game.iconUrl,
                     contentDescription = game.title,
                     contentScale = ContentScale.Crop,
+                    key = "table_icon_$iconVersion",
                     modifier = Modifier.fillMaxSize()
                 )
             }

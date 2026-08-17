@@ -13,11 +13,11 @@
       "id": "kof97",
       "title": "拳皇97",
       "platform": "arcade",
-      "romUrl": "https://gitee.com/afeimod/apk/releases/download/arcade/kof97.zip",
+      "romUrl": "https://gitee.com/afeimod/NesStation/releases/download/arcade/kof97.zip",
       "fileName": "kof97.zip",
-      "size": 0,
+      "size": 28745794,
       "needsBios": ["neogeo.zip"],
-      "iconUrl": "https://gitee.com/afeimod/apk/raw/main/icons/kof97.jpg"
+      "iconUrl": "https://gitee.com/afeimod/NesStation/raw/master/icons/kof97.jpg"
     }
   ]
 }
