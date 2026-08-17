@@ -1073,9 +1073,13 @@ fun LibraryScreen(
                     } else {
                         RomStore.remove(context, game.id)
                     }
+                    // 直接从列表中移除，确保 UI 立即更新
+                    // 不调用 refreshList()，因为它会重新扫描文件夹，
+                    // 如果 ROM 文件仍在磁盘上会重新添加已删除的游戏
+                    importedGames.removeAll { it.id == game.id }
                     pendingDeleteGame = null
-                    refreshList()
                     dialogMsg = "已删除「${game.title}」"
+                    onGamesChanged?.invoke()
                 }) { Text("删除") }
             },
             dismissButton = {
