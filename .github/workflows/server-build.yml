@@ -1,0 +1,107 @@
+# GameBox - 对战平台服务器构建 Workflow
+#
+# 触发方式：手动触发（GitHub 仓库 → Actions → Build Server → Run workflow）
+# 也可通过 push 到 main 分支自动触发（如需关闭，将 push 部分删除即可）
+
+name: Build Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_os:
+        description: 目标操作系统
+        required: true
+        type: choice
+        default: linux
+        options:
+          - linux
+          - darwin
+          - windows
+      target_arch:
+        description: 目标架构
+        required: true
+        type: choice
+        default: amd64
+        options:
+          - amd64
+          - arm64
+          - arm
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: build-server-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build GameBox Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ---------- 1. 检出代码 ----------
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------- 2. 配置 Go ----------
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: server/go.mod
+
+      # ---------- 3. 构建服务器端二进制 ----------
+      - name: Build Server Binary
+        run: |
+          cd server
+          go build -trimpath -ldflags "-s -w" -o gamebox-server .
+          echo "=== 构建产物 ==="
+          ls -lh gamebox-server
+          file gamebox-server 2>/dev/null || true
+
+      # ---------- 4. 打包产物（含配置文件与说明） ----------
+      - name: Package Artifacts
+        run: |
+          mkdir -p dist
+          cp server/gamebox-server dist/
+          cp server/config.json dist/
+          cp server/README.md dist/
+          # 交叉编译产物命名（可选，当前构建为运行环境原生架构）
+          cd dist
+          tar -czf ../gamebox-server-${{ inputs.target_os }}-${{ inputs.target_arch }}.tar.gz \
+            gamebox-server config.json README.md
+          cd ..
+          echo "=== 打包结果 ==="
+          ls -lh *.tar.gz
+
+      # ---------- 5. 上传 Artifact ----------
+      - name: Upload Server Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamebox-server-${{ inputs.target_os }}-${{ inputs.target_arch }}
+          path: |
+            gamebox-server-*.tar.gz
+            server/gamebox-server
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ---------- 6. 构建摘要 ----------
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 服务器构建结果" >> $GITHUB_STEP_SUMMARY
+          echo "- 触发: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 提交: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -f server/gamebox-server ]; then
+            echo "### 产物" >> $GITHUB_STEP_SUMMARY
+            ls -lh server/gamebox-server | awk '{print "- `" $NF "` (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ 无产物" >> $GITHUB_STEP_SUMMARY
+          fi
