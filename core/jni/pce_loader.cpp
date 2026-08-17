@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 #include <map>
 #include <mutex>
 #include <string>
@@ -723,16 +724,60 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             s_coreError += ")";
             s_coreMessage.clear();
         }
-        // For PCE-CD games, suggest checking BIOS files.
+        // For PCE-CD games, the failure may be caused by missing audio
+        // tracks (.bin) referenced by the .cue, or by a missing System
+        // Card BIOS. Distinguish the two so the user sees the real fix.
         std::string ext;
         size_t dot = path.find_last_of('.');
         if (dot != std::string::npos) ext = path.substr(dot + 1);
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == "cue" || ext == "chd" || ext == "iso") {
-            s_coreError += "\nFor PCE-CD games, ensure a System Card BIOS "
-                            "is in the system directory: syscard1.pce, "
-                            "syscard2.pce, syscard3.pce (recommended), or "
-                            "gexpress.pce.";
+            // For .cue files, check whether referenced tracks exist on disk.
+            if (ext == "cue") {
+                std::string missingTracks;
+                std::string dir = path.substr(0, path.find_last_of('/') + 1);
+                if (dir.empty()) dir = "./";
+                FILE* cueFp = fopen(path.c_str(), "rb");
+                if (cueFp) {
+                    char line[1024];
+                    while (fgets(line, sizeof(line), cueFp)) {
+                        std::string s(line);
+                        std::string lc(s);
+                        std::transform(lc.begin(), lc.end(), lc.begin(), ::tolower);
+                        if (lc.find("file") == 0) {
+                            // cue "FILE" line: FILE "track01.bin" BINARY
+                            size_t q1 = s.find('"');
+                            if (q1 != std::string::npos) {
+                                size_t q2 = s.find('"', q1 + 1);
+                                if (q2 != std::string::npos) {
+                                    std::string trackName = s.substr(q1 + 1, q2 - q1 - 1);
+                                    std::string trackPath = dir + trackName;
+                                    if (access(trackPath.c_str(), F_OK) != 0) {
+                                        if (!missingTracks.empty()) missingTracks += ", ";
+                                        missingTracks += trackName;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    fclose(cueFp);
+                }
+                if (!missingTracks.empty()) {
+                    s_coreError += "\nCD 音轨文件缺失（找不到 .cue 引用的音频轨）：" +
+                                   missingTracks +
+                                   "\n请把 .cue 和 .bin 音轨放在同一文件夹后重新导入。";
+                } else {
+                    s_coreError += "\nFor PCE-CD games, ensure a System Card BIOS "
+                                   "is in the system directory: syscard1.pce, "
+                                   "syscard2.pce, syscard3.pce (recommended), or "
+                                   "gexpress.pce.";
+                }
+            } else {
+                s_coreError += "\nFor PCE-CD games, ensure a System Card BIOS "
+                               "is in the system directory: syscard1.pce, "
+                               "syscard2.pce, syscard3.pce (recommended), or "
+                               "gexpress.pce.";
+            }
         }
         LOGE("%s", s_coreError.c_str());
         return s_coreError;

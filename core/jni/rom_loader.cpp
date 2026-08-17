@@ -46,6 +46,13 @@ namespace nescore::rom {
 static constexpr int kNesW = 256;
 static constexpr int kNesH = 240;
 
+// Maximum width the core can output. When the FCEUmm NTSC filter is
+// enabled, blargg's nes_ntsc expands 256 input columns to ~602 output
+// columns. The internal frame buffer must be wide enough to hold the
+// full NTSC output, otherwise the blit reads past the end of each row
+// and the image appears torn into multiple panels.
+static constexpr int kNesMaxW = 768;   // 256 * 3, comfortably > 602
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -79,8 +86,9 @@ static bool s_extGameInfoValid = false;
 
 // Frame buffer (ARGB, 0xAARRGGBB). Written by video_cb, read by
 // copyFramebufferARGB. Also used as the source for ANativeWindow blitting.
+// Sized for the widest possible core output (NTSC filter expands to ~602).
 static std::mutex s_frameMtx;
-static uint32_t s_frame[kNesW * kNesH];
+static uint32_t s_frame[kNesMaxW * kNesH];
 static std::atomic<bool> s_newFrame{false};
 
 // Current video dimensions from the core (may change with NTSC filter etc.)
@@ -474,14 +482,18 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     const size_t srcStride = pitch / sizeof(uint32_t);
 
     // Copy to internal frame buffer (for fallback Bitmap rendering + screenshots)
+    // and as the blit source. The copy width must match the actual core output
+    // (which can be up to kNesMaxW with the NTSC filter enabled), not the fixed
+    // 256-column NES width — otherwise reading 602 columns from a 256-stride
+    // buffer wraps to the next row and the image tears into multiple panels.
+    const unsigned cw = (width < (unsigned)kNesMaxW) ? width : (unsigned)kNesMaxW;
+    const unsigned ch = (height < (unsigned)kNesH) ? height : (unsigned)kNesH;
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
-        const unsigned cw = (width < kNesW) ? width : (unsigned)kNesW;
-        const unsigned ch = (height < kNesH) ? height : (unsigned)kNesH;
         std::memset(s_frame, 0, sizeof(s_frame));
         for (unsigned y = 0; y < ch; ++y) {
             const uint32_t* srow = src + y * srcStride;
-            uint32_t* drow = s_frame + y * kNesW;
+            uint32_t* drow = s_frame + (size_t)y * kNesMaxW;
             for (unsigned x = 0; x < cw; ++x) {
                 // XRGB8888 (0xXXRRGGBB) -> ARGB (0xFFRRGGBB)
                 drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
@@ -496,12 +508,14 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     // Use s_frame (converted ARGB 0xFFRRGGBB) as source for all filters,
     // not the raw core data. This ensures consistent pixel format (alpha=0xFF)
     // across all three cores, preventing XBR edge detection artifacts.
+    // Pass the actual copied width/height and the widened stride so the blit
+    // reads each row contiguously even for NTSC-filtered 602-column frames.
     coreshared::applyFilterAndBlit(
         s_window, s_windowMtx,
-        s_frame, width, height, kNesW,
+        s_frame, cw, ch, kNesMaxW,
         filter,
         s_xbrBuffer, s_hq4xBuffer, s_xbrMidBuffer,
-        kNesW, kNesH,
+        kNesW, kNesH,   // keep 256 — upscale buffers are sized for 256-wide frames only
         s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
@@ -949,7 +963,7 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
     const int cw = (w < kNesW) ? w : kNesW;
     const int ch = (h < kNesH) ? h : kNesH;
     for (int y = 0; y < ch; ++y) {
-        std::memcpy(out + (size_t)y * w, s_frame + (size_t)y * kNesW,
+        std::memcpy(out + (size_t)y * w, s_frame + (size_t)y * kNesMaxW,
                     (size_t)cw * sizeof(uint32_t));
     }
     return s_newFrame.exchange(false, std::memory_order_acq_rel);

@@ -69,6 +69,10 @@ fun SettingsScreen(
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
     var dialogText by remember { mutableStateOf<String?>(null) }
 
+    // 当前打开的核心设置页（null = 设置主页）。点击「核心设置」里的某个
+    // 核心后进入该核心的独立设置页，展示该核心专属的选项。
+    var selectedCore by remember { mutableStateOf<GamePlatform?>(null) }
+
     // Detect TV mode — on TV the "屏幕手柄" toggle is hidden (the on-screen
     // pad is auto-hidden because there's no touchscreen).
     val isTv = remember {
@@ -207,157 +211,147 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = { if (selectedCore != null) selectedCore = null else onBack() }) {
                     Icon(Icons.Rounded.ArrowBack, contentDescription = null, tint = Color(0xFF1E2A3A))
                 }
                 Spacer(Modifier.size(8.dp))
-                Text("设置", color = Color(0xFF1E2A3A), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (selectedCore == null) "设置" else "${selectedCore!!.displayName} 核心设置",
+                    color = Color(0xFF1E2A3A), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold
+                )
             }
 
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // === 视频 / 核心设置 ===
-                item {
-                    SettingsSection("视频") {
-                        DropdownRow("NTSC 滤镜",
-                            listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
-                            padLayout.ntscFilter
-                        ) { updateLayout(padLayout.copy(ntscFilter = it)) }
+            if (selectedCore == null) {
+                // === 设置主页 ===
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // === 通用视频 ===
+                    item {
+                        SettingsSection("视频") {
+                            DropdownRow("画面缩放",
+                                listOf(
+                                    "stretch" to "全屏拉伸(默认)",
+                                    "4:3" to "4:3",
+                                    "3:2" to "3:2 (GBA 原生)",
+                                    "8:7" to "8:7 (NES 像素比)",
+                                    "16:9" to "16:9",
+                                    "custom" to "自定义(拖动四角)"
+                                ),
+                                padLayout.videoScale
+                            ) { updateLayout(padLayout.copy(videoScale = it)) }
 
-                        DropdownRow("调色板",
-                            listOf(
-                                "default" to "默认", "asqrealc" to "AspiringSquire", "wii-vc" to "Wii VC",
-                                "rgb" to "Nintendo RGB", "yuv-v3" to "FBX YUV-V3", "unsaturated-final" to "Unsaturated",
-                                "sony-cxa2025as-us" to "Sony CXA", "pal" to "PAL", "bmf-final2" to "BMF Final 2",
-                                "smooth-fbx" to "FBX Smooth", "composite-direct-fbx" to "FBX Composite",
-                                "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
-                            ),
-                            padLayout.palette
-                        ) { updateLayout(padLayout.copy(palette = it)) }
-
-                        DropdownRow("裁剪过扫描",
-                            listOf("disabled" to "关闭", "enabled" to "开启"),
-                            padLayout.cropOverscan
-                        ) { updateLayout(padLayout.copy(cropOverscan = it)) }
-
-                        DropdownRow("画面缩放",
-                            listOf(
-                                "stretch" to "全屏拉伸(默认)",
-                                "4:3" to "4:3",
-                                "3:2" to "3:2 (GBA 原生)",
-                                "8:7" to "8:7 (NES 像素比)",
-                                "16:9" to "16:9",
-                                "custom" to "自定义(拖动四角)"
-                            ),
-                            padLayout.videoScale
-                        ) { updateLayout(padLayout.copy(videoScale = it)) }
-
-                        DropdownRow("视频滤镜",
-                            listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
-                                   "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
-                                   "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
-                            padLayout.videoFilter
-                        ) { updateLayout(padLayout.copy(videoFilter = it)) }
-                    }
-                }
-
-                // === 显示 ===
-                item {
-                    SettingsSection("显示") {
-                        DropdownRow("横竖屏",
-                            listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
-                            padLayout.screenOrientation
-                        ) {
-                            updateLayout(padLayout.copy(screenOrientation = it))
-                            applyOrientation(it)
+                            DropdownRow("视频滤镜",
+                                listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
+                                       "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
+                                       "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
+                                padLayout.videoFilter
+                            ) { updateLayout(padLayout.copy(videoFilter = it)) }
                         }
                     }
-                }
 
-                // === 区域 ===
-                item {
-                    SettingsSection("系统") {
-                        DropdownRow("区域",
-                            listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
-                            padLayout.region
-                        ) { updateLayout(padLayout.copy(region = it)) }
+                    // === 核心设置入口 ===
+                    item {
+                        SettingsSection("核心设置") {
+                            SettingsRow("FC / NES", "FCEUmm 核心 · 调色板/滤镜/区域/超频", trailing = { Arrow() }) { selectedCore = GamePlatform.NES }
+                            SettingsRow("SFC / SNES", "Snes9x 核心 · 画面/图层/音频/超频", trailing = { Arrow() }) { selectedCore = GamePlatform.SFC }
+                            SettingsRow("GB / GBA", "mGBA 核心 · 型号/色彩/跳帧", trailing = { Arrow() }) { selectedCore = GamePlatform.GB }
+                            SettingsRow("MD / SEGA", "Genesis-Plus-GX 核心 · 区域/画面/手柄", trailing = { Arrow() }) { selectedCore = GamePlatform.MD }
+                            SettingsRow("PCE / TG16", "Geargrafx 核心 · 主机/画面/CD", trailing = { Arrow() }) { selectedCore = GamePlatform.PCE }
+                            SettingsRow("DOS", "DOSBox-Pure 核心 · CPU/声卡/键盘/画面", trailing = { Arrow() }) { selectedCore = GamePlatform.DOS }
+                            SettingsRow("街机 Arcade", "FBNeo 核心 · 旋转/跳帧/NeoGeo", trailing = { Arrow() }) { selectedCore = GamePlatform.ARCADE }
+                        }
                     }
-                }
 
-                // === 性能(超频 + 缩放) ===
-                item {
-                    SettingsSection("性能") {
-                        DropdownRow("超频(减少慢动作)",
-                            listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
-                            padLayout.overclocking
-                        ) { updateLayout(padLayout.copy(overclocking = it)) }
-
-                        // High-quality scaling toggle — controls native surface buffer geometry.
-                        // false (default): source-res buffer + GPU upscale = fast (recommended for TV)
-                        // true: display-res buffer + CPU scale = sharp (recommended for phones)
-                        SettingsRow(
-                            "高质量缩放",
-                            if (padLayout.highQualityScaling) "清晰(手机推荐)" else "快速(TV推荐)",
-                            showSubtitle = true,
-                            trailing = {
-                                Switch(checked = padLayout.highQualityScaling, onCheckedChange = {
-                                    updateLayout(padLayout.copy(highQualityScaling = it))
-                                }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
+                    // === 显示 ===
+                    item {
+                        SettingsSection("显示") {
+                            DropdownRow("横竖屏",
+                                listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
+                                padLayout.screenOrientation
+                            ) {
+                                updateLayout(padLayout.copy(screenOrientation = it))
+                                applyOrientation(it)
                             }
-                        )
+                        }
                     }
-                }
 
-                // === 输入 ===
-                item {
-                    SettingsSection("输入") {
-                        // On TV the on-screen gamepad is useless (no touchscreen)
-                        // and auto-hidden in EmulatorScreen — hide the toggle too
-                        // so the user isn't confused about why it has no effect.
-                        if (!isTv) {
-                            SettingsRow("屏幕手柄", if (padLayout.showPad) "显示" else "隐藏",
-                                showSubtitle = false,
+                    // === 性能(缩放) ===
+                    item {
+                        SettingsSection("性能") {
+                            // High-quality scaling toggle — controls native surface buffer geometry.
+                            // false (default): source-res buffer + GPU upscale = fast (recommended for TV)
+                            // true: display-res buffer + CPU scale = sharp (recommended for phones)
+                            SettingsRow(
+                                "高质量缩放",
+                                if (padLayout.highQualityScaling) "清晰(手机推荐)" else "快速(TV推荐)",
+                                showSubtitle = true,
                                 trailing = {
-                                    Switch(checked = padLayout.showPad, onCheckedChange = {
-                                        updateLayout(padLayout.copy(showPad = it))
+                                    Switch(checked = padLayout.highQualityScaling, onCheckedChange = {
+                                        updateLayout(padLayout.copy(highQualityScaling = it))
                                     }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                                 }
                             )
-                        } else {
-                            SettingsRow("屏幕手柄", "TV 模式自动隐藏",
-                                showSubtitle = false,
-                                trailing = { ValueText("TV") }
-                            )
                         }
-                        SettingsRow("按键映射", if (isTv) "按核心自定义 · TV" else "按核心自定义", trailing = { Arrow() }) { onOpenKeyMap() }
                     }
-                }
 
-                // === 存储 ===
-                item {
-                    SettingsSection("存储") {
-                        SettingsRow("存储权限", "点击授权", trailing = { Arrow() }) { requestStoragePermission() }
-                        SettingsRow("应用详情", "系统设置", trailing = { Arrow() }) { openAppSettings() }
-                        SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {
-                            dialogText = "请到游戏库点击「导入ROM」或「导入文件夹」按钮导入游戏文件"
+                    // === 输入 ===
+                    item {
+                        SettingsSection("输入") {
+                            // On TV the on-screen gamepad is useless (no touchscreen)
+                            // and auto-hidden in EmulatorScreen — hide the toggle too
+                            // so the user isn't confused about why it has no effect.
+                            if (!isTv) {
+                                SettingsRow("屏幕手柄", if (padLayout.showPad) "显示" else "隐藏",
+                                    showSubtitle = false,
+                                    trailing = {
+                                        Switch(checked = padLayout.showPad, onCheckedChange = {
+                                            updateLayout(padLayout.copy(showPad = it))
+                                        }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
+                                    }
+                                )
+                            } else {
+                                SettingsRow("屏幕手柄", "TV 模式自动隐藏",
+                                    showSubtitle = false,
+                                    trailing = { ValueText("TV") }
+                                )
+                            }
+                            SettingsRow("按键映射", if (isTv) "按核心自定义 · TV" else "按核心自定义", trailing = { Arrow() }) { onOpenKeyMap() }
                         }
                     }
-                }
 
-                // === 关于 ===
-                item {
-                    SettingsSection("关于") {
-                        SettingsRow("版本", "3.0.0", trailing = { ValueText("3.0.0") })
-                        SettingsRow("核心", "FCEUmm + Snes9x + mGBA + DOSBox-Pure",
-                            trailing = { ValueText("FCEUmm + Snes9x + mGBA + DOSBox-Pure") })
-                        SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
-                            dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、DOSBox-Pure (DOS) 核心，遵循 MIT 许可证"
+                    // === 存储 ===
+                    item {
+                        SettingsSection("存储") {
+                            SettingsRow("存储权限", "点击授权", trailing = { Arrow() }) { requestStoragePermission() }
+                            SettingsRow("应用详情", "系统设置", trailing = { Arrow() }) { openAppSettings() }
+                            SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {
+                                dialogText = "请到游戏库点击「导入ROM」或「导入文件夹」按钮导入游戏文件"
+                            }
+                        }
+                    }
+
+                    // === 关于 ===
+                    item {
+                        SettingsSection("关于") {
+                            SettingsRow("版本", "3.0.0", trailing = { ValueText("3.0.0") })
+                            SettingsRow("核心", "FCEUmm + Snes9x + mGBA + Genesis-Plus-GX + Geargrafx + DOSBox-Pure + FBNeo",
+                                trailing = { ValueText("7 个模拟核心") })
+                            SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
+                                dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、Genesis-Plus-GX (MD/SEGA)、Geargrafx (PCE)、DOSBox-Pure (DOS)、FBNeo (Arcade) 核心，遵循 MIT 许可证"
+                            }
                         }
                     }
                 }
+            } else {
+                // === 核心设置子页 ===
+                CoreSettingsPanel(
+                    platform = selectedCore!!,
+                    padLayout = padLayout,
+                    updateLayout = ::updateLayout
+                )
             }
         }
     }
@@ -374,7 +368,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, color = Color(0xFF1E2A3A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
@@ -389,7 +383,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     title: String,
     subtitle: String? = null,
     showSubtitle: Boolean = true,
@@ -418,7 +412,7 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun DropdownRow(
+internal fun DropdownRow(
     label: String,
     options: List<Pair<String, String>>,
     selected: String,

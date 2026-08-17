@@ -183,15 +183,21 @@ private const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
 private const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
 
 // ---------------------------------------------------------------------------
-// DOS game folder loader
+// Game folder loader (DOS games and PCE-CD / Mega-CD games)
 // ---------------------------------------------------------------------------
-// DOSBox-Pure needs the entire game folder (launcher + assets + data files)
-// to run a DOS game. When the user imports a DOS game we only persist the
-// launcher URI (play.bat / START.BAT / setup.exe / ...). At load time this
-// function:
+// Both DOSBox-Pure and Geargrafx need the ENTIRE game folder to run a CD
+// game:
+//   * DOSBox-Pure needs launcher + assets + data files; when the user
+//     imports a DOS game we only persist the launcher URI.
+//   * Geargrafx (PCE-CD) opens the .cue file, which references .bin audio
+//     tracks by RELATIVE path. If we copied only the .cue (as the plain
+//     single-file SAF import does), the core cannot find the .bin tracks,
+//     retro_load_game() fails, and pce_loader.cpp appends a misleading
+//     "System Card BIOS missing" message — even when the BIOS is present.
+// This function:
 //   1. Resolves the launcher's parent folder via DocumentsContract.
 //   2. Recursively copies the whole folder (preserving subfolder structure)
-//      into <filesDir>/dos_games/<sanitizedGameId>/.
+//      into <filesDir>/<subDir>/<sanitizedGameId>/.
 //   3. Returns the absolute path of the copied launcher file, or null on
 //      failure.
 //
@@ -207,6 +213,14 @@ private fun loadDosGameFolder(
     context: android.content.Context,
     launcherUriStr: String,
     gameId: String
+): java.io.File? = loadGameFolder(context, launcherUriStr, gameId, "dos_games")
+
+/** Same as [loadDosGameFolder], but copies into [subDir] under filesDir. */
+private fun loadGameFolder(
+    context: android.content.Context,
+    launcherUriStr: String,
+    gameId: String,
+    subDir: String
 ): java.io.File? {
     // === Local file path fast-path ===
     // If the stored path is a plain filesystem path (not a content:// URI),
@@ -272,9 +286,9 @@ private fun loadDosGameFolder(
 
     // Sanitize game id → folder name (filesystem-safe, lowercase).
     val safeId = gameId.lowercase().replace(Regex("[^a-z0-9._-]"), "_")
-        .takeIf { it.isNotBlank() } ?: "dos_game"
+        .takeIf { it.isNotBlank() } ?: "game"
 
-    val destRoot = java.io.File(context.filesDir, "dos_games/$safeId")
+    val destRoot = java.io.File(context.filesDir, "$subDir/$safeId")
     val destLauncher = java.io.File(destRoot, launcherName)
 
     // Fast path: launcher already copied — assume the folder is up to date.
@@ -585,15 +599,26 @@ fun EmulatorScreen(
                           romPath.endsWith(".chd", ignoreCase = true)
             if (isCdExt) {
                 val pceDir = java.io.File(context.filesDir, "pce")
+                // Only count non-empty BIOS files — a 0-byte placeholder (or
+                // a truncated download) passes exists() but fails to boot.
                 val hasBios = listOf("syscard1.pce", "syscard2.pce", "syscard3.pce",
                                      "gexpress.pce")
-                    .any { java.io.File(pceDir, it).exists() }
+                    .any { val f = java.io.File(pceDir, it); f.exists() && f.length() > 0 }
                 if (!hasBios) {
-                    errorMsg = "PCE-CD 游戏需要 System Card BIOS 文件才能运行（当前未检测到）。\n\n" +
-                               "请先到 设置 → PCE → PCE-CD BIOS 管理，" +
-                               "导入 syscard1.pce / syscard2.pce / syscard3.pce (推荐) 或 gexpress.pce。\n" +
-                               "也可以把 BIOS 文件放入 app/src/main/assets/pce/ 重新打包，启动时自动识别。\n" +
-                               "卡带游戏 (.pce/.sgx) 和 HES 音乐文件 (.hes) 不需要 BIOS。"
+                    // If the user dropped a "gameexpress.pce" (wrong name), tell
+                    // them to rename it to gexpress.pce instead of a generic error.
+                    val wrongName = java.io.File(pceDir, "gameexpress.pce")
+                    errorMsg = if (wrongName.exists() && wrongName.length() > 0) {
+                        "检测到 gameexpress.pce，但 Geargrafx 只认 gexpress.pce。\n\n" +
+                        "请把文件重命名为 gexpress.pce 后重试。\n" +
+                        "PCE-CD 还需要 syscard1.pce / syscard2.pce / syscard3.pce（推荐）。"
+                    } else {
+                        "PCE-CD 游戏需要 System Card BIOS 文件才能运行（当前未检测到）。\n\n" +
+                        "请先到 设置 → PCE → PCE-CD BIOS 管理，" +
+                        "导入 syscard1.pce / syscard2.pce / syscard3.pce (推荐) 或 gexpress.pce。\n" +
+                        "也可以把 BIOS 文件放入 app/src/main/assets/pce/ 重新打包，启动时自动识别。\n" +
+                        "卡带游戏 (.pce/.sgx) 和 HES 音乐文件 (.hes) 不需要 BIOS。"
+                    }
                     return@LaunchedEffect
                 }
             }
@@ -649,6 +674,29 @@ fun EmulatorScreen(
                 errorMsg = err.ifEmpty { "ROM 加载失败" }
             } else {
                 loaded = true
+            }
+        } else if (platform == GamePlatform.PCE &&
+                   (romPath.endsWith(".cue", ignoreCase = true) ||
+                    romPath.endsWith(".chd", ignoreCase = true) ||
+                    romPath.endsWith(".iso", ignoreCase = true))) {
+            // === PCE-CD via SAF (content://) ===
+            // The .cue file references .bin audio tracks by RELATIVE path.
+            // Copying only the .cue (as the single-file branch below would)
+            // makes Geargrafx fail to open the CD, and pce_loader.cpp then
+            // misreports it as "System Card BIOS missing" — even when the
+            // BIOS is present. Copy the whole folder so the .bin tracks
+            // are available next to the .cue.
+            val cdFile = loadGameFolder(context, romPath, game.id, "pce_cd")
+            if (cdFile == null) {
+                errorMsg = "PCE-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
+            } else {
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                if (!ok) {
+                    val err = engine.lastError()
+                    errorMsg = err.ifEmpty { "PCE-CD 加载失败" }
+                } else {
+                    loaded = true
+                }
             }
         } else {
             try {
