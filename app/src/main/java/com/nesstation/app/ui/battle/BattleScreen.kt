@@ -223,7 +223,7 @@ fun BattleScreen(
                         if (has) {
                             selectedGame = game
                             refreshAll()
-                            return@onDownloadAndEnter
+                            return@GameLibraryGrid
                         }
                         downloading = DownloadTask(game.id, "${game.id}.zip", 0f)
                         scope.launch(Dispatchers.IO) {
@@ -262,11 +262,11 @@ fun BattleScreen(
                     onJoinTable = { room, isFull ->
                         if (!BattleSession.isLoggedIn(context)) {
                             showLoginDialog = true
-                            return@onJoinTable
+                            return@ArcadeHallGrid
                         }
                         if (isFull) {
                             statusMsg = "该桌已满（1P / 2P 都有人）"
-                            return@onJoinTable
+                            return@ArcadeHallGrid
                         }
                         scope.launch(Dispatchers.IO) {
                             try {
