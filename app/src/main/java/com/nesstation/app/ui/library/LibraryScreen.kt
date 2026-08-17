@@ -316,122 +316,10 @@ fun LibraryScreen(
 
         // 2) Load everything back from RomStore (this picks up the changes above
         //    plus filters out any games whose local files no longer exist).
-        //
-        // === FIX: also scan standard ROM directories for NEW files ===
-        // Even if there's no saved "last import folder" (e.g. user imported
-        // individual files, or the folder was imported before the fix), we
-        // still scan the standard ROM directories and add any new files that
-        // aren't yet in RomStore. This makes the refresh button actually
-        // useful for the common case of "I dropped a new ROM into /sdcard/ROMs".
         val nes = RomStore.loadAll(context)
         val java = JavaGameStore.loadAll(context)
 
-        // Build a set of all existing ROM paths (for fast lookup)
-        val existingPaths = nes.mapNotNull { it.romPath }.toMutableSet()
-
-        // Scan all standard ROM directories for existing files AND new files
-        val validRomPaths = mutableSetOf<String>()
-        val sd = Environment.getExternalStorageDirectory()
-
-        // === FIX: expand the standard-directory scan list ===
-        // The refresh button previously only scanned a small hardcoded set of
-        // directories. Users who drop ROMs into custom folders (e.g. a
-        // user-created "/sdcard/pce" folder, "/sdcard/Download/pce",
-        // "/sdcard/PCECD", etc.) never saw new games appear because the
-        // folder simply wasn't in the scan list. We now:
-        //   1. Scan a much wider set of standard per-platform directories
-        //      (covers the vast majority of user setups).
-        //   2. When the app can read the whole external storage (Android ≤ 10
-        //      or "All files access" granted on 11+), scan the storage root
-        //      itself so ANY folder the user drops ROMs into is picked up.
-        val scanDirs = mutableListOf(
-            File(sd, "ROMs"), File(sd, "NesStation"), File(sd, "Download/NesStation"),
-            File(sd, "Download"), File(sd, "Download/ROMs"), File(sd, "Download/Games"),
-            File(sd, "Games"), File(sd, "Games/NES"), File(sd, "Games/MD"),
-            File(sd, "Games/SEGA"), File(sd, "Games/PCE"), File(sd, "Games/PCECD"),
-            File(sd, "Games/Arcade"), File(sd, "Games/GBA"), File(sd, "Games/SFC"),
-            File(sd, "Games/DOS"), File(sd, "Games/GB"),
-            // Per-platform folders users commonly create at the storage root.
-            File(sd, "pce"), File(sd, "PCE"), File(sd, "PCECD"), File(sd, "PC-Engine"),
-            File(sd, "nes"), File(sd, "NES"), File(sd, "FC"),
-            File(sd, "snes"), File(sd, "SNES"), File(sd, "SFC"),
-            File(sd, "gb"), File(sd, "GB"), File(sd, "gbc"), File(sd, "GBC"),
-            File(sd, "gba"), File(sd, "GBA"),
-            File(sd, "md"), File(sd, "MD"), File(sd, "sega"), File(sd, "SEGA"), File(sd, "MegaDrive"),
-            File(sd, "dos"), File(sd, "DOS"), File(sd, "DOSBox"),
-            File(sd, "arcade"), File(sd, "ARCADE"), File(sd, "MAME"), File(sd, "mame"),
-            // 平台目录也可能直接在 Download 下
-            File(sd, "Download/pce"), File(sd, "Download/PCE"), File(sd, "Download/PCECD"),
-            File(sd, "Download/NES"), File(sd, "Download/MD"), File(sd, "Download/SEGA"),
-            File(sd, "Download/GBA"), File(sd, "Download/SFC"), File(sd, "Download/Arcade"),
-            context.getExternalFilesDir("roms") ?: File(context.filesDir, "roms")
-        )
-        // If we can traverse the whole external storage, scan the root itself
-        // (bounded) so games in ANY custom folder are discovered.
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q || Environment.isExternalStorageManager()) {
-            scanDirs.add(0, sd)
-        }
-        var newFound = 0
-        var storageDenied = false
-        for (dir in scanDirs) {
-            if (!dir.exists() || !dir.isDirectory) continue
-            // 在 Android 11+ 上未授予"所有文件访问权限"时，共享存储目录
-            // 存在但不可读（作用域存储）。记录起来，最后提示用户授权，
-            // 而不是静默提示"已是最新"。
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q &&
-                !Environment.isExternalStorageManager() &&
-                dir.absolutePath.startsWith(sd.absolutePath) && !dir.canRead()
-            ) {
-                storageDenied = true
-                continue
-            }
-            try {
-                // When scanning the storage root (first entry), skip large
-                // irrelevant system directories to keep the refresh fast.
-                val skipDirs = setOf(
-                    "Android", "DCIM", "Pictures", "Music", "Movies",
-                    "Alarms", "Notifications", "Ringtones", "Podcasts",
-                    "Bluetooth", "Download"  // Download is scanned separately
-                )
-                dir.walkTopDown()
-                    .onEnter { child -> child.absolutePath == dir.absolutePath || child.name !in skipDirs }
-                    .forEach { f ->
-                        if (f.isFile && f.name.substringAfterLast('.', "").lowercase() in ROM_EXTENSIONS) {
-                            val absPath = f.absolutePath
-                            validRomPaths.add(absPath)
-                            // If this file isn't in RomStore yet, add it
-                            if (absPath !in existingPaths) {
-                                try {
-                                    // Pass the parent folder path so CD-image
-                                    // extensions (.cue/.chd/.iso...) are classified
-                                    // by folder name (e.g. "pce" → PCE) instead of
-                                    // the current tab.
-                                    val platform = detectPlatformFromFile(f, hintPlatform = selectedPlatform, pathHint = f.parent)
-                                    val title = if (platform == GamePlatform.ARCADE) {
-                                        ArcadeTitleMapper.resolveDisplayTitle(f.name)
-                                    } else {
-                                        f.nameWithoutExtension
-                                    }
-                                    RomStore.add(context, title, absPath, platform)
-                                    existingPaths.add(absPath)
-                                    newFound++
-                                } catch (_: Exception) { }
-                            }
-                        }
-                    }
-            } catch (_: SecurityException) {
-                // Android 11+ 作用域存储：未授予"所有文件访问权限"时遍历
-                // /sdcard 下的标准目录会抛 SecurityException。这里只跳过该
-                // 目录，绝不让它中断整个刷新流程——否则已导入文件夹里新增/
-                // 删除的游戏结果也不会显示在列表里（刷新按钮"点了没反应"）。
-                storageDenied = true
-            } catch (_: Exception) {
-                // 遍历中遇到其他不可读子目录/文件时同样跳过，保证刷新继续。
-            }
-        }
-
-        // Reload from RomStore to pick up any additions from step 1 or step 2
-        val finalNes = if (newFound > 0) RomStore.loadAll(context) else nes
+        val finalNes = nes
 
         // Filter out games whose ROM file no longer exists.
         //
@@ -459,17 +347,15 @@ fun LibraryScreen(
 
         val removedCount = finalNes.size - validNes.size
 
-        // Combined summary from step 1 (imported folders) and step 2 (standard
-        // directories). The "已是最新" message is only shown when every
-        // imported folder was scanned successfully and nothing changed.
-        val totalAdded = stepAdded + newFound
+        // Combined summary from step 1 (imported folders). The "已是最新"
+        // message is only shown when every imported folder was scanned
+        // successfully and nothing changed.
+        val totalAdded = stepAdded
         val totalRemoved = stepRemoved + removedCount
         if (totalAdded > 0 || totalRemoved > 0) {
             dialogMsg = "刷新完成：新增 $totalAdded 个，移除 $totalRemoved 个"
         } else if (lostFolderAccess) {
             dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
-        } else if (storageDenied) {
-            dialogMsg = "无法读取手机存储中的游戏文件夹，请授予\"所有文件访问权限\"后再刷新"
         } else {
             dialogMsg = "已是最新（无新增/移除）"
         }

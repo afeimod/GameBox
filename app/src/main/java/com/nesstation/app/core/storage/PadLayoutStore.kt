@@ -123,6 +123,12 @@ data class PadLayout(
     val customLayoutTop: Float = 0f,
     val customLayoutRight: Float = 1f,
     val customLayoutBottom: Float = 1f,
+    // 竖屏版自由布局矩形：横竖屏分别保存，旋转屏幕时不互相覆盖
+    //（与手柄按钮 padLayoutP 等竖屏字段的 p_ 前缀命名保持一致）。
+    val customLayoutLeftP: Float = 0f,
+    val customLayoutTopP: Float = 0f,
+    val customLayoutRightP: Float = 1f,
+    val customLayoutBottomP: Float = 1f,
     // Video filter — applied in the native blit function (frontend-level post-processing)
     val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
     // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
@@ -471,6 +477,11 @@ object PadLayoutStore {
     private const val KEY_CUSTOM_LAYOUT_TOP = "custom_layout_top"
     private const val KEY_CUSTOM_LAYOUT_RIGHT = "custom_layout_right"
     private const val KEY_CUSTOM_LAYOUT_BOTTOM = "custom_layout_bottom"
+    // 竖屏版自由布局 rect keys（横竖屏分别保存）
+    private const val KEY_CUSTOM_LAYOUT_LEFT_P = "custom_layout_left_p"
+    private const val KEY_CUSTOM_LAYOUT_TOP_P = "custom_layout_top_p"
+    private const val KEY_CUSTOM_LAYOUT_RIGHT_P = "custom_layout_right_p"
+    private const val KEY_CUSTOM_LAYOUT_BOTTOM_P = "custom_layout_bottom_p"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -622,6 +633,10 @@ object PadLayoutStore {
             customLayoutTop = p.getFloat(KEY_CUSTOM_LAYOUT_TOP, 0f),
             customLayoutRight = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT, 1f),
             customLayoutBottom = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM, 1f),
+            customLayoutLeftP = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT_P, 0f),
+            customLayoutTopP = p.getFloat(KEY_CUSTOM_LAYOUT_TOP_P, 0f),
+            customLayoutRightP = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, 1f),
+            customLayoutBottomP = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, 1f),
             videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none",
             overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled",
             sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled",
@@ -914,6 +929,10 @@ object PadLayoutStore {
             putFloat(KEY_CUSTOM_LAYOUT_TOP, layout.customLayoutTop)
             putFloat(KEY_CUSTOM_LAYOUT_RIGHT, layout.customLayoutRight)
             putFloat(KEY_CUSTOM_LAYOUT_BOTTOM, layout.customLayoutBottom)
+            putFloat(KEY_CUSTOM_LAYOUT_LEFT_P, layout.customLayoutLeftP)
+            putFloat(KEY_CUSTOM_LAYOUT_TOP_P, layout.customLayoutTopP)
+            putFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, layout.customLayoutRightP)
+            putFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, layout.customLayoutBottomP)
             putString(KEY_VIDEO_FILTER, layout.videoFilter)
             putString(KEY_OVERCLOCKING, layout.overclocking)
 

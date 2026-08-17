@@ -393,15 +393,22 @@ fun EmulatorScreen(
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+
     // Custom free-form screen layout editor state (videoScale == "custom").
     // customRect holds the live-dragged normalized rect [left, top, right, bottom];
     // it is persisted into padLayout on touch-up / exit, then saved by the
     // debounced LaunchedEffect below.
+    //
+    // 横竖屏分别保存布局：isPortrait 变化（旋转屏幕）时重新加载对应方向的
+    // 矩形，避免竖屏下设置的布局被"同等压缩"后套用到横屏。
     var showCustomLayoutEditor by remember { mutableStateOf(false) }
-    var customRect by remember {
+    var customRect by remember(isPortrait) {
         mutableStateOf(floatArrayOf(
-            padLayout.customLayoutLeft, padLayout.customLayoutTop,
-            padLayout.customLayoutRight, padLayout.customLayoutBottom
+            if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
+            if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
+            if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
+            if (isPortrait) padLayout.customLayoutBottomP else padLayout.customLayoutBottom
         ))
     }
 
@@ -907,8 +914,6 @@ fun EmulatorScreen(
     LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
-    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (loaded) {
             GameSurfaceView(
@@ -1158,8 +1163,10 @@ fun EmulatorScreen(
                 },
                 onEnterCustomLayout = {
                     customRect = floatArrayOf(
-                        padLayout.customLayoutLeft, padLayout.customLayoutTop,
-                        padLayout.customLayoutRight, padLayout.customLayoutBottom
+                        if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
+                        if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
+                        if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
+                        if (isPortrait) padLayout.customLayoutBottomP else padLayout.customLayoutBottom
                     )
                     showSettings = false
                     showCustomLayoutEditor = true
@@ -1183,10 +1190,17 @@ fun EmulatorScreen(
                                 customRect = floatArrayOf(x1, y1, x2, y2)
                                 if (confirm) {
                                     // Touch-up — persist into padLayout (saved by the debounced effect)
-                                    padLayout = padLayout.copy(
-                                        customLayoutLeft = x1, customLayoutTop = y1,
-                                        customLayoutRight = x2, customLayoutBottom = y2
-                                    )
+                                    padLayout = if (isPortrait) {
+                                        padLayout.copy(
+                                            customLayoutLeftP = x1, customLayoutTopP = y1,
+                                            customLayoutRightP = x2, customLayoutBottomP = y2
+                                        )
+                                    } else {
+                                        padLayout.copy(
+                                            customLayoutLeft = x1, customLayoutTop = y1,
+                                            customLayoutRight = x2, customLayoutBottom = y2
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1215,10 +1229,17 @@ fun EmulatorScreen(
                 onClick = {
                     showCustomLayoutEditor = false
                     // Persist the current rect even if the last drag was cancelled
-                    padLayout = padLayout.copy(
-                        customLayoutLeft = customRect[0], customLayoutTop = customRect[1],
-                        customLayoutRight = customRect[2], customLayoutBottom = customRect[3]
-                    )
+                    padLayout = if (isPortrait) {
+                        padLayout.copy(
+                            customLayoutLeftP = customRect[0], customLayoutTopP = customRect[1],
+                            customLayoutRightP = customRect[2], customLayoutBottomP = customRect[3]
+                        )
+                    } else {
+                        padLayout.copy(
+                            customLayoutLeft = customRect[0], customLayoutTop = customRect[1],
+                            customLayoutRight = customRect[2], customLayoutBottom = customRect[3]
+                        )
+                    }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -1230,10 +1251,17 @@ fun EmulatorScreen(
             androidx.compose.material3.OutlinedButton(
                 onClick = {
                     customRect = floatArrayOf(0f, 0f, 1f, 1f)
-                    padLayout = padLayout.copy(
-                        customLayoutLeft = 0f, customLayoutTop = 0f,
-                        customLayoutRight = 1f, customLayoutBottom = 1f
-                    )
+                    padLayout = if (isPortrait) {
+                        padLayout.copy(
+                            customLayoutLeftP = 0f, customLayoutTopP = 0f,
+                            customLayoutRightP = 1f, customLayoutBottomP = 1f
+                        )
+                    } else {
+                        padLayout.copy(
+                            customLayoutLeft = 0f, customLayoutTop = 0f,
+                            customLayoutRight = 1f, customLayoutBottom = 1f
+                        )
+                    }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomStart)
