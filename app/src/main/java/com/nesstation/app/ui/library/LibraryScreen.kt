@@ -369,7 +369,7 @@ fun LibraryScreen(
         // If we can traverse the whole external storage, scan the root itself
         // (bounded) so games in ANY custom folder are discovered.
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q || Environment.isExternalStorageManager()) {
-            scanDirs.add(0, File(sd))
+            scanDirs.add(0, sd)
         }
         var newFound = 0
         var storageDenied = false
