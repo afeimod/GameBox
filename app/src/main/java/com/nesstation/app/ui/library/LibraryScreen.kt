@@ -45,7 +45,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -148,6 +147,8 @@ fun LibraryScreen(
 
     // 搜索关键字 — 空字符串表示不搜索，显示当前平台所有游戏
     var searchQuery by remember { mutableStateOf("") }
+    // 搜索框展开状态 — 默认收起，点击搜索 pill 按钮才展开
+    var showSearch by remember { mutableStateOf(false) }
 
     // 长按菜单相关状态
     var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
@@ -703,41 +704,33 @@ fun LibraryScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 新增：返回主页按钮（首页风格：白底圆角 pill + 房子图标）
                     HomePill(
                         onClick = onHome,
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 6.dp)
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SearchPill(onClick = { showSearch = true }, modifier = Modifier.padding(end = 6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (selectedPlatform != GamePlatform.JAVA) {
-                            ExtendedFloatingActionButton(
+                            ImportButton(
                                 onClick = { importFolder() },
-                                icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
-                                text = { Text("导入文件夹") },
-                                containerColor = Color(0xFF4F8AC4),
-                                contentColor = Color.White
+                                icon = Icons.Rounded.Folder,
+                                text = "导入文件夹",
+                                color = Color(0xFF4F8AC4)
                             )
-                            ExtendedFloatingActionButton(
+                            ImportButton(
                                 onClick = { importFiles() },
-                                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                                text = { Text("导入ROM") },
-                                containerColor = Color(0xFFE74C3C),
-                                contentColor = Color.White
+                                icon = Icons.Rounded.Add,
+                                text = "导入ROM",
+                                color = Color(0xFFE74C3C)
                             )
-                            // Built-in file browser — shown as a third button so it's
-                            // always reachable on TV devices where the system SAF
-                            // picker is unavailable. Also useful on phones when the
-                            // user prefers the in-app browser.
-                            ExtendedFloatingActionButton(
+                            ImportButton(
                                 onClick = { showFileBrowser = true },
-                                icon = { Icon(Icons.Rounded.Storage, contentDescription = null) },
-                                text = { Text("本地浏览") },
-                                containerColor = Color(0xFF2E7D32),
-                                contentColor = Color.White
+                                icon = Icons.Rounded.Storage,
+                                text = "本地浏览",
+                                color = Color(0xFF2E7D32)
                             )
                         } else {
-                            // Java 平台：加号按钮用于安装 .jar 文件
-                            ExtendedFloatingActionButton(
+                            ImportButton(
                                 onClick = {
                                     try {
                                         jarPickerLauncher.launch(
@@ -749,10 +742,9 @@ fun LibraryScreen(
                                         dialogMsg = "无法打开文件选择器：${e.message}"
                                     }
                                 },
-                                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                                text = { Text("安装 JAR") },
-                                containerColor = Color(0xFF6A1B9A),
-                                contentColor = Color.White
+                                icon = Icons.Rounded.Add,
+                                text = "安装 JAR",
+                                color = Color(0xFF6A1B9A)
                             )
                         }
                     }
@@ -792,50 +784,53 @@ fun LibraryScreen(
                 }
             }
 
-            // 搜索栏 — 实时过滤游戏列表
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                placeholder = {
-                    Text(
-                        "搜索游戏名称…",
-                        fontSize = 13.sp,
-                        color = Color(0xFF9CA3AF)
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = Color(0xFF4A5568),
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
+            // 搜索栏 — 点击搜索 pill 后展开，搜索完成后自动收起
+            if (showSearch) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    placeholder = {
+                        Text(
+                            "搜索游戏名称…",
+                            fontSize = 13.sp,
+                            color = Color(0xFF9CA3AF)
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = Color(0xFF4A5568),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            searchQuery = ""
+                            showSearch = false
+                        }) {
                             Icon(
                                 Icons.Rounded.Clear,
-                                contentDescription = "清除",
+                                contentDescription = "清除并收起",
                                 tint = Color(0xFF4A5568),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF4F8AC4),
-                    unfocusedBorderColor = Color(0xFFD1D5DB),
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.7f),
-                    cursorColor = Color(0xFF4F8AC4)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF4F8AC4),
+                        unfocusedBorderColor = Color(0xFFD1D5DB),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.7f),
+                        cursorColor = Color(0xFF4F8AC4)
+                    )
                 )
-            )
+            }
 
             // Permission hint for Android 11+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
@@ -1517,9 +1512,9 @@ private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Uni
 }
 
 @Composable
-private fun SearchPill(onClick: () -> Unit) {
+private fun SearchPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.6f))
             .clickable(onClick = onClick)
@@ -1560,6 +1555,30 @@ private fun HomePill(
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+/** 紧凑的导入按钮 — 相比 ExtendedFloatingActionButton 尺寸更小，竖屏时不会溢出。 */
+@Composable
+private fun ImportButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(color)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = text, tint = Color.White, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.size(3.dp))
+            Text(text, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
