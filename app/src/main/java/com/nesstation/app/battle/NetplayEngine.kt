@@ -64,6 +64,9 @@ class NetplayEngine(
     @Volatile private var isLoaded = false
     @Volatile private var hasSurface = false
     @Volatile private var netplayLost = false
+    // 是否已进入联机模式（对端已加入）。单机模式下 waitForRemote 立即返回默认输入，
+    // 使房主（1P）无需等待 2P 即可开始游戏；对端加入后再切换为锁步联机。
+    @Volatile private var netplayEnabled = false
 
     private var listener: Listener? = null
     private val engineLock = Any()
@@ -197,10 +200,21 @@ class NetplayEngine(
     }
 
     /**
+     * 切换到联机模式。房主（1P）默认以单机模式开始游戏，
+     * 当对端（2P）加入时调用本方法，此后 waitForRemote 才会等待对端输入。
+     */
+    fun enableNetplay() {
+        netplayEnabled = true
+    }
+
+    /**
      * 等待对方第 targetFrame 帧的输入。
      * 返回时已就绪的输入；若超时（网络抖动），回调 onMiss 并返回上一帧输入。
      */
     private fun waitForRemote(targetFrame: Long, onMiss: () -> Unit): Int {
+        // 单机模式（对端尚未加入，如房主先行开始）：立即返回上一帧输入，
+        // 避免每帧阻塞 500ms 导致卡顿，也不触发"降级"提示。
+        if (!netplayEnabled) return lastRemotePad
         val deadline = System.currentTimeMillis() + 500 // 最多等 500ms
         while (running.get()) {
             remoteHistory[targetFrame]?.let { return it }

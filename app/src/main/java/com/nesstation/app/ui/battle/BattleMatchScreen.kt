@@ -144,6 +144,8 @@ fun BattleMatchScreen(
                     }
 
                     override fun onPeerJoined(username: String) {
+                        // 2P 加入：房主（1P）从单机模式切换为联机对战
+                        engine.enableNetplay()
                         statusText = "对手 $username 已加入，正在同步…"
                     }
 
@@ -195,11 +197,33 @@ fun BattleMatchScreen(
                 return@launch
             }
 
-            // 2. 连接中继
+            // 2. 连接中继（保持房间存在，供 2P 加入）
             val net = engine.net
             net.connect()
 
-            // 3. 等待 TCP 握手完成 + 服务器下发 start（双方到齐、输入延迟确定）
+            if (args.isHost) {
+                // 房主（1P）：立即开始游戏（单机模式），无需等待 2P 加入。
+                // 2P 加入后由 onPeerJoined 切换为联机对战。
+                withContext(Dispatchers.Main) {
+                    phase = "waiting"
+                    statusText = "单机进行中，等待 2P 加入可切换为联机对战…"
+                }
+                val hostOk = engine.start()
+                if (!hostOk) {
+                    withContext(Dispatchers.Main) {
+                        errorMsg = "ROM 加载失败：${engine.net.inputDelay}"
+                        phase = "error"
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    phase = "playing"
+                    statusText = "对战进行中"
+                }
+                return@launch
+            }
+
+            // 3. 2P（挑战者）：等待服务器下发 start（双方到齐、输入延迟确定）
             var attempts = 0
             while (attempts < 600) {
                 if (!net.isConnected) break
@@ -209,7 +233,7 @@ fun BattleMatchScreen(
             }
             if (!net.started) {
                 withContext(Dispatchers.Main) {
-                    errorMsg = if (args.isHost) "等待对手加入超时，请稍后重试" else "连接对战服务器超时"
+                    errorMsg = "连接对战服务器超时"
                     phase = "error"
                 }
                 return@launch
@@ -217,10 +241,11 @@ fun BattleMatchScreen(
 
             withContext(Dispatchers.Main) {
                 phase = "waiting"
-                statusText = if (args.isHost) "对手已加入，正在同步…" else "已加入房间，等待对手就绪…"
+                statusText = "已加入房间，等待对手就绪…"
             }
 
-            // 4. 加载 ROM + 启动帧同步引擎
+            // 4. 加载 ROM + 启动帧同步引擎（2P 默认即为联机模式）
+            engine.enableNetplay()
             val ok = engine.start()
             if (!ok) {
                 withContext(Dispatchers.Main) {

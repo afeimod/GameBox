@@ -450,7 +450,6 @@ private fun BattleGameCard(
                         model = game.iconUrl,
                         contentDescription = game.title,
                         contentScale = ContentScale.Crop,
-                        key = "game_icon_$iconVersion",
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -632,7 +631,6 @@ private fun ArcadeTableCard(
                     model = game.iconUrl,
                     contentDescription = game.title,
                     contentScale = ContentScale.Crop,
-                    key = "table_icon_$iconVersion",
                     modifier = Modifier.fillMaxSize()
                 )
             }
