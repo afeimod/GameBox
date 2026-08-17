@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -157,6 +158,11 @@ private fun PhoneNavHost(
     var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
 
+    // 主页刷新触发器：长按菜单里的删除等操作在弹窗内完成，不触发
+    // Activity ON_RESUME，主页的"最近游玩"列表无法感知变化。每次这类
+    // 操作成功后递增该值，HomeScreen 通过 refreshKey 立即重载列表。
+    var homeRefreshKey by remember { mutableIntStateOf(0) }
+
     // 自定义图标选择器（HomeScreen 长按菜单使用）
     val iconPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -195,7 +201,8 @@ private fun PhoneNavHost(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
                 onExit = { nav.context.let { (it as? android.app.Activity)?.finishAffinity() } },
-                onLongClickGame = { longPressGame = it }
+                onLongClickGame = { longPressGame = it },
+                refreshKey = homeRefreshKey
             )
         }
         composable(Routes.BATTLE) {
@@ -441,6 +448,7 @@ private fun PhoneNavHost(
                     }
                     pendingDeleteGame = null
                     reloadGames()
+                    homeRefreshKey++
                 }) { Text("删除") }
             },
             dismissButton = {

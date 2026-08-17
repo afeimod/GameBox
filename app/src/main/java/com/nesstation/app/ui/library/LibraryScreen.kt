@@ -331,7 +331,8 @@ fun LibraryScreen(
         )
         var newFound = 0
         for (dir in scanDirs) {
-            if (dir.exists() && dir.isDirectory) {
+            if (!dir.exists() || !dir.isDirectory) continue
+            try {
                 dir.walkTopDown().forEach { f ->
                     if (f.isFile && f.name.substringAfterLast('.', "").lowercase() in ROM_EXTENSIONS) {
                         val absPath = f.absolutePath
@@ -352,6 +353,13 @@ fun LibraryScreen(
                         }
                     }
                 }
+            } catch (_: SecurityException) {
+                // Android 11+ 作用域存储：未授予"所有文件访问权限"时遍历
+                // /sdcard 下的标准目录会抛 SecurityException。这里只跳过该
+                // 目录，绝不让它中断整个刷新流程——否则已导入文件夹里新增/
+                // 删除的游戏结果也不会显示在列表里（刷新按钮"点了没反应"）。
+            } catch (_: Exception) {
+                // 遍历中遇到其他不可读子目录/文件时同样跳过，保证刷新继续。
             }
         }
 
@@ -380,7 +388,7 @@ fun LibraryScreen(
             dialogMsg = "刷新完成：新增 $totalAdded 个，移除 $totalRemoved 个"
         } else if (lostFolderAccess) {
             dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
-        } else if (folders.isNotEmpty()) {
+        } else {
             dialogMsg = "已是最新（无新增/移除）"
         }
 

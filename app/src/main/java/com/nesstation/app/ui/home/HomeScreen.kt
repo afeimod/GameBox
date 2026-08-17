@@ -76,6 +76,7 @@ fun HomeScreen(
     onOpenAbout: () -> Unit,
     onExit: () -> Unit,
     onLongClickGame: (GameEntry) -> Unit = {},
+    refreshKey: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -110,6 +111,13 @@ fun HomeScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 父级（NesApp）在长按删除游戏等操作完成后会递增 refreshKey 请求刷新。
+    // 删除操作在弹窗中完成，不触发 Activity ON_RESUME，若不主动重载，
+    // 主页会一直显示已删除的游戏直到用户离开再返回。
+    LaunchedEffect(refreshKey) {
+        if (refreshKey > 0) recents = loadRecents()
     }
 
     Box(modifier = modifier.fillMaxSize()) {

@@ -3884,8 +3884,8 @@ private fun PadLayoutEditor(
                 val lLabel = if (platform == GamePlatform.PCE) "V" else "L"
                 EditablePillBtn(lLabel, btnL, surfaceSize, selectedBtn == BtnType.L,
                     onMove = { targetX, targetY ->
-                        val nx = targetX.coerceIn(0.05f, 0.4f)
-                        val ny = targetY.coerceIn(0.02f, 0.3f)
+                        val nx = targetX.coerceIn(0.02f, 0.6f)
+                        val ny = targetY.coerceIn(0.02f, 0.97f)
                         updateBtn(BtnType.L, btnL.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.L }
@@ -3895,8 +3895,8 @@ private fun PadLayoutEditor(
                 val rLabel = if (platform == GamePlatform.PCE) "VI" else "R"
                 EditablePillBtn(rLabel, btnR, surfaceSize, selectedBtn == BtnType.R,
                     onMove = { targetX, targetY ->
-                        val nx = targetX.coerceIn(0.6f, 0.95f)
-                        val ny = targetY.coerceIn(0.02f, 0.3f)
+                        val nx = targetX.coerceIn(0.4f, 0.98f)
+                        val ny = targetY.coerceIn(0.02f, 0.97f)
                         updateBtn(BtnType.R, btnR.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.R }
@@ -3930,8 +3930,8 @@ private fun PadLayoutEditor(
                 val l2Label = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
                 EditableRoundBtn(l2Label, Color(0xFFFF9800), btnL2, surfaceSize, selectedBtn == BtnType.L2,
                     onMove = { targetX, targetY ->
-                        val nx = targetX.coerceIn(0.02f, 0.4f)
-                        val ny = targetY.coerceIn(0.1f, 0.6f)
+                        val nx = targetX.coerceIn(0.02f, 0.5f)
+                        val ny = targetY.coerceIn(0.02f, 0.97f)
                         updateBtn(BtnType.L2, btnL2.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.L2 }
@@ -3941,8 +3941,8 @@ private fun PadLayoutEditor(
                 val r2Label = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
                 EditableRoundBtn(r2Label, Color(0xFFFF9800), btnR2, surfaceSize, selectedBtn == BtnType.R2,
                     onMove = { targetX, targetY ->
-                        val nx = targetX.coerceIn(0.6f, 0.98f)
-                        val ny = targetY.coerceIn(0.1f, 0.6f)
+                        val nx = targetX.coerceIn(0.5f, 0.98f)
+                        val ny = targetY.coerceIn(0.02f, 0.97f)
                         updateBtn(BtnType.R2, btnR2.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.R2 }
