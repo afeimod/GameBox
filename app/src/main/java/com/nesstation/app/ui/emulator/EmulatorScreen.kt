@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -105,6 +106,7 @@ import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.DosExtraKeyEntry
+import com.nesstation.app.ui.swf.ScreenPositionEditor
 import android.view.KeyEvent
 import android.view.View
 import kotlinx.coroutines.delay
@@ -377,6 +379,18 @@ fun EmulatorScreen(
 
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
+    // Custom free-form screen layout editor state (videoScale == "custom").
+    // customRect holds the live-dragged normalized rect [left, top, right, bottom];
+    // it is persisted into padLayout on touch-up / exit, then saved by the
+    // debounced LaunchedEffect below.
+    var showCustomLayoutEditor by remember { mutableStateOf(false) }
+    var customRect by remember {
+        mutableStateOf(floatArrayOf(
+            padLayout.customLayoutLeft, padLayout.customLayoutTop,
+            padLayout.customLayoutRight, padLayout.customLayoutBottom
+        ))
+    }
+
     // === Debounced persistence of PadLayout ===
     // Dragging a button fires onLayoutChange on EVERY pointer move event
     // (60+ times per second). Calling PadLayoutStore.save() on each event
@@ -473,7 +487,7 @@ fun EmulatorScreen(
         }
     }
 
-    BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings) {
+    BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings && !showCustomLayoutEditor) {
         showMenu = true
     }
     BackHandler(enabled = showMenu && !showLayoutEditor && !showSettings) {
@@ -481,6 +495,7 @@ fun EmulatorScreen(
     }
     BackHandler(enabled = showLayoutEditor) { showLayoutEditor = false }
     BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = showCustomLayoutEditor) { showCustomLayoutEditor = false }
 
     // Load ROM
     LaunchedEffect(game) {
@@ -858,9 +873,10 @@ fun EmulatorScreen(
                 // keys — those need to reach the Compose UI for navigation.
                 // The key listener returns false (don't consume) when
                 // uiBlocked is true, letting the event propagate to Compose.
-                uiBlocked = showMenu || showLayoutEditor || showSettings ||
+                uiBlocked = showMenu || showLayoutEditor || showSettings || showCustomLayoutEditor ||
                             showSlotPicker != null || showFFSpeedPicker,
                 onMenuToggle = { showMenu = !showMenu },
+                customRect = customRect,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -918,7 +934,7 @@ fun EmulatorScreen(
         }
 
         // On-screen controller with multi-touch — hidden on TV (no touchscreen)
-        if (loaded && effectiveShowPad && !showMenu && !showLayoutEditor && !showSettings && surfaceSize != IntSize.Zero) {
+        if (loaded && effectiveShowPad && !showMenu && !showLayoutEditor && !showSettings && !showCustomLayoutEditor && surfaceSize != IntSize.Zero) {
             if (platform == GamePlatform.DOS && engine is com.nesstation.app.core.engine.DosEngine) {
                 // DOS uses a dedicated overlay with two modes (gamepad / keyboard)
                 // and full keyboard + mouse support. The mode toggle is handled
@@ -1090,8 +1106,91 @@ fun EmulatorScreen(
                     padLayout = newLayout
                     applyCoreOptions(engine, newLayout, platform)
                 },
+                onEnterCustomLayout = {
+                    customRect = floatArrayOf(
+                        padLayout.customLayoutLeft, padLayout.customLayoutTop,
+                        padLayout.customLayoutRight, padLayout.customLayoutBottom
+                    )
+                    showSettings = false
+                    showCustomLayoutEditor = true
+                },
                 onClose = { showSettings = false }
             )
+        }
+
+        // Custom free-form layout editor — 4-corner drag to resize, drag the
+        // rectangle body to move. ScreenPositionEditor (a native View) draws
+        // the handles and intercepts touches; this Compose block only adds the
+        // hint bar + confirm/reset buttons on top.
+        if (showCustomLayoutEditor) {
+            AndroidView(
+                factory = { ctx ->
+                    ScreenPositionEditor(ctx).apply {
+                        setRect(customRect[0], customRect[1], customRect[2], customRect[3])
+                        listener = object : ScreenPositionEditor.Listener {
+                            override fun onRectChanged(x1: Float, y1: Float, x2: Float, y2: Float, confirm: Boolean) {
+                                // Live-update the game surface while dragging
+                                customRect = floatArrayOf(x1, y1, x2, y2)
+                                if (confirm) {
+                                    // Touch-up — persist into padLayout (saved by the debounced effect)
+                                    padLayout = padLayout.copy(
+                                        customLayoutLeft = x1, customLayoutTop = y1,
+                                        customLayoutRight = x2, customLayoutBottom = y2
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                update = { ed ->
+                    ed.setRect(customRect[0], customRect[1], customRect[2], customRect[3])
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            // Top hint bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xCC000000))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    "自由布局:拖动 4 角调整大小,拖动矩形内部移动位置",
+                    color = Color.White,
+                    fontSize = 13.sp
+                )
+            }
+            // Bottom-right confirm button
+            androidx.compose.material3.Button(
+                onClick = {
+                    showCustomLayoutEditor = false
+                    // Persist the current rect even if the last drag was cancelled
+                    padLayout = padLayout.copy(
+                        customLayoutLeft = customRect[0], customLayoutTop = customRect[1],
+                        customLayoutRight = customRect[2], customLayoutBottom = customRect[3]
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Text("完成")
+            }
+            // Bottom-left reset button (restore fullscreen rect)
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    customRect = floatArrayOf(0f, 0f, 1f, 1f)
+                    padLayout = padLayout.copy(
+                        customLayoutLeft = 0f, customLayoutTop = 0f,
+                        customLayoutRight = 1f, customLayoutBottom = 1f
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+            ) {
+                Text("重置")
+            }
         }
     }
 }
@@ -1254,16 +1353,37 @@ private fun GameSurfaceView(
     gamepadBitsHolder: IntArray = intArrayOf(0),
     uiBlocked: Boolean = false,
     onMenuToggle: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Normalized 0..1 rect [left, top, right, bottom] used when videoScale == "custom"
+    customRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f)
 ) {
-    // In portrait mode, align game to top; in landscape, center it
-    val contentAlignment = if (isPortrait) Alignment.TopCenter else Alignment.Center
-    Box(modifier = modifier, contentAlignment = contentAlignment) {
+    val isCustom = videoScale == "custom"
+    // In custom layout mode the user controls position/size directly, so the
+    // surface is anchored top-start and moved via offset; otherwise align the
+    // game to top (portrait) or center (landscape).
+    val contentAlignment = when {
+        isCustom -> Alignment.TopStart
+        isPortrait -> Alignment.TopCenter
+        else -> Alignment.Center
+    }
+    BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
         val surfaceModifier = when (videoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
             "3:2" -> Modifier.aspectRatio(3f / 2f)   // GBA 原生比例 (240x160)
             "8:7" -> Modifier.aspectRatio(8f / 7f)
             "16:9" -> Modifier.aspectRatio(16f / 9f)
+            "custom" -> {
+                val maxW = constraints.maxWidth
+                val maxH = constraints.maxHeight
+                val leftPx = (customRect[0] * maxW).toInt().coerceIn(0, maxW)
+                val topPx = (customRect[1] * maxH).toInt().coerceIn(0, maxH)
+                val wPx = ((customRect[2] - customRect[0]) * maxW).toInt().coerceIn(1, maxW)
+                val hPx = ((customRect[3] - customRect[1]) * maxH).toInt().coerceIn(1, maxH)
+                val density = LocalDensity.current
+                Modifier
+                    .offset { IntOffset(leftPx, topPx) }
+                    .size(width = with(density) { wPx.toDp() }, height = with(density) { hPx.toDp() })
+            }
             else -> Modifier.fillMaxSize() // stretch (default)
         }
         AndroidView(
@@ -4716,7 +4836,8 @@ private fun SettingsPanel(
     padLayout: PadLayout,
     platform: GamePlatform = GamePlatform.NES,
     onLayoutChange: (PadLayout) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onEnterCustomLayout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var biosStatus by remember { mutableStateOf(checkFdsBiosStatus(context)) }
@@ -4745,10 +4866,14 @@ private fun SettingsPanel(
                 "4:3" to "4:3",
                 "3:2" to "3:2 (GBA 原生)",
                 "8:7" to "8:7 (NES 像素比)",
-                "16:9" to "16:9"
+                "16:9" to "16:9",
+                "custom" to "自定义(拖动四角)"
             ),
             padLayout.videoScale
-        ) { onLayoutChange(padLayout.copy(videoScale = it)) }
+        ) {
+            onLayoutChange(padLayout.copy(videoScale = it))
+            if (it == "custom") onEnterCustomLayout()
+        }
 
         DropdownSetting("视频滤镜",
             listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",

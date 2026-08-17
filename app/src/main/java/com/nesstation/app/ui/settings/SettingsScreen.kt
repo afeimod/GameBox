@@ -249,7 +249,8 @@ fun SettingsScreen(
                                 "4:3" to "4:3",
                                 "3:2" to "3:2 (GBA 原生)",
                                 "8:7" to "8:7 (NES 像素比)",
-                                "16:9" to "16:9"
+                                "16:9" to "16:9",
+                                "custom" to "自定义(拖动四角)"
                             ),
                             padLayout.videoScale
                         ) { updateLayout(padLayout.copy(videoScale = it)) }

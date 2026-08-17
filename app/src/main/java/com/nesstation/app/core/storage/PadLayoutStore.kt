@@ -113,7 +113,16 @@ data class PadLayout(
     val soundQuality: String = "Low",     // Low | High | Very High
     val cropOverscan: String = "disabled",// disabled | enabled  (maps to 4 individual overscan keys)
     // Video scaling — controls SurfaceView layout aspect ratio (frontend-level, not FCEUmm option)
-    val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9
+    // "custom" = free-form rect controlled by the 4-corner drag editor
+    val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9 | custom
+    // Custom free-form layout rect (normalized 0..1, relative to the game
+    // surface container). Used when videoScale == "custom": left/top is the
+    // top-left corner, right/bottom is the bottom-right corner. The user
+    // drags the 4 corners to resize and the rectangle body to move.
+    val customLayoutLeft: Float = 0f,
+    val customLayoutTop: Float = 0f,
+    val customLayoutRight: Float = 1f,
+    val customLayoutBottom: Float = 1f,
     // Video filter — applied in the native blit function (frontend-level post-processing)
     val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
     // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
@@ -457,6 +466,11 @@ object PadLayoutStore {
     private const val KEY_VIDEO_SCALE = "video_scale"
     private const val KEY_VIDEO_FILTER = "video_filter"
     private const val KEY_OVERCLOCKING = "overclocking"
+    // Custom free-form layout rect keys (used when videoScale == "custom")
+    private const val KEY_CUSTOM_LAYOUT_LEFT = "custom_layout_left"
+    private const val KEY_CUSTOM_LAYOUT_TOP = "custom_layout_top"
+    private const val KEY_CUSTOM_LAYOUT_RIGHT = "custom_layout_right"
+    private const val KEY_CUSTOM_LAYOUT_BOTTOM = "custom_layout_bottom"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -604,6 +618,10 @@ object PadLayoutStore {
             soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low",
             cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled",
             videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch",
+            customLayoutLeft = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT, 0f),
+            customLayoutTop = p.getFloat(KEY_CUSTOM_LAYOUT_TOP, 0f),
+            customLayoutRight = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT, 1f),
+            customLayoutBottom = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM, 1f),
             videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none",
             overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled",
             sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled",
@@ -892,6 +910,10 @@ object PadLayoutStore {
             putString(KEY_SOUND_QUALITY, layout.soundQuality)
             putString(KEY_CROP_OVERSCAN, layout.cropOverscan)
             putString(KEY_VIDEO_SCALE, layout.videoScale)
+            putFloat(KEY_CUSTOM_LAYOUT_LEFT, layout.customLayoutLeft)
+            putFloat(KEY_CUSTOM_LAYOUT_TOP, layout.customLayoutTop)
+            putFloat(KEY_CUSTOM_LAYOUT_RIGHT, layout.customLayoutRight)
+            putFloat(KEY_CUSTOM_LAYOUT_BOTTOM, layout.customLayoutBottom)
             putString(KEY_VIDEO_FILTER, layout.videoFilter)
             putString(KEY_OVERCLOCKING, layout.overclocking)
 
