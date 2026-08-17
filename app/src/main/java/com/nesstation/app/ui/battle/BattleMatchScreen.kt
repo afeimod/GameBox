@@ -145,7 +145,7 @@ fun BattleMatchScreen(
 
                     override fun onPeerJoined(username: String) {
                         // 2P 加入：房主（1P）从单机模式切换为联机对战
-                        engine.enableNetplay()
+                        e.enableNetplay()
                         statusText = "对手 $username 已加入，正在同步…"
                     }
 
