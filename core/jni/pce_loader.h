@@ -14,7 +14,7 @@
 //   * Stereo audio ring buffer + resampler
 //   * Core options variable system (geargrafx_*)
 //   * PCE-CD BIOS lookup in the system directory (syscard1.pce, syscard2.pce,
-//     syscard3.pce, gameexpress.pce)
+//     syscard3.pce, gexpress.pce)
 //
 // All retro_* calls happen on a single emulation thread (see PceEngine
 // in Kotlin), so no extra internal locking is needed around the core

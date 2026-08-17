@@ -15,7 +15,7 @@ import android.view.Surface
  *   .sgx  — SuperGrafx cartridge
  *   .hes  — Hudson Entertainment Sound rip (audio only)
  *   .cue  — PCE-CD image (requires syscard3.pce / syscard1.pce / syscard2.pce
- *           / gameexpress.pce in the system directory)
+ *           / gexpress.pce in the system directory)
  *   .chd  — PCE-CD CHD image (same BIOS requirement)
  *
  * ## Gamepad bit layout (port 0, RETRO_DEVICE_JOYPAD)
@@ -39,7 +39,9 @@ import android.view.Surface
  *   - syscard1.pce — System Card 1
  *   - syscard2.pce — System Card 2
  *   - syscard3.pce — System Card 3 (Arcade Card Pro — most common)
- *   - gameexpress.pce — Games Express BIOS (required for some adult games)
+ *   - gexpress.pce — Games Express BIOS (required for some adult games)
+ *
+ * NOTE: the Geargrafx core looks for "gexpress.pce", NOT "gameexpress.pce".
  *
  * These BIOS files have copyright and cannot be bundled with the app.
  * Users must provide them via the BIOS import UI in Settings, or by

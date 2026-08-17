@@ -31,7 +31,7 @@ import kotlin.concurrent.thread
  *
  * ROM loading: Geargrafx accepts file paths directly. For PCE-CD games
  * (.cue/.chd), BIOS files (syscard1.pce, syscard2.pce, syscard3.pce,
- * gameexpress.pce) must be present in the system directory (set via
+ * gexpress.pce) must be present in the system directory (set via
  * [setPaths]). Cartridge games (.pce/.sgx) and HES rips (.hes) do NOT
  * require BIOS.
  *

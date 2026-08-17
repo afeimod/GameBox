@@ -300,14 +300,28 @@ class NesApp : Application() {
     }
 
     /**
-     * Auto-extract Geargrafx PCE-CD BIOS files (syscard*.pce) from APK assets
-     * to the system directory (<filesDir>/pce/).
+     * Auto-extract Geargrafx PCE-CD BIOS files from APK assets to the
+     * system directory (<filesDir>/pce/).
      *
      * Geargrafx looks for PCE-CD BIOS files by filename:
      *   - syscard1.pce — System Card 1
      *   - syscard2.pce — System Card 2
      *   - syscard3.pce — System Card 3 / Arcade Card Pro (most common)
-     *   - gameexpress.pce — Games Express BIOS
+     *   - gexpress.pce — Games Express BIOS
+     *
+     * IMPORTANT: the core uses the filename "gexpress.pce" (NOT
+     * "gameexpress.pce"). Everything in this app must use "gexpress.pce".
+     *
+     * Two extraction passes run:
+     *   1. Files already named canonically in assets/pce/ (syscardN.pce /
+     *      gexpress.pce) are copied 1:1.
+     *   2. Any other .pce file found in assets/pce/ is auto-detected by its
+     *      source filename (e.g. "System Card 3.0.pce", "ArcadeCardPro.pce",
+     *      "Game Express.pce") and copied under the canonical name the core
+     *      expects. This lets users bundle BIOS packs without renaming files.
+     *
+     * User-imported BIOS files already present in <filesDir>/pce/ are never
+     * overwritten (imported BIOS takes precedence over bundled ones).
      *
      * Cartridge games (.pce/.sgx) and HES rips (.hes) do NOT require BIOS —
      * only PCE-CD games need these. Like the other BIOS files, these have
@@ -318,12 +332,17 @@ class NesApp : Application() {
         val destDir = File(filesDir, "pce")
         if (!destDir.exists()) destDir.mkdirs()
 
-        val biosFiles = listOf("syscard1.pce", "syscard2.pce", "syscard3.pce", "gameexpress.pce")
-
         var extracted = 0
-        for (name in biosFiles) {
+
+        // Pass 1 — copy files that are already named canonically.
+        // (gexpress.pce is the filename the core actually looks for, NOT
+        // gameexpress.pce.)
+        val canonicalFiles = listOf(
+            "syscard1.pce", "syscard2.pce", "syscard3.pce", "gexpress.pce"
+        )
+        for (name in canonicalFiles) {
             val dest = File(destDir, name)
-            if (dest.exists() && dest.length() > 0) continue
+            if (dest.exists() && dest.length() > 0) continue  // keep existing
             try {
                 assets.open("pce/$name").use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }
@@ -331,18 +350,70 @@ class NesApp : Application() {
                 extracted++
                 Log.i("NesApp", "PCE BIOS extracted: $name")
             } catch (_: java.io.FileNotFoundException) {
-                // Not bundled — user imports via Settings
+                // Not bundled under canonical name — Pass 2 may find an alias
             } catch (e: Exception) {
                 Log.w("NesApp", "Failed to extract PCE BIOS $name", e)
                 if (dest.exists()) dest.delete()
             }
         }
+
+        // Pass 2 — auto-detect any other .pce files dropped into assets/pce/
+        // and copy them under the canonical name the core expects.
+        extracted += autoDetectPceBiosFromAssets(destDir)
+
         if (extracted > 0) {
             Log.i("NesApp", "PCE BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
         } else {
             Log.i("NesApp", "PCE BIOS: no bundled BIOS files found in assets/pce/. " +
                     "Import via Settings → PCE → PCE-CD BIOS Management (only needed for PCE-CD games).")
         }
+    }
+
+    /**
+     * Scans assets/pce/ for any .pce files that were not already extracted
+     * under a canonical name and copies them to [destDir] under the name
+     * Geargrafx expects, detecting the canonical name from the source
+     * filename. Returns the number of files newly extracted.
+     */
+    private fun autoDetectPceBiosFromAssets(destDir: File): Int {
+        val assetNames: Array<String> = try {
+            assets.list("pce") ?: return 0
+        } catch (_: Exception) {
+            return 0
+        }
+
+        var copied = 0
+        for (assetName in assetNames) {
+            val lower = assetName.lowercase()
+            if (!lower.endsWith(".pce")) continue  // README.txt etc.
+
+            val canonical = when {
+                lower.contains("syscard1") || lower.contains("system card 1") ||
+                lower.contains("system_card_1") || lower.contains("sc1") -> "syscard1.pce"
+                lower.contains("syscard2") || lower.contains("system card 2") ||
+                lower.contains("system_card_2") || lower.contains("sc2") -> "syscard2.pce"
+                lower.contains("syscard3") || lower.contains("system card 3") ||
+                lower.contains("system_card_3") || lower.contains("sc3") ||
+                lower.contains("arcade card") || lower.contains("accard") -> "syscard3.pce"
+                lower.contains("gexpress") || lower.contains("gameexpress") ||
+                lower.contains("game express") || lower.contains("game_express") -> "gexpress.pce"
+                else -> assetName  // keep original name; core looks for its canonical name
+            }
+
+            val dest = File(destDir, canonical)
+            if (dest.exists() && dest.length() > 0) continue  // already present
+
+            try {
+                assets.open("pce/$assetName").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                copied++
+                Log.i("NesApp", "PCE BIOS auto-detected: $assetName -> $canonical")
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to auto-extract PCE BIOS $assetName", e)
+            }
+        }
+        return copied
     }
 
     private fun tryInit(tag: String, block: () -> Unit) {

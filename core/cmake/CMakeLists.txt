@@ -496,7 +496,7 @@ target_link_libraries(genesicore log android dl)
 # libgeargrafx_libretro_android.so from app/src/main/jniLibs/<abi>/.
 # Same dlopen pattern as DOSBox-Pure / FBNeo / Genesis-Plus-GX.
 #
-# BIOS files (syscard1/2/3.pce, gameexpress.pce) for PCE-CD games are looked
+# BIOS files (syscard1/2/3.pce, gexpress.pce) for PCE-CD games are looked
 # up by the core in the system directory — see NesApp.ensurePceBios.
 # ---------------------------------------------------------------------------
 set(PCE_JNI_SOURCES

@@ -12,7 +12,7 @@
 | **SNES / SFC** | snes9x            | `.smc` `.sfc` `.fig` `.swc`   | 否 |
 | **GB / GBC**   | mGBA              | `.gb` `.gbc` `.sgb`           | 否 |
 | **GBA**        | mGBA              | `.gba`                        | 否 |
-| **PCE / TG16** | **Geargrafx**     | `.pce` `.sgx` `.hes` `.cue` `.chd` | PCE-CD 游戏需要 System Card（`syscard1/2/3.pce`、`gameexpress.pce`） |
+| **PCE / TG16** | **Geargrafx**     | `.pce` `.sgx` `.hes` `.cue` `.chd` | PCE-CD 游戏需要 System Card（`syscard1/2/3.pce`、`gexpress.pce`） |
 | **DOS**        | DOSBox-Pure       | `.bat` `.exe` `.dosz` `.conf` `.iso` | 否 |
 | **Arcade**     | **FBNeo**         | `.zip` `.7z`                  | NeoGeo / PGM / Mega-CD 游戏需要 |
 | **MD / SEGA**  | **Genesis-Plus-GX** | `.md` `.smd` `.sms` `.gg` `.sg` `.cue` `.chd` | Mega-CD 游戏需要 |
@@ -260,10 +260,11 @@ J2ME 游戏使用 J2ME-Loader 的虚拟键盘系统，支持：
 
 ### Geargrafx（PCE-CD）BIOS
 - **必需**：PCE-CD 光盘游戏 → `syscard3.pce`（System Card 3 / Arcade Card Pro，最常用）
-- 可选：`syscard1.pce` / `syscard2.pce`（旧 System Card）/ `gameexpress.pce`（少量游戏需要）
+- 可选：`syscard1.pce` / `syscard2.pce`（旧 System Card）/ `gexpress.pce`（少量游戏需要）
 - 卡带游戏（`.pce` / `.sgx`）与 HES 音乐（`.hes`）无需 BIOS
 - BIOS 文件位置：`<filesDir>/pce/`
-- **添加方式**：游戏中按返回键 → 设置 → PCE BIOS 导入，从文件选择器导入 `.pce` 文件并自动命名
+- **两种添加方式**：同 FBNeo —— ① 将 `.pce` 文件放入 `app/src/main/assets/pce/` 后重新构建，应用启动时自动识别并解压到 `<filesDir>/pce/`；② 游戏内按返回键 → 设置 → PCE BIOS 导入，从文件选择器导入 `.pce` 文件并自动命名
+- 详见 `app/src/main/assets/pce/README.txt`
 
 > ⚠️ **法律声明**：所有 BIOS 文件（neogeo.zip、pgm.zip、bios_CD_*.zip 等）都包含受版权保护的代码（SNK、IGS、SEGA 等）。本仓库不包含任何 BIOS 文件，仅提供占位说明文档。你只能将合法获取的 BIOS 文件打包到私有 APK 中供个人使用，不能在公开渠道（GitHub、应用商店等）分发包含 BIOS 的 APK。
 

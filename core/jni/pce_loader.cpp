@@ -28,7 +28,9 @@
 //   syscard1.pce — System Card 1
 //   syscard2.pce — System Card 2
 //   syscard3.pce — System Card 3 (Arcade Card Pro — most common, recommended)
-//   gameexpress.pce — Games Express BIOS (required for some adult games)
+//   gexpress.pce — Games Express BIOS (required for some adult games)
+//
+// NOTE: the core uses "gexpress.pce", NOT "gameexpress.pce".
 
 #include "pce_loader.h"
 #include "shared/core_shared.h"
@@ -234,7 +236,7 @@ static void initDefaultOptions() {
 
     // --- CD-ROM ---
     // BIOS files required in <systemDir> for PCE-CD games:
-    //   syscard1.pce, syscard2.pce, syscard3.pce, gameexpress.pce
+    //   syscard1.pce, syscard2.pce, syscard3.pce, gexpress.pce
     // syscard3.pce (System Card 3 / Arcade Card Pro) is the most common
     // and is auto-selected by Geargrafx when cdrom_bios = "Auto".
     s_options["geargrafx_cdrom_type"]            = "Auto";      // Auto | Standard | Super CD-ROM | Arcade CD-ROM
@@ -730,7 +732,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             s_coreError += "\nFor PCE-CD games, ensure a System Card BIOS "
                             "is in the system directory: syscard1.pce, "
                             "syscard2.pce, syscard3.pce (recommended), or "
-                            "gameexpress.pce.";
+                            "gexpress.pce.";
         }
         LOGE("%s", s_coreError.c_str());
         return s_coreError;

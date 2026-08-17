@@ -526,7 +526,7 @@ fun EmulatorScreen(
         // System directory: each core looks for BIOS files in this dir.
         // FBNeo expects BIOS zips (neogeo.zip, pgm.zip, etc.) in <filesDir>/fbneo/.
         // Genesis-Plus-GX expects Mega-CD BIOS zips in <filesDir>/genesis/.
-        // Geargrafx expects PCE-CD BIOS files (syscard1/2/3.pce, gameexpress.pce)
+        // Geargrafx expects PCE-CD BIOS files (syscard1/2/3.pce, gexpress.pce)
         // in <filesDir>/pce/.
         // Other cores (NES/SNES/GBA/DOS) use the root filesDir.
         val systemDir = when (platform) {
@@ -575,9 +575,10 @@ fun EmulatorScreen(
 
         // === PCE-CD BIOS pre-check ===
         // If the user is launching a PCE-CD game (.cue/.chd/.iso), verify at
-        // least one System Card BIOS file (syscard1/2/3.pce or gameexpress.pce)
+        // least one System Card BIOS file (syscard1/2/3.pce or gexpress.pce)
         // is present in <filesDir>/pce/. Without a BIOS Geargrafx refuses to
         // load CD games — this pre-check gives the user a clear error.
+        // NOTE: Geargrafx looks for "gexpress.pce", NOT "gameexpress.pce".
         if (platform == GamePlatform.PCE) {
             val isCdExt = romPath.endsWith(".cue", ignoreCase = true) ||
                           romPath.endsWith(".iso", ignoreCase = true) ||
@@ -585,12 +586,13 @@ fun EmulatorScreen(
             if (isCdExt) {
                 val pceDir = java.io.File(context.filesDir, "pce")
                 val hasBios = listOf("syscard1.pce", "syscard2.pce", "syscard3.pce",
-                                     "gameexpress.pce")
+                                     "gexpress.pce")
                     .any { java.io.File(pceDir, it).exists() }
                 if (!hasBios) {
                     errorMsg = "PCE-CD 游戏需要 System Card BIOS 文件才能运行（当前未检测到）。\n\n" +
                                "请先到 设置 → PCE → PCE-CD BIOS 管理，" +
-                               "导入 syscard1.pce / syscard2.pce / syscard3.pce (推荐) 或 gameexpress.pce。\n" +
+                               "导入 syscard1.pce / syscard2.pce / syscard3.pce (推荐) 或 gexpress.pce。\n" +
+                               "也可以把 BIOS 文件放入 app/src/main/assets/pce/ 重新打包，启动时自动识别。\n" +
                                "卡带游戏 (.pce/.sgx) 和 HES 音乐文件 (.hes) 不需要 BIOS。"
                     return@LaunchedEffect
                 }
@@ -6155,8 +6157,10 @@ private fun GenesisBiosImportSection() {
  *   syscard3.pce     — System Card 3 / Arcade Card Pro (RECOMMENDED —
  *                      most games require this; auto-selected when
  *                      geargrafx_cdrom_bios = "Auto")
- *   gameexpress.pce  — Games Express BIOS (required for a handful of
+ *   gexpress.pce     — Games Express BIOS (required for a handful of
  *                      adult games; otherwise unused)
+ *
+ * NOTE: the core looks for "gexpress.pce", NOT "gameexpress.pce".
  *
  * This section lets the user import a .pce file from SAF and rename it
  * to the canonical name based on the source filename or a manual pick.
@@ -6168,7 +6172,7 @@ private fun PceBiosImportSection() {
     var statusText by remember { mutableStateOf("") }
     var refreshKey by remember { mutableStateOf(0) }
 
-    // Map source filename → canonical syscardN.pce / gameexpress.pce
+    // Map source filename → canonical syscardN.pce / gexpress.pce
     fun detectCanonicalName(name: String): String? {
         val n = name.lowercase()
         return when {
@@ -6179,8 +6183,9 @@ private fun PceBiosImportSection() {
             n.contains("system card 2") || n.contains("sc2") -> "syscard2.pce"
             n.contains("syscard1") || n.contains("system_card_1") ||
             n.contains("system card 1") || n.contains("sc1") -> "syscard1.pce"
-            n.contains("gameexpress") || n.contains("game_express") ||
-            n.contains("games express") || n.contains("ge.pce") -> "gameexpress.pce"
+            n.contains("gexpress") || n.contains("gameexpress") ||
+            n.contains("game_express") || n.contains("game express") ||
+            n.contains("games express") || n.contains("ge.pce") -> "gexpress.pce"
             else -> null
         }
     }
@@ -6191,7 +6196,7 @@ private fun PceBiosImportSection() {
                 "syscard1.pce" to "System Card 1",
                 "syscard2.pce" to "System Card 2",
                 "syscard3.pce" to "System Card 3 (推荐)",
-                "gameexpress.pce" to "Games Express"
+                "gexpress.pce" to "Games Express"
             )
             var found = 0
             for ((name, label) in known) {
@@ -6205,7 +6210,7 @@ private fun PceBiosImportSection() {
                 append("未检测到PCE-CD BIOS文件\n")
                 append("卡带游戏(.pce/.sgx)和HES(.hes)无需BIOS, 仅PCE-CD需要。\n")
                 append("推荐导入 syscard3.pce (System Card 3 / Arcade Card Pro)。\n")
-                append("导入时文件名含 syscard1/2/3 或 gameexpress 自动识别。\n")
+                append("导入时文件名含 syscard1/2/3 或 gexpress 自动识别。\n")
             }
             append("\n目录: ${biosDir.absolutePath}")
         }
