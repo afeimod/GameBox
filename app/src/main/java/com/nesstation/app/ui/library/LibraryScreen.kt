@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
+import androidx.compose.material3.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -703,13 +704,19 @@ fun LibraryScreen(
                         fontSize = 11.sp
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    HomePill(
-                        onClick = onHome,
-                        modifier = Modifier.padding(end = 6.dp)
-                    )
-                    SearchPill(onClick = { showSearch = true }, modifier = Modifier.padding(end = 6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (isPortrait) {
+                    // 竖屏：操作按钮纵向排列，避免挤压
+                    Column(
+                        verticalAlignment = Alignment.End,
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.fillMaxHeight()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            HomePill(onClick = onHome)
+                            Spacer(Modifier.size(6.dp))
+                            SearchPill(onClick = { showSearch = true })
+                        }
+                        Spacer(Modifier.size(6.dp))
                         if (selectedPlatform != GamePlatform.JAVA) {
                             ImportButton(
                                 onClick = { importFolder() },
@@ -717,12 +724,14 @@ fun LibraryScreen(
                                 text = "导入文件夹",
                                 color = Color(0xFF4F8AC4)
                             )
+                            Spacer(Modifier.size(4.dp))
                             ImportButton(
                                 onClick = { importFiles() },
                                 icon = Icons.Rounded.Add,
                                 text = "导入ROM",
                                 color = Color(0xFFE74C3C)
                             )
+                            Spacer(Modifier.size(4.dp))
                             ImportButton(
                                 onClick = { showFileBrowser = true },
                                 icon = Icons.Rounded.Storage,
@@ -748,10 +757,60 @@ fun LibraryScreen(
                             )
                         }
                     }
+                } else {
+                    // 横屏：操作按钮横向排列（保持原样）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HomePill(
+                            onClick = onHome,
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                        SearchPill(onClick = { showSearch = true }, modifier = Modifier.padding(end = 6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (selectedPlatform != GamePlatform.JAVA) {
+                                ImportButton(
+                                    onClick = { importFolder() },
+                                    icon = Icons.Rounded.Folder,
+                                    text = "导入文件夹",
+                                    color = Color(0xFF4F8AC4)
+                                )
+                                ImportButton(
+                                    onClick = { importFiles() },
+                                    icon = Icons.Rounded.Add,
+                                    text = "导入ROM",
+                                    color = Color(0xFFE74C3C)
+                                )
+                                ImportButton(
+                                    onClick = { showFileBrowser = true },
+                                    icon = Icons.Rounded.Storage,
+                                    text = "本地浏览",
+                                    color = Color(0xFF2E7D32)
+                                )
+                            } else {
+                                ImportButton(
+                                    onClick = {
+                                        try {
+                                            jarPickerLauncher.launch(
+                                                arrayOf("application/java-archive", "application/java", "*/*")
+                                            )
+                                        } catch (_: android.content.ActivityNotFoundException) {
+                                            dialogMsg = "系统文件选择器不可用"
+                                        } catch (e: Exception) {
+                                            dialogMsg = "无法打开文件选择器：${e.message}"
+                                        }
+                                    },
+                                    icon = Icons.Rounded.Add,
+                                    text = "安装 JAR",
+                                    color = Color(0xFF6A1B9A)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            // Action row — 横向滚动的平台分类标签（NES / Java）
+            // Action row — 平台分类标签（NES / Java 等）
+            // 竖屏：FlowRow 自动换行排列，充分利用宽度
+            // 横屏：LazyRow 横向滚动（保持原样）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -759,24 +818,48 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LazyRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    lazyItems(listOf(
-                        GamePlatform.NES, GamePlatform.SFC,
-                        GamePlatform.GB, GamePlatform.GBA,
-                        GamePlatform.DOS,
-                        GamePlatform.ARCADE,
-                        GamePlatform.MD,
-                        GamePlatform.PCE,
-                        GamePlatform.JAVA
-                    )) { platform ->
-                        FilterChip(
-                            text = platform.displayName,
-                            selected = selectedPlatform == platform,
-                            onClick = { selectedPlatform = platform }
-                        )
+                if (isPortrait) {
+                    FlowRow(
+                        modifier = Modifier.weight(1f),
+                        mainAxisSpacing = 8.dp,
+                        crossAxisSpacing = 8.dp
+                    ) {
+                        listOf(
+                            GamePlatform.NES, GamePlatform.SFC,
+                            GamePlatform.GB, GamePlatform.GBA,
+                            GamePlatform.DOS,
+                            GamePlatform.ARCADE,
+                            GamePlatform.MD,
+                            GamePlatform.PCE,
+                            GamePlatform.JAVA
+                        ).forEach { platform ->
+                            FilterChip(
+                                text = platform.displayName,
+                                selected = selectedPlatform == platform,
+                                onClick = { selectedPlatform = platform }
+                            )
+                        }
+                    }
+                } else {
+                    LazyRow(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        lazyItems(listOf(
+                            GamePlatform.NES, GamePlatform.SFC,
+                            GamePlatform.GB, GamePlatform.GBA,
+                            GamePlatform.DOS,
+                            GamePlatform.ARCADE,
+                            GamePlatform.MD,
+                            GamePlatform.PCE,
+                            GamePlatform.JAVA
+                        )) { platform ->
+                            FilterChip(
+                                text = platform.displayName,
+                                selected = selectedPlatform == platform,
+                                onClick = { selectedPlatform = platform }
+                            )
+                        }
                     }
                 }
                 IconButton(onClick = { refreshList() }) {
