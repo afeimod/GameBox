@@ -24,7 +24,8 @@ class BattleApi(private val ctx: Context) {
         val title: String,
         val platform: String,
         val size: Long,
-        val needsBios: List<String>
+        val needsBios: List<String>,
+        val iconUrl: String = ""
     )
 
     /** 房间信息 */
@@ -138,7 +139,8 @@ class BattleApi(private val ctx: Context) {
                     title = g.getString("title"),
                     platform = g.optString("platform", "arcade"),
                     size = g.optLong("size", 0),
-                    needsBios = bios
+                    needsBios = bios,
+                    iconUrl = g.optString("iconUrl", "")
                 )
             }
         } finally {

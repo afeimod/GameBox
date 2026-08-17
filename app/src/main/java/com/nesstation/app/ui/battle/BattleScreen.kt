@@ -1,6 +1,7 @@
 package com.nesstation.app.ui.battle
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,9 +18,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -38,7 +42,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -53,14 +56,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.nesstation.app.battle.BattleApi
 import com.nesstation.app.battle.BattleRomStore
 import com.nesstation.app.battle.BattleSession
@@ -75,12 +82,20 @@ private val SecondaryTextLight = Color(0xFF8899AA)
 private val Accent = Color(0xFF8A7BFF)
 private val Accent2 = Color(0xFF4F8AC4)
 private val DeleteColor = Color(0xFFE74C3C)
-private val AccentPalette = listOf(
-    Color(0xFF8A7BFF), Color(0xFFE74C3C), Color(0xFF27AE60),
-    Color(0xFF3498DB), Color(0xFFE67E22), Color(0xFF1ABC9C)
+private val Success = Color(0xFF27AE60)
+private val Warn = Color(0xFFF1C40F)
+
+/** 街机厅桌子数量 */
+private const val TABLE_COUNT = 10
+
+/** 街机机台配色（按桌子索引循环） */
+private val CabinetPalette = listOf(
+    Color(0xFF8A7BFF), Color(0xFFE74C3C), Color(0xFF27AE60), Color(0xFF3498DB),
+    Color(0xFFE67E22), Color(0xFF1ABC9C), Color(0xFF9B59B6), Color(0xFFE84393),
+    Color(0xFF00CEC9), Color(0xFF6C5CE7)
 )
 
-/** 对战平台主页：服务器配置 + 登录注册 + 游戏列表 + 房间。 */
+/** 对战平台主页：游戏库宫格 + 街机厅房间桌面宫格。 */
 @Composable
 fun BattleScreen(
     onBack: () -> Unit,
@@ -105,6 +120,9 @@ fun BattleScreen(
     var loading by remember { mutableStateOf(false) }
     var statusMsg by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf<DownloadTask?>(null) }
+
+    // 当前选中的游戏（null = 游戏库宫格；非 null = 该游戏的街机厅桌面）
+    var selectedGame by remember { mutableStateOf<BattleApi.Game?>(null) }
 
     // 加载游戏与房间（未登录也可浏览，进游戏时才需登录）
     fun refreshAll() {
@@ -131,6 +149,22 @@ fun BattleScreen(
     // 进入对战平台即加载游戏/房间（未登录也可浏览）
     LaunchedEffect(Unit) { refreshAll() }
 
+    // 街机厅内定时刷新房间列表，实时反映 1P / 2P 座位占用。
+    // 将 loggedIn 纳入 key，确保在街机厅内登录成功后轮询也能重启。
+    LaunchedEffect(selectedGame, loggedIn) {
+        if (selectedGame != null && loggedIn) {
+            while (true) {
+                kotlinx.coroutines.delay(3000)
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val r = BattleApi(context).rooms()
+                        withContext(Dispatchers.Main) { rooms = r }
+                    } catch (_: Exception) { }
+                }
+            }
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         PixelBackdrop()
 
@@ -143,7 +177,9 @@ fun BattleScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = {
+                    if (selectedGame != null) selectedGame = null else onBack()
+                }) {
                     Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PrimaryText)
                 }
                 HomePill(onClick = onHome, modifier = Modifier.padding(start = 2.dp))
@@ -152,9 +188,20 @@ fun BattleScreen(
                         .weight(1f)
                         .padding(start = 8.dp)
                 ) {
-                    Text("对战平台", color = PrimaryText, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                     Text(
-                        if (loggedIn) "已登录：$username" else "虚拟账号 · 实时联机",
+                        if (selectedGame == null) "对战平台" else "${selectedGame!!.title} · 街机厅",
+                        color = PrimaryText,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        if (selectedGame == null) {
+                            if (loggedIn) "已登录：$username" else "虚拟账号 · 实时联机"
+                        } else {
+                            "选择街机桌加入对战 · 1P / 2P"
+                        },
                         color = SecondaryText,
                         fontSize = 10.sp
                     )
@@ -165,137 +212,87 @@ fun BattleScreen(
                 }
             }
 
-            // ---- 游戏 + 房间（未登录也可浏览，进游戏时才需登录） ----
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                    item { SectionTitle("对战游戏（统一 ROM 分发）") }
-
-                    if (games.isEmpty() && !loading) {
-                        item {
-                            HintCard(
-                                "服务器未返回游戏",
-                                "请确认服务器 config.json 已配置 games 列表（如拳皇97 kof97）。"
-                            )
+            if (selectedGame == null) {
+                // ================= 游戏库宫格 =================
+                GameLibraryGrid(
+                    games = games,
+                    loading = loading,
+                    downloading = downloading,
+                    onDownloadAndEnter = { game ->
+                        val has = BattleRomStore.hasRom(context, game.id, "${game.id}.zip")
+                        if (has) {
+                            selectedGame = game
+                            refreshAll()
+                            return@onDownloadAndEnter
                         }
-                    }
-
-                    items(games) { game ->
-                        BattleGameCard(
-                            game = game,
-                            downloaded = BattleRomStore.hasRom(context, game.id, "${game.id}.zip"),
-                            downloadTask = downloading?.takeIf { it.gameId == game.id },
-                            onDownload = {
-                                downloading = DownloadTask(game.id, "${game.id}.zip", 0f)
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        BattleApi(context).downloadRom(
-                                            game,
-                                            BattleRomStore.romFile(context, game.id, "${game.id}.zip")
-                                        ) { done, total ->
-                                            if (total > 0) {
-                                                downloading = DownloadTask(
-                                                    game.id, "${game.id}.zip",
-                                                    (done.toFloat() / total).coerceIn(0f, 1f)
-                                                )
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) { downloading = null }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            downloading = null
-                                            statusMsg = "下载失败：${e.message}"
-                                        }
-                                    }
-                                }
-                            }
-                        )
-                    }
-
-                    item { Spacer(Modifier.height(4.dp)) }
-                    item { SectionTitle("房间列表") }
-
-                    if (rooms.isEmpty() && !loading) {
-                        item { HintCard("暂无房间", "创建一个房间，等待对手加入。") }
-                    }
-
-                    items(rooms) { room ->
-                        RoomRow(room = room, onJoin = {
-                            if (!BattleSession.isLoggedIn(context)) {
-                                showLoginDialog = true
-                                return@RoomRow
-                            }
-                            scope.launch(Dispatchers.IO) {
-                                try {
-                                    val token = BattleSession.getToken(context)!!
-                                    val (joined, tcp) = BattleApi(context).joinRoom(room.id, token)
-                                    withContext(Dispatchers.Main) {
-                                        onOpenMatch(
-                                            BattleMatchArgs(
-                                                roomId = joined.id,
-                                                gameId = joined.gameId,
-                                                isHost = false,
-                                                tcpAddr = tcp
-                                            )
+                        downloading = DownloadTask(game.id, "${game.id}.zip", 0f)
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                BattleApi(context).downloadRom(
+                                    game,
+                                    BattleRomStore.romFile(context, game.id, "${game.id}.zip")
+                                ) { done, total ->
+                                    if (total > 0) {
+                                        downloading = DownloadTask(
+                                            game.id, "${game.id}.zip",
+                                            (done.toFloat() / total).coerceIn(0f, 1f)
                                         )
                                     }
-                                } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) { statusMsg = e.message }
+                                }
+                                withContext(Dispatchers.Main) {
+                                    downloading = null
+                                    selectedGame = game
+                                    refreshAll()
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    downloading = null
+                                    statusMsg = "下载失败：${e.message}"
                                 }
                             }
-                        })
-                    }
-
-                    // ---- 创建房间按钮 ----
-                    item {
-                        Button(
-                            onClick = {
-                                val firstGame = games.firstOrNull()
-                                if (firstGame == null) {
-                                    statusMsg = "服务器没有可对战的游戏"
-                                    return@Button
-                                }
-                                val token = BattleSession.getToken(context)
-                                if (token == null) {
-                                    showLoginDialog = true
-                                    return@Button
-                                }
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        val (room, tcp) = BattleApi(context).createRoom(firstGame.id, token)
-                                        withContext(Dispatchers.Main) {
-                                            onOpenMatch(
-                                                BattleMatchArgs(
-                                                    roomId = room.id,
-                                                    gameId = room.gameId,
-                                                    isHost = true,
-                                                    tcpAddr = tcp
-                                                )
-                                            )
-                                        }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) { statusMsg = e.message }
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Accent,
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                        ) {
-                            Icon(Icons.Rounded.SportsEsports, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("创建房间（${games.firstOrNull()?.title ?: "—"}）", fontWeight = FontWeight.Bold)
                         }
                     }
-
-                    item { Spacer(Modifier.height(60.dp)) }
-                }
+                )
+            } else {
+                // ================= 街机厅房间桌面宫格 =================
+                ArcadeHallGrid(
+                    game = selectedGame!!,
+                    rooms = rooms,
+                    onBackToLibrary = { selectedGame = null },
+                    onJoinTable = { room, isFull ->
+                        if (!BattleSession.isLoggedIn(context)) {
+                            showLoginDialog = true
+                            return@onJoinTable
+                        }
+                        if (isFull) {
+                            statusMsg = "该桌已满（1P / 2P 都有人）"
+                            return@onJoinTable
+                        }
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val token = BattleSession.getToken(context)!!
+                                val (joined, tcp) = if (room == null) {
+                                    BattleApi(context).createRoom(selectedGame!!.id, token)
+                                } else {
+                                    BattleApi(context).joinRoom(room.id, token)
+                                }
+                                withContext(Dispatchers.Main) {
+                                    onOpenMatch(
+                                        BattleMatchArgs(
+                                            roomId = joined.id,
+                                            gameId = joined.gameId,
+                                            isHost = room == null,
+                                            tcpAddr = tcp
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) { statusMsg = e.message }
+                            }
+                        }
+                    }
+                )
+            }
         }
 
         // 底部状态
@@ -334,6 +331,400 @@ fun BattleScreen(
                 username = name
                 refreshAll()
             }
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 游戏库宫格（类似游戏库那种宫格，点击图标下载游戏）
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun GameLibraryGrid(
+    games: List<BattleApi.Game>,
+    loading: Boolean,
+    downloading: DownloadTask?,
+    onDownloadAndEnter: (BattleApi.Game) -> Unit
+) {
+    val context = LocalContext.current
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            "街机游戏库",
+            color = PrimaryText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 22.dp, top = 6.dp, bottom = 2.dp)
+        )
+
+        if (games.isEmpty() && !loading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = SecondaryTextLight, modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text("服务器未返回游戏", color = PrimaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "请确认服务器 config.json 已配置 games 列表（如拳皇97 kof97）。",
+                        color = SecondaryText,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(150.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(games, key = { it.id }) { game ->
+                    BattleGameCard(
+                        game = game,
+                        downloaded = BattleRomStore.hasRom(context, game.id, "${game.id}.zip"),
+                        downloadTask = downloading?.takeIf { it.gameId == game.id },
+                        onClick = { onDownloadAndEnter(game) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 游戏卡片（宫格）
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun BattleGameCard(
+    game: BattleApi.Game,
+    downloaded: Boolean,
+    downloadTask: DownloadTask?,
+    onClick: () -> Unit
+) {
+    val accent = CabinetPalette[game.id.hashCode().mod(CabinetPalette.size)]
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.85f))
+            .border(1.5.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+    ) {
+        // 封面区
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(accent.copy(alpha = 0.9f), accent.copy(alpha = 0.55f))
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // 封面：优先加载网络图标，失败时显示首字母
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    game.title.take(1),
+                    color = Color.White.copy(alpha = 0.35f),
+                    fontSize = 46.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                if (game.iconUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = game.iconUrl,
+                        contentDescription = game.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            // 平台徽章
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFFF57C00).copy(alpha = 0.9f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text("ARC", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            // 已就绪徽章
+            if (downloaded) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Success.copy(alpha = 0.9f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("✓ 就绪", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // 底部信息
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Text(
+                game.title,
+                color = PrimaryText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
+            when {
+                downloadTask != null -> {
+                    LinearProgressIndicator(
+                        progress = { downloadTask.progress },
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        color = accent,
+                        trackColor = accent.copy(alpha = 0.15f)
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        "下载中 ${(downloadTask.progress * 100).toInt()}%",
+                        color = SecondaryText,
+                        fontSize = 10.sp
+                    )
+                }
+                downloaded -> {
+                    Text("点击进入街机厅", color = Success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                else -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Download, contentDescription = null, tint = accent, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("点击下载后进入", color = SecondaryText, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 街机厅房间桌面宫格（10 张桌子，1P / 2P 座位）
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ArcadeHallGrid(
+    game: BattleApi.Game,
+    rooms: List<BattleApi.Room>,
+    onBackToLibrary: () -> Unit,
+    onJoinTable: (BattleApi.Room?, Boolean) -> Unit
+) {
+    // 只显示当前游戏的房间，按创建时间排序，映射到 10 张桌子
+    val gameRooms = remember(rooms, game.id) {
+        rooms.filter { it.gameId == game.id }
+            .sortedBy { it.createdAt }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 顶部：返回游戏库 + 标题
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onBackToLibrary) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = null, tint = Accent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("返回游戏库", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${gameRooms.size} / $TABLE_COUNT 桌占用",
+                color = SecondaryText,
+                fontSize = 11.sp
+            )
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(160.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            itemsIndexed((0 until TABLE_COUNT).toList(), key = { _, i -> i }) { index, _ ->
+                val room = gameRooms.getOrNull(index)
+                ArcadeTableCard(
+                    tableNo = index + 1,
+                    game = game,
+                    room = room,
+                    accent = CabinetPalette[index % CabinetPalette.size],
+                    onClick = { onJoinTable(room, room != null && room.guest.isNotBlank()) }
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 街机桌卡片（机台 + 1P / 2P 座位）
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ArcadeTableCard(
+    tableNo: Int,
+    game: BattleApi.Game,
+    room: BattleApi.Room?,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val occupied1P = room != null
+    val occupied2P = room != null && room.guest.isNotBlank()
+    val isFull = occupied1P && occupied2P
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.88f))
+            .border(
+                width = if (isFull) 2.dp else 1.5.dp,
+                color = if (isFull) Success else accent.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        // 机台屏幕区
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(72.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF1E2A3A), Color(0xFF0E1626))
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // 屏幕显示游戏图标
+            if (game.iconUrl.isNotBlank()) {
+                AsyncImage(
+                    model = game.iconUrl,
+                    contentDescription = game.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            // 桌面号 + 状态
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    "桌 $tableNo",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    when {
+                        isFull -> "对战中"
+                        occupied1P -> "等待 2P"
+                        else -> "空桌"
+                    },
+                    color = if (isFull) Success else if (occupied1P) Warn else Color.White.copy(alpha = 0.6f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // 1P / 2P 座位
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SeatBadge(
+                label = "1P",
+                name = room?.host,
+                occupied = occupied1P,
+                accent = accent,
+                modifier = Modifier.weight(1f)
+            )
+            SeatBadge(
+                label = "2P",
+                name = room?.guest,
+                occupied = occupied2P,
+                accent = accent,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 座位徽章
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun SeatBadge(
+    label: String,
+    name: String?,
+    occupied: Boolean,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val bg = when {
+        occupied -> accent.copy(alpha = 0.18f)
+        else -> Color(0xFFF2F4F8)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(if (occupied) Success else Color(0xFFB0B7C3))
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            color = SecondaryText,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            name?.take(6) ?: "空",
+            color = if (occupied) PrimaryText else SecondaryTextLight,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -478,129 +869,6 @@ private fun LoginDialog(
 }
 
 // ---------------------------------------------------------------------------
-// 游戏卡片
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun BattleGameCard(
-    game: BattleApi.Game,
-    downloaded: Boolean,
-    downloadTask: DownloadTask?,
-    onDownload: () -> Unit
-) {
-    val accent = AccentPalette[game.id.hashCode().mod(AccentPalette.size)]
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.85f))
-            .padding(14.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(accent.copy(alpha = 0.25f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = accent, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(game.title, color = PrimaryText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    buildString {
-                        append("平台：${game.platform}")
-                        if (game.size > 0) append(" · ${formatSize(game.size)}")
-                    },
-                    color = SecondaryText,
-                    fontSize = 11.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        when {
-            downloadTask != null -> {
-                LinearProgressIndicator(
-                    progress = { downloadTask.progress },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = accent,
-                    trackColor = accent.copy(alpha = 0.15f)
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "下载中 ${(downloadTask.progress * 100).toInt()}%",
-                    color = SecondaryText,
-                    fontSize = 11.sp
-                )
-            }
-            downloaded -> {
-                Text("✓ 已就绪，可直接创建房间对战", color = Color(0xFF27AE60), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-            else -> {
-                Button(
-                    onClick = onDownload,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = accent,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth().height(38.dp)
-                ) {
-                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("下载 ROM", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 房间行
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun RoomRow(room: BattleApi.Room, onJoin: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.8f))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
-    ) {
-        Icon(Icons.Rounded.Groups, contentDescription = null, tint = Accent2, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "${room.gameTitle.ifBlank { room.gameId }}",
-                color = PrimaryText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                buildString {
-                    append("房主：${room.host.ifBlank { "—" }}")
-                    if (room.guest.isNotBlank()) append(" · 已加入：${room.guest}")
-                    else append(" · 等待对手")
-                },
-                color = SecondaryText,
-                fontSize = 10.sp
-            )
-        }
-        TextButton(onClick = onJoin) {
-            Text("加入", color = Accent, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // 服务器配置对话框
 // ---------------------------------------------------------------------------
 
@@ -677,32 +945,6 @@ private fun ServerConfigDialog(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        color = PrimaryText,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 6.dp)
-    )
-}
-
-@Composable
-private fun HintCard(title: String, subtitle: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.6f))
-            .padding(16.dp)
-    ) {
-        Text(title, color = PrimaryText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(3.dp))
-        Text(subtitle, color = SecondaryText, fontSize = 11.sp)
-    }
-}
-
-@Composable
 private fun HomePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -728,12 +970,6 @@ private fun lightFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedLabelColor = Accent,
     unfocusedLabelColor = SecondaryText
 )
-
-private fun formatSize(bytes: Long): String {
-    if (bytes <= 0) return ""
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 100) "%.0f MB".format(mb) else "%.1f MB".format(mb)
-}
 
 /** 对战匹配参数（导航到对战界面的数据） */
 data class BattleMatchArgs(

@@ -159,6 +159,7 @@ func (s *apiServer) handleGames(w http.ResponseWriter, r *http.Request) {
 		Platform  string   `json:"platform"`
 		Size      int64    `json:"size"`
 		NeedsBIOS []string `json:"needsBios,omitempty"`
+		IconURL   string   `json:"iconUrl,omitempty"`
 	}
 	games := make([]gameResp, 0, len(s.cfg.Games))
 	for _, g := range s.cfg.Games {
@@ -168,6 +169,7 @@ func (s *apiServer) handleGames(w http.ResponseWriter, r *http.Request) {
 			Platform:  g.Platform,
 			Size:      g.Size,
 			NeedsBIOS: g.NeedsBIOS,
+			IconURL:   g.IconURL,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})

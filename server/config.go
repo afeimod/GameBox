@@ -18,6 +18,8 @@ type Game struct {
 	FileName string `json:"fileName"` // 客户端保存的文件名（如 kof97.zip）
 	Size     int64  `json:"size"`     // ROM 大小（字节），未知为 0
 	NeedsBIOS []string `json:"needsBios,omitempty"` // 需要的 BIOS 文件名列表（提示用）
+	// 游戏封面图标地址（网络 URL，客户端用 Coil 加载展示在游戏库宫格 / 街机桌面）。
+	IconURL string `json:"iconUrl,omitempty"`
 }
 
 // Config 服务器配置
