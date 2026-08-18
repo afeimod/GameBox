@@ -275,6 +275,9 @@ class FbNeoEngine private constructor() : EmulatorEngine {
     }
 
     override fun setPad1(bits: Int) = FbNeoNative.setPad1(bits)
+    override fun setPad2(bits: Int) = FbNeoNative.setPad2(bits)
+    fun setPad3(bits: Int) = FbNeoNative.setPad3(bits)
+    fun setPad4(bits: Int) = FbNeoNative.setPad4(bits)
     override fun setRegion(region: Int) = FbNeoNative.setRegion(region)
     override fun setSampleRate(rate: Int) = FbNeoNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { FbNeoNative.saveState(slot, dst.absolutePath) }

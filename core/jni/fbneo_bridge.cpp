@@ -47,6 +47,8 @@ void Engine::shutdown()     { rom::unload(); }
 
 void Engine::setPad1(int bits)        { rom::setControllerInput(0, (uint16_t)bits); }
 void Engine::setPad2(int bits)        { rom::setControllerInput(1, (uint16_t)bits); }
+void Engine::setPad3(int bits)        { rom::setControllerInput(2, (uint16_t)bits); }
+void Engine::setPad4(int bits)        { rom::setControllerInput(3, (uint16_t)bits); }
 void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
@@ -139,6 +141,16 @@ Java_com_nesstation_app_core_jni_FbNeoNative_setPad1(JNIEnv*, jclass, jint bits)
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_FbNeoNative_setPad2(JNIEnv*, jclass, jint bits) {
     fbneocore::Engine::instance().setPad2(bits);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_FbNeoNative_setPad3(JNIEnv*, jclass, jint bits) {
+    fbneocore::Engine::instance().setPad3(bits);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_FbNeoNative_setPad4(JNIEnv*, jclass, jint bits) {
+    fbneocore::Engine::instance().setPad4(bits);
 }
 
 JNIEXPORT void JNICALL

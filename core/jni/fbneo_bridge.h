@@ -43,6 +43,10 @@ public:
     // 2-player or netplay (remote opponent input). Same bit layout as
     // setPad1. FBNeo maps port 1 to player 2.
     void setPad2(int bits);
+    // Third controller (port 2) — used for local 3-player arcade games.
+    void setPad3(int bits);
+    // Fourth controller (port 3) — used for local 4-player arcade games.
+    void setPad4(int bits);
 
     void setRegion(int region);
     void setSampleRate(int hz);

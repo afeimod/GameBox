@@ -96,6 +96,10 @@ object FbNeoNative {
      * Used for netplay: injects the remote opponent's input each frame.
      */
     @JvmStatic external fun setPad2(bits: Int)
+    /** Third controller (port 2, player 3). Same bit layout as setPad1. */
+    @JvmStatic external fun setPad3(bits: Int)
+    /** Fourth controller (port 3, player 4). Same bit layout as setPad1. */
+    @JvmStatic external fun setPad4(bits: Int)
 
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)

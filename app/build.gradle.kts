@@ -24,9 +24,9 @@ android {
 
         // 对战平台服务器地址（打包时内置，用户无需手动配置）。
         // 可通过 gradle 参数覆盖：-PbattleServerHost=xxx -PbattleServerHttpPort=xxx -PbattleServerTcpPort=xxx
-        val battleServerHost = (project.findProperty("battleServerHost") as String?) ?: "192.168.1.100"
-        val battleServerHttpPort = (project.findProperty("battleServerHttpPort") as String?) ?: "8080"
-        val battleServerTcpPort = (project.findProperty("battleServerTcpPort") as String?) ?: "9090"
+        val battleServerHost = (project.findProperty("battleServerHost") as String?) ?: "afei.ddns.net"
+        val battleServerHttpPort = (project.findProperty("battleServerHttpPort") as String?) ?: "1808"
+        val battleServerTcpPort = (project.findProperty("battleServerTcpPort") as String?) ?: "1909"
         buildConfigField("String", "BATTLE_SERVER_HOST", "\"$battleServerHost\"")
         buildConfigField("String", "BATTLE_SERVER_HTTP_PORT", "\"$battleServerHttpPort\"")
         buildConfigField("String", "BATTLE_SERVER_TCP_PORT", "\"$battleServerTcpPort\"")

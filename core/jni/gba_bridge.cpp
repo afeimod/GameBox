@@ -62,6 +62,10 @@ void Engine::setPad1(int bits) {
     rom::setControllerInput(0, (uint16_t)bits);
 }
 
+void Engine::setPad2(int bits) {
+    rom::setControllerInput(1, (uint16_t)bits);
+}
+
 void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
@@ -161,6 +165,11 @@ Java_com_nesstation_app_core_jni_GbaNative_runFrame(JNIEnv*, jclass) {
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_GbaNative_setPad1(JNIEnv*, jclass, jint bits) {
     gbacore::Engine::instance().setPad1(bits);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_setPad2(JNIEnv*, jclass, jint bits) {
+    gbacore::Engine::instance().setPad2(bits);
 }
 
 JNIEXPORT void JNICALL

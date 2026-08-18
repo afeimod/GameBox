@@ -24,6 +24,7 @@ public:
     //   bit4=Up, bit5=Down, bit6=Left, bit7=Right,
     //   bit8=X(SEGA C), bit9=Y(SEGA X), bit10=L(SEGA Y), bit11=R(SEGA Z)
     void setPad1(int bits);
+    void setPad2(int bits);          // second controller (port 1), same bit layout
 
     void setRegion(int region);
     void setSampleRate(int hz);

@@ -46,6 +46,8 @@ object NesNative {
 
     /** Bit layout: bit0=A, bit1=B, bit2=Select, bit3=Start, bit4=Up, bit5=Down, bit6=Left, bit7=Right */
     @JvmStatic external fun setPad1(bits: Int)
+    /** Second controller (port 1, player 2). Same bit layout as setPad1. */
+    @JvmStatic external fun setPad2(bits: Int)
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)
     @JvmStatic external fun setFastForward(speed: Int)

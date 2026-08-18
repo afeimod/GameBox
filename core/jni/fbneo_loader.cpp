@@ -157,6 +157,8 @@ static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 // Gamepad bits (port 0 / port 1, RETRO_DEVICE_JOYPAD).
 static std::atomic<uint16_t> s_pad1{0};
 static std::atomic<uint16_t> s_pad2{0};
+static std::atomic<uint16_t> s_pad3{0};
+static std::atomic<uint16_t> s_pad4{0};
 
 static std::atomic<int>  s_videoFilter{0};
 static std::atomic<bool> s_highQualityScaling{false};
@@ -525,10 +527,12 @@ static void cb_input_poll() { /* state is read on demand */ }
 static int16_t cb_input_state(unsigned port, unsigned device,
                               unsigned /*index*/, unsigned id) {
     if (device != RETRO_DEVICE_JOYPAD) return 0;
-    // FBNeo supports dual controllers: port 0 (pad 1) and port 1 (pad 2).
+    // FBNeo supports up to 4 players: port 0-3 (pad 1-4).
     const uint16_t bits = (port == 0) ? s_pad1.load(std::memory_order_relaxed)
-                                      : (port == 1) ? s_pad2.load(std::memory_order_relaxed)
-                                                    : 0;
+                         : (port == 1) ? s_pad2.load(std::memory_order_relaxed)
+                         : (port == 2) ? s_pad3.load(std::memory_order_relaxed)
+                         : (port == 3) ? s_pad4.load(std::memory_order_relaxed)
+                                       : 0;
     if (id >= 16) return 0;
     return (bits >> id) & 1;
 }
@@ -716,6 +720,8 @@ void unload() {
     s_saveName.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
+    s_pad3.store(0, std::memory_order_relaxed);
+    s_pad4.store(0, std::memory_order_relaxed);
 }
 
 void resetEmulation(bool /*hard*/) {
@@ -755,6 +761,8 @@ int audioTargetSampleRate() { return TARGET_SAMPLE_RATE; }
 void setControllerInput(int port, uint16_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);
     else if (port == 1) s_pad2.store(bits, std::memory_order_relaxed);
+    else if (port == 2) s_pad3.store(bits, std::memory_order_relaxed);
+    else if (port == 3) s_pad4.store(bits, std::memory_order_relaxed);
 }
 
 void setPaths(const std::string& systemDir, const std::string& saveDir) {

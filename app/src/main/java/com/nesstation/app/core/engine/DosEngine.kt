@@ -352,6 +352,7 @@ class DosEngine private constructor() : EmulatorEngine {
 
     // EmulatorEngine interface implementations — use DOS-specific methods above
     override fun setPad1(bits: Int) = DosNative.setPad1(bits)
+    override fun setPad2(bits: Int) { /* DOS is single-player only */ }
     override fun setRegion(region: Int) = DosNative.setRegion(region)
     override fun setSampleRate(rate: Int) = DosNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { DosNative.saveState(slot, dst.absolutePath) }

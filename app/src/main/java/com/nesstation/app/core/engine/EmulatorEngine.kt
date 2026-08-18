@@ -82,8 +82,11 @@ interface EmulatorEngine {
     /** Full shutdown. */
     fun shutdown()
 
-    /** Push controller state. Bit layout depends on platform. */
+    /** Push controller state for player 1 (port 0). Bit layout depends on platform. */
     fun setPad1(bits: Int)
+
+    /** Push controller state for player 2 (port 1). Same bit layout as setPad1. */
+    fun setPad2(bits: Int)
 
     /** Set region hint (0=NTSC, 1=PAL). */
     fun setRegion(region: Int)

@@ -25,6 +25,7 @@ public:
     void shutdown();
 
     void setPad1(int bits);          // bit layout: A B SEL STA U D L R X Y L R
+    void setPad2(int bits);          // second controller (port 1), same bit layout
     void setRegion(int region);      // 0=NTSC 1=PAL
     void setSampleRate(int hz);
     void setFastForward(int speed);

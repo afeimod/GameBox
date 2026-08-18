@@ -279,6 +279,7 @@ class GenesisEngine private constructor() : EmulatorEngine {
     }
 
     override fun setPad1(bits: Int) = GenesisNative.setPad1(bits)
+    override fun setPad2(bits: Int) = GenesisNative.setPad2(bits)
     override fun setRegion(region: Int) = GenesisNative.setRegion(region)
     override fun setSampleRate(rate: Int) = GenesisNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { GenesisNative.saveState(slot, dst.absolutePath) }

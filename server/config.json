@@ -1,8 +1,8 @@
 {
   "httpAddr": ":8080",
   "tcpAddr": ":9090",
-  "publicHttpAddr": "your-server-ip-or-domain:8080",
-  "publicTcpAddr": "your-server-ip-or-domain:9090",
+  "publicHttpAddr": "afei.ddns.net:1808",
+  "publicTcpAddr": "afei.ddns.net:1909",
   "jwtSecret": "446b67edfa4d11d61d88e9ae61f8b1abd316482b3916e2868acb94b482d5c7f3",
   "dataDir": "./data",
   "maxRooms": 200,

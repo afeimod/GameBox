@@ -24,6 +24,7 @@ public:
     //   bit4=Up, bit5=Down, bit6=Left, bit7=Right
     //   (PCE only has 2 face buttons; bits 8-11 are unused)
     void setPad1(int bits);
+    void setPad2(int bits);          // second controller (port 1), same bit layout
 
     void setRegion(int region);
     void setSampleRate(int hz);

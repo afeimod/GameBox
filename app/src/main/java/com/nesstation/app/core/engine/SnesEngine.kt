@@ -292,6 +292,7 @@ class SnesEngine private constructor() : EmulatorEngine {
     }
 
     override fun setPad1(bits: Int) = SnesNative.setPad1(bits)
+    override fun setPad2(bits: Int) = SnesNative.setPad2(bits)
     override fun setRegion(region: Int) = SnesNative.setRegion(region)
     override fun setSampleRate(rate: Int) = SnesNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { SnesNative.saveState(slot, dst.absolutePath) }

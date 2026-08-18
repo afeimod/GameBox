@@ -391,6 +391,17 @@ fun EmulatorScreen(
     var showSlotPicker by remember { mutableStateOf<String?>(null) } // "save" | "load" | null
     var showFFSpeedPicker by remember { mutableStateOf(false) }
 
+    // Current active player for on-screen controller input (0-indexed).
+    // 0 = player 1, 1 = player 2, etc.
+    var currentPlayer by remember { mutableStateOf(0) }
+    // Max players supported by this platform.
+    // ARCADE=4, NES/SFC/MD/PCE=2, GB/GBA/DOS/JAVA=1
+    val maxPlayers = when (platform) {
+        GamePlatform.ARCADE -> 4
+        GamePlatform.DOS, GamePlatform.JAVA, GamePlatform.GB, GamePlatform.GBA -> 1
+        else -> 2
+    }
+
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -922,6 +933,7 @@ fun EmulatorScreen(
                 videoFilter = padLayout.videoFilter,
                 isPortrait = isPortrait,
                 platform = platform,
+                currentPlayer = currentPlayer,
                 gamepadBitsHolder = gamepadBitsHolder,
                 // When any overlay (menu / layout editor / settings / dialogs)
                 // is open, the SurfaceView must NOT consume D-pad / button
@@ -1012,7 +1024,17 @@ fun EmulatorScreen(
                     surfaceSize = surfaceSize,
                     platform = platform,
                     isPortrait = isPortrait,
-                    onPadBits = { bits -> engine.setPad1(bits) }
+                    onPadBits = { bits -> routePadBits(engine, currentPlayer, bits) }
+                )
+            }
+            // Player switch button — top-right corner, only when 2+ players supported
+            if (maxPlayers > 1) {
+                PlayerSwitchButton(
+                    currentPlayer = currentPlayer,
+                    maxPlayers = maxPlayers,
+                    onSwitch = {
+                        currentPlayer = (currentPlayer + 1) % maxPlayers
+                    }
                 )
             }
         }
@@ -1274,6 +1296,18 @@ fun EmulatorScreen(
 }
 
 // ---------------------------------------------------------------------------
+// Route gamepad bits to the correct player port
+// ---------------------------------------------------------------------------
+private fun routePadBits(engine: EmulatorEngine, player: Int, bits: Int) {
+    when (player) {
+        0 -> engine.setPad1(bits)
+        1 -> engine.setPad2(bits)
+        2 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad3(bits)
+        3 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad4(bits)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Apply core options to engine — platform-aware option mapping
 // ---------------------------------------------------------------------------
 private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform: GamePlatform = GamePlatform.NES) {
@@ -1428,6 +1462,7 @@ private fun GameSurfaceView(
     videoFilter: String,
     isPortrait: Boolean = false,
     platform: GamePlatform = GamePlatform.NES,
+    currentPlayer: Int = 0,
     gamepadBitsHolder: IntArray = intArrayOf(0),
     uiBlocked: Boolean = false,
     onMenuToggle: () -> Unit = {},
@@ -1507,12 +1542,12 @@ private fun GameSurfaceView(
                                 when (event.action) {
                                     KeyEvent.ACTION_DOWN -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                                        engine.setPad1(gamepadBitsHolder[0])
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
                                         true
                                     }
                                     KeyEvent.ACTION_UP -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                                        engine.setPad1(gamepadBitsHolder[0])
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
                                         true
                                     }
                                     else -> false
@@ -1542,7 +1577,7 @@ private fun GameSurfaceView(
                         // (prevents stuck buttons when menu closes).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            engine.setPad1(gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
                         }
                         // Don't consume — let Compose UI navigate
                         false
@@ -1552,11 +1587,11 @@ private fun GameSurfaceView(
                         // menu just closed while button was held).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            engine.setPad1(gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
                             true
                         } else if (bits != 0 && event.action == KeyEvent.ACTION_DOWN) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                            engine.setPad1(gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
                             true
                         } else if (event.action == KeyEvent.ACTION_DOWN &&
                                    (keyCode == KeyEvent.KEYCODE_MENU ||
@@ -1572,7 +1607,7 @@ private fun GameSurfaceView(
                 // so the game doesn't think buttons are stuck down.
                 if (uiBlocked && gamepadBitsHolder[0] != 0) {
                     gamepadBitsHolder[0] = 0
-                    engine.setPad1(0)
+                    routePadBits(engine, currentPlayer, 0)
                 }
                 // When UI becomes unblocked (menu closed), re-request focus
                 // so the SurfaceView can receive gamepad keys again.
@@ -1787,6 +1822,41 @@ private fun serializeComboButtons(list: List<ComboButtonEntry>): String {
         arr.put(o)
     }
     return arr.toString()
+}
+
+// ---------------------------------------------------------------------------
+// PlayerSwitchButton — floating button to cycle between players
+// ---------------------------------------------------------------------------
+@Composable
+private fun PlayerSwitchButton(
+    currentPlayer: Int,
+    maxPlayers: Int,
+    onSwitch: () -> Unit
+) {
+    val label = "${currentPlayer + 1}P"
+    val color = when (currentPlayer) {
+        0 -> Color(0xFF4A90D9)  // blue for P1
+        1 -> Color(0xFFE74C3C)  // red for P2
+        2 -> Color(0xFF2ECC71)  // green for P3
+        3 -> Color(0xFFF39C12)  // orange for P4
+        else -> Color(0xFF4A90D9)
+    }
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(top = 12.dp, end = 12.dp)
+            .size(44.dp)
+            .background(color.copy(alpha = 0.85f), RoundedCornerShape(12.dp))
+            .clickable { onSwitch() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------

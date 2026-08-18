@@ -34,6 +34,8 @@ object SnesNative {
 
     /** Bit layout: bit0=A..bit11=R (see class doc) */
     @JvmStatic external fun setPad1(bits: Int)
+    /** Second controller (port 1, player 2). Same bit layout as setPad1. */
+    @JvmStatic external fun setPad2(bits: Int)
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)
     @JvmStatic external fun setFastForward(speed: Int)

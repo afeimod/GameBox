@@ -35,6 +35,7 @@ public:
     //   bit4=Up, bit5=Down, bit6=Left, bit7=Right,
     //   bit8=L(GBA), bit9=R(GBA)
     void setPad1(int bits);
+    void setPad2(int bits);          // second controller (port 1), same bit layout
     void setRegion(int region);      // 0=NTSC 1=PAL (best-effort)
     void setSampleRate(int hz);
     void setFastForward(int speed);
