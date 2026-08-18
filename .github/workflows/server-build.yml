@@ -26,9 +26,6 @@ on:
           - amd64
           - arm64
           - arm
-  push:
-    branches:
-      - main
 
 concurrency:
   group: build-server-${{ github.ref }}
@@ -57,26 +54,41 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: server/go.mod
 
-      # ---------- 3. 构建服务器端二进制 ----------
+      # ---------- 3. 构建服务器端二进制（交叉编译） ----------
       - name: Build Server Binary
+        env:
+          GOOS: ${{ inputs.target_os || 'linux' }}
+          GOARCH: ${{ inputs.target_arch || 'amd64' }}
         run: |
           cd server
-          go build -trimpath -ldflags "-s -w" -o gamebox-server .
+          BINARY_NAME="gamebox-server"
+          # Windows 需要 .exe 后缀
+          if [ "$GOOS" = "windows" ]; then
+            BINARY_NAME="gamebox-server.exe"
+          fi
+          go build -trimpath -ldflags "-s -w" -o "$BINARY_NAME" .
           echo "=== 构建产物 ==="
-          ls -lh gamebox-server
-          file gamebox-server 2>/dev/null || true
+          ls -lh "$BINARY_NAME"
+          file "$BINARY_NAME" 2>/dev/null || true
 
       # ---------- 4. 打包产物（含配置文件与说明） ----------
       - name: Package Artifacts
+        env:
+          GOOS: ${{ inputs.target_os || 'linux' }}
+          GOARCH: ${{ inputs.target_arch || 'amd64' }}
         run: |
+          BINARY_NAME="gamebox-server"
+          if [ "$GOOS" = "windows" ]; then
+            BINARY_NAME="gamebox-server.exe"
+          fi
           mkdir -p dist
-          cp server/gamebox-server dist/
+          cp "server/$BINARY_NAME" dist/
           cp server/config.json dist/
           cp server/README.md dist/
-          # 交叉编译产物命名（可选，当前构建为运行环境原生架构）
           cd dist
-          tar -czf ../gamebox-server-${{ inputs.target_os }}-${{ inputs.target_arch }}.tar.gz \
-            gamebox-server config.json README.md
+          ARCHIVE_NAME="gamebox-server-${GOOS}-${GOARCH}"
+          tar -czf "../${ARCHIVE_NAME}.tar.gz" \
+            "$BINARY_NAME" config.json README.md
           cd ..
           echo "=== 打包结果 ==="
           ls -lh *.tar.gz
@@ -85,10 +97,9 @@ jobs:
       - name: Upload Server Binary
         uses: actions/upload-artifact@v4
         with:
-          name: gamebox-server-${{ inputs.target_os }}-${{ inputs.target_arch }}
+          name: gamebox-server-${{ inputs.target_os || 'linux' }}-${{ inputs.target_arch || 'amd64' }}
           path: |
             gamebox-server-*.tar.gz
-            server/gamebox-server
           if-no-files-found: warn
           retention-days: 30
 
@@ -99,9 +110,14 @@ jobs:
           echo "## 服务器构建结果" >> $GITHUB_STEP_SUMMARY
           echo "- 触发: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- 提交: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ -f server/gamebox-server ]; then
+          # 兼容 Windows .exe 产物
+          BINARY_PATH="server/gamebox-server"
+          if [ ! -f "$BINARY_PATH" ]; then
+            BINARY_PATH="server/gamebox-server.exe"
+          fi
+          if [ -f "$BINARY_PATH" ]; then
             echo "### 产物" >> $GITHUB_STEP_SUMMARY
-            ls -lh server/gamebox-server | awk '{print "- `" $NF "` (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+            ls -lh "$BINARY_PATH" | awk '{print "- `" $NF "` (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
           else
             echo "### ⚠️ 无产物" >> $GITHUB_STEP_SUMMARY
           fi
