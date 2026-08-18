@@ -55,6 +55,16 @@ class SnesEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    // === Netplay (lockstep hook) ===
+    @Volatile private var _frameHook: NetplayHook? = null
+    @Volatile private var _netFrame: Long = 0L
+    override var frameHook: NetplayHook?
+        get() = _frameHook
+        set(value) {
+            _frameHook = value
+            _netFrame = 0L
+        }
+
     /** Lock for all lifecycle methods to prevent restart conflicts. */
     private val lifecycleLock = Any()
 
@@ -117,7 +127,22 @@ class SnesEngine private constructor() : EmulatorEngine {
                     // may have set it to false while we were sleeping.
                     if (!running.get()) break
 
+                    // === Netplay lockstep ===
+                    val npHook = _frameHook
+                    if (npHook != null) {
+                        val pads = npHook.beforeFrame(_netFrame)
+                        if (pads != null) {
+                            SnesNative.setPad1(pads.first)
+                            SnesNative.setPad2(pads.second)
+                        }
+                    }
+
                     SnesNative.runFrame()
+
+                    if (npHook != null) {
+                        npHook.afterFrame(_netFrame)
+                        _netFrame++
+                    }
 
                     // Re-check running right after the native call — if
                     // unload() ran during runFrame(), the core is now freed

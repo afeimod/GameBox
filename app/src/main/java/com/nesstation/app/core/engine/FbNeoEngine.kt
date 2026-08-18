@@ -60,6 +60,16 @@ class FbNeoEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    // === Netplay (lockstep hook) ===
+    @Volatile private var _frameHook: NetplayHook? = null
+    @Volatile private var _netFrame: Long = 0L
+    override var frameHook: NetplayHook?
+        get() = _frameHook
+        set(value) {
+            _frameHook = value
+            _netFrame = 0L
+        }
+
     /** Lock for all lifecycle methods to prevent restart conflicts. */
     private val lifecycleLock = Any()
 
@@ -103,7 +113,24 @@ class FbNeoEngine private constructor() : EmulatorEngine {
                     val t0 = System.nanoTime()
 
                     if (!running.get()) break
+
+                    // === Netplay lockstep ===
+                    val npHook = _frameHook
+                    if (npHook != null) {
+                        val pads = npHook.beforeFrame(_netFrame)
+                        if (pads != null) {
+                            FbNeoNative.setPad1(pads.first)
+                            FbNeoNative.setPad2(pads.second)
+                        }
+                    }
+
                     FbNeoNative.runFrame()
+
+                    if (npHook != null) {
+                        npHook.afterFrame(_netFrame)
+                        _netFrame++
+                    }
+
                     if (!running.get()) break
 
                     if (!hasSurface) {

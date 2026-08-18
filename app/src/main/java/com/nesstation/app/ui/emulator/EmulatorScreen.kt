@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -550,7 +551,16 @@ private fun copySafFolderRecursive(
 @Composable
 fun EmulatorScreen(
     game: GameEntry,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    /**
+     * 可选：联机对战控制器。非 null 时，引擎的模拟循环会通过它做帧同步，
+     * 路由到 [com.nesstation.app.core.engine.EmulatorEngine.frameHook]。
+     *
+     * 这是「进入对战」与「本地游戏」走同一条启动路径的关键 —— EmulatorScreen
+     * 内部对 ROM 加载、SurfaceView、OnScreenController、菜单、布局编辑器、
+     * 存档 等全部走本地游戏的逻辑；联机对战只是给引擎多挂了一个 hook。
+     */
+    netplayController: com.nesstation.app.battle.NetplayController? = null
 ) {
     val engine = remember { EmulatorEngine.forPlatform(game.platform) }
     val platform = game.platform
@@ -712,6 +722,45 @@ fun EmulatorScreen(
     BackHandler(enabled = showLayoutEditor) { showLayoutEditor = false }
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = showCustomLayoutEditor) { showCustomLayoutEditor = false }
+
+    // === 联机对战：把 NetplayController 挂到引擎的 frameHook 上 ===
+    // 必须在 LaunchedEffect(game) 之前设置，否则引擎模拟线程的第 0 帧会
+    // 没有这个 hook 而按单机模式跑（虽然之后会自动切换，但前 inputDelay 帧
+    // 的输入序列可能不一致）。Compose 中 LaunchedEffect 按声明顺序执行，
+    // 所以这里放在 LaunchedEffect(game) 之前即可。
+    var netplayStatusText by remember { mutableStateOf("") }
+    val netplayUiListener = remember {
+        object : com.nesstation.app.battle.NetplayController.UiListener {
+            override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {
+                netplayStatusText = "对战中 · 帧 #$frame · 延迟 ${inputDelay}f · desync $desyncCount"
+            }
+            override fun onPeerJoined(username: String) {
+                netplayStatusText = "对手 $username 已加入"
+            }
+            override fun onPeerLeft(username: String) {
+                netplayStatusText = "对手 $username 已离开"
+            }
+            override fun onError(message: String) {
+                netplayStatusText = "对战错误：$message"
+            }
+            override fun onDisconnected() {
+                netplayStatusText = "与对战服务器断开连接"
+            }
+            override fun onNetplayLost(reason: String) {
+                netplayStatusText = reason
+            }
+        }
+    }
+    LaunchedEffect(netplayController) {
+        engine.frameHook = netplayController
+        netplayController?.addUiListener(netplayUiListener)
+    }
+    DisposableEffect(netplayController) {
+        onDispose {
+            // 离开 EmulatorScreen 时移除监听器；BattleMatchScreen 的监听器不受影响
+            try { netplayController?.removeUiListener(netplayUiListener) } catch (_: Throwable) {}
+        }
+    }
 
     // Load ROM
     LaunchedEffect(game) {
@@ -1103,7 +1152,13 @@ fun EmulatorScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { engine.unload() }
+        onDispose {
+            // 联机对战：先卸下 hook 再 stop controller，避免引擎线程在
+            // hook 已经销毁后还回调到 NetplayController。
+            try { engine.frameHook = null } catch (_: Throwable) {}
+            try { netplayController?.stop() } catch (_: Throwable) {}
+            engine.unload()
+        }
     }
 
     LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
@@ -1128,10 +1183,35 @@ fun EmulatorScreen(
                             showSlotPicker != null || showFFSpeedPicker,
                 onMenuToggle = { showMenu = !showMenu },
                 customRect = customRect,
+                netplayController = netplayController,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
             )
+
+            // === 联机对战状态条（顶部居中） ===
+            // 显示帧号 / 延迟 / desync 计数 / 对手加入离开等提示。
+            // 单机模式下不显示。
+            if (netplayController != null && netplayStatusText.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 6.dp, start = 8.dp, end = 8.dp)
+                        .background(
+                            Color(0xAA0E1626),
+                            androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = netplayStatusText,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                }
+            }
         } else {
             Box(
                 modifier = Modifier
@@ -1208,11 +1288,21 @@ fun EmulatorScreen(
                     surfaceSize = surfaceSize,
                     platform = platform,
                     isPortrait = isPortrait,
-                    onPadBits = { bits -> routePadBits(engine, currentPlayer, bits) }
+                    onPadBits = { bits ->
+                        // 联机对战：把本地输入送给 NetplayController，由它打包
+                        // 发给对方；引擎线程在 beforeFrame 里会把 (local, remote)
+                        // 推回 setPad1/setPad2。本地路径：直接 routePadBits。
+                        if (netplayController != null) {
+                            netplayController.setLocalPad(bits)
+                        } else {
+                            routePadBits(engine, currentPlayer, bits)
+                        }
+                    }
                 )
             }
-            // Player switch button — top-right corner, only when 2+ players supported
-            if (maxPlayers > 1) {
+            // Player switch button — top-right corner, only when 2+ players supported.
+            // 联机对战时禁用：2P 由远端玩家控制，本地只能操作 1P。
+            if (maxPlayers > 1 && netplayController == null) {
                 PlayerSwitchButton(
                     currentPlayer = currentPlayer,
                     maxPlayers = maxPlayers,
@@ -1482,7 +1572,25 @@ fun EmulatorScreen(
 // ---------------------------------------------------------------------------
 // Route gamepad bits to the correct player port
 // ---------------------------------------------------------------------------
-private fun routePadBits(engine: EmulatorEngine, player: Int, bits: Int) {
+/**
+ * 把摇杆 / 手柄 bit 路由到核心。
+ *
+ * - 单机模式：直接调 [EmulatorEngine.setPad1] / [setPad2] / pad3 / pad4。
+ * - 联机模式：1P 输入送给 [com.nesstation.app.battle.NetplayController.setLocalPad]，
+ *   由它的 frame hook 在 [NetplayHook.beforeFrame] 里和远端输入一起推回给核心；
+ *   其它 player 槽位在联机下被忽略（2P 由远端控制，3P/4P 不参与）。
+ */
+private fun routePadBits(
+    engine: EmulatorEngine,
+    player: Int,
+    bits: Int,
+    netplayController: com.nesstation.app.battle.NetplayController? = null
+) {
+    if (netplayController != null) {
+        // 联机对战：只接受本地 1P 输入；2P 由远端玩家控制
+        if (player == 0) netplayController.setLocalPad(bits)
+        return
+    }
     when (player) {
         0 -> engine.setPad1(bits)
         1 -> engine.setPad2(bits)
@@ -1652,7 +1760,12 @@ private fun GameSurfaceView(
     onMenuToggle: () -> Unit = {},
     modifier: Modifier = Modifier,
     // Normalized 0..1 rect [left, top, right, bottom] used when videoScale == "custom"
-    customRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f)
+    customRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f),
+    /**
+     * 联机对战控制器。非 null 时，物理手柄 / 键盘的 pad 输入会通过它走帧同步，
+     * 而不是直接 engine.setPad1。
+     */
+    netplayController: com.nesstation.app.battle.NetplayController? = null
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -1727,12 +1840,12 @@ private fun GameSurfaceView(
                                 when (event.action) {
                                     KeyEvent.ACTION_DOWN -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
                                         true
                                     }
                                     KeyEvent.ACTION_UP -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
                                         true
                                     }
                                     else -> false
@@ -1762,7 +1875,7 @@ private fun GameSurfaceView(
                         // (prevents stuck buttons when menu closes).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
                         }
                         // Don't consume — let Compose UI navigate
                         false
@@ -1772,11 +1885,11 @@ private fun GameSurfaceView(
                         // menu just closed while button was held).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
                             true
                         } else if (bits != 0 && event.action == KeyEvent.ACTION_DOWN) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0])
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
                             true
                         } else if (event.action == KeyEvent.ACTION_DOWN &&
                                    (keyCode == KeyEvent.KEYCODE_MENU ||
@@ -1792,7 +1905,7 @@ private fun GameSurfaceView(
                 // so the game doesn't think buttons are stuck down.
                 if (uiBlocked && gamepadBitsHolder[0] != 0) {
                     gamepadBitsHolder[0] = 0
-                    routePadBits(engine, currentPlayer, 0)
+                    routePadBits(engine, currentPlayer, 0, netplayController)
                 }
                 // When UI becomes unblocked (menu closed), re-request focus
                 // so the SurfaceView can receive gamepad keys again.

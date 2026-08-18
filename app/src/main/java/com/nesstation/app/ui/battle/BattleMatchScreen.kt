@@ -1,61 +1,41 @@
 package com.nesstation.app.ui.battle
 
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import com.nesstation.app.battle.BattleNetplay
-import com.nesstation.app.battle.BattleRomStore
 import com.nesstation.app.battle.BattleSession
-import com.nesstation.app.battle.NetplayEngine
-import com.nesstation.app.core.storage.PadLayoutStore
-import com.nesstation.app.ui.emulator.OnScreenController
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.nesstation.app.battle.NetplayController
+import com.nesstation.app.core.model.GameEntry
+import com.nesstation.app.ui.emulator.EmulatorScreen
+import java.io.File
 
 private val PrimaryText = Color(0xFF1E2A3A)
 private val SecondaryText = Color(0xFF4A5568)
-private val Accent = Color(0xFF8A7BFF)
-private val Success = Color(0xFF27AE60)
 private val DeleteColor = Color(0xFFE74C3C)
 
 /**
@@ -72,302 +52,166 @@ private fun parseTcpAddr(addr: String): Pair<String, Int> {
 }
 
 /**
- * 对战界面：连接中继 -> 加载 ROM -> 帧同步对战。
- * 和游戏库单击启动一样：进房间直接开游戏，不等待对手。
- * 2P 加入后自动同步 1P 的输入，从 frame 0 追赶。
+ * 对战界面 —— 和本地游戏走完全相同的启动路径。
+ *
+ * ## 改造前（问题）
+ *
+ * 旧的 BattleMatchScreen 自己重新绘制了一份独立的 SurfaceView + OnScreenController
+ * + NetplayEngine + 加载流程，导致：
+ *  - 启动慢：ROM 加载、BIOS 检查、视频滤镜应用、core option 设置、surface attach
+ *    全部走的是独立路径，没有复用本地游戏的代码。
+ *  - 位置不对：独立 GameSurface 用的是单独的 BoxWithConstraints + aspectRatio
+ *    逻辑，没有复用 EmulatorScreen 的 GameSurfaceView（含 custom 布局 / 横竖屏 /
+ *    边距 / 状态栏 / 焦点处理），位置和大小都和本地游戏不一致。
+ *
+ * ## 改造后（修复）
+ *
+ * 这个 Composable 现在是一个**薄壳**：
+ *   1. 下载 ROM（如果 BattleScreen 还没下完 —— 通常已经下好了）。
+ *   2. 连接中继服务器。
+ *   3. 构造一个指向 battle_rom 的 [GameEntry]，调起 [EmulatorScreen] ——
+ *      所有 ROM 加载、surface、按键、菜单、存档、布局编辑器……全部走本地游戏
+ *      的既有逻辑。**唯一区别**是给 [EmulatorScreen] 多传了一个 [NetplayController]，
+ *      它会作为 [com.nesstation.app.core.engine.EmulatorEngine.frameHook] 挂到
+ *      引擎的模拟循环里，做输入采样 / 网络发送 / 远端输入等待。
+ *
+ * 这样 1P / 2P 走的就是「本地游戏的启动逻辑 + 服务器同步输入」，而不是
+ * 「重新绘制一份对战专用 UI」。
+ *
+ * ## 服务器协议（保持不变）
+ *
+ * 客户端连接后立即开始游戏，服务器只转发输入：
+ *   - 不等待 ready/start 信号（避免握手卡顿）。
+ *   - inputDelay 由服务器在 hello 响应里通过 pad 字段下发，本端每帧从
+ *     [com.nesstation.app.battle.BattleNetplay.inputDelay] 同步读取。
+ *   - 双方帧计数从 0 起步，按 60fps 推进；执行帧 = 采样帧 - inputDelay。
+ *
+ * 参见 [NetplayController] 的设计说明。
  */
 @Composable
 fun BattleMatchScreen(
     args: BattleMatchArgs,
-    onExit: () -> Unit,
-    modifier: Modifier = Modifier
+    onExit: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val isPortrait = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
 
-    var frameInfo by remember { mutableStateOf("") }
-    var roleText by remember { mutableStateOf("") }
+    // 联机对战控制器（贯穿整个对战生命周期）
+    val controller = remember(args.roomId) {
+        NetplayController(platform = args.platform)
+    }
+
+    // 启动阶段的状态：未就绪 → 显示 loading；就绪 → 直接调起 EmulatorScreen
+    var romFile by remember { mutableStateOf<File?>(null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var loaded by remember { mutableStateOf(false) }
-    var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
+    var roleText by remember { mutableStateOf(if (args.isHost) "房主 · 等待对手加入" else "挑战者 · 正在进入") }
 
-    val padLayout = remember { PadLayoutStore.load(context) }
-
-    // 引擎 / 网络
-    val engine = remember {
+    // 启动流程：连接中继 + 检查 ROM。两者都就绪后切到 EmulatorScreen。
+    DisposableEffect(args.roomId, args.tcpAddr) {
         val (host, port) = parseTcpAddr(args.tcpAddr)
-        lateinit var e: NetplayEngine
-        e = NetplayEngine(
-            romFile = BattleRomStore.romFile(context, args.gameId, args.fileName.ifBlank { "${args.gameId}.zip" }),
-            systemDir = BattleRomStore.biosDir(context).absolutePath,
-            saveDir = context.filesDir.absolutePath + "/battle_saves/",
-            net = BattleNetplay(
-                host = host,
-                port = port,
-                token = BattleSession.getToken(context) ?: "",
-                roomId = args.roomId,
-                listener = object : BattleNetplay.Listener {
-                    override fun onRemoteInput(frame: Long, pad: Int) {
-                        e.onRemoteInput(frame, pad)
-                    }
+        val token = BattleSession.getToken(context) ?: ""
 
-                    override fun onPeerJoined(username: String) {
-                        scope.launch(Dispatchers.Main) {
-                            roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者"
-                        }
-                    }
+        if (token.isBlank()) {
+            errorMsg = "未登录，请先返回大厅登录"
+            return@DisposableEffect onDispose { }
+        }
 
-                    override fun onPeerLeft(username: String) {
-                        scope.launch(Dispatchers.Main) {
-                            errorMsg = "对手 $username 已离开，对战结束"
-                            e.stop()
-                        }
-                    }
+        // 1. 连接中继 —— 立即开始，不等待对方
+        try {
+            controller.connect(host, port, token, args.roomId)
+        } catch (e: Exception) {
+            errorMsg = "无法连接对战服务器: ${e.message}"
+            return@DisposableEffect onDispose { }
+        }
 
-                    override fun onError(message: String) {
-                        scope.launch(Dispatchers.Main) {
-                            errorMsg = message
-                        }
-                    }
-
-                    override fun onDisconnected() {
-                        scope.launch(Dispatchers.Main) {
-                            if (errorMsg == null) {
-                                errorMsg = "与对战服务器断开连接"
-                            }
-                        }
-                    }
-                }
-            ),
-            platform = args.platform
+        // 2. 检查 ROM 是否已下载（BattleScreen 进入前已经下载完成）
+        val rom = com.nesstation.app.battle.BattleRomStore.romFile(
+            context, args.gameId,
+            args.fileName.ifBlank { "${args.gameId}.zip" }
         )
-        // 视频滤镜和缩放（和游戏库启动一致）
-        e.setVideoFilter(
-            when (padLayout.videoFilter) {
-                "scanline" -> 1
-                "crt" -> 2
-                "dot" -> 3
-                "xbr" -> 5
-                "hq2x" -> 5
-                "hq4x" -> 6
-                "xbr_dot" -> 5
-                "4xbr" -> 6
-                "4xbr_dot" -> 6
-                "hq4x_dot" -> 10
-                else -> 0
-            }
-        )
-        e.setHighQualityScaling(padLayout.highQualityScaling)
-        if (args.platform == com.nesstation.app.core.model.GamePlatform.ARCADE) {
-            e.setCoreOption("fbneo-aspect", padLayout.arcadeAspect)
-            e.setCoreOption("fbneo-rotate-mode", padLayout.arcadeRotate)
-            e.setCoreOption("fbneo-vertical-mode", padLayout.arcadeVerticalMode)
-            e.setCoreOption("fbneo-crop-overscan", padLayout.arcadeCropOverscan)
-            e.setCoreOption("fbneo-cpu-speed", padLayout.arcadeCpuSpeed)
-            e.setCoreOption("fbneo-cpu-frameskip", padLayout.arcadeFrameskip)
-            e.setCoreOption("fbneo-force-60hz", padLayout.arcadeForce60hz)
-            e.setCoreOption("fbneo-samplerate", padLayout.arcadeSampleRate)
-            e.setCoreOption("fbneo-audio-interpolation", padLayout.arcadeAudioInterp)
-            e.setCoreOption("fbneo-lowpass", padLayout.arcadeLowpass)
-            e.setCoreOption("fbneo-neogeo-mode", padLayout.arcadeNeogeomode)
-            e.setCoreOption("fbneo-memcard-mode", padLayout.arcadeMemcard)
+        if (!rom.exists() || rom.length() <= 0) {
+            errorMsg = "ROM 尚未下载，请先返回大厅下载"
+            return@DisposableEffect onDispose { }
         }
-        e
-    }
-
-    engine.setListener(object : NetplayEngine.Listener {
-        override fun onFrame(frame: Long, inputDelay: Int, desyncCount: Int) {
-            scope.launch(Dispatchers.Main) {
-                frameInfo = "帧 #$frame · 延迟 ${inputDelay}f · desync $desyncCount"
-            }
-        }
-
-        override fun onExit() {}
-
-        override fun onNetplayLost() {
-            scope.launch(Dispatchers.Main) {
-                if (errorMsg == null) {
-                    errorMsg = "对端输入中断（网络异常），已降级为单机演示"
-                }
-            }
-        }
-    })
-
-    // 启动流程：连接 -> 加载 ROM -> 立即开始帧同步循环
-    DisposableEffect(Unit) {
-        val job = scope.launch(Dispatchers.IO) {
-            val romFile = BattleRomStore.romFile(context, args.gameId, args.fileName.ifBlank { "${args.gameId}.zip" })
-            if (!romFile.exists() || romFile.length() <= 0) {
-                withContext(Dispatchers.Main) {
-                    errorMsg = "ROM 尚未下载，请先返回大厅下载"
-                }
-                return@launch
-            }
-
-            // 连接中继
-            engine.net.connect()
-
-            // 立即启动帧同步引擎（不等待对方）
-            val ok = engine.start()
-            if (!ok) {
-                withContext(Dispatchers.Main) {
-                    errorMsg = "ROM 加载失败"
-                }
-                return@launch
-            }
-
-            withContext(Dispatchers.Main) {
-                loaded = true
-                roleText = if (args.isHost) "房主" else "挑战者"
-            }
-        }
+        romFile = rom
 
         onDispose {
-            job.cancel()
-            engine.stop()
-            engine.net.close()
+            // 真正的 stop 在 EmulatorScreen 的 onDispose 里完成；这里只兜底
+            // 处理"还没进入 EmulatorScreen 就退出"的情况（loading 阶段）。
+            // controller.stop() 是幂等的。
+            try { controller.stop() } catch (_: Throwable) {}
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color.Black)) {
-        // ---- 顶部信息条 ----
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(8.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-        ) {
-            IconButton(onClick = { showExitConfirm = true }, modifier = Modifier.size(34.dp)) {
-                Icon(
-                    Icons.Rounded.ArrowBack,
-                    contentDescription = "退出对战",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
+    // 监听对战事件（更新 roleText 等 UI 状态）
+    LaunchedEffect(controller) {
+        controller.setUiListener(object : NetplayController.UiListener {
+            override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {
+                // 帧信息会显示在 EmulatorScreen 的状态条里，这里不再覆盖 roleText
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "对战中",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-                if (roleText.isNotBlank() || frameInfo.isNotBlank()) {
-                    Text(
-                        buildString {
-                            if (roleText.isNotBlank()) append(roleText)
-                            if (frameInfo.isNotBlank()) {
-                                if (isNotBlank()) append(" · ")
-                                append(frameInfo)
-                            }
-                        },
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 10.sp,
-                        maxLines = 1
-                    )
-                }
+            override fun onPeerJoined(username: String) {
+                roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者 · 已与 $username 对战"
             }
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Success)
+            override fun onPeerLeft(username: String) {
+                errorMsg = "对手 $username 已离开，对战结束"
+            }
+            override fun onError(message: String) {
+                errorMsg = message
+            }
+            override fun onDisconnected() {
+                if (errorMsg == null) errorMsg = "与对战服务器断开连接"
+            }
+            override fun onNetplayLost(reason: String) {
+                // 不当作致命错误 —— frame hook 会自动降级到单机模式继续跑
+                roleText = reason
+            }
+        })
+    }
+
+    val rom = romFile
+    val err = errorMsg
+
+    when {
+        // 错误态：显示错误 + 退出按钮
+        err != null -> {
+            LoadingScreen(
+                text = err,
+                iconTint = DeleteColor,
+                onExit = { showExitConfirm = true }
             )
         }
 
-        // ---- 游戏画面 ----
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center
-        ) {
-            if (loaded && errorMsg == null) {
-                GameSurface(
-                    engine = engine,
-                    videoScale = padLayout.videoScale,
-                    isPortrait = isPortrait,
-                    onSizeChanged = { surfaceSize = it },
-                    modifier = Modifier.fillMaxSize()
+        // 就绪：直接调起 EmulatorScreen，走和本地游戏完全一致的启动路径
+        rom != null -> {
+            // 用一个稳定的 id 把对战 ROM 和本地 ROM 区分开（防止 .srm 串档）
+            val battleGameId = "battle_${args.gameId}_${args.roomId}".lowercase()
+                .replace(Regex("[^a-z0-9._-]"), "_")
+            val game = remember(rom, args.gameId, args.roomId) {
+                GameEntry(
+                    id = battleGameId,
+                    title = "对战 · ${args.gameId}",
+                    romPath = rom.absolutePath,
+                    platform = args.platform
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.SportsEsports,
-                            contentDescription = null,
-                            tint = DeleteColor,
-                            modifier = Modifier.size(44.dp)
-                        )
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
-                        Text(
-                            errorMsg ?: "正在连接…",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
             }
-
-            // 错误遮罩
-            errorMsg?.let { msg ->
-                if (loaded) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xAA0E1626)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            msg,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(24.dp)
-                        )
-                    }
-                }
-            }
+            EmulatorScreen(
+                game = game,
+                onExit = { onExit() },
+                netplayController = controller
+            )
         }
 
-        // ---- 触屏按键（始终显示，和游戏库启动一致） ----
-        if (loaded && errorMsg == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(12.dp)
-            ) {
-                OnScreenController(
-                    padLayout = padLayout,
-                    surfaceSize = surfaceSize,
-                    onPadBits = { bits -> engine.setLocalPad(bits) },
-                    platform = args.platform,
-                    isPortrait = isPortrait
-                )
-            }
+        // Loading 态：等待连接 + ROM 检查完成
+        else -> {
+            LoadingScreen(
+                text = "正在连接对战服务器…",
+                subtext = roleText,
+                onExit = { showExitConfirm = true }
+            )
         }
     }
 
-    // ---- 退出确认 ----
+    // 退出确认弹窗（在 Loading / Error 态下使用；EmulatorScreen 内部有自己的退出菜单）
     if (showExitConfirm) {
         AlertDialog(
             onDismissRequest = { showExitConfirm = false },
@@ -379,8 +223,7 @@ fun BattleMatchScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showExitConfirm = false
-                    engine.stop()
-                    engine.net.close()
+                    try { controller.stop() } catch (_: Throwable) {}
                     onExit()
                 }) { Text("退出", color = DeleteColor) }
             },
@@ -394,54 +237,64 @@ fun BattleMatchScreen(
 }
 
 /**
- * 游戏画面 SurfaceView，支持用户配置的屏幕比例。
- * 和游戏库启动的 GameSurfaceView 逻辑一致。
+ * Loading / 错误态用的简单全屏占位 —— 和旧版相比极简化，只显示一行文字 + 一个退出按钮。
+ * 一旦 EmulatorScreen 调起，就会被它完全替换。
  */
 @Composable
-private fun GameSurface(
-    engine: NetplayEngine,
-    videoScale: String,
-    isPortrait: Boolean,
-    onSizeChanged: (IntSize) -> Unit,
-    modifier: Modifier = Modifier
+private fun LoadingScreen(
+    text: String,
+    subtext: String = "",
+    iconTint: Color = Color.White,
+    onExit: () -> Unit
 ) {
-    val contentAlignment = when {
-        isPortrait -> Alignment.TopCenter
-        else -> Alignment.Center
-    }
-
-    BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
-        val surfaceModifier = when (videoScale) {
-            "4:3" -> Modifier.aspectRatio(4f / 3f)
-            "3:2" -> Modifier.aspectRatio(3f / 2f)
-            "8:7" -> Modifier.aspectRatio(8f / 7f)
-            "16:9" -> Modifier.aspectRatio(16f / 9f)
-            "custom" -> Modifier.fillMaxSize()
-            else -> Modifier.fillMaxSize()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        ) {
+            Icon(
+                Icons.Rounded.SportsEsports,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Text(
+                text,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            if (subtext.isNotBlank()) {
+                Text(
+                    subtext,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
         }
 
-        AndroidView(
-            factory = { ctx ->
-                SurfaceView(ctx).apply {
-                    holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
-                    holder.addCallback(object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) {
-                            engine.setSurface(holder.surface)
-                            onSizeChanged(IntSize(holder.surfaceFrame.width(), holder.surfaceFrame.height()))
-                        }
-
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            onSizeChanged(IntSize(width, height))
-                        }
-
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                            engine.setSurface(null)
-                        }
-                    })
-                }
-            },
-            update = {},
-            modifier = surfaceModifier
-        )
+        // 退出按钮（左上角）
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xAA0E1626))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            androidx.compose.material3.TextButton(onClick = onExit) {
+                Text("退出", color = Color.White, fontSize = 12.sp)
+            }
+        }
     }
 }

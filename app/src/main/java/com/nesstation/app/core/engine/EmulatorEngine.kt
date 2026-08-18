@@ -14,6 +14,48 @@ data class FrameCapture(
 )
 
 /**
+ * Per-frame lockstep hook for online multiplayer.
+ *
+ * When attached to an [EmulatorEngine] via [EmulatorEngine.frameHook], the
+ * engine's emulation loop calls [beforeFrame] before each `runFrame()` and
+ * [afterFrame] after it. The hook is responsible for:
+ *
+ * 1. Sampling the local player's pad bits (pushed by the UI through
+ *    [NetplayController.setLocalPad]).
+ * 2. Sending the local pad bits to the network for the upcoming frame.
+ * 3. Synchronously waiting for the remote player's pad bits for the
+ *    executing frame (lockstep).
+ * 4. Returning `(pad1, pad2)` so the engine can push them to the core
+ *    immediately before `runFrame()` — guaranteeing both players execute
+ *    the same input sequence on the same frame.
+ *
+ * When the hook returns `null` from [beforeFrame], the engine falls back
+ * to single-player behavior (uses whatever pad state was last set via
+ * `setPad1()` / `setPad2()`).
+ *
+ * Threading: [beforeFrame] / [afterFrame] are called on the emulation
+ * thread. They MUST NOT block the UI thread. Blocking inside [beforeFrame]
+ * (e.g. waiting for the remote input) is expected and is what enables
+ * lockstep synchronization.
+ */
+interface NetplayHook {
+    /**
+     * Called on the emulation thread before each `runFrame()`.
+     *
+     * @param frame The executing frame index, 0-based, monotonically
+     *             increasing while the hook is attached. Reset to 0 when
+     *             the hook is detached / a new ROM loads.
+     * @return `(pad1, pad2)` bit masks to push to the core for this frame,
+     *         or `null` to let the engine use whatever was last set
+     *         (single-player behavior).
+     */
+    fun beforeFrame(frame: Long): Pair<Int, Int>?
+
+    /** Called on the emulation thread after each `runFrame()`. */
+    fun afterFrame(frame: Long) {}
+}
+
+/**
  * Common interface for all emulator engines (NES, SNES, GB/GBC/GBA).
  * EmulatorScreen uses this interface instead of a concrete engine class,
  * allowing any platform's engine to drive the same UI.
@@ -87,6 +129,24 @@ interface EmulatorEngine {
 
     /** Push controller state for player 2 (port 1). Same bit layout as setPad1. */
     fun setPad2(bits: Int)
+
+    /**
+     * Optional lockstep hook for online multiplayer.
+     *
+     * - Set non-null while a network match is active: the engine's
+     *   emulation loop calls [NetplayHook.beforeFrame] before each
+     *   `runFrame()` and [NetplayHook.afterFrame] after it, allowing
+     *   the hook to sample local input, send it over the network, and
+     *   synchronously wait for the remote player's input for the same
+     *   frame (lockstep).
+     * - Set null for single-player (default): the engine's loop just
+     *   calls `runFrame()` repeatedly and reads whatever pad state was
+     *   last pushed via [setPad1] / [setPad2].
+     *
+     * The engine resets its internal frame counter to 0 when the hook
+     * is attached, so the hook always sees frame indices starting from 0.
+     */
+    var frameHook: NetplayHook?
 
     /** Set region hint (0=NTSC, 1=PAL). */
     fun setRegion(region: Int)

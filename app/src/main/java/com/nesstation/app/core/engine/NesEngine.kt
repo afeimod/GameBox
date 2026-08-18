@@ -58,6 +58,19 @@ class NesEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    // === Netplay (lockstep hook) ===
+    // When non-null, the emulation loop calls beforeFrame() / afterFrame()
+    // around each runFrame() so a NetplayController can sample local input,
+    // send it over the network, and synchronously wait for the remote input.
+    @Volatile private var _frameHook: NetplayHook? = null
+    @Volatile private var _netFrame: Long = 0L
+    override var frameHook: NetplayHook?
+        get() = _frameHook
+        set(value) {
+            _frameHook = value
+            _netFrame = 0L  // reset frame counter whenever hook changes
+        }
+
     /** Lock for all lifecycle methods to prevent restart conflicts. */
     private val lifecycleLock = Any()
 
@@ -122,7 +135,29 @@ class NesEngine private constructor() : EmulatorEngine {
                     // may have set it to false while we were sleeping.
                     if (!running.get()) break
 
+                    // === Netplay lockstep ===
+                    // If a frame hook is attached, ask it for (pad1, pad2)
+                    // for THIS frame. The hook samples local input, sends it
+                    // to the network, and synchronously waits for the remote
+                    // player's input for the same frame. The returned pad
+                    // bits override whatever was last set via setPad1/setPad2
+                    // — this is what guarantees both players execute the
+                    // same input sequence on the same frame.
+                    val npHook = _frameHook
+                    if (npHook != null) {
+                        val pads = npHook.beforeFrame(_netFrame)
+                        if (pads != null) {
+                            NesNative.setPad1(pads.first)
+                            NesNative.setPad2(pads.second)
+                        }
+                    }
+
                     NesNative.runFrame()
+
+                    if (npHook != null) {
+                        npHook.afterFrame(_netFrame)
+                        _netFrame++
+                    }
 
                     // Re-check running right after the native call — if
                     // unload() ran during runFrame(), isLoaded is now false
