@@ -1654,6 +1654,7 @@ private fun GameSurfaceView(
     // Normalized 0..1 rect [left, top, right, bottom] used when videoScale == "custom"
     customRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f)
 ) {
+    val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
     // In custom layout mode the user controls position/size directly, so the
     // surface is anchored top-start and moved via offset; otherwise align the
@@ -1715,7 +1716,6 @@ private fun GameSurfaceView(
                     // propagate to the Compose UI so the user can navigate the
                     // menu with the D-pad. Only the Back/Menu key is handled
                     // here to toggle the menu open/closed.
-                    val ctx = LocalContext.current
                     setOnKeyListener { _, keyCode, event ->
                         if (uiBlocked) {
                             // UI is blocking — let Compose handle all keys
@@ -1753,7 +1753,6 @@ private fun GameSurfaceView(
                 val surfaceView = sv as SurfaceView
                 // Re-bind the key listener whenever uiBlocked changes so the
                 // closure captures the latest value.
-                val ctx = LocalContext.current
                 surfaceView.setOnKeyListener { _, keyCode, event ->
                     val bits = resolveKeyBits(keyCode, platform, currentPlayer, ctx)
                     if (uiBlocked) {

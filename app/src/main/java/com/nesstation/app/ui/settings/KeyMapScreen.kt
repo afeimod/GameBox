@@ -304,7 +304,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(0 until maxPlayers) { playerIdx ->
+                    items(maxPlayers) { playerIdx ->
                         PlayerTab(
                             label = "${playerIdx + 1}P",
                             selected = currentPlayer == playerIdx,
