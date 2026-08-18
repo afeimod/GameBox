@@ -13,10 +13,18 @@ import (
 // 房间模型
 // ---------------------------------------------------------------------------
 
+// 房间状态常量
+const (
+	roomWaiting string = "waiting"
+	roomReady   string = "ready"
+	roomPlaying string = "playing"
+)
+
 type Room struct {
 	ID        string
 	GameID    string
 	CreatedAt time.Time
+	Status    string // 房间状态：waiting / ready / playing
 	// 玩家连接（socket 已建立）。key 为 user id。
 	conns map[string]*relayConn
 }
