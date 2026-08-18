@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -1828,7 +1829,7 @@ private fun serializeComboButtons(list: List<ComboButtonEntry>): String {
 // PlayerSwitchButton — floating button to cycle between players
 // ---------------------------------------------------------------------------
 @Composable
-private fun PlayerSwitchButton(
+private fun BoxScope.PlayerSwitchButton(
     currentPlayer: Int,
     maxPlayers: Int,
     onSwitch: () -> Unit
