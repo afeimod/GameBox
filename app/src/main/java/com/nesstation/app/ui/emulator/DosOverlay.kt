@@ -63,19 +63,22 @@ import kotlin.math.min
 // ===========================================================================
 
 // Gamepad bit constants (used for the standard libretro gamepad input - the
-// dosbox_pure core's auto-mapping converts these to DOS keys).
-private const val BTN_UP = 0x10
-private const val BTN_DOWN = 0x20
-private const val BTN_LEFT = 0x40
-private const val BTN_RIGHT = 0x80
-private const val BTN_A = 0x01      // dosbox_pure -> Enter
-private const val BTN_B = 0x02      // dosbox_pure -> Esc
-private const val BTN_X = 0x400     // dosbox_pure -> Space (libretro ID 10)
-private const val BTN_Y = 0x800     // dosbox_pure -> Tab   (libretro ID 11)
-private const val BTN_L = 0x100     // dosbox_pure -> mouse left  (libretro ID 8)
-private const val BTN_R = 0x200     // dosbox_pure -> mouse right (libretro ID 9)
-private const val BTN_START = 0x08
-private const val BTN_SELECT = 0x04
+// dosbox_pure core's auto-mapping converts these to DOS keys). These are
+// prefixed with DOS_ because EmulatorScreen.kt already declares BTN_* in the
+// same package, and the bit layout differs for DOS (X/Y at bits 10/11 and
+// L/R at bits 8/9).
+private const val DOS_BTN_UP = 0x10
+private const val DOS_BTN_DOWN = 0x20
+private const val DOS_BTN_LEFT = 0x40
+private const val DOS_BTN_RIGHT = 0x80
+private const val DOS_BTN_A = 0x01      // dosbox_pure -> Enter
+private const val DOS_BTN_B = 0x02      // dosbox_pure -> Esc
+private const val DOS_BTN_X = 0x400     // dosbox_pure -> Space (libretro ID 10)
+private const val DOS_BTN_Y = 0x800     // dosbox_pure -> Tab   (libretro ID 11)
+private const val DOS_BTN_L = 0x100     // dosbox_pure -> mouse left  (libretro ID 8)
+private const val DOS_BTN_R = 0x200     // dosbox_pure -> mouse right (libretro ID 9)
+private const val DOS_BTN_START = 0x08
+private const val DOS_BTN_SELECT = 0x04
 
 /**
  * The DOS on-screen controller - entry point. Switches between gamepad and
@@ -338,8 +341,8 @@ private fun DosGamepadOverlay(
                 pressed = dpadState,
                 onPressedChange = { dir, pressed ->
                     val bit = when (dir) {
-                        "up" -> BTN_UP; "down" -> BTN_DOWN
-                        "left" -> BTN_LEFT; "right" -> BTN_RIGHT
+                        "up" -> DOS_BTN_UP; "down" -> DOS_BTN_DOWN
+                        "left" -> DOS_BTN_LEFT; "right" -> DOS_BTN_RIGHT
                         else -> 0
                     }
                     dpadState = if (pressed) dpadState or bit else dpadState and bit.inv()
@@ -985,12 +988,12 @@ private fun DrawScope.drawDpad(
         val left: Float; val top: Float; val right: Float; val bottom: Float
         if (isVertical) {
             left = cx - armW/2; right = cx + armW/2
-            if (dir == BTN_UP) { top = cy - armLen; bottom = cy + armW/2 }
-            else               { top = cy - armW/2; bottom = cy + armLen }
+            if (dir == DOS_BTN_UP) { top = cy - armLen; bottom = cy + armW/2 }
+            else                   { top = cy - armW/2; bottom = cy + armLen }
         } else {
             top = cy - armW/2; bottom = cy + armW/2
-            if (dir == BTN_LEFT)  { left = cx - armLen; right = cx + armW/2 }
-            else                  { left = cx - armW/2; right = cx + armLen }
+            if (dir == DOS_BTN_LEFT)  { left = cx - armLen; right = cx + armW/2 }
+            else                      { left = cx - armW/2; right = cx + armLen }
         }
         drawRoundRect(
             color = color,
@@ -1008,16 +1011,16 @@ private fun DrawScope.drawDpad(
         val tipColor = if (isPressed) Color.Black.copy(alpha = 0.7f) else fgColor
         val arrowSize = sizePx * 0.08f
         when (dir) {
-            BTN_UP -> drawArrow(Offset(cx, cy - armLen + arrowSize*1.5f), 0, -1, arrowSize, tipColor)
-            BTN_DOWN -> drawArrow(Offset(cx, cy + armLen - arrowSize*1.5f), 0, 1, arrowSize, tipColor)
-            BTN_LEFT -> drawArrow(Offset(cx - armLen + arrowSize*1.5f, cy), -1, 0, arrowSize, tipColor)
-            BTN_RIGHT -> drawArrow(Offset(cx + armLen - arrowSize*1.5f, cy), 1, 0, arrowSize, tipColor)
+            DOS_BTN_UP -> drawArrow(Offset(cx, cy - armLen + arrowSize*1.5f), 0, -1, arrowSize, tipColor)
+            DOS_BTN_DOWN -> drawArrow(Offset(cx, cy + armLen - arrowSize*1.5f), 0, 1, arrowSize, tipColor)
+            DOS_BTN_LEFT -> drawArrow(Offset(cx - armLen + arrowSize*1.5f, cy), -1, 0, arrowSize, tipColor)
+            DOS_BTN_RIGHT -> drawArrow(Offset(cx + armLen - arrowSize*1.5f, cy), 1, 0, arrowSize, tipColor)
         }
     }
-    arm(false, BTN_LEFT)
-    arm(false, BTN_RIGHT)
-    arm(true, BTN_UP)
-    arm(true, BTN_DOWN)
+    arm(false, DOS_BTN_LEFT)
+    arm(false, DOS_BTN_RIGHT)
+    arm(true, DOS_BTN_UP)
+    arm(true, DOS_BTN_DOWN)
     drawCircle(fgColor.copy(alpha = 0.5f), radius = sizePx * 0.04f, center = Offset(cx, cy))
 }
 
