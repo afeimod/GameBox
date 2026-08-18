@@ -411,12 +411,12 @@ private fun GameSurface(
 
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
         val surfaceModifier = when (videoScale) {
-            "4:3" -> androidx.compose.foundation.layout.Modifier.aspectRatio(4f / 3f)
-            "3:2" -> androidx.compose.foundation.layout.Modifier.aspectRatio(3f / 2f)
-            "8:7" -> androidx.compose.foundation.layout.Modifier.aspectRatio(8f / 7f)
-            "16:9" -> androidx.compose.foundation.layout.Modifier.aspectRatio(16f / 9f)
-            "custom" -> androidx.compose.foundation.layout.Modifier.fillMaxSize()
-            else -> androidx.compose.foundation.layout.Modifier.fillMaxSize()
+            "4:3" -> Modifier.aspectRatio(4f / 3f)
+            "3:2" -> Modifier.aspectRatio(3f / 2f)
+            "8:7" -> Modifier.aspectRatio(8f / 7f)
+            "16:9" -> Modifier.aspectRatio(16f / 9f)
+            "custom" -> Modifier.fillMaxSize()
+            else -> Modifier.fillMaxSize()
         }
 
         AndroidView(
