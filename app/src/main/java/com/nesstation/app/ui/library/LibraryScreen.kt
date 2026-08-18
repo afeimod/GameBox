@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -30,7 +31,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
-import androidx.compose.material3.FlowRow
+
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -707,7 +708,7 @@ fun LibraryScreen(
                 if (isPortrait) {
                     // 竖屏：操作按钮纵向排列，避免挤压
                     Column(
-                        verticalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.Bottom,
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier.fillMaxHeight()
                     ) {
@@ -819,12 +820,11 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (isPortrait) {
-                    FlowRow(
+                    LazyRow(
                         modifier = Modifier.weight(1f),
-                        mainAxisSpacing = 8.dp,
-                        crossAxisSpacing = 8.dp
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(
+                        lazyItems(listOf(
                             GamePlatform.NES, GamePlatform.SFC,
                             GamePlatform.GB, GamePlatform.GBA,
                             GamePlatform.DOS,
@@ -832,7 +832,7 @@ fun LibraryScreen(
                             GamePlatform.MD,
                             GamePlatform.PCE,
                             GamePlatform.JAVA
-                        ).forEach { platform ->
+                        )) { platform ->
                             FilterChip(
                                 text = platform.displayName,
                                 selected = selectedPlatform == platform,
