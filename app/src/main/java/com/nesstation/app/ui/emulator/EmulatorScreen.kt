@@ -164,24 +164,24 @@ private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, 
 // GBA: adds L(bit8) R(bit9) (10 buttons)
 // SNES: adds X(bit8) Y(bit9) L(bit10) R(bit11) (12 buttons)
 // Arcade/MD: extends with L2(bit12) R2(bit13) for 6-button fight sticks
-private const val BTN_UP = 0x10
-private const val BTN_DOWN = 0x20
-private const val BTN_LEFT = 0x40
-private const val BTN_RIGHT = 0x80
-private const val BTN_A = 0x01
-private const val BTN_B = 0x02
-private const val BTN_SELECT = 0x04
-private const val BTN_START = 0x08
-private const val BTN_X = 0x100       // bit8 — SNES X / Arcade button 3
-private const val BTN_Y = 0x200       // bit9 — SNES Y / Arcade button 4
-private const val BTN_L_SNES = 0x400  // bit10 — SNES L / Arcade button 5
-private const val BTN_R_SNES = 0x800  // bit11 — SNES R / Arcade button 6
-private const val BTN_L_GBA = 0x100   // bit8 — GBA L
-private const val BTN_R_GBA = 0x200   // bit9 — GBA R
-private const val BTN_L2 = 0x1000     // bit12 — L2 (Arcade / extra)
-private const val BTN_R2 = 0x2000     // bit13 — R2 (Arcade / extra)
-private const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
-private const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
+internal const val BTN_UP = 0x10
+internal const val BTN_DOWN = 0x20
+internal const val BTN_LEFT = 0x40
+internal const val BTN_RIGHT = 0x80
+internal const val BTN_A = 0x01
+internal const val BTN_B = 0x02
+internal const val BTN_SELECT = 0x04
+internal const val BTN_START = 0x08
+internal const val BTN_X = 0x100       // bit8 — SNES X / Arcade button 3
+internal const val BTN_Y = 0x200       // bit9 — SNES Y / Arcade button 4
+internal const val BTN_L_SNES = 0x400  // bit10 — SNES L / Arcade button 5
+internal const val BTN_R_SNES = 0x800  // bit11 — SNES R / Arcade button 6
+internal const val BTN_L_GBA = 0x100   // bit8 — GBA L
+internal const val BTN_R_GBA = 0x200   // bit9 — GBA R
+internal const val BTN_L2 = 0x1000     // bit12 — L2 (Arcade / extra)
+internal const val BTN_R2 = 0x2000     // bit13 — R2 (Arcade / extra)
+internal const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
+internal const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
 
 // ---------------------------------------------------------------------------
 // Game folder loader (DOS games and PCE-CD / Mega-CD games)
@@ -1864,7 +1864,7 @@ private fun BoxScope.PlayerSwitchButton(
 // OnScreenController — SINGLE pointerInput for true multi-touch
 // ---------------------------------------------------------------------------
 @Composable
-private fun OnScreenController(
+fun OnScreenController(
     padLayout: PadLayout,
     surfaceSize: IntSize,
     onPadBits: (Int) -> Unit,

@@ -91,6 +91,7 @@ class NetplayEngine(
 
     fun setVideoFilter(filter: Int) = FbNeoNative.setVideoFilter(filter)
     fun setHighQualityScaling(enabled: Boolean) = FbNeoNative.setHighQualityScaling(enabled)
+    fun setCoreOption(key: String, value: String) = FbNeoNative.setCoreOption(key, value)
 
     /**
      * 加载 ROM 并启动帧同步循环。

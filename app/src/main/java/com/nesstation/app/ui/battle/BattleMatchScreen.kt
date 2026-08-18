@@ -3,9 +3,6 @@ package com.nesstation.app.ui.battle
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -35,7 +31,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -54,32 +50,19 @@ import com.nesstation.app.battle.BattleNetplay
 import com.nesstation.app.battle.BattleRomStore
 import com.nesstation.app.battle.BattleSession
 import com.nesstation.app.battle.NetplayEngine
+import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.storage.PadLayoutStore
+import com.nesstation.app.ui.emulator.OnScreenController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-// 触屏按键位（与 FbNeoNative 12 键布局一致）
-private const val BIT_A = 0x01        // 轻拳
-private const val BIT_B = 0x02        // 轻脚
-private const val BIT_SELECT = 0x04   // 投币 Coin
-private const val BIT_START = 0x08    // Start
-private const val BIT_UP = 0x10
-private const val BIT_DOWN = 0x20
-private const val BIT_LEFT = 0x40
-private const val BIT_RIGHT = 0x80
-private const val BIT_X = 0x100       // 重拳
-private const val BIT_Y = 0x200       // 重脚
 
 private val PrimaryText = Color(0xFF1E2A3A)
 private val SecondaryText = Color(0xFF4A5568)
 private val Accent = Color(0xFF8A7BFF)
 private val Success = Color(0xFF27AE60)
 private val DeleteColor = Color(0xFFE74C3C)
-private val BtnPunch = Color(0xFFE74C3C)
-private val BtnKick = Color(0xFF3498DB)
-private val BtnGray = Color(0xFF2D3436)
-private val BtnCoin = Color(0xFF6C5CE7)
-private val BtnStart = Color(0xFF00B894)
 
 /**
  * 解析 "host:port" 格式的中继 TCP 地址。使用最后一个冒号分割以兼容 IPv6。
@@ -87,11 +70,11 @@ private val BtnStart = Color(0xFF00B894)
  */
 private fun parseTcpAddr(addr: String): Pair<String, Int> {
     val trimmed = addr.trim()
-    if (trimmed.isEmpty()) return "127.0.0.1" to 9090
+    if (trimmed.isEmpty()) return "127.0.0.1" to 1909
     val idx = trimmed.lastIndexOf(':')
-    if (idx <= 0 || idx == trimmed.length - 1) return trimmed to 9090
+    if (idx <= 0 || idx == trimmed.length - 1) return trimmed to 1909
     val host = trimmed.substring(0, idx)
-    val port = trimmed.substring(idx + 1).toIntOrNull() ?: 9090
+    val port = trimmed.substring(idx + 1).toIntOrNull() ?: 1909
     return host to port
 }
 
@@ -115,6 +98,10 @@ fun BattleMatchScreen(
     var frameInfo by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showExitConfirm by remember { mutableStateOf(false) }
+
+    // 加载用户按键布局和核心设置（复用 PadLayoutStore 中的街机配置）
+    val padLayout = remember { PadLayoutStore.load(context) }
+    var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
 
     // 引擎 / 网络（remember 于组合中，DisposableEffect 释放）
     val engine = remember {
@@ -169,6 +156,36 @@ fun BattleMatchScreen(
                 }
             )
         )
+        // 应用 FBNeo 核心选项（复用用户已有的街机设置）
+        e.setCoreOption("fbneo-aspect", padLayout.arcadeAspect)
+        e.setCoreOption("fbneo-rotate-mode", padLayout.arcadeRotate)
+        e.setCoreOption("fbneo-vertical-mode", padLayout.arcadeVerticalMode)
+        e.setCoreOption("fbneo-crop-overscan", padLayout.arcadeCropOverscan)
+        e.setCoreOption("fbneo-cpu-speed", padLayout.arcadeCpuSpeed)
+        e.setCoreOption("fbneo-cpu-frameskip", padLayout.arcadeFrameskip)
+        e.setCoreOption("fbneo-force-60hz", padLayout.arcadeForce60hz)
+        e.setCoreOption("fbneo-samplerate", padLayout.arcadeSampleRate)
+        e.setCoreOption("fbneo-audio-interpolation", padLayout.arcadeAudioInterp)
+        e.setCoreOption("fbneo-lowpass", padLayout.arcadeLowpass)
+        e.setCoreOption("fbneo-neogeo-mode", padLayout.arcadeNeogeomode)
+        e.setCoreOption("fbneo-memcard-mode", padLayout.arcadeMemcard)
+        // 视频滤镜和缩放
+        e.setVideoFilter(
+            when (padLayout.videoFilter) {
+                "scanline" -> 1
+                "crt" -> 2
+                "dot" -> 3
+                "xbr" -> 5      // native XBR(4) → HQ2X(5) to avoid color bleeding
+                "hq2x" -> 5
+                "hq4x" -> 6
+                "xbr_dot" -> 5  // native XBR+dot(7) → HQ2X(5), dot added by FilterOverlay
+                "4xbr" -> 6     // native 4XBR(8) → HQ4X(6) to avoid color bleeding
+                "4xbr_dot" -> 6 // native 4XBR+dot(9) → HQ4X(6), dot added by FilterOverlay
+                "hq4x_dot" -> 10
+                else -> 0
+            }
+        )
+        e.setHighQualityScaling(padLayout.highQualityScaling)
         e
     }
 
@@ -338,9 +355,12 @@ fun BattleMatchScreen(
                         holder.addCallback(object : SurfaceHolder.Callback {
                             override fun surfaceCreated(holder: SurfaceHolder) {
                                 engine.setSurface(holder.surface)
+                                surfaceSize = IntSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
                             }
 
-                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                                surfaceSize = IntSize(width, height)
+                            }
 
                             override fun surfaceDestroyed(holder: SurfaceHolder) {
                                 engine.setSurface(null)
@@ -418,15 +438,21 @@ fun BattleMatchScreen(
             }
         }
 
-        // ---- 触屏按键 ----
+        // ---- 触屏按键（复用完整的 OnScreenController） ----
         if (phase == "playing") {
-            TouchControls(
-                onPadChange = { bits -> engine.setLocalPad(bits) },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(12.dp)
-            )
+            ) {
+                OnScreenController(
+                    padLayout = padLayout,
+                    surfaceSize = surfaceSize,
+                    onPadBits = { bits -> engine.setLocalPad(bits) },
+                    platform = GamePlatform.ARCADE
+                )
+            }
         }
     }
 
@@ -452,102 +478,6 @@ fun BattleMatchScreen(
                     Text("继续对战", color = SecondaryText)
                 }
             }
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 简易触屏按键（方向 + A/B/C/D + Start/投币）
-// ---------------------------------------------------------------------------
-@Composable
-private fun TouchControls(
-    onPadChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var pressed by remember { mutableIntStateOf(0) }
-
-    fun press(bit: Int) {
-        pressed = pressed or bit
-        onPadChange(pressed)
-    }
-
-    fun release(bit: Int) {
-        pressed = pressed and bit.inv()
-        onPadChange(pressed)
-    }
-
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // 顶部：投币 + Start
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            PressBtn("投币", BIT_SELECT, ::press, ::release, BtnCoin, Modifier.weight(1f).height(34.dp))
-            PressBtn("START", BIT_START, ::press, ::release, BtnStart, Modifier.weight(1f).height(34.dp))
-        }
-
-        // 底部：方向键 + 攻击键
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
-        ) {
-            // 方向键（十字布局）
-            Box(modifier = Modifier.width(132.dp).height(132.dp)) {
-                PressBtn("▲", BIT_UP, ::press, ::release, BtnGray, Modifier.align(Alignment.TopCenter).size(width = 64.dp, height = 44.dp), square = false)
-                PressBtn("◀", BIT_LEFT, ::press, ::release, BtnGray, Modifier.align(Alignment.CenterStart).size(width = 44.dp, height = 44.dp), square = false)
-                PressBtn("▶", BIT_RIGHT, ::press, ::release, BtnGray, Modifier.align(Alignment.CenterEnd).size(width = 44.dp, height = 44.dp), square = false)
-                PressBtn("▼", BIT_DOWN, ::press, ::release, BtnGray, Modifier.align(Alignment.BottomCenter).size(width = 64.dp, height = 44.dp), square = false)
-            }
-
-            // 攻击键（2x2）
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PressBtn("B", BIT_B, ::press, ::release, BtnPunch, Modifier.size(56.dp))
-                    PressBtn("A", BIT_A, ::press, ::release, BtnPunch, Modifier.size(56.dp))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PressBtn("D", BIT_Y, ::press, ::release, BtnKick, Modifier.size(56.dp))
-                    PressBtn("C", BIT_X, ::press, ::release, BtnKick, Modifier.size(56.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PressBtn(
-    label: String,
-    bit: Int,
-    onPress: (Int) -> Unit,
-    onRelease: (Int) -> Unit,
-    color: Color,
-    modifier: Modifier,
-    square: Boolean = true
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(if (square) 26.dp else 10.dp))
-            .background(color.copy(alpha = 0.65f))
-            .pointerInput(bit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val changed = event.changes.firstOrNull() ?: continue
-                        if (changed.pressed) onPress(bit) else onRelease(bit)
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold
         )
     }
 }

@@ -1,6 +1,6 @@
 {
-  "httpAddr": ":8080",
-  "tcpAddr": ":9090",
+  "httpAddr": ":1808",
+  "tcpAddr": ":1909",
   "publicHttpAddr": "afei.ddns.net:1808",
   "publicTcpAddr": "afei.ddns.net:1909",
   "jwtSecret": "446b67edfa4d11d61d88e9ae61f8b1abd316482b3916e2868acb94b482d5c7f3",
