@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -14,21 +13,10 @@ import (
 // 房间模型
 // ---------------------------------------------------------------------------
 
-type roomStatus int
-
-const (
-	roomWaiting roomStatus = iota // 等待玩家加入
-	roomReady                     // 双方已就绪（客户端正在下载/加载 ROM）
-	roomPlaying                   // 对战中
-)
-
 type Room struct {
 	ID        string
 	GameID    string
-	Status    roomStatus
 	CreatedAt time.Time
-	// 已发送 ready 的玩家数。双方都 ready 后才发送 start。
-	readyCount int
 	// 玩家连接（socket 已建立）。key 为 user id。
 	conns map[string]*relayConn
 }
@@ -43,8 +31,7 @@ func (r *Room) playerCount() int { return len(r.conns) }
 // 协议：客户端 -> 服务器 -> 对端。
 //   {"type":"input","frame":123,"pad":0x00FF}
 //   {"type":"hello",...}  握手
-//   {"type":"start",...}  服务器通知开始
-//   {"type":"end",...}    结束
+//   {"type":"bye",...}    结束
 type relayMsg struct {
 	Type  string `json:"type"`
 	Frame int64  `json:"frame,omitempty"`
@@ -161,20 +148,20 @@ func (h *relayHub) handleConn(conn net.Conn) {
 		_ = other.send(relayMsg{Type: "peer_joined", Msg: rc.user.Username})
 	}
 
-	// 向本端发送 hello 回执
+	// 向本端发送 hello 回执（附带输入延迟帧数，客户端据此配置同步参数）
 	role := "host"
 	if playerCount == 2 {
 		role = "guest"
 	}
-	_ = rc.send(relayMsg{
-		Type: "hello",
-		Msg:  role,
-	})
-
-	if playerCount == 2 {
-		// 双方到齐，但暂不发送 start。等待双方都发送 ready 后再发送 start。
-		// 这样双方可以从同一帧（frame 0）同时开始，保证锁步同步。
+	delay := h.cfg.InputDelay
+	if delay <= 0 {
+		delay = 4
 	}
+	_ = rc.send(relayMsg{
+		Type:  "hello",
+		Msg:   role,
+		Pad:   delay, // 复用 Pad 字段传递 inputDelay
+	})
 
 	// 中继循环：读本端输入，转发给对端
 	h.relayLoop(rc, reader)
@@ -204,19 +191,6 @@ func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
 					rc.peer.close()
 					h.drop(rc)
 					return
-				}
-			}
-		case "ready":
-			// 客户端已加载完 ROM。追踪 readyCount，双方都 ready 后发送 start。
-			h.mu.Lock()
-			room := rc.room
-			if room != nil {
-				room.readyCount++
-				if room.readyCount >= 2 {
-					h.mu.Unlock()
-					h.markReady(room)
-				} else {
-					h.mu.Unlock()
 				}
 			}
 		case "ping":
@@ -259,30 +233,6 @@ func (h *relayHub) peerOf(room *Room, userID string) *relayConn {
 		}
 	}
 	return nil
-}
-
-// markReady 双方都 ready，通知开始
-func (h *relayHub) markReady(room *Room) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if room.Status != roomWaiting {
-		return
-	}
-	room.Status = roomReady
-	room.readyCount = 0
-
-	// 给双方发送 start（附带延迟帧数）
-	for _, c := range room.conns {
-		delay := h.cfg.InputDelay
-		if delay <= 0 {
-			delay = 4
-		}
-		_ = c.send(relayMsg{
-			Type: "start",
-			Msg:  fmt.Sprintf("%d", delay),
-		})
-	}
 }
 
 // jwtToken / users 由 newRelayHub 注入

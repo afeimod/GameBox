@@ -14,13 +14,14 @@ import kotlin.concurrent.thread
  *
  * 协议（JSON 行，\n 分隔）：
  *   -> {"type":"hello","token":"...","roomId":"..."}   握手（第一行）
- *   <- {"type":"hello","msg":"host"|"guest"}            角色分配
- *   <- {"type":"start","msg":"4"}                       双方到齐，输入延迟帧数
- *   -> {"type":"ready"}                                 本地 ROM 加载完成
+ *   <- {"type":"hello","msg":"host"|"guest","pad":4}   角色分配 + 输入延迟帧数
  *   -> {"type":"input","frame":N,"pad":0x...}           本端输入
  *   <- {"type":"input","frame":N,"pad":0x...}           对方输入
- *   <- {"type":"peer_joined"/"peer_ready"/"peer_left", "msg":...}
+ *   <- {"type":"peer_joined"/"peer_left", "msg":...}
  *   <- {"type":"error","msg":"..."}
+ *
+ * 无 ready/start 同步：客户端连接后立即开始游戏，服务器直接转发输入。
+ * inputDelay 由服务器在 hello 响应中通过 pad 字段传递。
  */
 class BattleNetplay(
     private val host: String,
@@ -31,8 +32,6 @@ class BattleNetplay(
 ) {
 
     interface Listener {
-        /** 角色分配（host/guest）与输入延迟帧数 */
-        fun onStart(role: String, inputDelay: Int)
         /** 收到对方的一帧输入 */
         fun onRemoteInput(frame: Long, pad: Int)
         /** 对方加入 */
@@ -53,11 +52,9 @@ class BattleNetplay(
 
     @Volatile var role: String = "host"
         private set
-    @Volatile var inputDelay: Int = 4
-        private set
 
-    /** 服务器已发送 start（双方到齐，可开始加载 ROM）。 */
-    @Volatile var started: Boolean = false
+    /** 输入延迟帧数（由服务器在 hello 响应中通过 pad 字段传递）。 */
+    @Volatile var inputDelay: Int = 4
         private set
 
     val isConnected: Boolean get() = running
@@ -118,11 +115,8 @@ class BattleNetplay(
         when (msg.optString("type")) {
             "hello" -> {
                 role = msg.optString("msg", "host")
-            }
-            "start" -> {
-                inputDelay = msg.optString("msg", "4").toIntOrNull() ?: 4
-                started = true
-                listener.onStart(role, inputDelay)
+                // 服务器通过 pad 字段传递 inputDelay
+                inputDelay = msg.optInt("pad", 4).coerceIn(0, 8)
             }
             "input" -> {
                 listener.onRemoteInput(msg.optLong("frame", 0), msg.optInt("pad", 0))
@@ -141,10 +135,6 @@ class BattleNetplay(
             .put("pad", pad)
             .toString()
         sendLine(line)
-    }
-
-    fun sendReady() {
-        sendLine(JSONObject().put("type", "ready").toString())
     }
 
     fun sendPing() {

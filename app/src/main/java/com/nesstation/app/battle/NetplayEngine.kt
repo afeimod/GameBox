@@ -96,8 +96,8 @@ class NetplayEngine(
 
     /**
      * 加载 ROM 并启动帧同步循环。
-     * 需在 [BattleNetplay.onStart] 之后调用（此时已知道 inputDelay）。
-     * 本方法不阻塞 UI 线程：ROM 加载、ready 同步都在 emu 线程内完成。
+     * 连接成功后立即开始，无需等待服务器 start 信号。
+     * 本方法不阻塞 UI 线程：ROM 加载在 emu 线程内完成。
      */
     fun start(listener: Listener? = null): Boolean = synchronized(engineLock) {
         this.listener = listener
@@ -124,28 +124,11 @@ class NetplayEngine(
             }
             isLoaded = true
 
-            // 2. 通知服务器本地已就绪
-            net.sendReady()
-
-            // 3. 等待服务器下发 start（双方都 ready 后才会发送）。
-            // 这确保双方从 frame 0 同时开始，保证锁步同步。
-            var attempts = 0
-            while (attempts < 300) { // 最多等 15s
-                if (net.started) break
-                if (!running.get()) return@thread
-                Thread.sleep(50)
-                attempts++
-            }
-            if (!running.get()) return@thread
-            if (!net.started) {
-                android.util.Log.w("NetplayEngine", "等待 start 信号超时，仍以当前状态开始")
-            }
-
-            // 4. 启动音频
+            // 2. 启动音频
             val rate = CoreDispatcher.audioTargetSampleRate(platform).takeIf { it > 0 } ?: 48000
             startAudio(rate)
 
-            // 5. 帧同步循环
+            // 3. 帧同步循环（立即开始，不等待对方）
             var frame = 0L
             val startNs = System.nanoTime()
             var desync = 0
