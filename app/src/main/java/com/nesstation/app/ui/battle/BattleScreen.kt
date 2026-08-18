@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -125,6 +127,11 @@ fun BattleScreen(
     // 当前选中的游戏（null = 游戏库宫格；非 null = 该游戏的街机厅桌面）
     var selectedGame by remember { mutableStateOf<BattleApi.Game?>(null) }
 
+    // === 平台筛选（和本地游戏库一致） ===
+    // 服务端的 games 列表可能包含多个平台（arcade / nes / snes / gba / md / pce ...），
+    // 用户点 chip 切换平台，只看该平台的游戏。"全部" 显示所有平台。
+    var selectedPlatform by remember { mutableStateOf<com.nesstation.app.core.model.GamePlatform?>(null) }
+
     // 加载游戏与房间（未登录也可浏览，进游戏时才需登录）
     fun refreshAll() {
         loading = true
@@ -221,6 +228,8 @@ fun BattleScreen(
                     loading = loading,
                     downloading = downloading,
                     iconVersion = iconVersion,
+                    selectedPlatform = selectedPlatform,
+                    onPlatformChange = { selectedPlatform = it },
                     onDownloadAndEnter = { game ->
                         // 点击游戏卡片直接进入街机厅房间列表，ROM 在点击房间进入对战时才下载
                         selectedGame = game
@@ -347,20 +356,68 @@ private fun GameLibraryGrid(
     loading: Boolean,
     downloading: DownloadTask?,
     iconVersion: Int,
+    selectedPlatform: com.nesstation.app.core.model.GamePlatform?,
+    onPlatformChange: (com.nesstation.app.core.model.GamePlatform?) -> Unit,
     onDownloadAndEnter: (BattleApi.Game) -> Unit
 ) {
     val context = LocalContext.current
 
+    // 计算服务端实际返回了哪些平台（动态生成 chip 列表，避免显示空 chip）
+    val availablePlatforms = remember(games) {
+        val set = linkedSetOf<com.nesstation.app.core.model.GamePlatform>()
+        games.forEach { g ->
+            set.add(com.nesstation.app.core.model.GamePlatform.fromString(g.platform))
+        }
+        set.toList()
+    }
+
+    // 应用平台筛选
+    val visibleGames = remember(games, selectedPlatform) {
+        if (selectedPlatform == null) games
+        else games.filter {
+            com.nesstation.app.core.model.GamePlatform.fromString(it.platform) == selectedPlatform
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
+        // === 平台筛选 chip 行（和本地游戏库一致） ===
+        // "全部" + 各平台 chip。"全部" = null，其他 = 对应的 GamePlatform。
+        if (availablePlatforms.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    BattleFilterChip(
+                        text = "全部 ${games.size}",
+                        selected = selectedPlatform == null,
+                        onClick = { onPlatformChange(null) }
+                    )
+                }
+                lazyItems(availablePlatforms) { platform ->
+                    val count = games.count {
+                        com.nesstation.app.core.model.GamePlatform.fromString(it.platform) == platform
+                    }
+                    BattleFilterChip(
+                        text = "${platform.displayName} $count",
+                        selected = selectedPlatform == platform,
+                        onClick = { onPlatformChange(platform) }
+                    )
+                }
+            }
+        }
+
         Text(
-            "街机游戏库",
+            if (selectedPlatform == null) "全部游戏" else "${selectedPlatform.displayName} 游戏",
             color = PrimaryText,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 22.dp, top = 6.dp, bottom = 2.dp)
         )
 
-        if (games.isEmpty() && !loading) {
+        if (visibleGames.isEmpty() && !loading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -370,10 +427,17 @@ private fun GameLibraryGrid(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = SecondaryTextLight, modifier = Modifier.size(40.dp))
                     Spacer(Modifier.height(10.dp))
-                    Text("服务器未返回游戏", color = PrimaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (games.isEmpty()) "服务器未返回游戏"
+                        else "该平台暂无游戏",
+                        color = PrimaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "请确认服务器 config.json 已配置 games 列表（如拳皇97 kof97）。",
+                        if (games.isEmpty())
+                            "请确认服务器 config.json 已配置 games 列表（如拳皇97 kof97）。"
+                        else
+                            "试试切换到其它平台 chip。",
                         color = SecondaryText,
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center
@@ -388,7 +452,7 @@ private fun GameLibraryGrid(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(games, key = { it.id }) { game ->
+                items(visibleGames, key = { it.id }) { game ->
                     BattleGameCard(
                         game = game,
                         downloaded = BattleRomStore.hasRom(context, game.id, game.fileName),
@@ -399,6 +463,32 @@ private fun GameLibraryGrid(
                 }
             }
         }
+    }
+}
+
+/** 平台筛选 chip —— 极简版（比本地库的 FilterChip 还简单，无图标） */
+@Composable
+private fun BattleFilterChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit = {}
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (selected) Accent
+                else Color.White.copy(alpha = 0.5f)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text,
+            color = if (selected) Color.White else PrimaryText,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
 

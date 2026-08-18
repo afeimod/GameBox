@@ -78,8 +78,6 @@ import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
 import java.io.File
-import java.util.zip.ZipFile
-import java.util.zip.ZipInputStream
 
 /// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA, DOSBox,
 /// Arcade, SEGA MD/SMS/GG/SG, Mega-CD).
@@ -1345,217 +1343,36 @@ private fun scanForRoms(context: android.content.Context): List<Pair<String, Str
 }
 
 /**
- * Extensions that are unambiguously FBNeo arcade ROM content, found inside
- * .zip archives. NeoGeo uses .p1/.p2/.sp1 (program), .s1 (fix layer),
- * .m1 (Z80 program), .v1/.v2 (ADPCM audio), .c1..c4 (sprites), .lo (lookup).
- * CPS1/CPS2 use .prg/.gfx/.snd etc. These extensions never appear in MD/SMS
- * ROM dumps, so their presence is a strong signal the zip is an arcade ROM.
- */
-private val ARCADE_ROM_EXTENSIONS = setOf(
-    // NeoGeo
-    "p1", "p2", "sp1", "sp2", "p3", "p4", "s1", "s2", "m1", "m2",
-    "v1", "v2", "v3", "v4", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8",
-    "lo", "sm1", "sfix",
-    // CPS1 / CPS2 / CPS3
-    "prg", "gfx", "snd", "qsf", "q1", "q2", "q3", "q4", "q5",
-    // PGM
-    "b1", "b2", "t1", "t2", "u1", "u2", "v10", "v20", "v30", "v40",
-    // Generic arcade dumps
-    "rom", "bin"   // .bin inside a zip is most likely arcade (CPS/MD carts are usually bare .md/.bin)
-)
-
-/**
  * Detect the game platform from a file URI.
- * For ZIP/7z/gz archives, looks inside to find the actual ROM extension.
  *
- * Disambiguation priority for zips:
- *   1. If any entry has a known ARCADE extension (.p1, .s1, .c1, .rom, etc.)
- *      → ARCADE (arcade zips often contain .bin files that would otherwise
- *      match MD detection).
- *   2. If any entry has a known MD extension (.md, .smd, .gen, .sms, .gg,
- *      .sg, .68k) → MD.
- *   3. If any entry has another platform's extension → that platform.
- *   4. Otherwise → ARCADE (default for unrecognized zips, since arcade
- *      ROMs use arbitrary driver-name extensions).
- *
- * @param hintPlatform When the user has explicitly chosen a platform tab
- *   (e.g. MD), pass it here so ambiguous CD-image extensions (.cue/.img/.iso/.ccd/.sub)
- *   are resolved in favor of the user's choice. Without a hint, these extensions
- *   default to DOS (DOSBox-Pure), which would misclassify SEGA-CD/Mega-CD games
- *   stored as .cue/.img/.ccd as DOS games.
+ * 实际逻辑已迁移到 [com.nesstation.app.core.storage.PlatformDetector.detectFromUri]，
+ * 这里保留薄壳避免影响 LibraryScreen 的其他调用点。对战平台
+ * （BattleMatchScreen）直接用 PlatformDetector，确保和本地游戏库走的是
+ * 同一套平台分类逻辑。
  */
 private fun detectPlatformFromUri(
     context: android.content.Context,
     uri: Uri,
     fileName: String,
     hintPlatform: GamePlatform? = null
-): GamePlatform {
-    val ext = fileName.substringAfterLast('.', "").lowercase()
-
-    // === CD-image extension ambiguity ===
-    // .cue/.img/.iso/.ccd/.sub are used by DOSBox-Pure (DOS CD games),
-    // Genesis-Plus-GX (SEGA-CD / Mega-CD) AND Geargrafx (PCE-CD).
-    // We disambiguate using the user's selected platform tab. If no hint,
-    // default to MD (more common for retro console users than DOS).
-    if (ext in CD_IMAGE_EXTENSIONS) {
-        return when (hintPlatform) {
-            GamePlatform.DOS -> GamePlatform.DOS
-            GamePlatform.PCE -> GamePlatform.PCE
-            else -> GamePlatform.MD
-        }
-    }
-
-    // Direct ROM extension — use it immediately
-    GamePlatform.fromExtension(ext)?.let { return it }
-
-    // For compressed archives, inspect contents to determine platform
-    if (ext == "zip") {
-        // Collect all entry extensions for two-pass detection
-        val entryExts = mutableListOf<String>()
-        try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                ZipInputStream(stream).use { zis ->
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        if (!entry.isDirectory) {
-                            val entryExt = entry.name.substringAfterLast('.', "").lowercase()
-                            if (entryExt.isNotEmpty()) entryExts.add(entryExt)
-                        }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
-                    }
-                }
-            }
-        } catch (_: Exception) { }
-
-        // Pass 1: arcade-specific extensions (highest priority for zips)
-        if (entryExts.any { it in ARCADE_ROM_EXTENSIONS }) return GamePlatform.ARCADE
-
-        // Pass 2: any other recognized platform extension (NES/SFC/GB/GBA/MD/DOS)
-        for (entryExt in entryExts) {
-            GamePlatform.fromExtension(entryExt)?.let { return it }
-        }
-
-        // Pass 3: if the zip contains CD-image extensions (.cue/.img) and the
-        // user picked the MD or PCE tab, treat as that platform (Mega-CD /
-        // PCE-CD). Otherwise arcade.
-        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.MD) {
-            return GamePlatform.MD
-        }
-        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.PCE) {
-            return GamePlatform.PCE
-        }
-
-        // Pass 4: no recognized extension → default to arcade
-        return GamePlatform.ARCADE
-    }
-
-    // .7z is always arcade (FBNeo).
-    if (ext == "7z") return GamePlatform.ARCADE
-
-    // .gz — decompress and inspect (rare; treated as arcade default)
-    if (ext == "gz") return GamePlatform.ARCADE
-
-    // Bare .bin file (not in a zip) — most commonly a SEGA Mega Drive
-    // cart dump. The user can manually re-tag via the platform filter if
-    // it's actually a DOS image or arcade ROM.
-    if (ext == "bin") return GamePlatform.MD
-
-    return GamePlatform.NES // fallback
-}
-
-/**
- * CD-image extensions shared by DOSBox (DOS CD games) and Genesis-Plus-GX
- * (SEGA-CD / Mega-CD). Disambiguation requires either the user's platform
- * tab or folder context (e.g. presence of a .bat/.exe suggests DOS).
- */
-private val CD_IMAGE_EXTENSIONS = setOf(
-    "cue", "img", "iso", "ccd", "sub", "bin", "chd"
-)
+): GamePlatform =
+    com.nesstation.app.core.storage.PlatformDetector.detectFromUri(
+        context, uri, fileName, hintPlatform
+    )
 
 /**
  * Detect the game platform from a local File.
- * For ZIP archives, looks inside to find the actual ROM extension.
  *
- * @param hintPlatform When the user has chosen a platform tab, CD-image
- *   extensions (.cue/.img/.iso/.ccd/.sub) are resolved to that platform.
+ * 实际逻辑已迁移到 [com.nesstation.app.core.storage.PlatformDetector.detectFromFile]。
  */
 private fun detectPlatformFromFile(
     file: File,
     hintPlatform: GamePlatform? = null,
     pathHint: String? = null
-): GamePlatform {
-    val ext = file.extension.lowercase()
-
-    // CD-image extensions: ambiguous between DOS (DOSBox), MD (Mega-CD),
-    // and PCE (PCE-CD). Resolve priority:
-    //   1. Path/folder name that mentions a platform (e.g. "pce", "PCECD")
-    //      — this is the most reliable signal when scanning whole storage.
-    //   2. The user's selected platform tab as a hint.
-    //   3. Default to MD.
-    if (ext in CD_IMAGE_EXTENSIONS) {
-        val path = pathHint ?: file.parent
-        if (path != null) {
-            val lowerPath = path.lowercase()
-            val pceHints = listOf("pce", "pcengine", "pc-engine", "turbografx", "tg16", "pc_engine")
-            if (pceHints.any { lowerPath.contains(it) }) return GamePlatform.PCE
-            val dosHints = listOf("dos", "dosbox", "pcgame", "pc_game")
-            if (dosHints.any { lowerPath.contains(it) }) return GamePlatform.DOS
-            val mdHints = listOf("mega", "sega", "genesis", "megacd", "mega-cd", "md")
-            if (mdHints.any { lowerPath.contains(it) }) return GamePlatform.MD
-        }
-        return when (hintPlatform) {
-            GamePlatform.DOS -> GamePlatform.DOS
-            GamePlatform.PCE -> GamePlatform.PCE
-            else -> GamePlatform.MD
-        }
-    }
-
-    GamePlatform.fromExtension(ext)?.let { return it }
-
-    if (ext == "zip") {
-        val entryExts = mutableListOf<String>()
-        try {
-            ZipFile(file).use { zip ->
-                val entries = zip.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    if (!entry.isDirectory) {
-                        val entryExt = entry.name.substringAfterLast('.', "").lowercase()
-                        if (entryExt.isNotEmpty()) entryExts.add(entryExt)
-                    }
-                }
-            }
-        } catch (_: Exception) { }
-
-        // Pass 1: arcade-specific extensions (highest priority for zips)
-        if (entryExts.any { it in ARCADE_ROM_EXTENSIONS }) return GamePlatform.ARCADE
-
-        // Pass 2: any other recognized platform extension
-        for (entryExt in entryExts) {
-            GamePlatform.fromExtension(entryExt)?.let { return it }
-        }
-
-        // Pass 3: if zip contains CD-image extensions and user picked MD or PCE
-        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.MD) {
-            return GamePlatform.MD
-        }
-        if (entryExts.any { it in CD_IMAGE_EXTENSIONS } && hintPlatform == GamePlatform.PCE) {
-            return GamePlatform.PCE
-        }
-
-        return GamePlatform.ARCADE
-    }
-
-    // .7z is always arcade (FBNeo).
-    if (ext == "7z") return GamePlatform.ARCADE
-
-    // Bare .bin file (not in a zip) — most commonly a SEGA Mega Drive
-    // cart dump.
-    if (ext == "bin") return GamePlatform.MD
-
-    return GamePlatform.NES
-}
+): GamePlatform =
+    com.nesstation.app.core.storage.PlatformDetector.detectFromFile(
+        file, hintPlatform, pathHint
+    )
 
 @Composable
 private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit = {}) {

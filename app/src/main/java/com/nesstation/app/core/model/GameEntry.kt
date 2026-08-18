@@ -30,9 +30,58 @@ enum class GamePlatform(val displayName: String) {
     JAVA("Java");
 
     companion object {
-        fun fromString(value: String?): GamePlatform = when (value) {
-            "GBC" -> GB  // Migration: GBC merged into GB
-            else -> entries.firstOrNull { it.name == value } ?: NES
+        /**
+         * 从字符串解析平台标识。
+         *
+         * 大小写不敏感，并支持常见别名（避免服务端用小写 "arcade" 或核心名 "fbneo"
+         * 时 fallback 到 NES，导致对战平台默认用 fceumm 启动街机 ROM 的 bug）。
+         *
+         * 别名表（节选）：
+         *   NES    ← nes / fc / famicom / fceumm / fceux / nestopia
+         *   SFC    ← sfc / snes / supernintendo / snes9x
+         *   GB     ← gb / gbc / gameboy / gameboycolor
+         *   GBA    ← gba / gameboyadvance
+         *   DOS    ← dos / dosbox / dosboxpure
+         *   ARCADE ← arcade / fbneo / fbneocore / mame / cps1 / cps2 / cps3 / neogeo / pgm
+         *   MD     ← md / genesis / megadrive / segagenesis / megacd / segacd / genplus
+         *   PCE    ← pce / pcengine / turbografx / tg16 / geargrafx / supergrafx
+         *   JAVA   ← java / j2me / midlet
+         *
+         * 旧版（大小写敏感 + `entries.firstOrNull { it.name == value } ?: NES`）
+         * 在服务端返回 "arcade" 时会 fallback 到 NES，触发对战平台默认走 fceumm。
+         */
+        fun fromString(value: String?): GamePlatform {
+            if (value.isNullOrBlank()) return NES
+            // 归一化：小写 + 去掉 - _ / .
+            val v = value.trim().lowercase()
+                .replace("-", "").replace("_", "").replace("/", "").replace(".", "")
+            return when (v) {
+                // GBC 历史迁移：合并到 GB
+                "gbc", "gameboycolor" -> GB
+                // NES / Famicom
+                "nes", "fc", "famicom", "fceumm", "fceux", "nestopia" -> NES
+                // SNES / Super Famicom
+                "sfc", "snes", "supernintendo", "snes9x" -> SFC
+                // GB
+                "gb", "gameboy" -> GB
+                // GBA
+                "gba", "gameboyadvance" -> GBA
+                // DOSBox-Pure
+                "dos", "dosbox", "dosboxpure" -> DOS
+                // FBNeo / Arcade
+                "arcade", "fbneo", "fbneocore", "mame", "cps1", "cps2", "cps3",
+                "neogeo", "pgm", "finalburn" -> ARCADE
+                // Genesis / Mega Drive
+                "md", "genesis", "megadrive", "segagenesis", "megacd", "segacd",
+                "genplus", "genplusgx", "genesisplusgx" -> MD
+                // PC-Engine / TurboGrafx-16
+                "pce", "pcengine", "turbografx", "tg16", "tg16cd", "geargrafx",
+                "supergrafx" -> PCE
+                // J2ME
+                "java", "j2me", "midlet" -> JAVA
+                // 兜底：未识别的字符串保持 NES 行为不变（旧 API 兼容）
+                else -> entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: NES
+            }
         }
 
         /**

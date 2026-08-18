@@ -95,16 +95,25 @@ fun BattleMatchScreen(
 ) {
     val context = LocalContext.current
 
-    // 联机对战控制器（贯穿整个对战生命周期）
-    val controller = remember(args.roomId) {
-        NetplayController(platform = args.platform)
-    }
-
     // 启动阶段的状态：未就绪 → 显示 loading；就绪 → 直接调起 EmulatorScreen
     var romFile by remember { mutableStateOf<File?>(null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var roleText by remember { mutableStateOf(if (args.isHost) "房主 · 等待对手加入" else "挑战者 · 正在进入") }
+
+    // 解析后的真实平台（服务端 args.platform + ROM 文件兜底检测）。
+    // 初始用 args.platform（EmulatorEngine.forPlatform 之前就要拿到），等 ROM
+    // 文件下载好后再用 PlatformDetector 校准 —— 但要保证 controller 创建时就用对。
+    var resolvedPlatform by remember(args.roomId) {
+        mutableStateOf(com.nesstation.app.core.model.GamePlatform.fromString(args.platform.name))
+    }
+
+    // 联机对战控制器（贯穿整个对战生命周期）。platform 会在 ROM 下载完成后通过
+    // PlatformDetector 重新校准，但因为 controller 只用 platform 做日志/分类，
+    // 即使一开始不精确也无妨；真正选引擎的是 EmulatorScreen 里的 game.platform。
+    val controller = remember(args.roomId) {
+        NetplayController(platform = resolvedPlatform)
+    }
 
     // 启动流程：连接中继 + 检查 ROM。两者都就绪后切到 EmulatorScreen。
     DisposableEffect(args.roomId, args.tcpAddr) {
@@ -132,6 +141,18 @@ fun BattleMatchScreen(
         if (!rom.exists() || rom.length() <= 0) {
             errorMsg = "ROM 尚未下载，请先返回大厅下载"
             return@DisposableEffect onDispose { }
+        }
+
+        // 3. 根据服务端 args.platform + ROM 文件名/zip 内容兜底，确定真实平台。
+        //    和本地游戏库走的是同一套 PlatformDetector，避免服务端配置错误
+        //    （比如写 "arcade" 但 fromString 大小写不敏感）或者完全没配 platform
+        //    时选错核心（比如街机 ROM 默认用 fceumm 启动）。
+        val detected = com.nesstation.app.core.storage.PlatformDetector.resolve(
+            declared = args.platform.name,
+            romFile = rom
+        )
+        if (detected != resolvedPlatform) {
+            resolvedPlatform = detected
         }
         romFile = rom
 
@@ -186,12 +207,17 @@ fun BattleMatchScreen(
             // 用一个稳定的 id 把对战 ROM 和本地 ROM 区分开（防止 .srm 串档）
             val battleGameId = "battle_${args.gameId}_${args.roomId}".lowercase()
                 .replace(Regex("[^a-z0-9._-]"), "_")
-            val game = remember(rom, args.gameId, args.roomId) {
+            // 用 PlatformDetector 校准后的真实平台 —— 决定 EmulatorEngine.forPlatform
+            // 返回的是 NesEngine / FbNeoEngine / SnesEngine / ... 还是别的引擎。
+            // 不再信服务端的 platform 字符串单独决定（之前会 fallback 到 NES，导致
+            // 街机 ROM 默认用 fceumm 启动）。
+            val platform = resolvedPlatform
+            val game = remember(rom, args.gameId, args.roomId, platform) {
                 GameEntry(
                     id = battleGameId,
                     title = "对战 · ${args.gameId}",
                     romPath = rom.absolutePath,
-                    platform = args.platform
+                    platform = platform
                 )
             }
             EmulatorScreen(
