@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -706,56 +706,58 @@ fun LibraryScreen(
                     )
                 }
                 if (isPortrait) {
-                    // 竖屏：操作按钮纵向排列，避免挤压
+                    // 竖屏：紧凑排列，不占用过多垂直空间
                     Column(
-                        verticalArrangement = Arrangement.Bottom,
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.fillMaxHeight()
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.End
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HomePill(onClick = onHome)
                             Spacer(Modifier.size(6.dp))
                             SearchPill(onClick = { showSearch = true })
                         }
-                        Spacer(Modifier.size(6.dp))
-                        if (selectedPlatform != GamePlatform.JAVA) {
-                            ImportButton(
-                                onClick = { importFolder() },
-                                icon = Icons.Rounded.Folder,
-                                text = "导入文件夹",
-                                color = Color(0xFF4F8AC4)
-                            )
-                            Spacer(Modifier.size(4.dp))
-                            ImportButton(
-                                onClick = { importFiles() },
-                                icon = Icons.Rounded.Add,
-                                text = "导入ROM",
-                                color = Color(0xFFE74C3C)
-                            )
-                            Spacer(Modifier.size(4.dp))
-                            ImportButton(
-                                onClick = { showFileBrowser = true },
-                                icon = Icons.Rounded.Storage,
-                                text = "本地浏览",
-                                color = Color(0xFF2E7D32)
-                            )
-                        } else {
-                            ImportButton(
-                                onClick = {
-                                    try {
-                                        jarPickerLauncher.launch(
-                                            arrayOf("application/java-archive", "application/java", "*/*")
-                                        )
-                                    } catch (_: android.content.ActivityNotFoundException) {
-                                        dialogMsg = "系统文件选择器不可用"
-                                    } catch (e: Exception) {
-                                        dialogMsg = "无法打开文件选择器：${e.message}"
-                                    }
-                                },
-                                icon = Icons.Rounded.Add,
-                                text = "安装 JAR",
-                                color = Color(0xFF6A1B9A)
-                            )
+                        Spacer(Modifier.size(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (selectedPlatform != GamePlatform.JAVA) {
+                                ImportButton(
+                                    onClick = { importFolder() },
+                                    icon = Icons.Rounded.Folder,
+                                    text = "文件夹",
+                                    color = Color(0xFF4F8AC4)
+                                )
+                                ImportButton(
+                                    onClick = { importFiles() },
+                                    icon = Icons.Rounded.Add,
+                                    text = "导入ROM",
+                                    color = Color(0xFFE74C3C)
+                                )
+                                ImportButton(
+                                    onClick = { showFileBrowser = true },
+                                    icon = Icons.Rounded.Storage,
+                                    text = "浏览",
+                                    color = Color(0xFF2E7D32)
+                                )
+                            } else {
+                                ImportButton(
+                                    onClick = {
+                                        try {
+                                            jarPickerLauncher.launch(
+                                                arrayOf("application/java-archive", "application/java", "*/*")
+                                            )
+                                        } catch (_: android.content.ActivityNotFoundException) {
+                                            dialogMsg = "系统文件选择器不可用"
+                                        } catch (e: Exception) {
+                                            dialogMsg = "无法打开文件选择器：${e.message}"
+                                        }
+                                    },
+                                    icon = Icons.Rounded.Add,
+                                    text = "安装 JAR",
+                                    color = Color(0xFF6A1B9A)
+                                )
+                            }
                         }
                     }
                 } else {
@@ -939,7 +941,7 @@ fun LibraryScreen(
                 contentPadding = PaddingValues(20.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 items(displayGames) { g ->
                     // Resolve icon path: custom icon > built-in icon (Java/arcade)
