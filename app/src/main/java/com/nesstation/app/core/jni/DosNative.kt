@@ -92,6 +92,9 @@ object DosNative {
     /** Standard libretro gamepad (port 0). See class doc for bit layout. */
     @JvmStatic external fun setPad1(bits: Int)
 
+    /** Second controller (port 1). DOS is single-player — this is a no-op. */
+    @JvmStatic external fun setPad2(bits: Int)
+
     /**
      * Inject a keyboard key-down event.
      * @param keyCode libretro RETROK_* constant (see [DosKeys])

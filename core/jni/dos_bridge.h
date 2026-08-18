@@ -41,6 +41,9 @@ public:
     // The actual mapping to DOS keys is handled by dosbox_pure's auto-mapping.
     void setPad1(int bits);
 
+    // DOS is single-player only — setPad2 is a no-op.
+    void setPad2(int bits) {}
+
     // Full keyboard input (port 0, RETRO_DEVICE_KEYBOARD).
     // `keyCode` is a libretro RETROK_* value (see libretro.h).
     // `modifiers` is a bitmask of RETROKMOD_* (SHIFT/CTRL/ALT/META/NUMLOCK/CAPSLOCK/SCROLLOCK).

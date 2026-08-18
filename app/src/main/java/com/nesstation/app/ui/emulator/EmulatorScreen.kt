@@ -108,6 +108,7 @@ import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.DosExtraKeyEntry
 import com.nesstation.app.ui.swf.ScreenPositionEditor
+import com.nesstation.app.ui.settings.KeyMapStore
 import android.view.KeyEvent
 import android.view.View
 import kotlinx.coroutines.delay
@@ -149,6 +150,188 @@ private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
         KeyEvent.KEYCODE_BUTTON_R2     -> BTN_R2
         KeyEvent.KEYCODE_BUTTON_START,
         KeyEvent.KEYCODE_MENU          -> BTN_START
+        KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
+        else -> 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Resolve key bits considering custom KeyMapStore mappings per player.
+// Checks if the pressed keyCode has a custom binding for the current
+// platform+player in KeyMapStore; if so, returns the bits for that action.
+// Otherwise falls back to the default gamepadKeyToBits mapping.
+// ---------------------------------------------------------------------------
+private fun resolveKeyBits(
+    keyCode: Int,
+    platform: GamePlatform,
+    player: Int,
+    context: android.content.Context
+): Int {
+    val suffix = "_p${player + 1}"
+    // Build the list of action IDs for this platform+player, then check
+    // KeyMapStore for a custom keyCode match.
+    val actions = buildKeyActions(platform)
+    for (action in actions) {
+        val customKeyCode = KeyMapStore.get(context, action.id + suffix)
+        if (customKeyCode == keyCode) {
+            return actionToBits(action, platform)
+        }
+    }
+    // No custom mapping — use default
+    return gamepadKeyToBits(keyCode, platform)
+}
+
+// Internal action model used by resolveKeyBits — mirrors KeyAction but
+// without the Compose dependencies (Color, defaultKeyLabel).
+private data class KeyActionInternal(
+    val id: String,
+    val defaultKeyCode: Int
+)
+
+private fun buildKeyActions(platform: GamePlatform): List<KeyActionInternal> {
+    val base = when (platform) {
+        GamePlatform.NES -> listOf(
+            KeyActionInternal("nes_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("nes_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("nes_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("nes_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("nes_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("nes_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("nes_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("nes_start", KeyEvent.KEYCODE_BUTTON_START),
+            KeyActionInternal("nes_ta", KeyEvent.KEYCODE_BUTTON_L2),
+            KeyActionInternal("nes_tb", KeyEvent.KEYCODE_BUTTON_R2)
+        )
+        GamePlatform.SFC -> listOf(
+            KeyActionInternal("snes_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("snes_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("snes_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("snes_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("snes_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("snes_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("snes_x", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("snes_y", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("snes_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("snes_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("snes_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("snes_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.GB -> listOf(
+            KeyActionInternal("nes_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("nes_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("nes_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("nes_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("nes_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("nes_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("nes_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("nes_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.GBA -> listOf(
+            KeyActionInternal("gba_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("gba_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("gba_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("gba_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("gba_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("gba_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("gba_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("gba_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("gba_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("gba_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.DOS -> listOf(
+            KeyActionInternal("dos_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("dos_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("dos_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("dos_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("dos_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("dos_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("dos_x", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("dos_y", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("dos_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("dos_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("dos_l2", KeyEvent.KEYCODE_BUTTON_L2),
+            KeyActionInternal("dos_r2", KeyEvent.KEYCODE_BUTTON_R2),
+            KeyActionInternal("dos_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("dos_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.ARCADE -> listOf(
+            KeyActionInternal("arc_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("arc_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("arc_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("arc_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("arc_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("arc_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("arc_x", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("arc_y", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("arc_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("arc_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("arc_l2", KeyEvent.KEYCODE_BUTTON_L2),
+            KeyActionInternal("arc_r2", KeyEvent.KEYCODE_BUTTON_R2),
+            KeyActionInternal("arc_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("arc_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.MD -> listOf(
+            KeyActionInternal("md_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("md_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("md_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("md_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("md_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("md_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("md_c", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("md_x", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("md_y", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("md_z", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("md_mode", KeyEvent.KEYCODE_BUTTON_MODE),
+            KeyActionInternal("md_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.PCE -> listOf(
+            KeyActionInternal("pce_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("pce_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("pce_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("pce_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("pce_i", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("pce_ii", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("pce_iii", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("pce_iv", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("pce_v", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("pce_vi", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("pce_turbo_ii", KeyEvent.KEYCODE_BUTTON_L2),
+            KeyActionInternal("pce_turbo_i", KeyEvent.KEYCODE_BUTTON_R2),
+            KeyActionInternal("pce_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("pce_run", KeyEvent.KEYCODE_BUTTON_START)
+        )
+        GamePlatform.JAVA -> listOf(
+            KeyActionInternal("java_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("java_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("java_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("java_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("java_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("java_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("java_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("java_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
+    }
+    return base
+}
+
+// Convert an internal action to its bit mask, matching gamepadKeyToBits logic.
+private fun actionToBits(action: KeyActionInternal, platform: GamePlatform): Int {
+    val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
+    val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
+    return when (action.defaultKeyCode) {
+        KeyEvent.KEYCODE_DPAD_UP       -> BTN_UP
+        KeyEvent.KEYCODE_DPAD_DOWN     -> BTN_DOWN
+        KeyEvent.KEYCODE_DPAD_LEFT     -> BTN_LEFT
+        KeyEvent.KEYCODE_DPAD_RIGHT    -> BTN_RIGHT
+        KeyEvent.KEYCODE_BUTTON_A      -> BTN_A
+        KeyEvent.KEYCODE_BUTTON_B      -> BTN_B
+        KeyEvent.KEYCODE_BUTTON_X      -> BTN_X
+        KeyEvent.KEYCODE_BUTTON_Y      -> BTN_Y
+        KeyEvent.KEYCODE_BUTTON_L1     -> lBit
+        KeyEvent.KEYCODE_BUTTON_R1     -> rBit
+        KeyEvent.KEYCODE_BUTTON_L2     -> BTN_L2
+        KeyEvent.KEYCODE_BUTTON_R2     -> BTN_R2
+        KeyEvent.KEYCODE_BUTTON_START  -> BTN_START
         KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
         else -> 0
     }
@@ -1532,13 +1715,14 @@ private fun GameSurfaceView(
                     // propagate to the Compose UI so the user can navigate the
                     // menu with the D-pad. Only the Back/Menu key is handled
                     // here to toggle the menu open/closed.
+                    val ctx = LocalContext.current
                     setOnKeyListener { _, keyCode, event ->
                         if (uiBlocked) {
                             // UI is blocking — let Compose handle all keys
                             // (including Back, which the BackHandler will catch).
                             false
                         } else {
-                            val bits = gamepadKeyToBits(keyCode, platform)
+                            val bits = resolveKeyBits(keyCode, platform, currentPlayer, ctx)
                             if (bits != 0) {
                                 when (event.action) {
                                     KeyEvent.ACTION_DOWN -> {
@@ -1569,8 +1753,9 @@ private fun GameSurfaceView(
                 val surfaceView = sv as SurfaceView
                 // Re-bind the key listener whenever uiBlocked changes so the
                 // closure captures the latest value.
+                val ctx = LocalContext.current
                 surfaceView.setOnKeyListener { _, keyCode, event ->
-                    val bits = gamepadKeyToBits(keyCode, platform)
+                    val bits = resolveKeyBits(keyCode, platform, currentPlayer, ctx)
                     if (uiBlocked) {
                         // UI is blocking — let Compose handle D-pad navigation.
                         // But still process KEYUP for gamepad buttons so that

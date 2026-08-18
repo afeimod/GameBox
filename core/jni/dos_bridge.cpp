@@ -169,6 +169,11 @@ Java_com_nesstation_app_core_jni_DosNative_setPad1(JNIEnv*, jclass, jint bits) {
 }
 
 JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_DosNative_setPad2(JNIEnv*, jclass, jint bits) {
+    doscore::Engine::instance().setPad2(bits);
+}
+
+JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_DosNative_injectKeyDown(JNIEnv*, jclass, jint keyCode, jint modifiers) {
     doscore::Engine::instance().injectKeyDown(keyCode, modifiers);
 }

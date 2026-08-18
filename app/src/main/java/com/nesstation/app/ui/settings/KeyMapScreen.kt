@@ -203,16 +203,19 @@ private val PCE_ACTIONS = listOf(
     KeyAction("pce_run",    "Run",    Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Run (Start)")
 )
 
-private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform) {
-    GamePlatform.NES    -> NES_ACTIONS
-    GamePlatform.SFC    -> SNES_ACTIONS
-    GamePlatform.GB     -> NES_ACTIONS
-    GamePlatform.GBA    -> GBA_ACTIONS
-    GamePlatform.DOS    -> DOS_ACTIONS
-    GamePlatform.ARCADE -> ARCADE_ACTIONS
-    GamePlatform.MD     -> MD_ACTIONS
-    GamePlatform.PCE    -> PCE_ACTIONS
-    GamePlatform.JAVA   -> JAVA_ACTIONS
+private fun actionsFor(platform: GamePlatform, player: Int = 0): List<KeyAction> {
+    val suffix = "_p${player + 1}"
+    return when (platform) {
+        GamePlatform.NES    -> NES_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.SFC    -> SNES_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.GB     -> NES_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.GBA    -> GBA_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.DOS    -> DOS_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.ARCADE -> ARCADE_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.MD     -> MD_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.PCE    -> PCE_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.JAVA   -> JAVA_ACTIONS.map { it.copy(id = it.id + suffix) }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +225,7 @@ private fun actionsFor(platform: GamePlatform): List<KeyAction> = when (platform
 fun KeyMapScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var selectedPlatform by remember { mutableStateOf(GamePlatform.NES) }
+    var currentPlayer by remember { mutableStateOf(0) } // 0-indexed: 0=1P, 1=2P, 2=3P, 3=4P
     var capturingActionId by remember { mutableStateOf<String?>(null) }
 
     // Detect TV mode to show a hint
@@ -231,7 +235,16 @@ fun KeyMapScreen(onBack: () -> Unit) {
         )
     }
 
-    val actions = actionsFor(selectedPlatform)
+    // Max players supported by this platform (same logic as EmulatorScreen)
+    val maxPlayers = when (selectedPlatform) {
+        GamePlatform.ARCADE -> 4
+        GamePlatform.DOS, GamePlatform.JAVA, GamePlatform.GB, GamePlatform.GBA -> 1
+        else -> 2
+    }
+    // Clamp player if platform changed to one with fewer players
+    if (currentPlayer >= maxPlayers) currentPlayer = 0
+
+    val actions = actionsFor(selectedPlatform, currentPlayer)
 
     Box(modifier = Modifier.fillMaxSize()) {
         PixelBackdrop()
@@ -247,7 +260,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                     Text("按键映射", color = Color(0xFF1E2A3A), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     if (isTv) {
                         Text(
-                            "TV 模式 · 选择核心后按 OK 键重映射",
+                            "TV 模式 · 选择核心和玩家后按 OK 键重映射",
                             color = Color(0xFF4A5568),
                             fontSize = 11.sp
                         )
@@ -255,7 +268,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                 }
             }
 
-            // Platform selector tabs — focusable for D-pad
+            // Platform selector tabs
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -268,6 +281,9 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         GamePlatform.SFC to "SFC",
                         GamePlatform.GBA to "GBA",
                         GamePlatform.GB to "GB/GBC",
+                        GamePlatform.MD to "MD",
+                        GamePlatform.PCE to "PCE",
+                        GamePlatform.ARCADE to "街机",
                         GamePlatform.DOS to "DOS",
                         GamePlatform.JAVA to "Java"
                     )
@@ -277,6 +293,24 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         selected = selectedPlatform == platform,
                         onClick = { selectedPlatform = platform }
                     )
+                }
+            }
+
+            // Player selector tabs (only show when maxPlayers > 1)
+            if (maxPlayers > 1) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(0 until maxPlayers) { playerIdx ->
+                        PlayerTab(
+                            label = "${playerIdx + 1}P",
+                            selected = currentPlayer == playerIdx,
+                            onClick = { currentPlayer = playerIdx }
+                        )
+                    }
                 }
             }
 
@@ -299,7 +333,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
-                            "${selectedPlatform.displayName} 按键 · 点击右侧按键框重映射",
+                            "${selectedPlatform.displayName} · ${(currentPlayer + 1)}P 按键 · 点击右侧按键框重映射",
                             color = Color(0xFF4A5568),
                             fontSize = 12.sp
                         )
@@ -339,9 +373,6 @@ fun KeyMapScreen(onBack: () -> Unit) {
                 .background(Color(0xCC000000)),
             contentAlignment = Alignment.Center
         ) {
-            // Transparent fullscreen View that captures physical key events
-            // via Android's View.OnKeyListener — more reliable than Compose's
-            // onKeyEvent across different Compose versions.
             AndroidView(
                 factory = { ctx ->
                     View(ctx).apply {
@@ -350,12 +381,10 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         requestFocus()
                         setOnKeyListener { _, keyCode, event ->
                             if (event.action == KeyEvent.ACTION_DOWN) {
-                                // Don't allow mapping the Back key — it cancels capture
                                 if (keyCode == KeyEvent.KEYCODE_BACK) {
                                     capturingActionId = null
                                     true
                                 } else {
-                                    // Store the mapping using the integer keyCode
                                     KeyMapStore.put(context, captureId, keyCode)
                                     capturingActionId = null
                                     true
@@ -421,6 +450,36 @@ private fun PlatformTab(label: String, selected: Boolean, onClick: () -> Unit) {
             label,
             color = if (selected) Color.White else Color(0xFF1E2A3A),
             fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun PlayerTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (selected) Color(0xFFE74C3C)
+                else if (focused) Color.White.copy(alpha = 0.85f)
+                else Color.White.copy(alpha = 0.4f)
+            )
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) Color(0xFF8A7BFF) else Color.Transparent,
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .focusable(interactionSource = interaction)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+    ) {
+        Text(
+            label,
+            color = if (selected) Color.White else Color(0xFF1E2A3A),
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
     }
