@@ -157,6 +157,7 @@ func (s *apiServer) handleGames(w http.ResponseWriter, r *http.Request) {
 		ID        string   `json:"id"`
 		Title     string   `json:"title"`
 		Platform  string   `json:"platform"`
+		FileName  string   `json:"fileName"`
 		Size      int64    `json:"size"`
 		NeedsBIOS []string `json:"needsBios,omitempty"`
 		IconURL   string   `json:"iconUrl,omitempty"`
@@ -167,6 +168,7 @@ func (s *apiServer) handleGames(w http.ResponseWriter, r *http.Request) {
 			ID:        g.ID,
 			Title:     g.Title,
 			Platform:  g.Platform,
+			FileName:  g.FileName,
 			Size:      g.Size,
 			NeedsBIOS: g.NeedsBIOS,
 			IconURL:   g.IconURL,

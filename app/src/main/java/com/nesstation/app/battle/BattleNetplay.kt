@@ -35,8 +35,6 @@ class BattleNetplay(
         fun onStart(role: String, inputDelay: Int)
         /** 收到对方的一帧输入 */
         fun onRemoteInput(frame: Long, pad: Int)
-        /** 对方已加载完 ROM */
-        fun onPeerReady()
         /** 对方加入 */
         fun onPeerJoined(username: String)
         /** 对方断开 */
@@ -129,7 +127,6 @@ class BattleNetplay(
             "input" -> {
                 listener.onRemoteInput(msg.optLong("frame", 0), msg.optInt("pad", 0))
             }
-            "peer_ready" -> listener.onPeerReady()
             "peer_joined" -> listener.onPeerJoined(msg.optString("msg", ""))
             "peer_left" -> listener.onPeerLeft(msg.optString("msg", ""))
             "error" -> listener.onError(msg.optString("msg", "服务器错误"))

@@ -75,7 +75,7 @@ object Routes {
     const val SWF_LIST = "swf_list"
     const val ONLINE_GAMES = "online_games"
     const val BATTLE = "battle"
-    const val BATTLE_MATCH = "battle_match/{roomId}/{gameId}/{isHost}/{tcpAddr}"
+    const val BATTLE_MATCH = "battle_match/{roomId}/{gameId}/{isHost}/{tcpAddr}/{platform}/{fileName}"
     const val WEB_GAME = "web_game/{url}/{uaMode}"
     const val ABOUT = "about"
     const val EMULATOR = "emulator/{gameId}"
@@ -84,8 +84,8 @@ object Routes {
     fun swfPlayer(path: String) = "swf_player/${java.net.URLEncoder.encode(path, "UTF-8")}"
     fun webGame(url: String, uaMode: String) =
         "web_game/${java.net.URLEncoder.encode(url, "UTF-8")}/$uaMode"
-    fun battleMatch(roomId: String, gameId: String, isHost: Boolean, tcpAddr: String) =
-        "battle_match/$roomId/$gameId/$isHost/${java.net.URLEncoder.encode(tcpAddr, "UTF-8")}"
+    fun battleMatch(roomId: String, gameId: String, isHost: Boolean, tcpAddr: String, platform: String = "arcade", fileName: String = "") =
+        "battle_match/$roomId/$gameId/$isHost/${java.net.URLEncoder.encode(tcpAddr, "UTF-8")}/${java.net.URLEncoder.encode(platform, "UTF-8")}/${java.net.URLEncoder.encode(fileName, "UTF-8")}"
 }
 
 @Composable
@@ -210,7 +210,7 @@ private fun PhoneNavHost(
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onOpenMatch = { args ->
-                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr))
+                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr, args.platform.name, args.fileName))
                 }
             )
         }
@@ -220,7 +220,9 @@ private fun PhoneNavHost(
                 navArgument("roomId") { type = NavType.StringType },
                 navArgument("gameId") { type = NavType.StringType },
                 navArgument("isHost") { type = NavType.BoolType },
-                navArgument("tcpAddr") { type = NavType.StringType }
+                navArgument("tcpAddr") { type = NavType.StringType },
+                navArgument("platform") { type = NavType.StringType },
+                navArgument("fileName") { type = NavType.StringType }
             )
         ) { entry ->
             val roomId = entry.arguments?.getString("roomId") ?: ""
@@ -230,12 +232,22 @@ private fun PhoneNavHost(
                 entry.arguments?.getString("tcpAddr") ?: "",
                 "UTF-8"
             )
+            val platformStr = java.net.URLDecoder.decode(
+                entry.arguments?.getString("platform") ?: "arcade",
+                "UTF-8"
+            )
+            val fileName = java.net.URLDecoder.decode(
+                entry.arguments?.getString("fileName") ?: "",
+                "UTF-8"
+            )
             BattleMatchScreen(
                 args = BattleMatchArgs(
                     roomId = roomId,
                     gameId = gameId,
                     isHost = isHost,
-                    tcpAddr = tcpAddr
+                    tcpAddr = tcpAddr,
+                    platform = com.nesstation.app.core.model.GamePlatform.fromString(platformStr),
+                    fileName = fileName
                 ),
                 onExit = {
                     nav.popBackStack(Routes.BATTLE, inclusive = false)
@@ -516,7 +528,7 @@ private fun TvNavHost(
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
                 onOpenMatch = { args ->
-                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr))
+                    nav.navigate(Routes.battleMatch(args.roomId, args.gameId, args.isHost, args.tcpAddr, args.platform.name, args.fileName))
                 }
             )
         }
@@ -526,7 +538,9 @@ private fun TvNavHost(
                 navArgument("roomId") { type = NavType.StringType },
                 navArgument("gameId") { type = NavType.StringType },
                 navArgument("isHost") { type = NavType.BoolType },
-                navArgument("tcpAddr") { type = NavType.StringType }
+                navArgument("tcpAddr") { type = NavType.StringType },
+                navArgument("platform") { type = NavType.StringType },
+                navArgument("fileName") { type = NavType.StringType }
             )
         ) { entry ->
             val roomId = entry.arguments?.getString("roomId") ?: ""
@@ -536,12 +550,22 @@ private fun TvNavHost(
                 entry.arguments?.getString("tcpAddr") ?: "",
                 "UTF-8"
             )
+            val platformStr = java.net.URLDecoder.decode(
+                entry.arguments?.getString("platform") ?: "arcade",
+                "UTF-8"
+            )
+            val fileName = java.net.URLDecoder.decode(
+                entry.arguments?.getString("fileName") ?: "",
+                "UTF-8"
+            )
             BattleMatchScreen(
                 args = BattleMatchArgs(
                     roomId = roomId,
                     gameId = gameId,
                     isHost = isHost,
-                    tcpAddr = tcpAddr
+                    tcpAddr = tcpAddr,
+                    platform = com.nesstation.app.core.model.GamePlatform.fromString(platformStr),
+                    fileName = fileName
                 ),
                 onExit = {
                     nav.popBackStack(Routes.BATTLE, inclusive = false)

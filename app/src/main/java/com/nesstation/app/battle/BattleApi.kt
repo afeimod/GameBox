@@ -23,6 +23,7 @@ class BattleApi(private val ctx: Context) {
         val id: String,
         val title: String,
         val platform: String,
+        val fileName: String,
         val size: Long,
         val needsBios: List<String>,
         val iconUrl: String = ""
@@ -138,6 +139,7 @@ class BattleApi(private val ctx: Context) {
                     id = g.getString("id"),
                     title = g.getString("title"),
                     platform = g.optString("platform", "arcade"),
+                    fileName = g.optString("fileName", "${g.getString("id")}.zip"),
                     size = g.optLong("size", 0),
                     needsBios = bios,
                     iconUrl = g.optString("iconUrl", "")

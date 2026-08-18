@@ -27,6 +27,8 @@ type Room struct {
 	GameID    string
 	Status    roomStatus
 	CreatedAt time.Time
+	// 已发送 ready 的玩家数。双方都 ready 后才发送 start。
+	readyCount int
 	// 玩家连接（socket 已建立）。key 为 user id。
 	conns map[string]*relayConn
 }
@@ -170,8 +172,8 @@ func (h *relayHub) handleConn(conn net.Conn) {
 	})
 
 	if playerCount == 2 {
-		// 双方到齐 -> 通知双方进入准备状态
-		h.markReady(room)
+		// 双方到齐，但暂不发送 start。等待双方都发送 ready 后再发送 start。
+		// 这样双方可以从同一帧（frame 0）同时开始，保证锁步同步。
 	}
 
 	// 中继循环：读本端输入，转发给对端
@@ -205,9 +207,17 @@ func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
 				}
 			}
 		case "ready":
-			// 客户端已加载完 ROM，通知对端
-			if rc.peer != nil {
-				_ = rc.peer.send(relayMsg{Type: "peer_ready"})
+			// 客户端已加载完 ROM。追踪 readyCount，双方都 ready 后发送 start。
+			h.mu.Lock()
+			room := rc.room
+			if room != nil {
+				room.readyCount++
+				if room.readyCount >= 2 {
+					h.mu.Unlock()
+					h.markReady(room)
+				} else {
+					h.mu.Unlock()
+				}
 			}
 		case "ping":
 			_ = rc.send(relayMsg{Type: "pong"})
@@ -251,7 +261,7 @@ func (h *relayHub) peerOf(room *Room, userID string) *relayConn {
 	return nil
 }
 
-// markReady 双方到齐，通知开始
+// markReady 双方都 ready，通知开始
 func (h *relayHub) markReady(room *Room) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -260,6 +270,7 @@ func (h *relayHub) markReady(room *Room) {
 		return
 	}
 	room.Status = roomReady
+	room.readyCount = 0
 
 	// 给双方发送 start（附带延迟帧数）
 	for _, c := range room.conns {

@@ -50,7 +50,6 @@ import com.nesstation.app.battle.BattleNetplay
 import com.nesstation.app.battle.BattleRomStore
 import com.nesstation.app.battle.BattleSession
 import com.nesstation.app.battle.NetplayEngine
-import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.ui.emulator.OnScreenController
@@ -109,7 +108,7 @@ fun BattleMatchScreen(
         val (host, port) = parseTcpAddr(args.tcpAddr)
         lateinit var e: NetplayEngine
         e = NetplayEngine(
-            romFile = BattleRomStore.romFile(context, args.gameId, "${args.gameId}.zip"),
+            romFile = BattleRomStore.romFile(context, args.gameId, args.fileName.ifBlank { "${args.gameId}.zip" }),
             systemDir = BattleRomStore.biosDir(context).absolutePath,
             saveDir = context.filesDir.absolutePath + "/battle_saves/",
             net = BattleNetplay(
@@ -119,57 +118,55 @@ fun BattleMatchScreen(
                 roomId = args.roomId,
                 listener = object : BattleNetplay.Listener {
                     override fun onStart(role: String, inputDelay: Int) {
-                        roleText = if (role == "host") "房主" else "挑战者"
+                        scope.launch(Dispatchers.Main) {
+                            roleText = if (role == "host") "房主" else "挑战者"
+                        }
                     }
 
                     override fun onRemoteInput(frame: Long, pad: Int) {
                         e.onRemoteInput(frame, pad)
                     }
 
-                    override fun onPeerReady() {
-                        e.onPeerReady()
-                    }
-
                     override fun onPeerJoined(username: String) {
-                        // 2P 加入：房主（1P）从单机模式切换为联机对战
-                        e.enableNetplay()
-                        statusText = "对手 $username 已加入，正在同步…"
+                        scope.launch(Dispatchers.Main) {
+                            statusText = "对手 $username 已加入，等待双方就绪…"
+                        }
                     }
 
                     override fun onPeerLeft(username: String) {
-                        errorMsg = "对手已离开，对战结束"
-                        phase = "error"
-                        e.stop()
+                        scope.launch(Dispatchers.Main) {
+                            if (phase == "playing") {
+                                errorMsg = "对手已离开，对战结束"
+                                phase = "error"
+                                e.stop()
+                            } else {
+                                errorMsg = "对手 $username 已离开房间"
+                                phase = "error"
+                                e.stop()
+                            }
+                        }
                     }
 
                     override fun onError(message: String) {
-                        errorMsg = message
-                        phase = "error"
-                    }
-
-                    override fun onDisconnected() {
-                        if (phase != "error") {
-                            errorMsg = "与对战服务器断开连接"
+                        scope.launch(Dispatchers.Main) {
+                            errorMsg = message
                             phase = "error"
                         }
                     }
+
+                    override fun onDisconnected() {
+                        scope.launch(Dispatchers.Main) {
+                            if (phase != "error") {
+                                errorMsg = "与对战服务器断开连接"
+                                phase = "error"
+                            }
+                        }
+                    }
                 }
-            )
+            ),
+            platform = args.platform
         )
-        // 应用 FBNeo 核心选项（复用用户已有的街机设置）
-        e.setCoreOption("fbneo-aspect", padLayout.arcadeAspect)
-        e.setCoreOption("fbneo-rotate-mode", padLayout.arcadeRotate)
-        e.setCoreOption("fbneo-vertical-mode", padLayout.arcadeVerticalMode)
-        e.setCoreOption("fbneo-crop-overscan", padLayout.arcadeCropOverscan)
-        e.setCoreOption("fbneo-cpu-speed", padLayout.arcadeCpuSpeed)
-        e.setCoreOption("fbneo-cpu-frameskip", padLayout.arcadeFrameskip)
-        e.setCoreOption("fbneo-force-60hz", padLayout.arcadeForce60hz)
-        e.setCoreOption("fbneo-samplerate", padLayout.arcadeSampleRate)
-        e.setCoreOption("fbneo-audio-interpolation", padLayout.arcadeAudioInterp)
-        e.setCoreOption("fbneo-lowpass", padLayout.arcadeLowpass)
-        e.setCoreOption("fbneo-neogeo-mode", padLayout.arcadeNeogeomode)
-        e.setCoreOption("fbneo-memcard-mode", padLayout.arcadeMemcard)
-        // 视频滤镜和缩放
+        // 视频滤镜和缩放（所有平台通用）
         e.setVideoFilter(
             when (padLayout.videoFilter) {
                 "scanline" -> 1
@@ -186,18 +183,37 @@ fun BattleMatchScreen(
             }
         )
         e.setHighQualityScaling(padLayout.highQualityScaling)
+        // 仅街机平台设置 FBNeo 专属核心选项
+        if (args.platform == com.nesstation.app.core.model.GamePlatform.ARCADE) {
+            e.setCoreOption("fbneo-aspect", padLayout.arcadeAspect)
+            e.setCoreOption("fbneo-rotate-mode", padLayout.arcadeRotate)
+            e.setCoreOption("fbneo-vertical-mode", padLayout.arcadeVerticalMode)
+            e.setCoreOption("fbneo-crop-overscan", padLayout.arcadeCropOverscan)
+            e.setCoreOption("fbneo-cpu-speed", padLayout.arcadeCpuSpeed)
+            e.setCoreOption("fbneo-cpu-frameskip", padLayout.arcadeFrameskip)
+            e.setCoreOption("fbneo-force-60hz", padLayout.arcadeForce60hz)
+            e.setCoreOption("fbneo-samplerate", padLayout.arcadeSampleRate)
+            e.setCoreOption("fbneo-audio-interpolation", padLayout.arcadeAudioInterp)
+            e.setCoreOption("fbneo-lowpass", padLayout.arcadeLowpass)
+            e.setCoreOption("fbneo-neogeo-mode", padLayout.arcadeNeogeomode)
+            e.setCoreOption("fbneo-memcard-mode", padLayout.arcadeMemcard)
+        }
         e
     }
 
     engine.setListener(object : NetplayEngine.Listener {
         override fun onFrame(frame: Long, inputDelay: Int, desyncCount: Int) {
-            frameInfo = "帧 #$frame · 延迟 ${inputDelay}f · desync $desyncCount"
+            scope.launch(Dispatchers.Main) {
+                frameInfo = "帧 #$frame · 延迟 ${inputDelay}f · desync $desyncCount"
+            }
         }
 
         override fun onExit() {}
 
         override fun onNetplayLost() {
-            errorMsg = "对端输入中断（网络异常），已降级为单机演示"
+            scope.launch(Dispatchers.Main) {
+                errorMsg = "对端输入中断（网络异常），已降级为单机演示"
+            }
         }
     })
 
@@ -205,7 +221,7 @@ fun BattleMatchScreen(
     DisposableEffect(Unit) {
         val job = scope.launch(Dispatchers.IO) {
             // 1. 检查 ROM 是否已下载
-            val romFile = BattleRomStore.romFile(context, args.gameId, "${args.gameId}.zip")
+            val romFile = BattleRomStore.romFile(context, args.gameId, args.fileName.ifBlank { "${args.gameId}.zip" })
             if (!romFile.exists() || romFile.length() <= 0) {
                 withContext(Dispatchers.Main) {
                     errorMsg = "ROM 尚未下载，请先返回大厅下载"
@@ -218,29 +234,14 @@ fun BattleMatchScreen(
             val net = engine.net
             net.connect()
 
-            if (args.isHost) {
-                // 房主（1P）：立即开始游戏（单机模式），无需等待 2P 加入。
-                // 2P 加入后由 onPeerJoined 切换为联机对战。
-                withContext(Dispatchers.Main) {
-                    phase = "waiting"
-                    statusText = "单机进行中，等待 2P 加入可切换为联机对战…"
-                }
-                val hostOk = engine.start()
-                if (!hostOk) {
-                    withContext(Dispatchers.Main) {
-                        errorMsg = "ROM 加载失败：${engine.net.inputDelay}"
-                        phase = "error"
-                    }
-                    return@launch
-                }
-                withContext(Dispatchers.Main) {
-                    phase = "playing"
-                    statusText = "对战进行中"
-                }
-                return@launch
+            // 3. 双方统一流程：加载 ROM -> 发送 ready -> 等待 start -> 启动
+            // 房主（1P）和挑战者（2P）都走同一流程，确保双方从 frame 0 同时开始
+            withContext(Dispatchers.Main) {
+                phase = "waiting"
+                statusText = if (args.isHost) "正在加载 ROM，等待对手加入…" else "正在加载 ROM，等待对手就绪…"
             }
 
-            // 3. 2P（挑战者）：等待服务器下发 start（双方到齐、输入延迟确定）
+            // 4. 等待服务器下发 start（双方到齐且都 ready 后才发送）
             var attempts = 0
             while (attempts < 600) {
                 if (!net.isConnected) break
@@ -258,11 +259,10 @@ fun BattleMatchScreen(
 
             withContext(Dispatchers.Main) {
                 phase = "waiting"
-                statusText = "已加入房间，等待对手就绪…"
+                statusText = "双方就绪，开始对战…"
             }
 
-            // 4. 加载 ROM + 启动帧同步引擎（2P 默认即为联机模式）
-            engine.enableNetplay()
+            // 5. 启动帧同步引擎（双方从 frame 0 同时开始）
             val ok = engine.start()
             if (!ok) {
                 withContext(Dispatchers.Main) {
@@ -450,7 +450,7 @@ fun BattleMatchScreen(
                     padLayout = padLayout,
                     surfaceSize = surfaceSize,
                     onPadBits = { bits -> engine.setLocalPad(bits) },
-                    platform = GamePlatform.ARCADE
+                    platform = args.platform
                 )
             }
         }

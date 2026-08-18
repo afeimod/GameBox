@@ -245,21 +245,21 @@ fun BattleScreen(
                         }
                         val targetGame = selectedGame!!
                         // 进入房间前先确保 ROM 已下载；未下载则提示并下载，完成后自动进入房间
-                        val has = BattleRomStore.hasRom(context, targetGame.id, "${targetGame.id}.zip")
+                        val has = BattleRomStore.hasRom(context, targetGame.id, targetGame.fileName)
                         if (!has) {
                             statusMsg = "正在下载 ${targetGame.title}，完成后自动进入房间…"
-                            downloading = DownloadTask(targetGame.id, "${targetGame.id}.zip", 0f)
+                            downloading = DownloadTask(targetGame.id, targetGame.fileName, 0f)
                         }
                         scope.launch(Dispatchers.IO) {
                             try {
                                 if (!has) {
                                     BattleApi(context).downloadRom(
                                         targetGame,
-                                        BattleRomStore.romFile(context, targetGame.id, "${targetGame.id}.zip")
+                                        BattleRomStore.romFile(context, targetGame.id, targetGame.fileName)
                                     ) { done, total ->
                                         if (total > 0) {
                                             downloading = DownloadTask(
-                                                targetGame.id, "${targetGame.id}.zip",
+                                                targetGame.id, targetGame.fileName,
                                                 (done.toFloat() / total).coerceIn(0f, 1f)
                                             )
                                         }
@@ -279,7 +279,9 @@ fun BattleScreen(
                                             roomId = joined.id,
                                             gameId = joined.gameId,
                                             isHost = room == null,
-                                            tcpAddr = tcp
+                                            tcpAddr = tcp,
+                                            platform = com.nesstation.app.core.model.GamePlatform.fromString(targetGame.platform),
+                                            fileName = targetGame.fileName
                                         )
                                     )
                                 }
@@ -389,7 +391,7 @@ private fun GameLibraryGrid(
                 items(games, key = { it.id }) { game ->
                     BattleGameCard(
                         game = game,
-                        downloaded = BattleRomStore.hasRom(context, game.id, "${game.id}.zip"),
+                        downloaded = BattleRomStore.hasRom(context, game.id, game.fileName),
                         downloadTask = downloading?.takeIf { it.gameId == game.id },
                         iconVersion = iconVersion,
                         onClick = { onDownloadAndEnter(game) }
@@ -463,7 +465,10 @@ private fun BattleGameCard(
                     .background(Color(0xFFF57C00).copy(alpha = 0.9f))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text("ARC", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    com.nesstation.app.core.model.GamePlatform.fromString(game.platform).displayName,
+                    color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold
+                )
             }
             // 已就绪徽章
             if (downloaded) {
@@ -978,7 +983,9 @@ data class BattleMatchArgs(
     val roomId: String,
     val gameId: String,
     val isHost: Boolean,
-    val tcpAddr: String
+    val tcpAddr: String,
+    val platform: com.nesstation.app.core.model.GamePlatform = com.nesstation.app.core.model.GamePlatform.ARCADE,
+    val fileName: String = ""
 )
 
 /** ROM 下载任务状态（用于大厅进度显示） */

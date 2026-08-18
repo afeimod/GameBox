@@ -4,7 +4,14 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.view.Surface
+import com.nesstation.app.core.jni.DosNative
 import com.nesstation.app.core.jni.FbNeoNative
+import com.nesstation.app.core.jni.GbaNative
+import com.nesstation.app.core.jni.GenesisNative
+import com.nesstation.app.core.jni.NesNative
+import com.nesstation.app.core.jni.PceNative
+import com.nesstation.app.core.jni.SnesNative
+import com.nesstation.app.core.model.GamePlatform
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -31,7 +38,8 @@ class NetplayEngine(
     private val romFile: File,
     private val systemDir: String,
     private val saveDir: String,
-    val net: BattleNetplay
+    val net: BattleNetplay,
+    private val platform: GamePlatform = GamePlatform.ARCADE
 ) {
 
     interface Listener {
@@ -49,10 +57,6 @@ class NetplayEngine(
     private val audioRunning = AtomicBoolean(false)
     private var audioThread: Thread? = null
 
-    // 双方就绪信号：两个客户端都发送 ready 后服务器才真正转发输入，
-    // 锁步要求双方帧计数从同一时刻起步，所以用这个闩等待对端。
-    @Volatile private var peerReadyLatch: java.util.concurrent.CountDownLatch = newPeerLatch()
-
     @Volatile private var currentLocalPad = 0
     @Volatile private var lastRemotePad = 0
 
@@ -64,9 +68,6 @@ class NetplayEngine(
     @Volatile private var isLoaded = false
     @Volatile private var hasSurface = false
     @Volatile private var netplayLost = false
-    // 是否已进入联机模式（对端已加入）。单机模式下 waitForRemote 立即返回默认输入，
-    // 使房主（1P）无需等待 2P 即可开始游戏；对端加入后再切换为锁步联机。
-    @Volatile private var netplayEnabled = false
 
     private var listener: Listener? = null
     private val engineLock = Any()
@@ -83,15 +84,15 @@ class NetplayEngine(
 
     fun setSurface(surface: Surface?) {
         hasSurface = surface != null
-        FbNeoNative.setSurface(surface)
+        CoreDispatcher.setSurface(platform, surface)
     }
 
-    fun videoWidth(): Int = if (isLoaded) FbNeoNative.videoWidth() else 320
-    fun videoHeight(): Int = if (isLoaded) FbNeoNative.videoHeight() else 240
+    fun videoWidth(): Int = if (isLoaded) CoreDispatcher.videoWidth(platform) else 320
+    fun videoHeight(): Int = if (isLoaded) CoreDispatcher.videoHeight(platform) else 240
 
-    fun setVideoFilter(filter: Int) = FbNeoNative.setVideoFilter(filter)
-    fun setHighQualityScaling(enabled: Boolean) = FbNeoNative.setHighQualityScaling(enabled)
-    fun setCoreOption(key: String, value: String) = FbNeoNative.setCoreOption(key, value)
+    fun setVideoFilter(filter: Int) = CoreDispatcher.setVideoFilter(platform, filter)
+    fun setHighQualityScaling(enabled: Boolean) = CoreDispatcher.setHighQualityScaling(platform, enabled)
+    fun setCoreOption(key: String, value: String) = CoreDispatcher.setCoreOption(platform, key, value)
 
     /**
      * 加载 ROM 并启动帧同步循环。
@@ -100,7 +101,7 @@ class NetplayEngine(
      */
     fun start(listener: Listener? = null): Boolean = synchronized(engineLock) {
         this.listener = listener
-        if (!FbNeoNative.ensureLoaded()) {
+        if (!CoreDispatcher.ensureLoaded(platform)) {
             return false
         }
         // 清理旧会话
@@ -113,10 +114,10 @@ class NetplayEngine(
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
 
             // 1. 在 emu 线程加载 ROM（避免阻塞 UI）
-            FbNeoNative.setPaths(systemDir, saveDir)
-            FbNeoNative.setSaveName("netplay_" + romFile.nameWithoutExtension)
-            if (!FbNeoNative.loadRom(romFile.absolutePath)) {
-                android.util.Log.e("NetplayEngine", "loadRom failed: ${FbNeoNative.lastError()}")
+            CoreDispatcher.setPaths(platform, systemDir, saveDir)
+            CoreDispatcher.setSaveName(platform, "netplay_" + romFile.nameWithoutExtension)
+            if (!CoreDispatcher.loadRom(platform, romFile.absolutePath)) {
+                android.util.Log.e("NetplayEngine", "loadRom failed: ${CoreDispatcher.lastError(platform)}")
                 running.set(false)
                 listener?.onExit()
                 return@thread
@@ -126,19 +127,22 @@ class NetplayEngine(
             // 2. 通知服务器本地已就绪
             net.sendReady()
 
-            // 3. 等待对方就绪（锁步前提）。超时 15s 直接开跑。
-            val peerReady = try {
-                peerReadyLatch.await(15, java.util.concurrent.TimeUnit.SECONDS)
-            } catch (_: InterruptedException) {
-                false
+            // 3. 等待服务器下发 start（双方都 ready 后才会发送）。
+            // 这确保双方从 frame 0 同时开始，保证锁步同步。
+            var attempts = 0
+            while (attempts < 300) { // 最多等 15s
+                if (net.started) break
+                if (!running.get()) return@thread
+                Thread.sleep(50)
+                attempts++
             }
             if (!running.get()) return@thread
-            if (!peerReady) {
-                android.util.Log.w("NetplayEngine", "等待对方就绪超时，仍以当前状态开始")
+            if (!net.started) {
+                android.util.Log.w("NetplayEngine", "等待 start 信号超时，仍以当前状态开始")
             }
 
             // 4. 启动音频
-            val rate = FbNeoNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+            val rate = CoreDispatcher.audioTargetSampleRate(platform).takeIf { it > 0 } ?: 48000
             startAudio(rate)
 
             // 5. 帧同步循环
@@ -160,9 +164,9 @@ class NetplayEngine(
                         val localForExec = localHistory[execFrame] ?: localPad
                         val remoteForExec = waitForRemote(execFrame) { desync++ }
                         lastRemotePad = remoteForExec
-                        FbNeoNative.setPad1(localForExec)
-                        FbNeoNative.setPad2(remoteForExec)
-                        FbNeoNative.runFrame()
+                        CoreDispatcher.setPad1(platform, localForExec)
+                        CoreDispatcher.setPad2(platform, remoteForExec)
+                        CoreDispatcher.runFrame(platform)
                         listener?.onFrame(execFrame, inputDelay, desync)
                     }
 
@@ -195,17 +199,9 @@ class NetplayEngine(
         return true
     }
 
-    /** 由 BattleNetplay 在收到 peer_ready 时调用 */
-    fun onPeerReady() {
-        peerReadyLatch.countDown()
-    }
-
-    /**
-     * 切换到联机模式。房主（1P）默认以单机模式开始游戏，
-     * 当对端（2P）加入时调用本方法，此后 waitForRemote 才会等待对端输入。
-     */
-    fun enableNetplay() {
-        netplayEnabled = true
+    /** 由 BattleNetplay 在收到 peer_joined 时更新状态 */
+    fun onPeerJoined() {
+        // 对方已加入，等待 start 信号
     }
 
     /**
@@ -213,9 +209,6 @@ class NetplayEngine(
      * 返回时已就绪的输入；若超时（网络抖动），回调 onMiss 并返回上一帧输入。
      */
     private fun waitForRemote(targetFrame: Long, onMiss: () -> Unit): Int {
-        // 单机模式（对端尚未加入，如房主先行开始）：立即返回上一帧输入，
-        // 避免每帧阻塞 500ms 导致卡顿，也不触发"降级"提示。
-        if (!netplayEnabled) return lastRemotePad
         val deadline = System.currentTimeMillis() + 500 // 最多等 500ms
         while (running.get()) {
             remoteHistory[targetFrame]?.let { return it }
@@ -281,7 +274,7 @@ class NetplayEngine(
             try {
                 while (audioRunning.get()) {
                     try {
-                        val n = FbNeoNative.readAudio(buf)
+                        val n = CoreDispatcher.readAudio(platform, buf)
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
@@ -328,19 +321,246 @@ class NetplayEngine(
         emuThread = null
         stopAudio()
         if (isLoaded) {
-            try { FbNeoNative.unload() } catch (_: Throwable) {}
+            try { CoreDispatcher.unload(platform) } catch (_: Throwable) {}
             isLoaded = false
         }
         localHistory.clear()
         remoteHistory.clear()
         hasSurface = false
         netplayLost = false
-        // 重建闩，确保下一局能正确等待对方
-        peerReadyLatch = newPeerLatch()
     }
 
     companion object {
-        private fun newPeerLatch() = java.util.concurrent.CountDownLatch(1)
+        /**
+         * 核心分发器：根据平台选择对应的原生 JNI 类。
+         * 所有对战平台的核心操作（加载 ROM、执行帧、音频读取等）
+         * 都通过本对象分发，避免 NetplayEngine 硬编码绑定到某个核心。
+         */
+        private object CoreDispatcher {
+            fun ensureLoaded(p: GamePlatform): Boolean = when (p) {
+                GamePlatform.NES    -> NesNative.ensureLoaded()
+                GamePlatform.SFC    -> SnesNative.ensureLoaded()
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.ensureLoaded()
+                GamePlatform.DOS    -> DosNative.ensureLoaded()
+                GamePlatform.ARCADE -> FbNeoNative.ensureLoaded()
+                GamePlatform.MD     -> GenesisNative.ensureLoaded()
+                GamePlatform.PCE    -> PceNative.ensureLoaded()
+                else                -> NesNative.ensureLoaded()
+            }
+
+            fun setPaths(p: GamePlatform, systemDir: String, saveDir: String) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setPaths(systemDir, saveDir)
+                    GamePlatform.SFC    -> SnesNative.setPaths(systemDir, saveDir)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setPaths(systemDir, saveDir)
+                    GamePlatform.DOS    -> DosNative.setPaths(systemDir, saveDir)
+                    GamePlatform.ARCADE -> FbNeoNative.setPaths(systemDir, saveDir)
+                    GamePlatform.MD     -> GenesisNative.setPaths(systemDir, saveDir)
+                    GamePlatform.PCE    -> PceNative.setPaths(systemDir, saveDir)
+                    else                -> NesNative.setPaths(systemDir, saveDir)
+                }
+            }
+
+            fun setSaveName(p: GamePlatform, name: String) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setSaveName(name)
+                    GamePlatform.SFC    -> SnesNative.setSaveName(name)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setSaveName(name)
+                    GamePlatform.DOS    -> DosNative.setSaveName(name)
+                    GamePlatform.ARCADE -> FbNeoNative.setSaveName(name)
+                    GamePlatform.MD     -> GenesisNative.setSaveName(name)
+                    GamePlatform.PCE    -> PceNative.setSaveName(name)
+                    else                -> NesNative.setSaveName(name)
+                }
+            }
+
+            fun loadRom(p: GamePlatform, path: String): Boolean = when (p) {
+                GamePlatform.NES    -> NesNative.loadRom(path)
+                GamePlatform.SFC    -> SnesNative.loadRom(path)
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.loadRom(path)
+                GamePlatform.DOS    -> DosNative.loadRom(path)
+                GamePlatform.ARCADE -> FbNeoNative.loadRom(path)
+                GamePlatform.MD     -> GenesisNative.loadRom(path)
+                GamePlatform.PCE    -> PceNative.loadRom(path)
+                else                -> NesNative.loadRom(path)
+            }
+
+            fun lastError(p: GamePlatform): String = when (p) {
+                GamePlatform.NES    -> NesNative.lastError()
+                GamePlatform.SFC    -> SnesNative.lastError()
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.lastError()
+                GamePlatform.DOS    -> DosNative.lastError()
+                GamePlatform.ARCADE -> FbNeoNative.lastError()
+                GamePlatform.MD     -> GenesisNative.lastError()
+                GamePlatform.PCE    -> PceNative.lastError()
+                else                -> NesNative.lastError()
+            }
+
+            fun audioTargetSampleRate(p: GamePlatform): Int = when (p) {
+                GamePlatform.NES    -> NesNative.audioTargetSampleRate()
+                GamePlatform.SFC    -> SnesNative.audioTargetSampleRate()
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.audioTargetSampleRate()
+                GamePlatform.DOS    -> DosNative.audioTargetSampleRate()
+                GamePlatform.ARCADE -> FbNeoNative.audioTargetSampleRate()
+                GamePlatform.MD     -> GenesisNative.audioTargetSampleRate()
+                GamePlatform.PCE    -> PceNative.audioTargetSampleRate()
+                else                -> NesNative.audioTargetSampleRate()
+            }
+
+            fun setPad1(p: GamePlatform, bits: Int) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setPad1(bits)
+                    GamePlatform.SFC    -> SnesNative.setPad1(bits)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setPad1(bits)
+                    GamePlatform.DOS    -> DosNative.setPad1(bits)
+                    GamePlatform.ARCADE -> FbNeoNative.setPad1(bits)
+                    GamePlatform.MD     -> GenesisNative.setPad1(bits)
+                    GamePlatform.PCE    -> PceNative.setPad1(bits)
+                    else                -> NesNative.setPad1(bits)
+                }
+            }
+
+            fun setPad2(p: GamePlatform, bits: Int) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setPad2(bits)
+                    GamePlatform.SFC    -> SnesNative.setPad2(bits)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setPad2(bits)
+                    GamePlatform.DOS    -> DosNative.setPad2(bits)
+                    GamePlatform.ARCADE -> FbNeoNative.setPad2(bits)
+                    GamePlatform.MD     -> GenesisNative.setPad2(bits)
+                    GamePlatform.PCE    -> PceNative.setPad2(bits)
+                    else                -> NesNative.setPad2(bits)
+                }
+            }
+
+            fun runFrame(p: GamePlatform) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.runFrame()
+                    GamePlatform.SFC    -> SnesNative.runFrame()
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.runFrame()
+                    GamePlatform.DOS    -> DosNative.runFrame()
+                    GamePlatform.ARCADE -> FbNeoNative.runFrame()
+                    GamePlatform.MD     -> GenesisNative.runFrame()
+                    GamePlatform.PCE    -> PceNative.runFrame()
+                    else                -> NesNative.runFrame()
+                }
+            }
+
+            fun readAudio(p: GamePlatform, buf: ShortArray): Int = when (p) {
+                GamePlatform.NES    -> NesNative.readAudio(buf)
+                GamePlatform.SFC    -> SnesNative.readAudio(buf)
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.readAudio(buf)
+                GamePlatform.DOS    -> DosNative.readAudio(buf)
+                GamePlatform.ARCADE -> FbNeoNative.readAudio(buf)
+                GamePlatform.MD     -> GenesisNative.readAudio(buf)
+                GamePlatform.PCE    -> PceNative.readAudio(buf)
+                else                -> NesNative.readAudio(buf)
+            }
+
+            fun unload(p: GamePlatform) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.unload()
+                    GamePlatform.SFC    -> SnesNative.unload()
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.unload()
+                    GamePlatform.DOS    -> DosNative.unload()
+                    GamePlatform.ARCADE -> FbNeoNative.unload()
+                    GamePlatform.MD     -> GenesisNative.unload()
+                    GamePlatform.PCE    -> PceNative.unload()
+                    else                -> NesNative.unload()
+                }
+            }
+
+            fun setSurface(p: GamePlatform, surface: Surface?) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setSurface(surface)
+                    GamePlatform.SFC    -> SnesNative.setSurface(surface)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setSurface(surface)
+                    GamePlatform.DOS    -> DosNative.setSurface(surface)
+                    GamePlatform.ARCADE -> FbNeoNative.setSurface(surface)
+                    GamePlatform.MD     -> GenesisNative.setSurface(surface)
+                    GamePlatform.PCE    -> PceNative.setSurface(surface)
+                    else                -> NesNative.setSurface(surface)
+                }
+            }
+
+            fun videoWidth(p: GamePlatform): Int = when (p) {
+                GamePlatform.NES    -> NesNative.videoWidth()
+                GamePlatform.SFC    -> SnesNative.videoWidth()
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.videoWidth()
+                GamePlatform.DOS    -> DosNative.videoWidth()
+                GamePlatform.ARCADE -> FbNeoNative.videoWidth()
+                GamePlatform.MD     -> GenesisNative.videoWidth()
+                GamePlatform.PCE    -> PceNative.videoWidth()
+                else                -> NesNative.videoWidth()
+            }
+
+            fun videoHeight(p: GamePlatform): Int = when (p) {
+                GamePlatform.NES    -> NesNative.videoHeight()
+                GamePlatform.SFC    -> SnesNative.videoHeight()
+                GamePlatform.GB,
+                GamePlatform.GBA    -> GbaNative.videoHeight()
+                GamePlatform.DOS    -> DosNative.videoHeight()
+                GamePlatform.ARCADE -> FbNeoNative.videoHeight()
+                GamePlatform.MD     -> GenesisNative.videoHeight()
+                GamePlatform.PCE    -> PceNative.videoHeight()
+                else                -> NesNative.videoHeight()
+            }
+
+            fun setVideoFilter(p: GamePlatform, filter: Int) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setVideoFilter(filter)
+                    GamePlatform.SFC    -> SnesNative.setVideoFilter(filter)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setVideoFilter(filter)
+                    GamePlatform.DOS    -> DosNative.setVideoFilter(filter)
+                    GamePlatform.ARCADE -> FbNeoNative.setVideoFilter(filter)
+                    GamePlatform.MD     -> GenesisNative.setVideoFilter(filter)
+                    GamePlatform.PCE    -> PceNative.setVideoFilter(filter)
+                    else                -> NesNative.setVideoFilter(filter)
+                }
+            }
+
+            fun setHighQualityScaling(p: GamePlatform, enabled: Boolean) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setHighQualityScaling(enabled)
+                    GamePlatform.SFC    -> SnesNative.setHighQualityScaling(enabled)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setHighQualityScaling(enabled)
+                    GamePlatform.DOS    -> DosNative.setHighQualityScaling(enabled)
+                    GamePlatform.ARCADE -> FbNeoNative.setHighQualityScaling(enabled)
+                    GamePlatform.MD     -> GenesisNative.setHighQualityScaling(enabled)
+                    GamePlatform.PCE    -> PceNative.setHighQualityScaling(enabled)
+                    else                -> NesNative.setHighQualityScaling(enabled)
+                }
+            }
+
+            fun setCoreOption(p: GamePlatform, key: String, value: String) {
+                when (p) {
+                    GamePlatform.NES    -> NesNative.setCoreOption(key, value)
+                    GamePlatform.SFC    -> SnesNative.setCoreOption(key, value)
+                    GamePlatform.GB,
+                    GamePlatform.GBA    -> GbaNative.setCoreOption(key, value)
+                    GamePlatform.DOS    -> DosNative.setCoreOption(key, value)
+                    GamePlatform.ARCADE -> FbNeoNative.setCoreOption(key, value)
+                    GamePlatform.MD     -> GenesisNative.setCoreOption(key, value)
+                    GamePlatform.PCE    -> PceNative.setCoreOption(key, value)
+                    else                -> NesNative.setCoreOption(key, value)
+                }
+            }
+        }
     }
 
     fun stop() = synchronized(engineLock) {
