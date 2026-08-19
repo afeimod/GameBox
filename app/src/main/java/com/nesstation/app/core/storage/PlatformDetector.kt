@@ -66,6 +66,7 @@ object PlatformDetector {
             return when (hintPlatform) {
                 GamePlatform.DOS -> GamePlatform.DOS
                 GamePlatform.PCE -> GamePlatform.PCE
+                GamePlatform.PSX -> GamePlatform.PSX
                 else -> GamePlatform.MD
             }
         }
@@ -116,10 +117,13 @@ object PlatformDetector {
                 if (dosHints.any { lowerPath.contains(it) }) return GamePlatform.DOS
                 val mdHints = listOf("mega", "sega", "genesis", "megacd", "mega-cd", "md")
                 if (mdHints.any { lowerPath.contains(it) }) return GamePlatform.MD
+                val psxHints = listOf("psx", "ps1", "playstation", "sony")
+                if (psxHints.any { lowerPath.contains(it) }) return GamePlatform.PSX
             }
             return when (hintPlatform) {
                 GamePlatform.DOS -> GamePlatform.DOS
                 GamePlatform.PCE -> GamePlatform.PCE
+                GamePlatform.PSX -> GamePlatform.PSX
                 else -> GamePlatform.MD
             }
         }
@@ -163,6 +167,7 @@ object PlatformDetector {
                 GamePlatform.MD -> GamePlatform.MD
                 GamePlatform.PCE -> GamePlatform.PCE
                 GamePlatform.DOS -> GamePlatform.DOS
+                GamePlatform.PSX -> GamePlatform.PSX
                 else -> GamePlatform.ARCADE
             }
         }

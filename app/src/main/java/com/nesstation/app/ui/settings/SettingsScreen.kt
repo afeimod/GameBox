@@ -262,6 +262,8 @@ fun SettingsScreen(
                             SettingsRow("PCE / TG16", "Geargrafx 核心 · 主机/画面/CD", trailing = { Arrow() }) { selectedCore = GamePlatform.PCE }
                             SettingsRow("DOS", "DOSBox-Pure 核心 · CPU/声卡/键盘/画面", trailing = { Arrow() }) { selectedCore = GamePlatform.DOS }
                             SettingsRow("街机 Arcade", "FBNeo 核心 · 旋转/跳帧/NeoGeo", trailing = { Arrow() }) { selectedCore = GamePlatform.ARCADE }
+                            SettingsRow("NDS / DSi", "melonDS 核心 · 屏幕/分辨率/触摸/DSi", trailing = { Arrow() }) { selectedCore = GamePlatform.NDS }
+                            SettingsRow("PSX", "PCSX-ReARMed 核心 · BIOS/手柄/SPU/CD", trailing = { Arrow() }) { selectedCore = GamePlatform.PSX }
                         }
                     }
 

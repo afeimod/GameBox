@@ -536,6 +536,105 @@ target_compile_options(pcecore PRIVATE
 target_link_libraries(pcecore log android dl)
 
 # ---------------------------------------------------------------------------
+# PCSX-ReARMed (Sony PlayStation 1) — built as libpsxcore.so, which dlopen()s
+# the prebuilt libpcsx_rearmed_libretro_android.so from app/src/main/jniLibs/<abi>/.
+# Same dlopen pattern as FBNeo / Genesis-Plus-GX / Geargrafx.
+#
+# The prebuilt .so comes from the libretro buildbot
+# (https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/).
+#
+# Our JNI bridge (psx_bridge.cpp) + libretro frontend (psx_loader.cpp) drive
+# the core through the standard retro_* API. Supports the HQX library for
+# video filter upscalers. PSX BIOS files (scph1000.bin / scph1001.bin /
+# scph5500.bin etc.) are looked up by the core in the system directory — the
+# user can place them there manually or via a future BIOS import UI.
+# ---------------------------------------------------------------------------
+set(PSX_JNI_SOURCES
+    "${APP_JNI_DIR}/psx_bridge.cpp"
+    "${APP_JNI_DIR}/psx_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(psxcore SHARED ${PSX_JNI_SOURCES})
+
+target_include_directories(psxcore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(psxcore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(psxcore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt PCSX-ReARMed .so.
+target_link_libraries(psxcore log android dl)
+
+# ---------------------------------------------------------------------------
+# melonDS (Nintendo DS / DSi) — built as libndscore.so, which dlopen()s the
+# prebuilt libmelonds_libretro_android.so from app/src/main/jniLibs/<abi>/.
+# Same dlopen pattern as the other cores.
+#
+# The prebuilt .so comes from the libretro buildbot.
+#
+# Our JNI bridge (nds_bridge.cpp) + libretro frontend (nds_loader.cpp) drive
+# the core through the standard retro_* API. melonDS BIOS files (bios7.bin,
+# bios9.bin, firmware.bin) are looked up by the core in the system directory.
+# DSi mode additionally requires dsi_arm7.bin / dsi_bios7.bin / dsi_bios9.bin
+# / dsi_firmware.bin / dsi_nand.bin.
+# ---------------------------------------------------------------------------
+set(NDS_JNI_SOURCES
+    "${APP_JNI_DIR}/nds_bridge.cpp"
+    "${APP_JNI_DIR}/nds_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(ndscore SHARED ${NDS_JNI_SOURCES})
+
+target_include_directories(ndscore PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(ndscore PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(ndscore PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt melonDS .so.
+target_link_libraries(ndscore log android dl)
+
+# ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
 # Converted from J2ME-Loader's Android.mk to CMake
 # ---------------------------------------------------------------------------

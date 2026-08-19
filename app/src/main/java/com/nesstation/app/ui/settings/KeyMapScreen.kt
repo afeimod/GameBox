@@ -214,6 +214,9 @@ private fun actionsFor(platform: GamePlatform, player: Int = 0): List<KeyAction>
         GamePlatform.ARCADE -> ARCADE_ACTIONS.map { it.copy(id = it.id + suffix) }
         GamePlatform.MD     -> MD_ACTIONS.map { it.copy(id = it.id + suffix) }
         GamePlatform.PCE    -> PCE_ACTIONS.map { it.copy(id = it.id + suffix) }
+        // NDS / PSX use the same 12-button layout as SNES (D-pad + 4 face + 4 shoulder + Start/Select)
+        GamePlatform.NDS    -> SNES_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.PSX    -> SNES_ACTIONS.map { it.copy(id = it.id + suffix) }
         GamePlatform.JAVA   -> JAVA_ACTIONS.map { it.copy(id = it.id + suffix) }
     }
 }
@@ -283,6 +286,8 @@ fun KeyMapScreen(onBack: () -> Unit) {
                         GamePlatform.GB to "GB/GBC",
                         GamePlatform.MD to "MD",
                         GamePlatform.PCE to "PCE",
+                        GamePlatform.NDS to "NDS",
+                        GamePlatform.PSX to "PSX",
                         GamePlatform.ARCADE to "街机",
                         GamePlatform.DOS to "DOS",
                         GamePlatform.JAVA to "Java"

@@ -655,6 +655,115 @@ fun CoreSettingsPanel(
                     // J2ME 核心没有专属选项
                 }
             }
+            GamePlatform.NDS -> item {
+                SettingsSection("NDS / DSi (melonDS)") {
+                    DropdownRow("主机模式",
+                        listOf("ds" to "DS", "dsi" to "DSi"),
+                        padLayout.ndsConsoleMode
+                    ) { updateLayout(padLayout.copy(ndsConsoleMode = it)) }
+                    DropdownRow("屏幕布局",
+                        listOf("top_bottom" to "上下排列", "bottom_top" to "下上排列",
+                               "left_right" to "左右排列", "right_left" to "右左排列",
+                               "top_only" to "仅上方屏", "bottom_only" to "仅下方屏",
+                               "turnscreen" to "旋转屏"),
+                        padLayout.ndsScreenLayout
+                    ) { updateLayout(padLayout.copy(ndsScreenLayout = it)) }
+                    DropdownRow("渲染分辨率",
+                        listOf("1" to "1x (原生)", "2" to "2x", "3" to "3x", "4" to "4x", "5" to "5x"),
+                        padLayout.ndsResolution
+                    ) { updateLayout(padLayout.copy(ndsResolution = it)) }
+                    DropdownRow("OpenGL 过滤",
+                        listOf("nearest" to "最近邻(锐利)", "linear" to "线性(平滑)"),
+                        padLayout.ndsFiltering
+                    ) { updateLayout(padLayout.copy(ndsFiltering = it)) }
+                    DropdownRow("屏保",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.ndsScreensaver
+                    ) { updateLayout(padLayout.copy(ndsScreensaver = it)) }
+                    DropdownRow("触摸模式",
+                        listOf("mouse" to "鼠标", "touch" to "触摸", "disabled" to "关闭"),
+                        padLayout.ndsTouchMode
+                    ) { updateLayout(padLayout.copy(ndsTouchMode = it)) }
+                    DropdownRow("鼠标速度",
+                        listOf("50" to "50%", "75" to "75%", "100" to "100%", "125" to "125%", "150" to "150%", "175" to "175%", "200" to "200%"),
+                        padLayout.ndsMouseSpeed
+                    ) { updateLayout(padLayout.copy(ndsMouseSpeed = it)) }
+                    DropdownRow("DSi SD 卡",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.ndsDsiSdcard
+                    ) { updateLayout(padLayout.copy(ndsDsiSdcard = it)) }
+                    DropdownRow("随机 MAC 地址",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.ndsRandomizeMac
+                    ) { updateLayout(padLayout.copy(ndsRandomizeMac = it)) }
+                }
+            }
+            GamePlatform.PSX -> item {
+                SettingsSection("PSX (PCSX-ReARMed)") {
+                    DropdownRow("BIOS",
+                        listOf("auto" to "自动", "HLE" to "HLE(无 BIOS)",
+                               "scph1000" to "SCPH-1000(日)", "scph1001" to "SCPH-1001(美)",
+                               "scph1002" to "SCPH-1002(欧)", "scph5500" to "SCPH-5500(日)",
+                               "scph5501" to "SCPH-5501(美)", "scph5502" to "SCPH-5502(欧)",
+                               "psxonpsp660" to "PSP-660"),
+                        padLayout.pscxBios
+                    ) { updateLayout(padLayout.copy(pscxBios = it)) }
+                    DropdownRow("区域",
+                        listOf("auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
+                        padLayout.pscxRegion
+                    ) { updateLayout(padLayout.copy(pscxRegion = it)) }
+                    DropdownRow("跳帧类型",
+                        listOf("disabled" to "关闭", "auto" to "自动", "fixed" to "固定"),
+                        padLayout.pscxFrameskipType
+                    ) { updateLayout(padLayout.copy(pscxFrameskipType = it)) }
+                    DropdownRow("固定跳帧数",
+                        listOf("1" to "1", "2" to "2", "3" to "3", "4" to "4", "5" to "5", "6" to "6", "8" to "8", "10" to "10"),
+                        padLayout.pscxFrameskip
+                    ) { updateLayout(padLayout.copy(pscxFrameskip = it)) }
+                    DropdownRow("1P 手柄类型",
+                        listOf("standard" to "标准(D-Pad)", "analog" to "模拟摇杆",
+                               "negcon" to "NeGcon", "gun" to "光枪"),
+                        padLayout.pscxPad1Type
+                    ) { updateLayout(padLayout.copy(pscxPad1Type = it)) }
+                    DropdownRow("2P 手柄类型",
+                        listOf("standard" to "标准(D-Pad)", "analog" to "模拟摇杆",
+                               "negcon" to "NeGcon", "gun" to "光枪"),
+                        padLayout.pscxPad2Type
+                    ) { updateLayout(padLayout.copy(pscxPad2Type = it)) }
+                    DropdownRow("震动",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.pscxVibration
+                    ) { updateLayout(padLayout.copy(pscxVibration = it)) }
+                    DropdownRow("抖动",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.pscxDithering
+                    ) { updateLayout(padLayout.copy(pscxDithering = it)) }
+                    DropdownRow("SPU 插值",
+                        listOf("simple" to "简单", "gaussian" to "高斯", "cubic" to "立方", "off" to "关闭"),
+                        padLayout.pscxSpuInterp
+                    ) { updateLayout(padLayout.copy(pscxSpuInterp = it)) }
+                    DropdownRow("SPU 混响",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.pscxSpuReverb
+                    ) { updateLayout(padLayout.copy(pscxSpuReverb = it)) }
+                    DropdownRow("显示 BIOS 启动画面",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.pscxShowBootlogo
+                    ) { updateLayout(padLayout.copy(pscxShowBootlogo = it)) }
+                    DropdownRow("CD 预读扇区",
+                        listOf("0" to "0", "4" to "4", "8" to "8", "12" to "12(默认)", "16" to "16", "20" to "20", "30" to "30"),
+                        padLayout.pscxCdReadahead
+                    ) { updateLayout(padLayout.copy(pscxCdReadahead = it)) }
+                    DropdownRow("记忆卡 1",
+                        listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                        padLayout.pscxMemcard1
+                    ) { updateLayout(padLayout.copy(pscxMemcard1 = it)) }
+                    DropdownRow("记忆卡 2",
+                        listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                        padLayout.pscxMemcard2
+                    ) { updateLayout(padLayout.copy(pscxMemcard2 = it)) }
+                }
+            }
         }
     }
 }

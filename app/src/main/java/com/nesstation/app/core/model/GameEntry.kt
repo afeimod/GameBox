@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Color
  *           it requires a separate Saturn core (Yabause/Mednafen).
  * PCE    = PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD
  *           (Geargrafx core)
+ * NDS    = Nintendo DS / DSi (melonDS libretro core)
+ * PSX    = Sony PlayStation 1 (PCSX-ReARMed core)
  * JAVA   = J2ME/Java ME games (J2ME-Loader engine)
  */
 enum class GamePlatform(val displayName: String) {
@@ -27,6 +29,8 @@ enum class GamePlatform(val displayName: String) {
     ARCADE("Arcade"),
     MD("MD/SEGA"),
     PCE("PCE/TG16"),
+    NDS("NDS"),
+    PSX("PSX"),
     JAVA("Java");
 
     companion object {
@@ -77,6 +81,11 @@ enum class GamePlatform(val displayName: String) {
                 // PC-Engine / TurboGrafx-16
                 "pce", "pcengine", "turbografx", "tg16", "tg16cd", "geargrafx",
                 "supergrafx" -> PCE
+                // Nintendo DS (melonDS)
+                "nds", "ds", "nintendo", "nintendods", "melonds" -> NDS
+                // Sony PlayStation 1 (PCSX-ReARMed)
+                "psx", "ps1", "playstation", "playstation1", "sony", "pcsx",
+                "pcsxrearmed", "pcsxr" -> PSX
                 // J2ME
                 "java", "j2me", "midlet" -> JAVA
                 // 兜底：未识别的字符串保持 NES 行为不变（旧 API 兼容）
@@ -137,6 +146,17 @@ enum class GamePlatform(val displayName: String) {
                 // and DOS — disambiguated by the user's platform tab in
                 // detectPlatformFromUri.)
                 "pce", "sgx", "hes" -> PCE
+                // Nintendo DS (melonDS libretro)
+                // .nds = DS cartridge, .app = DSiWare, .ids = some ROM hacks
+                "nds", "app", "ids" -> NDS
+                // Sony PlayStation 1 (PCSX-ReARMed)
+                // .bin/.cue = CD image pair (most common), .pbp = PSP-style PSX
+                // eboot bundle, .m3u = playlist, .chd = compressed CD,
+                // .ecm = compressed CD, .mds/.mdf = Alcohol 120% image.
+                // .bin alone is ambiguous (also used by MD/arcade) — but in
+                // a .cue/.pbp context it's PSX. detectPlatformFromUri handles
+                // .cue by looking at sibling files.
+                "pbp", "m3u", "ecm", "mds", "mdf" -> PSX
                 "jar", "jad" -> JAVA
                 // .zip is intentionally NOT mapped — see detectPlatformFromUri
                 // for the disambiguation logic.

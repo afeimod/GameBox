@@ -78,6 +78,18 @@ class NesApp : Application() {
             com.nesstation.app.core.jni.PceNative.appContext = this
             PceEngine.ensureLoaded()
         }
+        tryInit("PsxEngine")           {
+            // PCSX-ReARMed PSX core — dlopen()s
+            // libpcsx_rearmed_libretro_android.so.
+            com.nesstation.app.core.jni.PsxNative.appContext = this
+            PsxEngine.ensureLoaded()
+        }
+        tryInit("NdsEngine")           {
+            // melonDS NDS core — dlopen()s
+            // libmelonds_libretro_android.so.
+            com.nesstation.app.core.jni.NdsNative.appContext = this
+            NdsEngine.ensureLoaded()
+        }
         tryInit("FdsBios")            { ensureFdsBios() }
         tryInit("FbNeoBios")          { ensureFbNeoBios() }
         tryInit("GenesisBios")        { ensureGenesisBios() }

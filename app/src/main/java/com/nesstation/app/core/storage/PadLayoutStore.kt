@@ -320,6 +320,35 @@ data class PadLayout(
     val pceMb128: String = "Auto",                      // Auto | Enabled | Disabled (Memory Base 128 save)
     val pceAllowUpDown: String = "Disabled",            // Disabled | Enabled
 
+    // === NDS (melonDS) core options ===
+    // Keys must match melonDS libretro frontend's option declarations.
+    val ndsConsoleMode: String = "ds",                  // ds | dsi
+    val ndsScreenLayout: String = "top_bottom",          // top_bottom | bottom_top | left_right | right_left | top_only | bottom_only | turnscreen
+    val ndsResolution: String = "1",                    // 1 | 2 | 3 | 4 | 5 (software renderer upscale factor)
+    val ndsFiltering: String = "nearest",               // nearest | linear
+    val ndsScreensaver: String = "disabled",            // disabled | enabled
+    val ndsTouchMode: String = "mouse",                 // mouse | touch | disabled
+    val ndsMouseSpeed: String = "100",                  // 50 | 75 | 100 | 125 | 150 | 175 | 200
+    val ndsDsiSdcard: String = "disabled",              // disabled | enabled (DSi mode SD card)
+    val ndsRandomizeMac: String = "disabled",           // disabled | enabled (randomize MAC for online play)
+
+    // === PSX (PCSX-ReARMed) core options ===
+    // Keys must match PCSX-ReARMed libretro_core_options.h.
+    val pscxBios: String = "auto",                      // auto | HLE | scph1000 | scph1001 | scph1002 | scph5500 | scph5501 | scph5502 | psxonpsp660
+    val pscxRegion: String = "auto",                    // auto | ntsc | pal
+    val pscxFrameskipType: String = "disabled",        // disabled | auto | fixed
+    val pscxFrameskip: String = "0",                    // 0..10 (only when frameskip_type=fixed)
+    val pscxPad1Type: String = "standard",              // standard | analog | negcon | gun
+    val pscxPad2Type: String = "standard",              // standard | analog | negcon | gun
+    val pscxVibration: String = "enabled",              // enabled | disabled
+    val pscxDithering: String = "enabled",              // enabled | disabled
+    val pscxSpuInterp: String = "simple",               // simple | gaussian | cubic | off
+    val pscxSpuReverb: String = "enabled",              // enabled | disabled
+    val pscxShowBootlogo: String = "disabled",          // disabled | enabled (show PSX BIOS boot logo)
+    val pscxCdReadahead: String = "12",                 // 0..30 (CD read-ahead in sectors)
+    val pscxMemcard1: String = "libretro",              // libretro | shared | disabled
+    val pscxMemcard2: String = "shared",                // libretro | shared | disabled
+
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
     // Used for 6-button fight-stick layouts and as Coin/Start shortcuts.

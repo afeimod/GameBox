@@ -831,6 +831,8 @@ fun LibraryScreen(
                             GamePlatform.ARCADE,
                             GamePlatform.MD,
                             GamePlatform.PCE,
+                            GamePlatform.NDS,
+                            GamePlatform.PSX,
                             GamePlatform.JAVA
                         )) { platform ->
                             FilterChip(
@@ -852,6 +854,8 @@ fun LibraryScreen(
                             GamePlatform.ARCADE,
                             GamePlatform.MD,
                             GamePlatform.PCE,
+                            GamePlatform.NDS,
+                            GamePlatform.PSX,
                             GamePlatform.JAVA
                         )) { platform ->
                             FilterChip(

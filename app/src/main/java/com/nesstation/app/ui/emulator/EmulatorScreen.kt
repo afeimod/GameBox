@@ -663,7 +663,26 @@ fun EmulatorScreen(
                    padLayout.dosAutoMapping, padLayout.dosSavestate, padLayout.dosDimScreen,
                    padLayout.dosResolution, padLayout.dosScale, padLayout.dosAspectRatio,
                    padLayout.dosCgaColors, padLayout.dosVoodoo, padLayout.dosForce60fps,
-                   padLayout.dosTimeAnnounce) {
+                   padLayout.dosTimeAnnounce,
+                   // MD / Genesis-Plus-GX options
+                   padLayout.mdAspect, padLayout.mdRegion, padLayout.mdCdFastboot,
+                   padLayout.mdInput, padLayout.mdAllowUpDown, padLayout.mdOverclock,
+                   padLayout.mdFrameskip, padLayout.mdSmsFm, padLayout.mdGgStretch,
+                   // PCE / Geargrafx options
+                   padLayout.pceConsoleType, padLayout.pceAspect, padLayout.pceOverscan,
+                   padLayout.pceNoSpriteLimit, padLayout.pcePalette, padLayout.pceCdromBios,
+                   padLayout.pceTurbotap, padLayout.pceMb128, padLayout.pceAllowUpDown,
+                   // NDS / melonDS options
+                   padLayout.ndsConsoleMode, padLayout.ndsScreenLayout, padLayout.ndsResolution,
+                   padLayout.ndsFiltering, padLayout.ndsScreensaver, padLayout.ndsTouchMode,
+                   padLayout.ndsMouseSpeed, padLayout.ndsDsiSdcard, padLayout.ndsRandomizeMac,
+                   // PSX / PCSX-ReARMed options
+                   padLayout.pscxBios, padLayout.pscxRegion, padLayout.pscxFrameskipType,
+                   padLayout.pscxFrameskip, padLayout.pscxPad1Type, padLayout.pscxPad2Type,
+                   padLayout.pscxVibration, padLayout.pscxDithering, padLayout.pscxSpuInterp,
+                   padLayout.pscxSpuReverb, padLayout.pscxShowBootlogo, padLayout.pscxCdReadahead,
+                   padLayout.pscxMemcard1, padLayout.pscxMemcard2
+                   ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         //
@@ -799,11 +818,17 @@ fun EmulatorScreen(
         // Genesis-Plus-GX expects Mega-CD BIOS zips in <filesDir>/genesis/.
         // Geargrafx expects PCE-CD BIOS files (syscard1/2/3.pce, gexpress.pce)
         // in <filesDir>/pce/.
+        // melonDS expects BIOS files (bios7.bin, bios9.bin, firmware.bin) in
+        // <filesDir>/nds/.
+        // PCSX-ReARMed expects PSX BIOS files (scph1001.bin, psxonpsp660.bin)
+        // in <filesDir>/psx/.
         // Other cores (NES/SNES/GBA/DOS) use the root filesDir.
         val systemDir = when (platform) {
             GamePlatform.ARCADE -> java.io.File(context.filesDir, "fbneo").apply { mkdirs() }.absolutePath
             GamePlatform.MD     -> java.io.File(context.filesDir, "genesis").apply { mkdirs() }.absolutePath
             GamePlatform.PCE    -> java.io.File(context.filesDir, "pce").apply { mkdirs() }.absolutePath
+            GamePlatform.NDS    -> java.io.File(context.filesDir, "nds").apply { mkdirs() }.absolutePath
+            GamePlatform.PSX    -> java.io.File(context.filesDir, "psx").apply { mkdirs() }.absolutePath
             else                -> context.filesDir.absolutePath
         }
         val filesDir = systemDir  // pass the platform-specific system dir to the core
@@ -1801,6 +1826,35 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("geargrafx_turbotap", layout.pceTurbotap)
             engine.setCoreOption("geargrafx_mb128", layout.pceMb128)
             engine.setCoreOption("geargrafx_up_down_allowed", layout.pceAllowUpDown)
+        }
+        GamePlatform.NDS -> {
+            // melonDS core options — keys match melonDS libretro frontend.
+            engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)
+            engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout)
+            engine.setCoreOption("melonds_opengl_resolution", layout.ndsResolution)
+            engine.setCoreOption("melonds_opengl_filtering", layout.ndsFiltering)
+            engine.setCoreOption("melonds_screensaver", layout.ndsScreensaver)
+            engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)
+            engine.setCoreOption("melonds_mouse_speed", layout.ndsMouseSpeed)
+            engine.setCoreOption("melonds_dsi_sdcard", layout.ndsDsiSdcard)
+            engine.setCoreOption("melonds_randomize_mac_address", layout.ndsRandomizeMac)
+        }
+        GamePlatform.PSX -> {
+            // PCSX-ReARMed core options — keys match libretro_core_options.h.
+            engine.setCoreOption("pcsx_rearmed_bios", layout.pscxBios)
+            engine.setCoreOption("pcsx_rearmed_region", layout.pscxRegion)
+            engine.setCoreOption("pcsx_rearmed_frameskip_type", layout.pscxFrameskipType)
+            engine.setCoreOption("pcsx_rearmed_frameskip", layout.pscxFrameskip)
+            engine.setCoreOption("pcsx_rearmed_pad1type", layout.pscxPad1Type)
+            engine.setCoreOption("pcsx_rearmed_pad2type", layout.pscxPad2Type)
+            engine.setCoreOption("pcsx_rearmed_vibration", layout.pscxVibration)
+            engine.setCoreOption("pcsx_rearmed_dithering", layout.pscxDithering)
+            engine.setCoreOption("pcsx_rearmed_spu_interpolation", layout.pscxSpuInterp)
+            engine.setCoreOption("pcsx_rearmed_spu_reverb", layout.pscxSpuReverb)
+            engine.setCoreOption("pcsx_rearmed_show_bios_bootlogo", layout.pscxShowBootlogo)
+            engine.setCoreOption("pcsx_rearmed_cd_readahead", layout.pscxCdReadahead)
+            engine.setCoreOption("pcsx_rearmed_memcard1", layout.pscxMemcard1)
+            engine.setCoreOption("pcsx_rearmed_memcard2", layout.pscxMemcard2)
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }

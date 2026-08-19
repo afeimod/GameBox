@@ -181,6 +181,8 @@ interface EmulatorEngine {
          * ARCADE -> FbNeoEngine (FBNeo — CPS1/2/3, NeoGeo, PGM, etc.)
          * MD     -> GenesisEngine (Genesis-Plus-GX — MD/SMS/GG/SG/Mega-CD)
          * PCE    -> PceEngine (Geargrafx — PC-Engine/TurboGrafx-16/SuperGrafx/PCE-CD)
+         * NDS    -> NdsEngine (melonDS — Nintendo DS / DSi)
+         * PSX    -> PsxEngine (PCSX-ReARMed — Sony PlayStation 1)
          */
         fun forPlatform(platform: GamePlatform): EmulatorEngine = when (platform) {
             GamePlatform.NES    -> NesEngine.get()
@@ -191,6 +193,8 @@ interface EmulatorEngine {
             GamePlatform.ARCADE -> FbNeoEngine.get()
             GamePlatform.MD     -> GenesisEngine.get()
             GamePlatform.PCE    -> PceEngine.get()
+            GamePlatform.NDS    -> NdsEngine.get()
+            GamePlatform.PSX    -> PsxEngine.get()
             GamePlatform.JAVA   -> NesEngine.get() // fallback, should not be used
         }
     }

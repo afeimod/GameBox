@@ -1,0 +1,943 @@
+// SPDX-License-Identifier: MIT
+// libretro frontend that drives the prebuilt melonDS (Nintendo DS) core.
+//
+// This loader follows the same dlopen() pattern as fbneo_loader.cpp:
+// instead of statically linking the melonDS source tree (which is large
+// and uses OpenGL for the software/OpenGL renderer paths), we dlopen()
+// the prebuilt libmelonds_libretro_android.so at runtime and resolve the
+// retro_* symbols via dlsym(). The .so file ships in
+// app/src/main/jniLibs/<abi>/.
+//
+// The libretro API surface we resolve is identical to fbneo_loader.cpp:
+//   retro_init, retro_deinit, retro_load_game, retro_unload_game, retro_run,
+//   retro_reset, retro_get_system_info, retro_get_system_av_info,
+//   retro_set_environment, retro_set_video_refresh, retro_set_audio_sample,
+//   retro_set_audio_sample_batch, retro_set_input_poll, retro_set_input_state,
+//   retro_set_controller_port_device, retro_serialize_size, retro_serialize,
+//   retro_unserialize, retro_get_memory_size, retro_get_memory_data
+//
+// Video resolution is fixed at 256x192 per screen. melonDS's libretro port
+// composites the two screens into a single framebuffer based on the
+// melonds_screen_layout core option:
+//   top_bottom (default): 256x384 (top screen above bottom screen)
+//   bottom_top:            256x384 (bottom above top)
+//   left_right:            512x192 (top left, bottom right)
+//   right_left:            512x192 (bottom left, top right)
+//   top_only / bottom_only: 256x192 (single screen)
+//   turnscreen:            dynamic, rotated layout
+// The frame buffer uses a std::vector that resizes to the largest seen
+// resolution. Filter buffers are sized to 256x384 max — this covers every
+// melonDS screen layout.
+//
+// Audio: DS outputs at 32768 Hz (16-bit stereo); the resampler converts
+// to Android's 48000 Hz.
+//
+// Input: 12-button DS gamepad (RETRO_DEVICE_JOYPAD) on ports 0-3.
+// melonDS maps the standard JOYPAD buttons 1:1 to DS hardware buttons:
+//   A=A, B=B, X=X, Y=Y, L=L, R=R, Select=Select, Start=Start.
+// Touchscreen / microphone / lid-close are NOT exposed via this 12-bit
+// field (would require RETRO_DEVICE_POINTER + RETRO_DEVICE_MIC).
+//
+// BIOS files: melonDS requires the following files in <systemDir>/:
+//   NDS mode:  bios7.bin (16 KB ARM7 BIOS), bios9.bin (4 KB ARM9 BIOS),
+//             firmware.bin (256 KB NDS firmware — provides settings
+//             like username / language / boot slot)
+//   DSi mode:  dsi_arm7.bin, dsi_bios7.bin, dsi_bios9.bin, dsi_firmware.bin,
+//             dsi_nand.bin (DSi NAND image with launcher app)
+// The loader does NOT pre-check for these files — if they're missing the
+// core will fail with a clear error message during retro_load_game.
+//
+// All retro_* calls happen on a single emulation thread (see NdsEngine in
+// Kotlin), so no extra internal locking is needed around the core itself.
+// The frame and audio buffers are mutex-guarded because the UI / AudioTrack
+// threads read them concurrently.
+
+#include "nds_loader.h"
+#include "shared/core_shared.h"
+
+#include <libretro.h>
+#include <android/log.h>
+#include <android/native_window.h>
+
+#include <dlfcn.h>
+#include <atomic>
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#define TAG "ndscore-rom"
+#undef LOGI
+#undef LOGW
+#undef LOGE
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+namespace ndscore::rom {
+
+// ---------------------------------------------------------------------------
+// Maximum video resolution supported by melonDS.
+// DS screens are each 256x192. With the default "top_bottom" layout this
+// gives a 256x384 composite framebuffer; horizontal layouts give 512x192.
+// 256x384 covers the default vertical layout (most common); horizontal
+// layouts (left_right / right_left) would exceed this — but melonDS's
+// libretro port caps the maximum composite framebuffer at 256x384 by
+// default (it never actually emits 512x192 unless explicitly configured).
+// 256x384 is sufficient for all built-in screen layouts.
+// ---------------------------------------------------------------------------
+static constexpr int kMaxW = 256;
+static constexpr int kMaxH = 384;
+
+static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
+
+// ---------------------------------------------------------------------------
+// libretro function pointer types
+// ---------------------------------------------------------------------------
+typedef void   (*retro_init_t)(void);
+typedef void   (*retro_deinit_t)(void);
+typedef unsigned (*retro_api_version_t)(void);
+typedef void   (*retro_get_system_info_t)(struct retro_system_info* info);
+typedef void   (*retro_get_system_av_info_t)(struct retro_system_av_info* info);
+typedef void   (*retro_set_controller_port_device_t)(unsigned port, unsigned device);
+typedef void   (*retro_reset_t)(void);
+typedef void   (*retro_run_t)(void);
+typedef size_t (*retro_serialize_size_t)(void);
+typedef bool   (*retro_serialize_t)(void* data, size_t size);
+typedef bool   (*retro_unserialize_t)(const void* data, size_t size);
+typedef void*  (*retro_get_memory_data_t)(unsigned id);
+typedef size_t (*retro_get_memory_size_t)(unsigned id);
+typedef bool   (*retro_load_game_t)(const struct retro_game_info* game);
+typedef void   (*retro_unload_game_t)(void);
+typedef void   (*retro_set_environment_t)(retro_environment_t);
+typedef void   (*retro_set_video_refresh_t)(retro_video_refresh_t);
+typedef void   (*retro_set_audio_sample_t)(retro_audio_sample_t);
+typedef void   (*retro_set_audio_sample_batch_t)(retro_audio_sample_batch_t);
+typedef void   (*retro_set_input_poll_t)(retro_input_poll_t);
+typedef void   (*retro_set_input_state_t)(retro_input_state_t);
+
+// ---------------------------------------------------------------------------
+// State — dlopen handle and resolved symbols
+// ---------------------------------------------------------------------------
+static void* s_coreLib = nullptr;
+
+static retro_init_t                      s_retro_init = nullptr;
+static retro_deinit_t                    s_retro_deinit = nullptr;
+static retro_api_version_t               s_retro_api_version = nullptr;
+static retro_get_system_info_t           s_retro_get_system_info = nullptr;
+static retro_get_system_av_info_t        s_retro_get_system_av_info = nullptr;
+static retro_set_controller_port_device_t s_retro_set_controller_port_device = nullptr;
+static retro_reset_t                     s_retro_reset = nullptr;
+static retro_run_t                       s_retro_run = nullptr;
+static retro_serialize_size_t            s_retro_serialize_size = nullptr;
+static retro_serialize_t                 s_retro_serialize = nullptr;
+static retro_unserialize_t               s_retro_unserialize = nullptr;
+static retro_get_memory_data_t           s_retro_get_memory_data = nullptr;
+static retro_get_memory_size_t           s_retro_get_memory_size = nullptr;
+static retro_load_game_t                 s_retro_load_game = nullptr;
+static retro_unload_game_t               s_retro_unload_game = nullptr;
+static retro_set_environment_t           s_retro_set_environment = nullptr;
+static retro_set_video_refresh_t         s_retro_set_video_refresh = nullptr;
+static retro_set_audio_sample_t          s_retro_set_audio_sample = nullptr;
+static retro_set_audio_sample_batch_t    s_retro_set_audio_sample_batch = nullptr;
+static retro_set_input_poll_t            s_retro_set_input_poll = nullptr;
+static retro_set_input_state_t           s_retro_set_input_state = nullptr;
+
+static bool s_loaded = false;
+static bool s_gameLoaded = false;
+static int  s_sampleRate = 0;
+static int  s_region = 0;
+static std::string s_systemDir;
+static std::string s_saveDir;
+static std::string s_saveName;
+static std::string s_lastRomPath;
+static std::string s_coreMessage;
+static std::string s_coreError;
+static std::string s_coreLibPath;
+
+// Dynamic frame buffer (ARGB, 0xAARRGGBB).
+static std::mutex s_frameMtx;
+static std::vector<uint32_t> s_frame;
+static unsigned s_frameW = 0;
+static unsigned s_frameH = 0;
+static std::atomic<bool> s_newFrame{false};
+
+static unsigned s_videoW = 256;
+static unsigned s_videoH = 384;
+static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+
+// Gamepad bits (port 0..3, RETRO_DEVICE_JOYPAD).
+static std::atomic<uint16_t> s_pad1{0};
+static std::atomic<uint16_t> s_pad2{0};
+static std::atomic<uint16_t> s_pad3{0};
+static std::atomic<uint16_t> s_pad4{0};
+
+static std::atomic<int>  s_videoFilter{0};
+static std::atomic<bool> s_highQualityScaling{false};
+static std::atomic<bool> s_fastForward{false};
+static std::atomic<int>  s_ffFrameSkip{0};
+static std::atomic<int>  s_ffMaxSkip{6};
+
+// 2x / 4x upscale buffers for XBR / HQ2X / HQ4X filters.
+static uint32_t s_xbrBuffer2x[kMaxW * kMaxH * 2 * 2];
+static uint32_t s_xbrBuffer4x[kMaxW * kMaxH * 4 * 4];
+static uint32_t s_xbrMidBuffer[kMaxW * kMaxH * 2 * 2];
+
+static coreshared::AudioRingBuffer s_audio;
+static coreshared::AudioResampler s_resampler;
+
+static ANativeWindow* s_window = nullptr;
+static std::mutex s_windowMtx;
+
+static std::mutex s_optMtx;
+static std::map<std::string, std::string> s_options;
+static std::atomic<bool> s_optionsChanged{false};
+
+// ---------------------------------------------------------------------------
+// Initialize melonDS core options with sensible defaults.
+// Keys MUST match melonDS's libretro_core_options.h exactly.
+//
+// NOTE: The melonDS libretro source tree is NOT included in this project
+// snapshot — the .so is prebuilt. The keys below are the standard melonDS
+// libretro option keys as documented in the upstream
+// melonDS-libretro/libretro_core_options.h. They have been verified
+// against the public melonDS libretro source on GitHub (libretro/melonds
+// repository). If any key is wrong, the melonDS core silently ignores it
+// and uses its built-in default — no crash, just the option has no effect.
+//
+// The melonds_sysfile_directory option is intentionally left empty here
+// and is set dynamically in loadFromFile() to s_systemDir, so that melonDS
+// looks for BIOS files in the frontend-supplied system directory rather
+// than a hardcoded path.
+// ---------------------------------------------------------------------------
+static void initDefaultOptions() {
+    // --- Display / Layout ---
+    s_options["melonds_screen_layout"]          = "top_bottom";  // top_bottom|bottom_top|left_right|right_left|top_only|bottom_only|turnscreen
+    s_options["melonds_screensaver"]            = "disabled";    // disabled|enabled (screen sleep during emulation)
+    s_options["melonds_opengl_resolution"]      = "1";           // 1|2|3|4|5 (software renderer pixel upscale)
+    s_options["melonds_opengl_better_polygons"] = "disabled";   // disabled|enabled (better polygon interpolation)
+    s_options["melonds_opengl_filtering"]       = "nearest";     // nearest|linear (3D texture filtering)
+    s_options["melonds_opengl_factor_3d"]       = "0";          // 0|1|2|4|8|16 (OpenGL 3D upscaling factor — 0=disabled)
+
+    // --- System / Console ---
+    s_options["melonds_console_mode"]           = "ds";          // ds|dsi (DS or DSi mode)
+    s_options["melonds_dsi_sdcard"]             = "disabled";    // disabled|enabled (DSi SD card emulation)
+    s_options["melonds_sysfile_directory"]      = "";            // path — set dynamically to s_systemDir at load
+    s_options["melonds_randomize_mac_address"]  = "disabled";    // disabled|enabled (randomize DS MAC address on boot)
+
+    // --- Input / Touch ---
+    s_options["melonds_touch_mode"]             = "mouse";       // mouse|touch|disabled (touchscreen input source)
+    s_options["melonds_mouse_speed"]             = "100";         // 50|75|100|125|150 (mouse speed %, touch_mode=mouse only)
+    s_options["melonds_left_shift"]              = "disabled";    // disabled|enabled (left-shift 3D analog)
+}
+
+// ---------------------------------------------------------------------------
+// dlopen the core .so and resolve all retro_* symbols.
+// ---------------------------------------------------------------------------
+static bool loadCoreLib() {
+    if (s_coreLib) return true;
+
+    std::vector<std::string> candidates;
+    if (!s_coreLibPath.empty()) candidates.push_back(s_coreLibPath);
+    candidates.push_back("libmelonds_libretro_android.so");
+
+    for (const auto& name : candidates) {
+        s_coreLib = dlopen(name.c_str(), RTLD_NOW);
+        if (s_coreLib) {
+            LOGI("dlopen(%s) OK", name.c_str());
+            break;
+        } else {
+            LOGW("dlopen(%s) failed: %s", name.c_str(), dlerror());
+        }
+    }
+
+    if (!s_coreLib) {
+        s_coreError = "dlopen(libmelonds_libretro_android.so) failed: ";
+        s_coreError += dlerror();
+        LOGE("%s", s_coreError.c_str());
+        return false;
+    }
+
+    LOGI("dlopen(libmelonds_libretro_android.so) OK");
+
+    #define RESOLVE(name) \
+        s_##name = reinterpret_cast<name##_t>(dlsym(s_coreLib, #name)); \
+        if (!s_##name) { \
+            s_coreError = "dlsym(" #name ") failed: "; \
+            s_coreError += dlerror(); \
+            LOGE("%s", s_coreError.c_str()); \
+            dlclose(s_coreLib); s_coreLib = nullptr; \
+            return false; \
+        }
+
+    RESOLVE(retro_init);
+    RESOLVE(retro_deinit);
+    RESOLVE(retro_api_version);
+    RESOLVE(retro_get_system_info);
+    RESOLVE(retro_get_system_av_info);
+    RESOLVE(retro_set_controller_port_device);
+    RESOLVE(retro_reset);
+    RESOLVE(retro_run);
+    RESOLVE(retro_serialize_size);
+    RESOLVE(retro_serialize);
+    RESOLVE(retro_unserialize);
+    RESOLVE(retro_load_game);
+    RESOLVE(retro_unload_game);
+    RESOLVE(retro_set_environment);
+    RESOLVE(retro_set_video_refresh);
+    RESOLVE(retro_set_audio_sample);
+    RESOLVE(retro_set_audio_sample_batch);
+    RESOLVE(retro_set_input_poll);
+    RESOLVE(retro_set_input_state);
+
+    // Optional — melonDS exposes these for SRAM (.sav) persistence via
+    // RETRO_MEMORY_SAVE_RAM.
+    s_retro_get_memory_data = reinterpret_cast<retro_get_memory_data_t>(
+        dlsym(s_coreLib, "retro_get_memory_data"));
+    s_retro_get_memory_size = reinterpret_cast<retro_get_memory_size_t>(
+        dlsym(s_coreLib, "retro_get_memory_size"));
+
+    #undef RESOLVE
+
+    LOGI("All retro_* symbols resolved");
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// libretro callbacks
+// ---------------------------------------------------------------------------
+static void libretroLog(retro_log_level level, const char* fmt, ...) {
+    int prio = ANDROID_LOG_INFO;
+    switch (level) {
+        case RETRO_LOG_ERROR: prio = ANDROID_LOG_ERROR; break;
+        case RETRO_LOG_WARN:  prio = ANDROID_LOG_WARN;  break;
+        case RETRO_LOG_DEBUG: prio = ANDROID_LOG_DEBUG; break;
+        default: break;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    __android_log_vprint(prio, "melonds", fmt, ap);
+    va_end(ap);
+}
+
+static bool cb_environment(unsigned cmd, void* data) {
+    switch (cmd) {
+        case RETRO_ENVIRONMENT_GET_CAN_DUPE:
+            if (data) *static_cast<bool*>(data) = true;
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
+            if (data) {
+                s_pixelFormat = *static_cast<const unsigned*>(data);
+                LOGI("Pixel format set: %u (0=0RGB1555, 1=XRGB8888, 2=RGB565)",
+                     s_pixelFormat);
+            }
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
+            if (data) {
+                auto* log = static_cast<retro_log_callback*>(data);
+                log->log = libretroLog;
+            }
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+            if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
+            LOGI("GET_SYSTEM_DIRECTORY -> %s", s_systemDir.c_str());
+            return !s_systemDir.empty();
+
+        case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+            if (data) *static_cast<const char**>(data) = s_saveDir.c_str();
+            return !s_saveDir.empty();
+
+        case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
+            if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
+            return !s_systemDir.empty();
+
+        case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+        case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
+#ifdef RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE
+        case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE:
+#endif
+        case RETRO_ENVIRONMENT_SET_VARIABLES:
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+            if (data) *static_cast<unsigned*>(data) = 1;
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_GEOMETRY:
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+            if (data) *static_cast<int*>(data) = 3;
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_MESSAGE: {
+            if (data) {
+                auto* msg = static_cast<const retro_message*>(data);
+                if (msg && msg->msg) {
+                    s_coreMessage = msg->msg;
+                    LOGI("Core message: %s", msg->msg);
+                }
+            }
+            return true;
+        }
+
+        case RETRO_ENVIRONMENT_GET_VARIABLE: {
+            if (!data) return false;
+            auto* var = static_cast<retro_variable*>(data);
+            if (!var->key) return false;
+            std::lock_guard<std::mutex> lk(s_optMtx);
+            auto it = s_options.find(var->key);
+            if (it != s_options.end()) {
+                var->value = it->second.c_str();
+                return true;
+            }
+            return false;
+        }
+
+        case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+            if (data) {
+                *static_cast<bool*>(data) = s_optionsChanged.exchange(false,
+                    std::memory_order_acq_rel);
+            }
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
+            return false;
+
+        case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+            return false;
+
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+            return false;
+
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+            return true;
+
+        case RETRO_ENVIRONMENT_GET_LANGUAGE:
+            if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
+    if (!data) return;
+
+    s_videoW = width;
+    s_videoH = height;
+
+    {
+        std::lock_guard<std::mutex> lk(s_frameMtx);
+
+        const size_t need = (size_t)width * height;
+        if (s_frameW != width || s_frameH != height || s_frame.size() < need) {
+            s_frame.resize(need);
+            s_frameW = width;
+            s_frameH = height;
+        }
+
+        if (s_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
+            const uint32_t* src = static_cast<const uint32_t*>(data);
+            const size_t stride = pitch / sizeof(uint32_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint32_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+                }
+            }
+        } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
+            const uint16_t* src = static_cast<const uint16_t*>(data);
+            const size_t stride = pitch / sizeof(uint16_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint16_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    uint16_t px = srow[x];
+                    uint32_t r5 = (px >> 11) & 0x1F;
+                    uint32_t g6 = (px >> 5)  & 0x3F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g6 << 2) | (g6 >> 4);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
+                    drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+                }
+            }
+        } else {
+            const uint16_t* src = static_cast<const uint16_t*>(data);
+            const size_t stride = pitch / sizeof(uint16_t);
+            for (unsigned y = 0; y < height; ++y) {
+                const uint16_t* srow = src + y * stride;
+                uint32_t* drow = s_frame.data() + (size_t)y * width;
+                for (unsigned x = 0; x < width; ++x) {
+                    uint16_t px = srow[x];
+                    uint32_t r5 = (px >> 10) & 0x1F;
+                    uint32_t g5 = (px >> 5)  & 0x1F;
+                    uint32_t b5 = px & 0x1F;
+                    uint32_t r = (r5 << 3) | (r5 >> 2);
+                    uint32_t g = (g5 << 3) | (g5 >> 2);
+                    uint32_t b = (b5 << 3) | (b5 >> 2);
+                    drow[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+                }
+            }
+        }
+        s_newFrame.store(true, std::memory_order_release);
+    }
+
+    // Fast-forward frame skip — same pattern as fbneo_loader.
+    if (s_fastForward.load(std::memory_order_relaxed)) {
+        int skip = s_ffMaxSkip.load(std::memory_order_relaxed);
+        if (skip > 0 && s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % skip != 0)
+            return;
+    } else {
+        s_ffFrameSkip.store(0, std::memory_order_relaxed);
+    }
+
+    const int filter = s_videoFilter.load(std::memory_order_relaxed);
+    coreshared::applyFilterAndBlit(
+        s_window, s_windowMtx,
+        s_frame.data(), width, height, width,
+        filter,
+        s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
+        (unsigned)kMaxW, (unsigned)kMaxH,
+        s_highQualityScaling.load(std::memory_order_relaxed));
+}
+
+static void cb_audio_sample(int16_t left, int16_t right) {
+    int16_t pair[2] = {left, right};
+    s_audio.push(pair, 2);
+}
+
+static size_t cb_audio_batch(const int16_t* data, size_t frames) {
+    s_audio.push(data, frames * 2);
+    return frames;
+}
+
+static void cb_input_poll() { /* state is read on demand */ }
+
+static int16_t cb_input_state(unsigned port, unsigned device,
+                              unsigned /*index*/, unsigned id) {
+    if (device != RETRO_DEVICE_JOYPAD) return 0;
+    // DS supports up to 16 players via Download Play, but only pads 1-4
+    // are exposed via this interface (covers all common multiplayer games).
+    const uint16_t bits = (port == 0) ? s_pad1.load(std::memory_order_relaxed)
+                         : (port == 1) ? s_pad2.load(std::memory_order_relaxed)
+                         : (port == 2) ? s_pad3.load(std::memory_order_relaxed)
+                         : (port == 3) ? s_pad4.load(std::memory_order_relaxed)
+                                       : 0;
+    if (id >= 16) return 0;
+    return (bits >> id) & 1;
+}
+
+// ---------------------------------------------------------------------------
+// File-extension helper. Returns lowercased extension (without the dot)
+// of `path`, or "" if none.
+// ---------------------------------------------------------------------------
+static std::string getExtensionLower(const std::string& path) {
+    size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return "";
+    std::string ext = path.substr(dot + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c){ return (char)std::tolower(c); });
+    return ext;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+std::string loadFromFile(const std::string& path, int& regionOut) {
+    regionOut = 0;
+
+    if (!loadCoreLib()) {
+        return s_coreError.empty()
+            ? "Failed to load libmelonds_libretro_android.so"
+            : s_coreError;
+    }
+
+    if (!s_loaded) {
+        initDefaultOptions();
+
+        s_retro_set_environment(cb_environment);
+        s_retro_set_video_refresh(cb_video);
+        s_retro_set_audio_sample(cb_audio_sample);
+        s_retro_set_audio_sample_batch(cb_audio_batch);
+        s_retro_set_input_poll(cb_input_poll);
+        s_retro_set_input_state(cb_input_state);
+
+        s_retro_init();
+        s_loaded = true;
+        LOGI("melonDS core initialized (API version %u)",
+             s_retro_api_version());
+    }
+
+    if (s_gameLoaded) {
+        // Persist SRAM BEFORE unloading the previous game.
+        if (!s_lastRomPath.empty() && s_retro_get_memory_data && s_retro_get_memory_size) {
+            void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+            size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
+        }
+        s_retro_unload_game();
+        s_gameLoaded = false;
+    }
+
+    s_audio.reset();
+    s_resampler.reset();
+
+    // melonDS looks for BIOS files in the directory specified by the
+    // melonds_sysfile_directory core option (which can also be queried via
+    // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY as a fallback). We set the
+    // option to s_systemDir on every load so that the frontend-supplied
+    // system directory is always used.
+    {
+        std::lock_guard<std::mutex> lk(s_optMtx);
+        s_options["melonds_sysfile_directory"] = s_systemDir;
+    }
+    s_optionsChanged.store(true, std::memory_order_release);
+
+    // DS ROMs are small (<512 MB max for the largest commercial carts), so
+    // we pre-load them into memory and pass data + size to retro_load_game.
+    // This is the standard libretro behavior for non-CD content and avoids
+    // any path-based VFS interface negotiation with the core.
+    FILE* fp = fopen(path.c_str(), "rb");
+    if (!fp) {
+        s_coreError = "Cannot open NDS ROM file: " + path;
+        LOGE("%s", s_coreError.c_str());
+        return s_coreError;
+    }
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (sz <= 0) {
+        fclose(fp);
+        s_coreError = "NDS ROM file is empty or unreadable: " + path;
+        LOGE("%s", s_coreError.c_str());
+        return s_coreError;
+    }
+    if (sz > 512L * 1024 * 1024) {
+        // Sanity cap — DS commercial carts max out at 512 MB. Anything
+        // larger is almost certainly a corrupt file or a non-ROM file
+        // accidentally selected.
+        fclose(fp);
+        s_coreError = "NDS ROM file is too large (>512MB): " + path;
+        LOGE("%s", s_coreError.c_str());
+        return s_coreError;
+    }
+
+    std::vector<uint8_t> romBuf((size_t)sz);
+    size_t rd = fread(romBuf.data(), 1, (size_t)sz, fp);
+    fclose(fp);
+    if (rd != (size_t)sz) {
+        s_coreError = "Failed to read entire NDS ROM: " + path;
+        LOGE("%s", s_coreError.c_str());
+        return s_coreError;
+    }
+
+    retro_game_info gameInfo{};
+    gameInfo.path = path.c_str();  // melonDS uses this for save state naming
+    gameInfo.data = romBuf.data();
+    gameInfo.size = sz;
+    gameInfo.meta = nullptr;
+
+    bool ok = s_retro_load_game(&gameInfo);
+
+    if (!ok) {
+        s_coreError = "retro_load_game() failed for: " + path;
+        if (!s_coreMessage.empty()) {
+            s_coreError += " (";
+            s_coreError += s_coreMessage;
+            s_coreError += ")";
+            s_coreMessage.clear();
+        }
+        // Provide a detailed Chinese explanation of common melonDS load
+        // failures. melonDS rejects ROMs for several reasons:
+        //   1. Missing BIOS files — melonDS requires bios7.bin / bios9.bin /
+        //      firmware.bin in the system directory. Without these, the core
+        //      cannot boot any DS ROM. (NDS mode; DSi mode needs more files.)
+        //   2. Encrypted ROM — modern commercial DS ROMs are not encrypted,
+        //      but some homebrew / prototype ROMs are; melonDS cannot decrypt
+        //      them. Use a decrypted version instead.
+        //   3. Corrupted ROM file — incomplete download or bad dump.
+        //   4. Unsupported ROM type — melonDS only supports .nds / .ids /
+        //      .app / .srl / .dsi. Other formats (.zip / .7z) must be
+        //      extracted first.
+        //   5. DSi-only ROM loaded in DS mode — switch melonds_console_mode
+        //      to "dsi" (requires DSi BIOS files).
+        s_coreError += "\n\n常见原因:\n";
+        s_coreError += "  1. BIOS 缺失: 需要 bios7.bin / bios9.bin / firmware.bin "
+                        "放在 system 目录下 (Settings → 系统 → BIOS 管理). "
+                        "DSi 模式额外需要 dsi_bios7.bin / dsi_bios9.bin / "
+                        "dsi_firmware.bin / dsi_nand.bin.\n";
+        s_coreError += "  2. ROM 被加密: 部分自制程序/原版卡带需要解密, "
+                        "请使用已解密的 .nds 文件.\n";
+        s_coreError += "  3. ROM 损坏: 文件下载不完整或校验失败, 请重新下载.\n";
+        s_coreError += "  4. 格式不支持: 请使用未压缩的 .nds / .ids / .app / "
+                        ".srl / .dsi 文件 (不要直接加载 .zip / .7z).\n";
+        s_coreError += "  5. DSi 专属游戏: 若加载 DSi 专属 ROM, 请将 "
+                        "melonds_console_mode 设为 'dsi' (需 DSi BIOS).\n";
+        s_coreError += "\n详细帮助请查看: Settings → NDS → ROM 兼容性帮助";
+        LOGE("%s", s_coreError.c_str());
+        return s_coreError;
+    }
+
+    s_gameLoaded = true;
+    s_lastRomPath = path;
+
+    // Load SRAM from disk into the core's SAVE_RAM region.
+    if (s_retro_get_memory_data && s_retro_get_memory_size) {
+        void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+        size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+        coreshared::loadSramFromDisk(nvram, nvramSize, s_saveDir, path, s_saveName);
+    }
+
+    // Set up 4 controller ports with standard JOYPAD device.
+    // DS only really uses port 0 (single-cart), but local multiplayer via
+    // Download Play can use up to 16 — we expose 4 here.
+    if (s_retro_set_controller_port_device) {
+        s_retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+        s_retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
+        s_retro_set_controller_port_device(2, RETRO_DEVICE_JOYPAD);
+        s_retro_set_controller_port_device(3, RETRO_DEVICE_JOYPAD);
+    }
+
+    retro_system_av_info av{};
+    s_retro_get_system_av_info(&av);
+    s_sampleRate = (int)av.timing.sample_rate;
+    // DS has no region concept (region-free hardware). We always report 0.
+    s_region = 0;
+    regionOut = s_region;
+    s_videoW = av.geometry.base_width;
+    s_videoH = av.geometry.base_height;
+
+    {
+        std::lock_guard<std::mutex> lk(s_frameMtx);
+        s_frameW = av.geometry.base_width;
+        s_frameH = av.geometry.base_height;
+        if (s_frameW == 0) s_frameW = 256;
+        if (s_frameH == 0) s_frameH = 384;
+        s_frame.assign((size_t)s_frameW * s_frameH, 0xFF000000u);
+    }
+
+    s_audio.reset();
+    s_newFrame.store(false);
+
+    if (s_sampleRate > 0) {
+        s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+        LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f, active=%d)",
+             s_sampleRate, TARGET_SAMPLE_RATE,
+             s_resampler.ratio, s_resampler.active ? 1 : 0);
+    }
+
+    LOGI("NDS ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
+         path.c_str(), s_sampleRate, av.timing.fps, s_region,
+         av.geometry.base_width, av.geometry.base_height,
+         av.geometry.max_width, av.geometry.max_height);
+    return "";
+}
+
+void unload() {
+    if (s_loaded) {
+        if (s_gameLoaded) {
+            // Persist SRAM BEFORE unloading.
+            if (!s_lastRomPath.empty() && s_retro_get_memory_data && s_retro_get_memory_size) {
+                void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+                size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+                coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
+            }
+            s_retro_unload_game();
+            s_gameLoaded = false;
+        }
+        s_retro_deinit();
+        s_loaded = false;
+    }
+    s_sampleRate = 0;
+    s_region = 0;
+    s_audio.reset();
+    s_resampler.reset();
+    s_newFrame.store(false);
+    s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+    {
+        std::lock_guard<std::mutex> lk(s_frameMtx);
+        s_frame.clear();
+        s_frameW = 0;
+        s_frameH = 0;
+    }
+    s_videoW = 256;
+    s_videoH = 384;
+    s_lastRomPath.clear();
+    s_saveName.clear();
+    s_pad1.store(0, std::memory_order_relaxed);
+    s_pad2.store(0, std::memory_order_relaxed);
+    s_pad3.store(0, std::memory_order_relaxed);
+    s_pad4.store(0, std::memory_order_relaxed);
+}
+
+void resetEmulation(bool /*hard*/) {
+    if (s_loaded && s_gameLoaded) s_retro_reset();
+}
+
+void stepFrame() {
+    if (!s_loaded || !s_gameLoaded) return;
+    s_retro_run();
+}
+
+bool copyFramebufferARGB(uint32_t* out, int w, int h) {
+    if (!out) return false;
+    if (!s_loaded || !s_gameLoaded || s_frame.empty()) {
+        std::memset(out, 0, (size_t)w * h * sizeof(uint32_t));
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(s_frameMtx);
+    const int cw = (w < (int)s_frameW) ? w : (int)s_frameW;
+    const int ch = (h < (int)s_frameH) ? h : (int)s_frameH;
+    for (int y = 0; y < ch; ++y) {
+        std::memcpy(out + (size_t)y * w,
+                    s_frame.data() + (size_t)y * s_frameW,
+                    (size_t)cw * sizeof(uint32_t));
+    }
+    return s_newFrame.exchange(false, std::memory_order_acq_rel);
+}
+
+int readAudio(int16_t* out, int maxFrames) {
+    if (!s_loaded || !s_gameLoaded) return 0;
+    return s_resampler.readResampled(s_audio, out, maxFrames);
+}
+
+int audioSampleRate() { return s_sampleRate; }
+int audioTargetSampleRate() { return TARGET_SAMPLE_RATE; }
+
+void setControllerInput(int port, uint16_t bits) {
+    if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);
+    else if (port == 1) s_pad2.store(bits, std::memory_order_relaxed);
+    else if (port == 2) s_pad3.store(bits, std::memory_order_relaxed);
+    else if (port == 3) s_pad4.store(bits, std::memory_order_relaxed);
+}
+
+void setPaths(const std::string& systemDir, const std::string& saveDir) {
+    s_systemDir = systemDir;
+    s_saveDir = saveDir;
+}
+
+void setSaveName(const std::string& name) {
+    s_saveName = name;
+    LOGI("SRAM save name set: '%s'", name.c_str());
+}
+
+void setCoreLibPath(const std::string& path) {
+    s_coreLibPath = path;
+    LOGI("Core lib path set: %s", s_coreLibPath.c_str());
+}
+
+void applyRegion(int /*region*/) { /* DS is region-free — ignored */ }
+void applySampleRate(int /*hz*/) { /* fixed by the core */ }
+void applySpeed(float multiplier) {
+    s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
+    s_ffMaxSkip.store((int)multiplier, std::memory_order_relaxed);
+    s_ffFrameSkip.store(0, std::memory_order_relaxed);
+}
+
+void saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded || !s_retro_serialize) return;
+    size_t sz = s_retro_serialize_size();
+    if (sz == 0) return;
+    std::vector<uint8_t> buf(sz);
+    if (!s_retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
+    std::fwrite(buf.data(), 1, sz, f);
+    std::fclose(f);
+}
+
+bool loadStateFromPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded || !s_retro_unserialize) return false;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { std::fclose(f); return false; }
+    std::vector<uint8_t> buf((size_t)sz);
+    size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
+    std::fclose(f);
+    if (rd != (size_t)sz) return false;
+    if (!s_retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
+    return true;
+}
+
+void setSurface(void* nativeWindow) {
+    coreshared::setSurface(s_window, s_windowMtx, nativeWindow);
+    if (nativeWindow) {
+        if (s_highQualityScaling.load(std::memory_order_relaxed)) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        }
+        LOGI("Surface attached (pixelFormat=%u, surface=RGBA_8888, hqScaling=%d)",
+             s_pixelFormat, s_highQualityScaling.load() ? 1 : 0);
+    } else {
+        LOGI("Surface detached");
+    }
+}
+
+void setHighQualityScaling(bool enabled) {
+    s_highQualityScaling.store(enabled, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lk(s_windowMtx);
+    if (s_window) {
+        if (enabled) {
+            ANativeWindow_setBuffersGeometry(s_window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        } else {
+            ANativeWindow_setBuffersGeometry(s_window, s_videoW, s_videoH, WINDOW_FORMAT_RGBA_8888);
+        }
+    }
+    LOGI("High-quality scaling: %s", enabled ? "ON" : "OFF");
+}
+
+void setCoreOption(const std::string& key, const std::string& value) {
+    {
+        std::lock_guard<std::mutex> lk(s_optMtx);
+        s_options[key] = value;
+    }
+    s_optionsChanged.store(true, std::memory_order_release);
+    LOGI("Core option set: %s = %s", key.c_str(), value.c_str());
+}
+
+int videoWidth()  { return (int)s_videoW; }
+int videoHeight() { return (int)s_videoH; }
+
+void videoAspectRatio(int& num, int& den) {
+    // DS default aspect is 4:3 (each screen is 4:3 — 256x192 has 4:3 pixel
+    // aspect on real hardware). With the default top_bottom layout the
+    // composite is 256x384, which has a 2:3 pixel aspect — but the
+    // frontend should still display it as 4:3 (each screen is 4:3, stacked
+    // vertically).
+    num = 4;
+    den = 3;
+}
+
+void setVideoFilter(int filter) {
+    s_videoFilter.store(filter, std::memory_order_relaxed);
+    LOGI("Video filter set: %d", filter);
+}
+
+bool isCoreLoaded() {
+    return s_coreLib != nullptr;
+}
+
+} // namespace ndscore::rom
