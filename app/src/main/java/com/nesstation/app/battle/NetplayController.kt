@@ -61,16 +61,20 @@ class NetplayController(
          * 服务器握手完成（hello 收到）—— TCP 连接 + JWT 验证 + 房间加入全部 OK。
          *
          * 时序：
-         *  - 1P (host): onReady 先到 → 然后 onPeerJoined（2P 加入时）才到
-         *  - 2P (guest): onReady 到了就说明 1P 已经在房间里了（服务器在
-         *    playerCount==2 时才发 hello(guest)）
+         *  - 1P (host): onReady 先到 → 然后 onPeerReady（2P 发的 ready 经服务器转发）才到
+         *  - 2P (guest): onReady 到了就说明 1P 已经在房间里了
          *
          * BattleMatchScreen 用这个信号决定何时启动引擎：
-         *  - 1P: onReady 后显示"等待对手加入"，onPeerJoined 后才启动引擎
-         *  - 2P: onReady 后立即启动引擎
+         *  - 2P: onReady 后立即发 sendReady()，然后启动引擎
+         *  - 1P: onReady 后等 onPeerReady，收到后才启动引擎
          * 这样双方几乎同时从 frame 0 开始，inputDelay 能正确吸收网络延迟。
          */
         fun onReady(role: String, inputDelay: Int)
+        /**
+         * 对方已 ready（2P 发的 ready 信号经服务器转发到 1P）。
+         * 1P 用这个信号启动引擎。
+         */
+        fun onPeerReady(username: String)
         /** 每执行一帧后回调（UI 可刷新延迟/帧号显示） */
         fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int)
         /** 对方加入 */
@@ -143,6 +147,10 @@ class NetplayController(
             dispatch { it.onReady(role, inputDelay) }
         }
 
+        override fun onPeerReady(username: String) {
+            dispatch { it.onPeerReady(username) }
+        }
+
         override fun onPeerJoined(username: String) {
             dispatch { it.onPeerJoined(username) }
         }
@@ -169,6 +177,11 @@ class NetplayController(
         val n = BattleNetplay(host, port, token, roomId, netListener)
         net = n
         n.connect()
+    }
+
+    /** 通知对方：我已 ready。2P 在 onReady 后调；1P 不需要调（1P 等 onPeerReady）。 */
+    fun sendReady() {
+        net?.sendReady()
     }
 
     /** 本地玩家摇杆输入（bit 布局与平台 pad 一致，由 OnScreenController / 物理手柄推送）。 */
@@ -232,10 +245,9 @@ class NetplayController(
         // （因为 inputDelay 缓冲了 RTT）。
         var remoteForExec = remoteHistory[execFrame]
         if (remoteForExec == null) {
-            // 没命中。短暂自旋等 2ms —— 这是给线程调度一点时间，吸收
-            // "对方刚发出来、网络线程刚 put 进 map、引擎线程正好这一刻查"
-            // 的极小竞态。2ms 远小于 16.6ms 帧预算，绝不会拖慢游戏。
-            remoteForExec = spinWaitRemote(execFrame, maxMs = 2L)
+            // 没命中。短暂自旋等 8ms —— 吸收线程调度抖动 + 1P 启动稍晚的几毫秒。
+            // 8ms 远小于 16.6ms 帧预算，绝不会拖慢游戏。
+            remoteForExec = spinWaitRemote(execFrame, maxMs = 8L)
         }
 
         if (remoteForExec != null) {

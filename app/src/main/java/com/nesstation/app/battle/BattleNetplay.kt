@@ -41,6 +41,12 @@ class BattleNetplay(
          * @param inputDelay 服务器下发的输入延迟帧数
          */
         fun onReady(role: String, inputDelay: Int)
+        /**
+         * 对方已 ready（收到对方发的 ready 信号，服务器转发过来）。
+         * 1P (host) 用这个信号知道 2P 已经准备好，可以启动引擎了。
+         * 2P (guest) 不会收到这个（因为是 2P 自己发的 ready）。
+         */
+        fun onPeerReady(username: String)
         /** 对方加入 */
         fun onPeerJoined(username: String)
         /** 对方断开 */
@@ -127,6 +133,7 @@ class BattleNetplay(
                 // 通知 listener：握手完成，可以开始对战了
                 listener.onReady(role, inputDelay)
             }
+            "peer_ready" -> listener.onPeerReady(msg.optString("msg", ""))
             "input" -> {
                 listener.onRemoteInput(msg.optLong("frame", 0), msg.optInt("pad", 0))
             }
@@ -144,6 +151,11 @@ class BattleNetplay(
             .put("pad", pad)
             .toString()
         sendLine(line)
+    }
+
+    /** 通知对方：我已 ready，可以启动引擎了。2P 在 onReady 后发，1P 收到后启动引擎。 */
+    fun sendReady() {
+        sendLine(JSONObject().put("type", "ready").toString())
     }
 
     fun sendPing() {

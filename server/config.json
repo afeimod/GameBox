@@ -6,7 +6,7 @@
   "jwtSecret": "446b67edfa4d11d61d88e9ae61f8b1abd316482b3916e2868acb94b482d5c7f3",
   "dataDir": "./data",
   "maxRooms": 200,
-  "inputDelay": 4,
+  "inputDelay": 6,
   "romCacheMax": 67108864,
   "games": [
     {

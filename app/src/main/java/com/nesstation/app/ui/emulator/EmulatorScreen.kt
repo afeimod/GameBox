@@ -732,9 +732,10 @@ fun EmulatorScreen(
     val netplayUiListener = remember {
         object : com.nesstation.app.battle.NetplayController.UiListener {
             override fun onReady(role: String, inputDelay: Int) {
-                // BattleMatchScreen 已经在 onReady/onPeerJoined 时启动了 EmulatorScreen，
-                // 所以这里收到 onReady 只更新状态条即可。
                 netplayStatusText = "已连线（$role · 延迟 ${inputDelay}f）"
+            }
+            override fun onPeerReady(username: String) {
+                netplayStatusText = "对手 $username 已就绪"
             }
             override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {
                 netplayStatusText = "对战中 · 帧 #$frame · 延迟 ${inputDelay}f · desync $desyncCount"

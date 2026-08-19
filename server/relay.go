@@ -162,14 +162,6 @@ func (h *relayHub) handleConn(conn net.Conn) {
 
         conn.SetReadDeadline(time.Time{}) // 清除超时
 
-        // 通知对方
-        other := h.peerOf(room, claims.Sub)
-        if other != nil {
-                other.peer = rc
-                rc.peer = other
-                _ = other.send(relayMsg{Type: "peer_joined", Msg: rc.user.Username})
-        }
-
         // 向本端发送 hello 回执（附带输入延迟帧数，客户端据此配置同步参数）
         role := "host"
         if playerCount == 2 {
@@ -184,6 +176,15 @@ func (h *relayHub) handleConn(conn net.Conn) {
                 Msg:   role,
                 Pad:   delay, // 复用 Pad 字段传递 inputDelay
         })
+
+        // 通知对方（peer_joined）—— 告诉 1P 有新玩家加入。
+        // 1P 此时还不启动引擎，要等 2P 发的 ready 信号（经 relayLoop 转发）。
+        other := h.peerOf(room, claims.Sub)
+        if other != nil {
+                other.peer = rc
+                rc.peer = other
+                _ = other.send(relayMsg{Type: "peer_joined", Msg: rc.user.Username})
+        }
 
         // 中继循环：读本端输入，转发给对端
         h.relayLoop(rc, reader)
@@ -214,6 +215,13 @@ func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
                                         h.drop(rc)
                                         return
                                 }
+                        }
+                case "ready":
+                        // 2P (guest) 收到 hello 后发 ready，表示引擎即将启动。
+                        // 服务器转发给 1P (host)，1P 收到后才知道 2P 已经准备好，
+                        // 此刻双方几乎同时启动引擎。
+                        if rc.peer != nil && rc.peer.conn != nil {
+                                _ = rc.peer.send(relayMsg{Type: "peer_ready", Msg: rc.user.Username})
                         }
                 case "ping":
                         _ = rc.send(relayMsg{Type: "pong"})

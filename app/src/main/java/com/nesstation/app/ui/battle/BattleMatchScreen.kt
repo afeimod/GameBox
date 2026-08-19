@@ -107,19 +107,18 @@ fun BattleMatchScreen(
 
     // === 对战开始标志 —— 这是修复"2P 不同步 1P"的关键 ===
     //
-    // 之前双方一进 BattleMatchScreen 就立即启动 EmulatorScreen，导致：
-    //  - 1P 创建房间后立即跑游戏，frame 计数到几百
-    //  - 2P 加入后从 frame 0 开始
-    //  - 双方 frame 完全错位 → 各自查不到对方的输入 → 相当于两个单机游戏
+    // 之前 1P 在收到 peer_joined 就启动引擎，但 2P 此时可能还没收到 hello(guest)，
+    // 更没启动引擎。双方引擎启动时间差几百毫秒（ROM 加载），frame 计数错位，
+    // 2P 查 remoteHistory[execFrame] 一直查不到 → desync 累积 → 单机体验。
     //
-    // 修复后的启动时序：
-    //  - 1P (host): 等 onReady（TCP 握手 OK）→ 显示"等待对手加入" →
-    //                等 onPeerJoined（2P 加入）→ 启动引擎（frame 0 开始）
-    //  - 2P (guest): 等 onReady（服务器在 playerCount==2 时才发 hello(guest)，
-    //                所以 onReady 到了就说明 1P 已经在房间里）→ 立即启动引擎
+    // 修复后的启动时序（参考 GGPO 的 ready 握手）：
+    //  - 2P (guest): onReady（收到 hello）→ 立即发 sendReady() 通知 1P →
+    //                然后启动自己的引擎
+    //  - 1P (host): onReady → 显示"等待对手就绪" → 等 onPeerReady
+    //                （2P 的 ready 经服务器转发到了）→ 启动引擎
     //
-    // 服务器几乎同时给 1P 发 peer_joined 和给 2P 发 hello(guest)，所以双方
-    // 几乎同时从 frame 0 开始。inputDelay 缓冲剩余的网络延迟。
+    // 这样 1P 的引擎启动时刻 ≤ 2P 引擎启动时刻 + RTT/2。inputDelay=6 (100ms)
+    // 足够吸收这个差 + ROM 加载时间差。
     var netReady by remember { mutableStateOf(false) }
     var matchStarted by remember { mutableStateOf(false) }
 
@@ -143,12 +142,24 @@ fun BattleMatchScreen(
                 } else {
                     "挑战者 · 已与房主连线（inputDelay=${inputDelay}f）"
                 }
-                if (!args.isHost) matchStarted = true
+                // 2P (guest): onReady 到了就说明 1P 在房间里。立即发 ready 通知 1P，
+                // 然后启动自己的引擎。1P 收到 ready 后启动引擎 —— 双方几乎同时。
+                if (!args.isHost) {
+                    controller.sendReady()
+                    matchStarted = true
+                }
+            }
+            override fun onPeerReady(username: String) {
+                // 1P (host): 2P 发的 ready 信号经服务器转发到了。2P 已经准备好，
+                // 此刻双方几乎同时启动引擎。
+                roleText = "房主 · 对手 $username 已就绪，开战！"
+                if (args.isHost) {
+                    matchStarted = true
+                }
             }
             override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {}
             override fun onPeerJoined(username: String) {
-                roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者 · 已与 $username 对战"
-                if (args.isHost) matchStarted = true
+                roleText = if (args.isHost) "房主 · 对手 $username 已加入，等待就绪…" else "挑战者 · 已与 $username 对战"
             }
             override fun onPeerLeft(username: String) { errorMsg = "对手 $username 已离开，对战结束" }
             override fun onError(message: String) { errorMsg = message }
@@ -215,9 +226,9 @@ fun BattleMatchScreen(
         }
 
         // 对战已开始：调起 EmulatorScreen，走和本地游戏完全一致的启动路径。
-        // matchStarted 由上面的 onReady / onPeerJoined 触发：
-        //  - 2P: onReady 即触发（1P 已在房间）
-        //  - 1P: onPeerJoined 才触发（2P 刚加入）
+        // matchStarted 由上面的 onReady / onPeerReady 触发：
+        //  - 2P: onReady 即触发（发 ready 通知 1P，然后启动自己）
+        //  - 1P: onPeerReady 才触发（2P 的 ready 信号到了，双方同时启动）
         // 双方几乎同时进入这里 → 几乎同时从 frame 0 启动 → inputDelay 能正确同步。
         rom != null && matchStarted -> {
             val battleGameId = "battle_${args.gameId}_${args.roomId}".lowercase()
