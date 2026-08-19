@@ -113,8 +113,10 @@ JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 JNIEXPORT jboolean JNICALL
 Java_com_nesstation_app_core_jni_NdsNative_loadRom(JNIEnv* env, jclass, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = ndscore::Engine::instance().loadRom(cpath ? cpath : "");
-    if (cpath) env->ReleaseStringUTFChars(path, cpath);
+    // Copy into a std::string so the data outlives ReleaseStringUTFChars.
+    std::string pathStr(cpath ? cpath : "");
+    env->ReleaseStringUTFChars(path, cpath);
+    bool ok = ndscore::Engine::instance().loadRom(pathStr);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 

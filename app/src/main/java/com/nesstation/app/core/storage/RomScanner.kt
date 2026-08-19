@@ -66,7 +66,20 @@ class RomScanner(private val context: Context) {
         // detectPlatformFromUri based on the user's platform tab.)
         name.endsWith(".pce", ignoreCase = true) ||
         name.endsWith(".sgx", ignoreCase = true) ||
-        name.endsWith(".hes", ignoreCase = true)
+        name.endsWith(".hes", ignoreCase = true) ||
+        // Nintendo DS (melonDS)
+        name.endsWith(".nds", ignoreCase = true) ||
+        name.endsWith(".app", ignoreCase = true) ||
+        name.endsWith(".ids", ignoreCase = true) ||
+        name.endsWith(".srl", ignoreCase = true) ||
+        name.endsWith(".dsi", ignoreCase = true) ||
+        // PlayStation 1 (PCSX-ReARMed)
+        name.endsWith(".pbp", ignoreCase = true) ||
+        name.endsWith(".m3u", ignoreCase = true) ||
+        name.endsWith(".ecm", ignoreCase = true) ||
+        name.endsWith(".mdf", ignoreCase = true) ||
+        name.endsWith(".mds", ignoreCase = true) ||
+        name.endsWith(".ccd", ignoreCase = true)
 
     /**
      * Whether a file name looks like a DOS launcher (.bat / .exe / .com).

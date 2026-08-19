@@ -113,8 +113,11 @@ JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 JNIEXPORT jboolean JNICALL
 Java_com_nesstation_app_core_jni_PsxNative_loadRom(JNIEnv* env, jclass, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = psxcore::Engine::instance().loadRom(cpath ? cpath : "");
-    if (cpath) env->ReleaseStringUTFChars(path, cpath);
+    // Copy into a std::string so the data outlives ReleaseStringUTFChars.
+    // psx_loader.cpp stores this in s_romPath and uses it as gameInfo.path.
+    std::string pathStr(cpath ? cpath : "");
+    env->ReleaseStringUTFChars(path, cpath);
+    bool ok = psxcore::Engine::instance().loadRom(pathStr);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 

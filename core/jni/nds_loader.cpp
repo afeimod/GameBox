@@ -162,6 +162,13 @@ static std::string s_coreMessage;
 static std::string s_coreError;
 static std::string s_coreLibPath;
 
+// Persistent copy of the currently-loaded ROM path.
+// melonDS may read retro_game_info.path asynchronously (e.g. for save-state
+// naming), so the pointer must outlive the JNI GetStringUTFChars /
+// ReleaseStringUTFChars cycle. We store the path here and pass
+// s_romPath.c_str() as gameInfo.path instead of the transient cpath pointer.
+static std::string s_romPath;
+
 // Dynamic frame buffer (ARGB, 0xAARRGGBB).
 static std::mutex s_frameMtx;
 static std::vector<uint32_t> s_frame;
@@ -653,7 +660,12 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     }
 
     retro_game_info gameInfo{};
-    gameInfo.path = path.c_str();  // melonDS uses this for save state naming
+    // Store path in a static variable so gameInfo.path points to stable
+    // memory that outlives the JNI GetStringUTFChars / ReleaseStringUTFChars
+    // cycle. melonDS may read gameInfo.path asynchronously (e.g. for save-
+    // state naming), and using the transient cpath pointer caused a crash.
+    s_romPath = path;
+    gameInfo.path = s_romPath.c_str();
     gameInfo.data = romBuf.data();
     gameInfo.size = sz;
     gameInfo.meta = nullptr;

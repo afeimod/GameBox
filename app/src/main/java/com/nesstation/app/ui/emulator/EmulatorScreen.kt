@@ -1051,6 +1051,33 @@ fun EmulatorScreen(
                     loaded = true
                 }
             }
+        } else if (platform == GamePlatform.PSX &&
+                   (romPath.endsWith(".cue", ignoreCase = true) ||
+                    romPath.endsWith(".chd", ignoreCase = true) ||
+                    romPath.endsWith(".iso", ignoreCase = true) ||
+                    romPath.endsWith(".mdf", ignoreCase = true) ||
+                    romPath.endsWith(".mds", ignoreCase = true))) {
+            // === PSX CD image via SAF (content://) ===
+            // The .cue file references .bin audio tracks by RELATIVE path.
+            // Copying only the .cue (as the single-file branch below would)
+            // makes PCSX-ReARMed fail to open the disc — it cannot find the
+            // .bin tracks. Copy the whole folder so the .bin tracks are
+            // available next to the .cue. Also handle .chd/.iso/.mdf/.mds
+            // the same way for consistency (these are single-file images but
+            // the folder-copy path is safe and handles edge cases like
+            // .mdf+.mds pairs).
+            val cdFile = loadGameFolder(context, romPath, game.id, "psx_cd")
+            if (cdFile == null) {
+                errorMsg = "PS1 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
+            } else {
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                if (!ok) {
+                    val err = engine.lastError()
+                    errorMsg = err.ifEmpty { "PS1 加载失败" }
+                } else {
+                    loaded = true
+                }
+            }
         } else {
             try {
                 val input = context.contentResolver.openInputStream(android.net.Uri.parse(romPath))
@@ -1191,6 +1218,20 @@ fun EmulatorScreen(
                         origName.endsWith(".bin", ignoreCase = true) -> ".bin"
                         origName.endsWith(".cue", ignoreCase = true) -> ".cue"
                         origName.endsWith(".chd", ignoreCase = true) -> ".chd"
+                        // Nintendo DS (melonDS) extensions
+                        origName.endsWith(".nds", ignoreCase = true) -> ".nds"
+                        origName.endsWith(".app", ignoreCase = true) -> ".app"
+                        origName.endsWith(".ids", ignoreCase = true) -> ".ids"
+                        origName.endsWith(".srl", ignoreCase = true) -> ".srl"
+                        origName.endsWith(".dsi", ignoreCase = true) -> ".dsi"
+                        // PlayStation 1 (PCSX-ReARMed) extensions
+                        origName.endsWith(".pbp", ignoreCase = true) -> ".pbp"
+                        origName.endsWith(".m3u", ignoreCase = true) -> ".m3u"
+                        origName.endsWith(".ecm", ignoreCase = true) -> ".ecm"
+                        origName.endsWith(".mdf", ignoreCase = true) -> ".mdf"
+                        origName.endsWith(".mds", ignoreCase = true) -> ".mds"
+                        origName.endsWith(".ccd", ignoreCase = true) -> ".ccd"
+                        origName.endsWith(".iso", ignoreCase = true) -> ".iso"
                         // PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD extensions
                         origName.endsWith(".pce", ignoreCase = true) -> ".pce"
                         origName.endsWith(".sgx", ignoreCase = true) -> ".sgx"

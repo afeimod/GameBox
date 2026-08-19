@@ -100,6 +100,10 @@ val ROM_EXTENSIONS = listOf(
     "chd",                                           // Mega-CD CHD images
     // Geargrafx — PC-Engine / TurboGrafx-16 / SuperGrafx / PCE-CD
     "pce", "sgx", "hes",
+    // Nintendo DS (melonDS)
+    "nds", "app", "ids", "srl", "dsi",
+    // PlayStation 1 (PCSX-ReARMed)
+    "pbp", "m3u", "ecm", "mdf", "mds",
     // Arcade (FBNeo) — archives only; the filename IS the driver name
     "zip", "7z", "gz"
 )
