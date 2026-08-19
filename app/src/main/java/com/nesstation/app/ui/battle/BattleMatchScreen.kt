@@ -142,16 +142,16 @@ fun BattleMatchScreen(
                 } else {
                     "挑战者 · 已与房主连线（inputDelay=${inputDelay}f）"
                 }
-                // 2P (guest): onReady 到了就说明 1P 在房间里。立即发 ready 通知 1P，
-                // 然后启动自己的引擎。1P 收到 ready 后启动引擎 —— 双方几乎同时。
+                // 2P (guest): onReady 到了就说明 1P 在房间里。立即启动引擎。
+                // 同时发 ready 通知 1P（作为备用信号，但 1P 主要靠 onPeerJoined）。
                 if (!args.isHost) {
                     controller.sendReady()
                     matchStarted = true
                 }
             }
             override fun onPeerReady(username: String) {
-                // 1P (host): 2P 发的 ready 信号经服务器转发到了。2P 已经准备好，
-                // 此刻双方几乎同时启动引擎。
+                // 1P (host): 2P 发的 ready 信号到了。这是备用启动信号 ——
+                // 如果 onPeerJoined 已经启动了，这里只是更新状态文字。
                 roleText = "房主 · 对手 $username 已就绪，开战！"
                 if (args.isHost) {
                     matchStarted = true
@@ -159,7 +159,13 @@ fun BattleMatchScreen(
             }
             override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {}
             override fun onPeerJoined(username: String) {
-                roleText = if (args.isHost) "房主 · 对手 $username 已加入，等待就绪…" else "挑战者 · 已与 $username 对战"
+                roleText = if (args.isHost) "房主 · 对手 $username 已加入，开战！" else "挑战者 · 已与 $username 对战"
+                // 1P (host): 2P 加入后立即启动引擎。不再等 ready 信号 ——
+                // 之前等 onPeerReady 导致 1P 卡在"等待就绪"，但 2P 已经在跑了。
+                // 双方启动时间差由 inputDelay 吸收（默认 6 帧 = 100ms）。
+                if (args.isHost) {
+                    matchStarted = true
+                }
             }
             override fun onPeerLeft(username: String) { errorMsg = "对手 $username 已离开，对战结束" }
             override fun onError(message: String) { errorMsg = message }
