@@ -14,7 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -128,6 +127,37 @@ fun BattleMatchScreen(
         NetplayController(platform = resolvedPlatform)
     }
 
+    // === 先注册 UI listener，再连接服务器 ===
+    // 之前 DisposableEffect 在 LaunchedEffect 之前执行，导致 controller.connect()
+    // 触发的 onReady 回调可能比 setUiListener 还早到达 → dispatch 看到
+    // primaryListener==null 直接丢弃 → matchStarted 永远不设 true。
+    //
+    // 现在在 remember controller 的同时就把 listener 设上，保证 connect()
+    // 之前 listener 已经 ready。listener 内部用 setState 触发重组，安全。
+    DisposableEffect(controller) {
+        controller.setUiListener(object : NetplayController.UiListener {
+            override fun onReady(role: String, inputDelay: Int) {
+                netReady = true
+                roleText = if (args.isHost) {
+                    "房主 · 等待对手加入…（inputDelay=${inputDelay}f）"
+                } else {
+                    "挑战者 · 已与房主连线（inputDelay=${inputDelay}f）"
+                }
+                if (!args.isHost) matchStarted = true
+            }
+            override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {}
+            override fun onPeerJoined(username: String) {
+                roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者 · 已与 $username 对战"
+                if (args.isHost) matchStarted = true
+            }
+            override fun onPeerLeft(username: String) { errorMsg = "对手 $username 已离开，对战结束" }
+            override fun onError(message: String) { errorMsg = message }
+            override fun onDisconnected() { if (errorMsg == null) errorMsg = "与对战服务器断开连接" }
+            override fun onNetplayLost(reason: String) { roleText = reason }
+        })
+        onDispose { controller.setUiListener(null) }
+    }
+
     // 启动流程：连接中继 + 检查 ROM。
     DisposableEffect(args.roomId, args.tcpAddr) {
         val (host, port) = parseTcpAddr(args.tcpAddr)
@@ -169,47 +199,6 @@ fun BattleMatchScreen(
         onDispose {
             try { controller.stop() } catch (_: Throwable) {}
         }
-    }
-
-    // 监听对战事件
-    LaunchedEffect(controller) {
-        controller.setUiListener(object : NetplayController.UiListener {
-            override fun onReady(role: String, inputDelay: Int) {
-                // TCP 握手 + 房间加入完成
-                netReady = true
-                roleText = if (args.isHost) {
-                    "房主 · 等待对手加入…（inputDelay=${inputDelay}f）"
-                } else {
-                    "挑战者 · 已与房主连线（inputDelay=${inputDelay}f）"
-                }
-                // 2P (guest): onReady 到了就说明 1P 在房间里，立即开战
-                if (!args.isHost) {
-                    matchStarted = true
-                }
-            }
-            override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {
-                // 帧信息显示在 EmulatorScreen 状态条里
-            }
-            override fun onPeerJoined(username: String) {
-                roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者 · 已与 $username 对战"
-                // 1P (host): 2P 加入后才启动引擎 —— 双方几乎同时从 frame 0 开始
-                if (args.isHost) {
-                    matchStarted = true
-                }
-            }
-            override fun onPeerLeft(username: String) {
-                errorMsg = "对手 $username 已离开，对战结束"
-            }
-            override fun onError(message: String) {
-                errorMsg = message
-            }
-            override fun onDisconnected() {
-                if (errorMsg == null) errorMsg = "与对战服务器断开连接"
-            }
-            override fun onNetplayLost(reason: String) {
-                roleText = reason
-            }
-        })
     }
 
     val rom = romFile

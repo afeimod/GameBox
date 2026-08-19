@@ -51,9 +51,9 @@ class BattleNetplay(
         fun onDisconnected()
     }
 
-    private var socket: Socket? = null
-    private var reader: BufferedReader? = null
-    private var writer: BufferedWriter? = null
+    @Volatile private var socket: Socket? = null
+    @Volatile private var reader: BufferedReader? = null
+    @Volatile private var writer: BufferedWriter? = null
     @Volatile private var running = false
     private var thread: Thread? = null
 
