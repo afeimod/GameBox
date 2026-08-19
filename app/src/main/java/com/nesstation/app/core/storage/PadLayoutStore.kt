@@ -348,6 +348,15 @@ data class PadLayout(
     val pscxCdReadahead: String = "12",                 // 0..30 (CD read-ahead in sectors)
     val pscxMemcard1: String = "libretro",              // libretro | shared | disabled
     val pscxMemcard2: String = "shared",                // libretro | shared | disabled
+    // === Additional PSX/PCSX-ReARMed options ===
+    val pscxDrc: String = "enabled",                 // enabled | disabled (dynarec JIT compiler)
+    val pscxClock: String = "auto",                  // auto | 30..100 (CPU overclock %)
+    val pscxRgb32: String = "disabled",              // disabled | enabled (32-bit color output)
+    val pscxScaleHires: String = "disabled",         // disabled | enabled (downscale 480i/512i to 320x240)
+    val pscxShowOverscan: String = "disabled",       // disabled | enabled (show overscan area)
+    val pscxMultitap: String = "disabled",           // disabled | port1 | port2 | both
+    val pscxGpuOddEven: String = "disabled",         // disabled | enabled (Peops odd/even GPU hack)
+    val pscxAnalogAxis: String = "square",           // circle | square (analog stick bounds)
 
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
@@ -821,6 +830,29 @@ object PadLayoutStore {
             mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled",
             mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto",
             mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled",
+            // PSX (PCSX-ReARMed) options
+            pscxBios = p.getString("psx_bios", "auto") ?: "auto",
+            pscxRegion = p.getString("psx_region", "auto") ?: "auto",
+            pscxFrameskipType = p.getString("psx_frameskip_type", "disabled") ?: "disabled",
+            pscxFrameskip = p.getString("psx_frameskip", "0") ?: "0",
+            pscxPad1Type = p.getString("psx_pad1_type", "standard") ?: "standard",
+            pscxPad2Type = p.getString("psx_pad2_type", "standard") ?: "standard",
+            pscxVibration = p.getString("psx_vibration", "enabled") ?: "enabled",
+            pscxDithering = p.getString("psx_dithering", "enabled") ?: "enabled",
+            pscxSpuInterp = p.getString("psx_spu_interp", "simple") ?: "simple",
+            pscxSpuReverb = p.getString("psx_spu_reverb", "enabled") ?: "enabled",
+            pscxShowBootlogo = p.getString("psx_show_bootlogo", "disabled") ?: "disabled",
+            pscxCdReadahead = p.getString("psx_cd_readahead", "12") ?: "12",
+            pscxMemcard1 = p.getString("psx_memcard1", "libretro") ?: "libretro",
+            pscxMemcard2 = p.getString("psx_memcard2", "shared") ?: "shared",
+            pscxDrc = p.getString("psx_drc", "enabled") ?: "enabled",
+            pscxClock = p.getString("psx_clock", "auto") ?: "auto",
+            pscxRgb32 = p.getString("psx_rgb32", "disabled") ?: "disabled",
+            pscxScaleHires = p.getString("psx_scale_hires", "disabled") ?: "disabled",
+            pscxShowOverscan = p.getString("psx_show_overscan", "disabled") ?: "disabled",
+            pscxMultitap = p.getString("psx_multitap", "disabled") ?: "disabled",
+            pscxGpuOddEven = p.getString("psx_gpu_odd_even", "disabled") ?: "disabled",
+            pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square",
             // === Arcade extras ===
             btnL2 = loadBtn(p, "btn_l2", ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48)),
             btnR2 = loadBtn(p, "btn_r2", ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48)),
@@ -1117,6 +1149,29 @@ object PadLayoutStore {
             putString("md_cd_fastboot", layout.mdCdFastboot)
             putString("md_sms_fm", layout.mdSmsFm)
             putString("md_gg_stretch", layout.mdGgStretch)
+            // === PSX (PCSX-ReARMed) ===
+            putString("psx_bios", layout.pscxBios)
+            putString("psx_region", layout.pscxRegion)
+            putString("psx_frameskip_type", layout.pscxFrameskipType)
+            putString("psx_frameskip", layout.pscxFrameskip)
+            putString("psx_pad1_type", layout.pscxPad1Type)
+            putString("psx_pad2_type", layout.pscxPad2Type)
+            putString("psx_vibration", layout.pscxVibration)
+            putString("psx_dithering", layout.pscxDithering)
+            putString("psx_spu_interp", layout.pscxSpuInterp)
+            putString("psx_spu_reverb", layout.pscxSpuReverb)
+            putString("psx_show_bootlogo", layout.pscxShowBootlogo)
+            putString("psx_cd_readahead", layout.pscxCdReadahead)
+            putString("psx_memcard1", layout.pscxMemcard1)
+            putString("psx_memcard2", layout.pscxMemcard2)
+            putString("psx_drc", layout.pscxDrc)
+            putString("psx_clock", layout.pscxClock)
+            putString("psx_rgb32", layout.pscxRgb32)
+            putString("psx_scale_hires", layout.pscxScaleHires)
+            putString("psx_show_overscan", layout.pscxShowOverscan)
+            putString("psx_multitap", layout.pscxMultitap)
+            putString("psx_gpu_odd_even", layout.pscxGpuOddEven)
+            putString("psx_analog_axis", layout.pscxAnalogAxis)
             // === Arcade extras ===
             saveBtn("btn_l2", layout.btnL2)
             saveBtn("btn_r2", layout.btnR2)

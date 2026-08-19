@@ -696,7 +696,10 @@ fun EmulatorScreen(
                    padLayout.pscxFrameskip, padLayout.pscxPad1Type, padLayout.pscxPad2Type,
                    padLayout.pscxVibration, padLayout.pscxDithering, padLayout.pscxSpuInterp,
                    padLayout.pscxSpuReverb, padLayout.pscxShowBootlogo, padLayout.pscxCdReadahead,
-                   padLayout.pscxMemcard1, padLayout.pscxMemcard2
+                   padLayout.pscxMemcard1, padLayout.pscxMemcard2,
+                   padLayout.pscxDrc, padLayout.pscxClock, padLayout.pscxRgb32,
+                   padLayout.pscxScaleHires, padLayout.pscxShowOverscan, padLayout.pscxMultitap,
+                   padLayout.pscxGpuOddEven, padLayout.pscxAnalogAxis
                    ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
@@ -1917,6 +1920,14 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx_rearmed_cd_readahead", layout.pscxCdReadahead)
             engine.setCoreOption("pcsx_rearmed_memcard1", layout.pscxMemcard1)
             engine.setCoreOption("pcsx_rearmed_memcard2", layout.pscxMemcard2)
+            engine.setCoreOption("pcsx_rearmed_drc", layout.pscxDrc)
+            engine.setCoreOption("pcsx_rearmed_cpu_clock", layout.pscxClock)
+            engine.setCoreOption("pcsx_rearmed_rgb32", layout.pscxRgb32)
+            engine.setCoreOption("pcsx_rearmed_scale_hires", layout.pscxScaleHires)
+            engine.setCoreOption("pcsx_rearmed_show_overscan", layout.pscxShowOverscan)
+            engine.setCoreOption("pcsx_rearmed_multitap", layout.pscxMultitap)
+            engine.setCoreOption("pcsx_rearmed_gpu_odd_even", layout.pscxGpuOddEven)
+            engine.setCoreOption("pcsx_rearmed_analog_axis", layout.pscxAnalogAxis)
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -6448,7 +6459,144 @@ private fun SettingsPanel(
                 NdsBiosImportSection()
             }
             GamePlatform.PSX -> {
-                // PSX BIOS import section (PCSX-ReARMed)
+                Text("PSX/PlayStation 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                Text("BIOS/区域", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("BIOS",
+                    listOf("auto" to "自动", "HLE" to "HLE(无BIOS)",
+                           "scph1000" to "SCPH-1000", "scph1001" to "SCPH-1001",
+                           "scph1002" to "SCPH-1002", "scph5500" to "SCPH-5500",
+                           "scph5501" to "SCPH-5501", "scph5502" to "SCPH-5502",
+                           "psxonpsp660" to "PSP-660"),
+                    padLayout.pscxBios
+                ) { onLayoutChange(padLayout.copy(pscxBios = it)) }
+
+                DropdownSetting("区域",
+                    listOf("auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
+                    padLayout.pscxRegion
+                ) { onLayoutChange(padLayout.copy(pscxRegion = it)) }
+
+                DropdownSetting("显示开机LOGO",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.pscxShowBootlogo
+                ) { onLayoutChange(padLayout.copy(pscxShowBootlogo = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("CPU/性能", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("DRC(JIT)",
+                    listOf("enabled" to "开启(推荐)", "disabled" to "关闭"),
+                    padLayout.pscxDrc
+                ) { onLayoutChange(padLayout.copy(pscxDrc = it)) }
+
+                DropdownSetting("CPU 时钟",
+                    listOf("auto" to "自动", "30" to "30%", "50" to "50%", "75" to "75%",
+                           "100" to "100%", "125" to "125%", "150" to "150%", "200" to "200%"),
+                    padLayout.pscxClock
+                ) { onLayoutChange(padLayout.copy(pscxClock = it)) }
+
+                DropdownSetting("跳帧类型",
+                    listOf("disabled" to "关闭", "auto" to "自动", "fixed" to "固定"),
+                    padLayout.pscxFrameskipType
+                ) { onLayoutChange(padLayout.copy(pscxFrameskipType = it)) }
+
+                DropdownSetting("跳帧数",
+                    listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
+                           "4" to "4", "5" to "5", "6" to "6", "7" to "7",
+                           "8" to "8", "9" to "9", "10" to "10"),
+                    padLayout.pscxFrameskip
+                ) { onLayoutChange(padLayout.copy(pscxFrameskip = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("RGB32 输出",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.pscxRgb32
+                ) { onLayoutChange(padLayout.copy(pscxRgb32 = it)) }
+
+                DropdownSetting("缩放高分辨率",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.pscxScaleHires
+                ) { onLayoutChange(padLayout.copy(pscxScaleHires = it)) }
+
+                DropdownSetting("显示过扫描区域",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.pscxShowOverscan
+                ) { onLayoutChange(padLayout.copy(pscxShowOverscan = it)) }
+
+                DropdownSetting("GPU 奇偶行修正",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.pscxGpuOddEven
+                ) { onLayoutChange(padLayout.copy(pscxGpuOddEven = it)) }
+
+                DropdownSetting("抖动效果",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.pscxDithering
+                ) { onLayoutChange(padLayout.copy(pscxDithering = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("手柄", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("手柄1类型",
+                    listOf("standard" to "标准", "analog" to "模拟", "negcon" to "力反馈", "gun" to "光枪"),
+                    padLayout.pscxPad1Type
+                ) { onLayoutChange(padLayout.copy(pscxPad1Type = it)) }
+
+                DropdownSetting("手柄2类型",
+                    listOf("standard" to "标准", "analog" to "模拟", "negcon" to "力反馈", "gun" to "光枪"),
+                    padLayout.pscxPad2Type
+                ) { onLayoutChange(padLayout.copy(pscxPad2Type = it)) }
+
+                DropdownSetting("振动",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.pscxVibration
+                ) { onLayoutChange(padLayout.copy(pscxVibration = it)) }
+
+                DropdownSetting("模拟摇杆边界",
+                    listOf("circle" to "圆形", "square" to "方形"),
+                    padLayout.pscxAnalogAxis
+                ) { onLayoutChange(padLayout.copy(pscxAnalogAxis = it)) }
+
+                DropdownSetting("多手柄",
+                    listOf("disabled" to "关闭", "port1" to "端口1", "port2" to "端口2", "both" to "全部"),
+                    padLayout.pscxMultitap
+                ) { onLayoutChange(padLayout.copy(pscxMultitap = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("SPU 插值",
+                    listOf("simple" to "简单", "gaussian" to "高斯", "cubic" to "三次", "off" to "关闭"),
+                    padLayout.pscxSpuInterp
+                ) { onLayoutChange(padLayout.copy(pscxSpuInterp = it)) }
+
+                DropdownSetting("SPU 混响",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.pscxSpuReverb
+                ) { onLayoutChange(padLayout.copy(pscxSpuReverb = it)) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("CD/记忆卡", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("CD 预读扇区",
+                    listOf("0" to "0", "6" to "6", "12" to "12(默认)", "18" to "18",
+                           "24" to "24", "30" to "30"),
+                    padLayout.pscxCdReadahead
+                ) { onLayoutChange(padLayout.copy(pscxCdReadahead = it)) }
+
+                DropdownSetting("记忆卡1",
+                    listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                    padLayout.pscxMemcard1
+                ) { onLayoutChange(padLayout.copy(pscxMemcard1 = it)) }
+
+                DropdownSetting("记忆卡2",
+                    listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                    padLayout.pscxMemcard2
+                ) { onLayoutChange(padLayout.copy(pscxMemcard2 = it)) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("PSX BIOS 管理", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(4.dp))
                 PsxBiosImportSection()
             }

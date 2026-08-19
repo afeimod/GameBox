@@ -158,6 +158,7 @@ fun LibraryScreen(
     var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingRenameGame by remember { mutableStateOf<GameEntry?>(null) }
 
     fun refreshList() {
         // 1) Re-scan every folder the user has imported games from, to pick up
@@ -698,7 +699,8 @@ fun LibraryScreen(
     val displayGames = if (searchQuery.isBlank()) {
         platformGames
     } else {
-        allGames.filter { it.title.contains(searchQuery, ignoreCase = true) }
+        allGames.filter { it.title.contains(searchQuery, ignoreCase = true) ||
+                            (it.customTitle?.contains(searchQuery, ignoreCase = true) ?: false) }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -980,7 +982,7 @@ fun LibraryScreen(
                             .resolveIconPath(context, g)
                     }
                     GameCard(
-                        title = g.title,
+                        title = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title,
                         accent = g.accent,
                         onClick = { onOpenGame(g) },
                         onLongClick = { longPressGame = g },
@@ -1109,7 +1111,7 @@ fun LibraryScreen(
                 ) {
                     // 标题 — 限制1行+省略号，避免占用过多空间
                     Text(
-                        text = game.title,
+                        text = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         color = Color(0xFF1E2A3A),
@@ -1148,6 +1150,10 @@ fun LibraryScreen(
                             RomStore.toggleFavorite(context, game.id)
                             refreshList()
                         }
+                        MenuOption("重命名") {
+                            longPressGame = null
+                            pendingRenameGame = game
+                        }
                         MenuOption("删除游戏", danger = true) {
                             longPressGame = null
                             pendingDeleteGame = game
@@ -1168,12 +1174,52 @@ fun LibraryScreen(
         }
     }
 
+    // 重命名弹窗
+    pendingRenameGame?.let { game ->
+        Dialog(onDismissRequest = { pendingRenameGame = null }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth(0.85f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp)
+                ) {
+                    Text("重命名游戏", fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        color = Color(0xFF1E2A3A))
+                    Text("当前: ${game.customTitle?.takeIf { it.isNotBlank() } ?: game.title}",
+                        fontSize = 12.sp, color = Color.Gray)
+                    Spacer(Modifier.size(12.dp))
+                    var name by remember { mutableStateOf(game.customTitle?.takeIf { it.isNotBlank() } ?: game.title) }
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("自定义名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Row {
+                        TextButton(onClick = { pendingRenameGame = null }) { Text("取消") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = {
+                            RomStore.setCustomTitle(context, game.id, name.trim().takeIf { it.isNotBlank() })
+                            pendingRenameGame = null
+                            refreshList()
+                        }) { Text("保存", color = Color(0xFF1976D2)) }
+                    }
+                }
+            }
+        }
+    }
+
     // 删除游戏确认弹窗
     pendingDeleteGame?.let { game ->
         AlertDialog(
             onDismissRequest = { pendingDeleteGame = null },
             title = { Text("删除游戏") },
-            text = { Text("确定要删除「${game.title}」吗？此操作不可撤销。") },
+            text = { Text("确定要删除「${game.customTitle?.takeIf { it.isNotBlank() } ?: game.title}」吗？此操作不可撤销。") },
             confirmButton = {
                 TextButton(onClick = {
                     if (game.platform == GamePlatform.JAVA) {
@@ -1186,7 +1232,7 @@ fun LibraryScreen(
                     // 如果 ROM 文件仍在磁盘上会重新添加已删除的游戏
                     importedGames.removeAll { it.id == game.id }
                     pendingDeleteGame = null
-                    dialogMsg = "已删除「${game.title}」"
+                    dialogMsg = "已删除「${game.customTitle?.takeIf { it.isNotBlank() } ?: game.title}」"
                     onGamesChanged?.invoke()
                 }) { Text("删除") }
             },

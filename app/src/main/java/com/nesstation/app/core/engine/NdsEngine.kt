@@ -127,9 +127,13 @@ class NdsEngine private constructor() : EmulatorEngine {
 
                     if (!running.get()) break
 
-                    if (!hasSurface) {
-                        NdsNative.getFrameBuffer(frameBuffer)
-                    }
+                    // Always pull the latest frame — even when hasSurface is true.
+                    // The native code blits to ANativeWindow via applyFilterAndBlit(),
+                    // but if the surface is not yet attached or the blit fails
+                    // (e.g. ANativeWindow_lock returns error), the screen would
+                    // be gray. Pulling here ensures the frameBuffer always has
+                    // the latest data for fallback rendering.
+                    NdsNative.getFrameBuffer(frameBuffer)
 
                     onFrame()
 

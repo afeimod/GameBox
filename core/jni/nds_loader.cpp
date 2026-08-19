@@ -225,24 +225,38 @@ static std::atomic<bool> s_optionsChanged{false};
 // than a hardcoded path.
 // ---------------------------------------------------------------------------
 static void initDefaultOptions() {
+    // Only set defaults for options that haven't been set yet.
+    // applyCoreOptions() from Kotlin may have already set these options
+    // BEFORE loadRom() is called. Overwriting them here would cause:
+    //   - Gray screen: if melonds_screen_layout was set to a non-default
+    //     value by the user, it would be reset to "top_bottom"
+    //   - Single screen: if the user selected a specific layout, it would
+    //     be lost
+    //   - Wrong console mode: ds/dsi would be reset to "ds"
+    auto setIfMissing = [](const std::string& key, const std::string& val) {
+        if (s_options.find(key) == s_options.end()) {
+            s_options[key] = val;
+        }
+    };
+
     // --- Display / Layout ---
-    s_options["melonds_screen_layout"]          = "top_bottom";  // top_bottom|bottom_top|left_right|right_left|top_only|bottom_only|turnscreen
-    s_options["melonds_screensaver"]            = "disabled";    // disabled|enabled (screen sleep during emulation)
-    s_options["melonds_opengl_resolution"]      = "1";           // 1|2|3|4|5 (software renderer pixel upscale)
-    s_options["melonds_opengl_better_polygons"] = "disabled";   // disabled|enabled (better polygon interpolation)
-    s_options["melonds_opengl_filtering"]       = "nearest";     // nearest|linear (3D texture filtering)
-    s_options["melonds_opengl_factor_3d"]       = "0";          // 0|1|2|4|8|16 (OpenGL 3D upscaling factor — 0=disabled)
+    setIfMissing("melonds_screen_layout",          "top_bottom");
+    setIfMissing("melonds_screensaver",            "disabled");
+    setIfMissing("melonds_opengl_resolution",      "1");
+    setIfMissing("melonds_opengl_better_polygons", "disabled");
+    setIfMissing("melonds_opengl_filtering",       "nearest");
+    setIfMissing("melonds_opengl_factor_3d",       "0");
 
     // --- System / Console ---
-    s_options["melonds_console_mode"]           = "ds";          // ds|dsi (DS or DSi mode)
-    s_options["melonds_dsi_sdcard"]             = "disabled";    // disabled|enabled (DSi SD card emulation)
-    s_options["melonds_sysfile_directory"]      = "";            // path — set dynamically to s_systemDir at load
-    s_options["melonds_randomize_mac_address"]  = "disabled";    // disabled|enabled (randomize DS MAC address on boot)
+    setIfMissing("melonds_console_mode",           "ds");
+    setIfMissing("melonds_dsi_sdcard",             "disabled");
+    setIfMissing("melonds_sysfile_directory",      "");
+    setIfMissing("melonds_randomize_mac_address",  "disabled");
 
     // --- Input / Touch ---
-    s_options["melonds_touch_mode"]             = "mouse";       // mouse|touch|disabled (touchscreen input source)
-    s_options["melonds_mouse_speed"]             = "100";         // 50|75|100|125|150 (mouse speed %, touch_mode=mouse only)
-    s_options["melonds_left_shift"]              = "disabled";    // disabled|enabled (left-shift 3D analog)
+    setIfMissing("melonds_touch_mode",             "mouse");
+    setIfMissing("melonds_mouse_speed",             "100");
+    setIfMissing("melonds_left_shift",              "disabled");
 }
 
 // ---------------------------------------------------------------------------

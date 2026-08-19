@@ -24,6 +24,7 @@ object RomStore {
     private const val KEY_PREFIX_ICON = "rom_icon_"
     private const val KEY_PREFIX_LASTPLAYED = "rom_lastplayed_"
     private const val KEY_PREFIX_FAVORITE = "rom_favorite_"
+    private const val KEY_PREFIX_CUSTOM_TITLE = "rom_customtitle_"
 
     private val ACCENT_COLORS = listOf(
         0xFFE74C3C.toInt(), 0xFF27AE60.toInt(), 0xFF3498DB.toInt(),
@@ -125,13 +126,15 @@ object RomStore {
             val iconPath = p.getString("${KEY_PREFIX_ICON}$i", null)
             val lastPlayed = p.getLong("${KEY_PREFIX_LASTPLAYED}$i", 0L)
             val favorite = p.getBoolean("${KEY_PREFIX_FAVORITE}$i", false)
+            val customTitle = p.getString("${KEY_PREFIX_CUSTOM_TITLE}$i", null)
             list.add(GameEntry(
                 id = id, title = title, romPath = path,
                 accent = Color(accentInt.toLong() and 0xFFFFFFFF),
                 platform = platform,
                 customIconPath = iconPath,
                 lastPlayedAt = lastPlayed,
-                isFavorite = favorite
+                isFavorite = favorite,
+                customTitle = customTitle
             ))
         }
         return list
@@ -162,6 +165,7 @@ object RomStore {
                 putString("${KEY_PREFIX_ICON}$i", entry.customIconPath)
                 putLong("${KEY_PREFIX_LASTPLAYED}$i", entry.lastPlayedAt)
                 putBoolean("${KEY_PREFIX_FAVORITE}$i", entry.isFavorite)
+                putString("${KEY_PREFIX_CUSTOM_TITLE}$i", entry.customTitle)
             }
             // 恢复被 clear() 清掉的文件夹记忆键。
             if (importedFolders != null) putString(KEY_IMPORTED_FOLDERS, importedFolders)
@@ -244,6 +248,22 @@ object RomStore {
         val idx = list.indexOfFirst { it.id == gameId }
         if (idx >= 0) {
             list[idx] = list[idx].copy(customIconPath = iconPath)
+            saveAll(ctx, list)
+        }
+    }
+
+    /**
+     * Set a user-defined display name for a game. When non-null and non-blank,
+     * this overrides the ROM filename-derived title for display in the app.
+     * Pass null or blank to clear the custom name and revert to the original title.
+     * The underlying ROM file name is NEVER changed.
+     */
+    fun setCustomTitle(ctx: Context, gameId: String, customTitle: String?) {
+        val list = loadAll(ctx)
+        val idx = list.indexOfFirst { it.id == gameId }
+        if (idx >= 0) {
+            val cleaned = customTitle?.trim()
+            list[idx] = list[idx].copy(customTitle = if (cleaned.isNullOrBlank()) null else cleaned)
             saveAll(ctx, list)
         }
     }

@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -157,6 +158,7 @@ private fun PhoneNavHost(
     var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
+    var pendingRenameGame by remember { mutableStateOf<GameEntry?>(null) }
 
     // 主页刷新触发器：长按菜单里的删除等操作在弹窗内完成，不触发
     // Activity ON_RESUME，主页的"最近游玩"列表无法感知变化。每次这类
@@ -386,7 +388,7 @@ private fun PhoneNavHost(
                 ) {
                     // 标题 — 限制1行+省略号，避免占用过多空间
                     Text(
-                        text = game.title,
+                        text = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         color = Color(0xFF1E2A3A),
@@ -425,6 +427,10 @@ private fun PhoneNavHost(
                             RomStore.toggleFavorite(ctx, game.id)
                             reloadGames()
                         }
+                        MenuOption("重命名") {
+                            longPressGame = null
+                            pendingRenameGame = game
+                        }
                         MenuOption("删除游戏", danger = true) {
                             longPressGame = null
                             pendingDeleteGame = game
@@ -445,12 +451,53 @@ private fun PhoneNavHost(
         }
     }
 
+    // 重命名弹窗
+    pendingRenameGame?.let { game ->
+        Dialog(onDismissRequest = { pendingRenameGame = null }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth(0.85f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp)
+                ) {
+                    Text("重命名游戏", fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        color = Color(0xFF1E2A3A))
+                    Text("当前: ${game.customTitle?.takeIf { it.isNotBlank() } ?: game.title}",
+                        fontSize = 12.sp, color = Color.Gray)
+                    Spacer(Modifier.size(12.dp))
+                    var name by remember { mutableStateOf(game.customTitle?.takeIf { it.isNotBlank() } ?: game.title) }
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("自定义名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Row {
+                        TextButton(onClick = { pendingRenameGame = null }) { Text("取消") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = {
+                            RomStore.setCustomTitle(ctx, game.id, name.trim().takeIf { it.isNotBlank() })
+                            pendingRenameGame = null
+                            reloadGames()
+                            homeRefreshKey++
+                        }) { Text("保存", color = Color(0xFF1976D2)) }
+                    }
+                }
+            }
+        }
+    }
+
     // 删除游戏确认弹窗
     pendingDeleteGame?.let { game ->
         AlertDialog(
             onDismissRequest = { pendingDeleteGame = null },
             title = { Text("删除游戏") },
-            text = { Text("确定要删除「${game.title}」吗？此操作不可撤销。") },
+            text = { Text("确定要删除「${game.customTitle?.takeIf { it.isNotBlank() } ?: game.title}」吗？此操作不可撤销。") },
             confirmButton = {
                 TextButton(onClick = {
                     if (game.platform == GamePlatform.JAVA) {

@@ -234,7 +234,7 @@ fun HomeScreen(
                         ) {
                             items(recents) { g ->
                                 GameCard(
-                                    title = g.title,
+                                    title = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title,
                                     accent = g.accent,
                                     onClick = { onOpenGame(g) },
                                     onLongClick = { onLongClickGame(g) },
@@ -335,7 +335,7 @@ fun HomeScreen(
                     ) {
                         items(recents) { g ->
                             GameCard(
-                                title = g.title,
+                                title = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title,
                                 accent = g.accent,
                                 onClick = { onOpenGame(g) },
                                 onLongClick = { onLongClickGame(g) },

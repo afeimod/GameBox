@@ -198,5 +198,12 @@ data class GameEntry(
     val playTimeMs: Long = 0L,
     val isFavorite: Boolean = false,
     val platform: GamePlatform = GamePlatform.NES,
-    val customIconPath: String? = null
+    val customIconPath: String? = null,
+    /**
+     * User-defined display name. When non-null and non-blank, this overrides
+     * [title] for display purposes in the home screen, library, and long-press
+     * menus. The underlying ROM file name is NEVER changed — this is purely
+     * an app-level cosmetic override.
+     */
+    val customTitle: String? = null
 )
