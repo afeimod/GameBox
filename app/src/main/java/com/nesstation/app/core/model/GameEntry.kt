@@ -147,8 +147,9 @@ enum class GamePlatform(val displayName: String) {
                 // detectPlatformFromUri.)
                 "pce", "sgx", "hes" -> PCE
                 // Nintendo DS (melonDS libretro)
-                // .nds = DS cartridge, .app = DSiWare, .ids = some ROM hacks
-                "nds", "app", "ids" -> NDS
+                // .nds = DS cartridge, .app = DSiWare, .ids = some ROM hacks,
+                // .srl = DS emulator save/ROM, .dsi = DSi cartridge
+                "nds", "app", "ids", "srl", "dsi" -> NDS
                 // Sony PlayStation 1 (PCSX-ReARMed)
                 // .bin/.cue = CD image pair (most common), .pbp = PSP-style PSX
                 // eboot bundle, .m3u = playlist, .chd = compressed CD,

@@ -239,19 +239,22 @@ static bool loadCoreLib() {
     if (!s_coreLibPath.empty()) candidates.push_back(s_coreLibPath);
     candidates.push_back("libfbneo_libretro_android.so");
 
+    const char* lastDlError = nullptr;
     for (const auto& name : candidates) {
         s_coreLib = dlopen(name.c_str(), RTLD_NOW);
         if (s_coreLib) {
             LOGI("dlopen(%s) OK", name.c_str());
             break;
         } else {
-            LOGW("dlopen(%s) failed: %s", name.c_str(), dlerror());
+            lastDlError = dlerror();
+            LOGW("dlopen(%s) failed: %s", name.c_str(),
+                 lastDlError ? lastDlError : "(unknown)");
         }
     }
 
     if (!s_coreLib) {
         s_coreError = "dlopen(libfbneo_libretro_android.so) failed: ";
-        s_coreError += dlerror();
+        s_coreError += (lastDlError ? lastDlError : "(unknown)");
         LOGE("%s", s_coreError.c_str());
         return false;
     }
@@ -261,8 +264,9 @@ static bool loadCoreLib() {
     #define RESOLVE(name) \
         s_##name = reinterpret_cast<name##_t>(dlsym(s_coreLib, #name)); \
         if (!s_##name) { \
+            const char* _dlerr = dlerror(); \
             s_coreError = "dlsym(" #name ") failed: "; \
-            s_coreError += dlerror(); \
+            s_coreError += (_dlerr ? _dlerr : "(unknown)"); \
             LOGE("%s", s_coreError.c_str()); \
             dlclose(s_coreLib); s_coreLib = nullptr; \
             return false; \
