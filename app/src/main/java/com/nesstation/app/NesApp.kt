@@ -9,6 +9,8 @@ import com.nesstation.app.core.engine.DosEngine
 import com.nesstation.app.core.engine.FbNeoEngine
 import com.nesstation.app.core.engine.GenesisEngine
 import com.nesstation.app.core.engine.PceEngine
+import com.nesstation.app.core.engine.PsxEngine
+import com.nesstation.app.core.engine.NdsEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
 import java.io.File
@@ -94,6 +96,8 @@ class NesApp : Application() {
         tryInit("FbNeoBios")          { ensureFbNeoBios() }
         tryInit("GenesisBios")        { ensureGenesisBios() }
         tryInit("PceBios")            { ensurePceBios() }
+        tryInit("NdsBios")            { ensureNdsBios() }
+        tryInit("PsxBios")            { ensurePsxBios() }
         tryInit("ArcadeTitleMigrate") { migrateArcadeTitles() }
     }
 
@@ -430,6 +434,118 @@ class NesApp : Application() {
         } else {
             Log.i("NesApp", "PCE BIOS: no bundled BIOS files found in assets/pce/. " +
                     "Import via Settings → PCE → PCE-CD BIOS Management (only needed for PCE-CD games).")
+        }
+    }
+
+    /**
+     * Auto-extract melonDS (NDS / DSi) BIOS files from APK assets to the
+     * system directory (<filesDir>/nds/).
+     *
+     * melonDS looks for BIOS files by filename:
+     *   bios7.bin      — ARM7 BIOS (required for NDS)
+     *   bios9.bin      — ARM9 BIOS (required for NDS)
+     *   firmware.bin   — DS firmware (required for NDS)
+     *   dsi_arm7.bin   — (DSi only) ARM7 binary
+     *   dsi_bios7.bin  — (DSi only) ARM7 BIOS
+     *   dsi_bios9.bin  — (DSi only) ARM9 BIOS
+     *   dsi_firmware.bin — (DSi only) DSi firmware
+     *   dsi_nand.bin   — (DSi only) DSi NAND image
+     *
+     * These BIOS files have copyright and cannot be bundled in the open-source
+     * release. Users can place them in app/src/main/assets/nds/ before building
+     * the APK, or import them via Settings → NDS → BIOS Management.
+     *
+     * Already-extracted files in <filesDir>/nds/ are NOT overwritten (user
+     * imports take precedence over bundled assets).
+     */
+    private fun ensureNdsBios() {
+        val destDir = File(filesDir, "nds")
+        if (!destDir.exists()) destDir.mkdirs()
+
+        val biosFiles = listOf(
+            "bios7.bin", "bios9.bin", "firmware.bin",
+            "dsi_arm7.bin", "dsi_bios7.bin", "dsi_bios9.bin",
+            "dsi_firmware.bin", "dsi_nand.bin"
+        )
+
+        var extracted = 0
+        for (name in biosFiles) {
+            val dest = File(destDir, name)
+            if (dest.exists() && dest.length() > 0) continue  // don't overwrite
+            try {
+                assets.open("nds/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                extracted++
+                Log.i("NesApp", "NDS BIOS extracted: $name")
+            } catch (_: java.io.FileNotFoundException) {
+                // Not bundled — skip
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to extract NDS BIOS $name", e)
+                if (dest.exists()) dest.delete()
+            }
+        }
+        if (extracted > 0) {
+            Log.i("NesApp", "NDS BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
+        } else {
+            Log.i("NesApp", "NDS BIOS: no bundled BIOS files found in assets/nds/. " +
+                    "Import via Settings → NDS → BIOS Management.")
+        }
+    }
+
+    /**
+     * Auto-extract PCSX-ReARMed (PSX) BIOS files from APK assets to the
+     * system directory (<filesDir>/psx/).
+     *
+     * PCSX-ReARMed looks for BIOS files by filename:
+     *   scph1000.bin     — Japanese BIOS
+     *   scph1001.bin     — American BIOS
+     *   scph1002.bin     — European BIOS
+     *   scph5500.bin     — Japanese (newer)
+     *   scph5501.bin     — American (newer)
+     *   scph5502.bin     — European (newer)
+     *   psxonpsp660.bin  — PSP-derived (no copyright issues in some regions)
+     *
+     * PCSX-ReARMed also supports HLE BIOS (built-in, no file needed) —
+     * selectable via the "pcsx_rearmed_bios" = "HLE" core option. This means
+     * PSX games CAN run without a BIOS file (less compatible). Users who want
+     * full compatibility place BIOS files in app/src/main/assets/psx/ before
+     * building, or import them via Settings → PSX → BIOS Management.
+     *
+     * Already-extracted files in <filesDir>/psx/ are NOT overwritten.
+     */
+    private fun ensurePsxBios() {
+        val destDir = File(filesDir, "psx")
+        if (!destDir.exists()) destDir.mkdirs()
+
+        val biosFiles = listOf(
+            "scph1000.bin", "scph1001.bin", "scph1002.bin",
+            "scph5500.bin", "scph5501.bin", "scph5502.bin",
+            "psxonpsp660.bin"
+        )
+
+        var extracted = 0
+        for (name in biosFiles) {
+            val dest = File(destDir, name)
+            if (dest.exists() && dest.length() > 0) continue  // don't overwrite
+            try {
+                assets.open("psx/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                extracted++
+                Log.i("NesApp", "PSX BIOS extracted: $name")
+            } catch (_: java.io.FileNotFoundException) {
+                // Not bundled — skip
+            } catch (e: Exception) {
+                Log.w("NesApp", "Failed to extract PSX BIOS $name", e)
+                if (dest.exists()) dest.delete()
+            }
+        }
+        if (extracted > 0) {
+            Log.i("NesApp", "PSX BIOS: $extracted file(s) extracted to ${destDir.absolutePath}")
+        } else {
+            Log.i("NesApp", "PSX BIOS: no bundled BIOS files found in assets/psx/. " +
+                    "Import via Settings → PSX → BIOS Management, or use HLE BIOS (pcsx_rearmed_bios = HLE).")
         }
     }
 

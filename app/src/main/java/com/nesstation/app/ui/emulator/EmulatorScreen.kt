@@ -311,6 +311,21 @@ private fun buildKeyActions(platform: GamePlatform): List<KeyActionInternal> {
             KeyActionInternal("java_select", KeyEvent.KEYCODE_BUTTON_SELECT),
             KeyActionInternal("java_start", KeyEvent.KEYCODE_BUTTON_START)
         )
+        // NDS / PSX use the same 12-button SNES layout
+        GamePlatform.NDS, GamePlatform.PSX -> listOf(
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_a", KeyEvent.KEYCODE_BUTTON_A),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_b", KeyEvent.KEYCODE_BUTTON_B),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_x", KeyEvent.KEYCODE_BUTTON_X),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_y", KeyEvent.KEYCODE_BUTTON_Y),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
     }
     return base
 }
@@ -2198,6 +2213,8 @@ private fun parseComboButtons(padLayout: PadLayout, platform: GamePlatform): Lis
         GamePlatform.MD     -> padLayout.comboButtonsMd
         GamePlatform.PCE    -> padLayout.comboButtonsPce
         GamePlatform.DOS    -> ""
+        GamePlatform.NDS    -> padLayout.comboButtonsSfc  // NDS uses SNES-style combos
+        GamePlatform.PSX    -> padLayout.comboButtonsSfc  // PSX uses SNES-style combos
         GamePlatform.JAVA   -> ""
     }
     if (json.isBlank()) return emptyList()
@@ -2304,10 +2321,10 @@ fun OnScreenController(
     // PCE uses the SNES/ARCADE/MD bit layout (L/R on bit10/11), not GBA.
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
     // L2/R2 (Turbo toggle for PCE) — show for ARCADE when explicitly enabled,
     // and always for PCE (PCE has turbo toggle as a standard feature).
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
@@ -4425,10 +4442,10 @@ private fun PadLayoutEditor(
 
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
     // L2/R2 editable in edit mode for Arcade (when enabled) and PCE (turbo toggle)
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
                    platform == GamePlatform.PCE
@@ -5049,16 +5066,16 @@ private fun ComboButtonPickerDialog(
             ButtonOption("Start", BTN_START),
             ButtonOption("Select", BTN_SELECT)
         )
-        // X/Y available on SNES/Arcade/MD/PCE
+        // X/Y available on SNES/Arcade/MD/PCE/NDS/PSX
         if (platform == GamePlatform.SFC || platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-            platform == GamePlatform.PCE) {
+            platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX) {
             list.add(ButtonOption("X", BTN_X))
             list.add(ButtonOption("Y", BTN_Y))
         }
-        // L/R available on GBA/SNES/Arcade/MD/PCE
+        // L/R available on GBA/SNES/Arcade/MD/PCE/NDS/PSX
         if (platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
             platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-            platform == GamePlatform.PCE) {
+            platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX) {
             list.add(ButtonOption("L", lBit))
             list.add(ButtonOption("R", rBit))
         }
@@ -6317,6 +6334,16 @@ private fun SettingsPanel(
                 Spacer(Modifier.size(4.dp))
                 PceBiosImportSection()
             }
+            GamePlatform.NDS -> {
+                // NDS / DSi BIOS import section (melonDS)
+                Spacer(Modifier.size(4.dp))
+                NdsBiosImportSection()
+            }
+            GamePlatform.PSX -> {
+                // PSX BIOS import section (PCSX-ReARMed)
+                Spacer(Modifier.size(4.dp))
+                PsxBiosImportSection()
+            }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }
 
@@ -6860,6 +6887,280 @@ private fun PceBiosImportSection() {
             tint = Color(0xFF8899AA),
             modifier = Modifier.size(20.dp).clickable { refreshKey++ }.padding(4.dp)
         )
+    }
+}
+
+/**
+ * NDS / DSi BIOS import section for the melonDS core.
+ *
+ * melonDS requires BIOS files in <filesDir>/nds/:
+ *   bios7.bin      — ARM7 BIOS (required for NDS)
+ *   bios9.bin      — ARM9 BIOS (required for NDS)
+ *   firmware.bin   — DS firmware (required for NDS)
+ *   dsi_arm7.bin   — (DSi only) ARM7 binary
+ *   dsi_bios7.bin  — (DSi only) ARM7 BIOS
+ *   dsi_bios9.bin  — (DSi only) ARM9 BIOS
+ *   dsi_firmware.bin — (DSi only) DSi firmware
+ *   dsi_nand.bin   — (DSi only) DSi NAND image
+ *
+ * These BIOS files have copyright and cannot be bundled with the app.
+ * Users provide them via this import UI.
+ *
+ * Also supports "免 BIOS" mode via the core option "melonds_console_mode" —
+ * but melonDS libretro always requires the BIOS files. There's no HLE BIOS
+ * mode in melonDS (unlike PCSX-ReARMed). So this section just imports files.
+ */
+@Composable
+private fun NdsBiosImportSection() {
+    val context = LocalContext.current
+    val biosDir = remember { java.io.File(context.filesDir, "nds").apply { mkdirs() } }
+    var statusText by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshKey) {
+        // === Auto-extract from assets/nds/ if present ===
+        // Mirrors ensureNdsBios() in NesApp — re-runs here so the user can
+        // drop BIOS files into assets/nds/ between builds and have them
+        // picked up without a full reinstall (during dev).
+        val known = listOf(
+            "bios7.bin" to "ARM7 BIOS (NDS 必需)",
+            "bios9.bin" to "ARM9 BIOS (NDS 必需)",
+            "firmware.bin" to "DS Firmware (NDS 必需)",
+            "dsi_arm7.bin" to "DSi ARM7 (DSi 模式)",
+            "dsi_bios7.bin" to "DSi ARM7 BIOS (DSi 模式)",
+            "dsi_bios9.bin" to "DSi ARM9 BIOS (DSi 模式)",
+            "dsi_firmware.bin" to "DSi Firmware (DSi 模式)",
+            "dsi_nand.bin" to "DSi NAND (DSi 模式)"
+        )
+        for ((name, _) in known) {
+            val dest = java.io.File(biosDir, name)
+            if (dest.exists() && dest.length() > 0) continue
+            try {
+                context.assets.open("nds/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) { /* not bundled */ }
+        }
+
+        statusText = buildString {
+            var found = 0
+            for ((name, label) in known) {
+                val f = java.io.File(biosDir, name)
+                if (f.exists() && f.length() > 0) {
+                    append("✓ $label ($name, ${f.length() / 1024}KB)\n")
+                    found++
+                }
+            }
+            if (found < 3) {
+                append("\n⚠ NDS 至少需要 bios7.bin + bios9.bin + firmware.bin\n")
+                append("DSi 模式还需要 dsi_*.bin 系列\n")
+                append("melonDS 没有 HLE 免 BIOS 模式（必须提供 BIOS 文件）\n")
+            }
+            append("\n目录: ${biosDir.absolutePath}")
+        }
+    }
+
+    val biosPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            var origName = ""
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    if (idx >= 0 && c.moveToFirst()) {
+                        val n = c.getString(idx)
+                        if (!n.isNullOrBlank()) origName = n
+                    }
+                }
+            } catch (_: Exception) { }
+            if (origName.isBlank()) {
+                origName = uri.lastPathSegment?.let { android.net.Uri.decode(it) }
+                    ?.substringAfterLast('/')?.substringAfterLast(':') ?: "bios.bin"
+            }
+
+            val msg: String = try {
+                val dest = java.io.File(biosDir, origName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                "已导入 BIOS: ${dest.name} (${dest.length() / 1024}KB)"
+            } catch (e: Exception) {
+                "导入失败: ${e.message}"
+            }
+            refreshKey++
+            statusText = msg
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            statusText,
+            color = Color(0xFF88DD88),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "导入 BIOS (.bin)",
+                color = Color(0xFFFFD66B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
+                    .padding(8.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Text(
+                "刷新",
+                color = Color(0xFF8899AA),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { refreshKey++ }
+                    .padding(8.dp)
+            )
+        }
+    }
+}
+
+/**
+ * PSX BIOS import section for the PCSX-ReARMed core.
+ *
+ * PCSX-ReARMed can use either:
+ *   1. HLE BIOS (built-in, no file needed) — less compatible but works
+ *   2. Real BIOS files in <filesDir>/psx/:
+ *      scph1000.bin  — Japanese BIOS
+ *      scph1001.bin  — American BIOS
+ *      scph1002.bin  — European BIOS
+ *      scph5500.bin  — Japanese (newer)
+ *      scph5501.bin  — American (newer)
+ *      scph5502.bin  — European (newer)
+ *      psxonpsp660.bin — PSP-derived (no copyright issues in some regions)
+ *
+ * The "pcsx_rearmed_bios" core option selects which BIOS to use:
+ *   "auto" — auto-detect by region
+ *   "HLE"  — use HLE BIOS (no file)
+ *   "scph1001" / "scph1002" / ... — use specific BIOS file
+ *
+ * This section imports BIOS files and shows which are present. The BIOS
+ * selection dropdown is in the CoreSettingsPanel (already added).
+ */
+@Composable
+private fun PsxBiosImportSection() {
+    val context = LocalContext.current
+    val biosDir = remember { java.io.File(context.filesDir, "psx").apply { mkdirs() } }
+    var statusText by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshKey) {
+        // === Auto-extract from assets/psx/ if present ===
+        val known = listOf(
+            "scph1000.bin" to "SCPH-1000 (日)",
+            "scph1001.bin" to "SCPH-1001 (美)",
+            "scph1002.bin" to "SCPH-1002 (欧)",
+            "scph5500.bin" to "SCPH-5500 (日)",
+            "scph5501.bin" to "SCPH-5501 (美)",
+            "scph5502.bin" to "SCPH-5502 (欧)",
+            "psxonpsp660.bin" to "PSP-660 (免版权)"
+        )
+        for ((name, _) in known) {
+            val dest = java.io.File(biosDir, name)
+            if (dest.exists() && dest.length() > 0) continue
+            try {
+                context.assets.open("psx/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) { /* not bundled */ }
+        }
+
+        statusText = buildString {
+            var found = 0
+            for ((name, label) in known) {
+                val f = java.io.File(biosDir, name)
+                if (f.exists() && f.length() > 0) {
+                    append("✓ $label ($name, ${f.length() / 1024}KB)\n")
+                    found++
+                }
+            }
+            if (found == 0) {
+                append("未检测到 PSX BIOS 文件\n")
+                append("可在设置 → PSX → BIOS 选 'HLE(无 BIOS)' 免 BIOS 运行\n")
+                append("或导入 scph1001.bin(美) / scph1002.bin(欧) / scph1000.bin(日)\n")
+            }
+            append("\n目录: ${biosDir.absolutePath}")
+        }
+    }
+
+    val biosPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            var origName = ""
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    if (idx >= 0 && c.moveToFirst()) {
+                        val n = c.getString(idx)
+                        if (!n.isNullOrBlank()) origName = n
+                    }
+                }
+            } catch (_: Exception) { }
+            if (origName.isBlank()) {
+                origName = uri.lastPathSegment?.let { android.net.Uri.decode(it) }
+                    ?.substringAfterLast('/')?.substringAfterLast(':') ?: "scph1001.bin"
+            }
+
+            val msg: String = try {
+                val dest = java.io.File(biosDir, origName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                "已导入 BIOS: ${dest.name} (${dest.length() / 1024}KB)"
+            } catch (e: Exception) {
+                "导入失败: ${e.message}"
+            }
+            refreshKey++
+            statusText = msg
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            statusText,
+            color = Color(0xFF88DD88),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "导入 BIOS (.bin)",
+                color = Color(0xFFFFD66B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
+                    .padding(8.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Text(
+                "刷新",
+                color = Color(0xFF8899AA),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { refreshKey++ }
+                    .padding(8.dp)
+            )
+        }
     }
 }
 
