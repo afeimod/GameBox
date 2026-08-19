@@ -168,12 +168,16 @@ class BattleNetplay(
 
     @Synchronized
     private fun sendLine(line: String) {
-        val w = writer ?: return
+        val w = writer ?: run {
+            android.util.Log.w("BattleNetplay", "sendLine: writer is null, line dropped: $line")
+            return
+        }
         try {
             w.write(line)
             w.write("\n")
             w.flush()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.w("BattleNetplay", "sendLine failed: ${e.message}")
         }
     }
 

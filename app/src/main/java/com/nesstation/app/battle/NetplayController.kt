@@ -131,6 +131,27 @@ class NetplayController(
     @Volatile private var netplayLost = false
     @Volatile private var desyncCount = 0
 
+    /**
+     * 角色：1P (host) 还是 2P (guest)。由服务器在 hello 回执里下发。
+     *
+     * ## 关键作用：决定 pad1/pad2 的映射
+     *
+     * 街机/主机游戏里 pad1 永远是 1P 的输入，pad2 永远是 2P 的输入。
+     * 双方各自的引擎都从 frame 0 跑同一个 ROM，**画面是完全相同的**
+     * （确定性核心保证状态一致）。区别只在于"谁的输入推给 pad1 / pad2"：
+     *
+     *  - 1P (host): 本地输入 → pad1, 远端输入 → pad2
+     *  - 2P (guest): 本地输入 → pad2, 远端输入 → pad1
+     *
+     * 之前双方都把自己当 1P（本地→pad1, 远端→pad2），导致：
+     *  - 2P 把自己的输入推给 pad1（1P 的角色）
+     *  - 2P 画面显示的是 1P 的角色，所以 2P 控制的是 1P
+     *  - 1P 收到了 2P 的输入（因为 2P 发给服务器，服务器转发，1P 当作远端推给 pad2）
+     *  - 但 2P 收到 1P 的输入后推给 pad2（2P 的角色），2P 的 1P 角色没动 → 单机感
+     */
+    @Volatile var role: String = "host"
+        private set
+
     // === 网络 ===
     @Volatile private var net: BattleNetplay? = null
 
@@ -138,12 +159,19 @@ class NetplayController(
         override fun onRemoteInput(frame: Long, pad: Int) {
             // 网络线程：直接写入 remoteHistory（ConcurrentHashMap 线程安全）
             remoteHistory[frame] = pad
+            // === 调试日志：每 60 帧打一次，确认收到了对方输入 ===
+            if (frame % 60 == 0L) {
+                android.util.Log.i("NetplayController",
+                    "onRemoteInput: frame=$frame pad=$pad remoteHistory.size=${remoteHistory.size}")
+            }
         }
 
         override fun onReady(role: String, inputDelay: Int) {
             // 服务器握手完成。同步 inputDelay（beforeFrame 每帧也会读一次，
             // 但这里提前更新让第一帧就用对值）。
             this@NetplayController.inputDelay = inputDelay.coerceIn(0, 8)
+            this@NetplayController.role = role  // "host" 或 "guest"
+            android.util.Log.i("NetplayController", "onReady: role=$role inputDelay=$inputDelay")
             dispatch { it.onReady(role, inputDelay) }
         }
 
@@ -224,12 +252,25 @@ class NetplayController(
             return localPad to lastRemotePad
         }
 
-        // 每帧从服务器握手响应里同步 inputDelay（hello 到达后会自动更新；
-        // 到达之前用默认值 4，与服务器默认一致）
+        // 每帧从服务器握手响应里同步 inputDelay 和 role（hello 到达后会自动更新；
+        // 到达之前用默认值，与服务器默认一致）
         inputDelay = n.inputDelay.coerceIn(0, 8)
+        // 同步 role —— onReady 回调里也设了，但这里每帧再同步一次兜底，
+        // 防止 onReady 回调还没到时引擎就开始跑（竞态）
+        if (n.role.isNotEmpty()) role = n.role
 
         // 把本地这一帧的输入送给服务器（非阻塞，TCP 发送缓冲）
-        try { n.sendInput(frame, localPad) } catch (_: Throwable) {}
+        try {
+            n.sendInput(frame, localPad)
+            // === 调试日志：每 60 帧打一次，确认在发 input + 当前 role ===
+            if (frame % 60 == 0L) {
+                android.util.Log.i("NetplayController",
+                    "beforeFrame: frame=$frame role=$role localPad=$localPad inputDelay=$inputDelay " +
+                    "remoteHistory.size=${remoteHistory.size} lastRemotePad=$lastRemotePad")
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("NetplayController", "sendInput failed: ${t.message}")
+        }
 
         // 实际执行帧 = 采样帧 - inputDelay（warmup 阶段不执行真实输入）
         val execFrame = frame - inputDelay
@@ -266,7 +307,26 @@ class NetplayController(
                 dispatch { it.onNetplayLost("网络抖动：对方输入延迟到达，已用上一帧输入兜底（不阻塞游戏）· desync $dc") }
             }
         }
-        return localForExec to lastRemotePad
+
+        // === 关键：根据角色映射 pad1 / pad2 ===
+        //
+        // 街机/主机游戏里 pad1 是 1P 的输入槽，pad2 是 2P 的输入槽。
+        // 双方引擎跑同一个 ROM（确定性核心保证画面完全一致），区别只在于
+        // "本地输入推给 pad1 还是 pad2"：
+        //
+        //  - 1P (host):  本地 → pad1, 远端 → pad2  （本地玩家是 1P）
+        //  - 2P (guest): 本地 → pad2, 远端 → pad1  （本地玩家是 2P）
+        //
+        // 之前双方都返回 `localForExec to lastRemotePad`（本地→pad1, 远端→pad2），
+        // 导致 2P 把自己的输入推给 pad1（1P 的角色），2P 画面显示 1P 的角色，
+        // 所以 2P 控制的是 1P —— 这就是"2P 还是 1P 的画面"的根因。
+        return if (role == "guest") {
+            // 2P: 本地输入 → pad2, 远端输入 → pad1
+            lastRemotePad to localForExec
+        } else {
+            // 1P: 本地输入 → pad1, 远端输入 → pad2
+            localForExec to lastRemotePad
+        }
     }
 
     /**

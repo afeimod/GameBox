@@ -158,6 +158,23 @@ func (h *relayHub) handleConn(conn net.Conn) {
         }
         room.conns[claims.Sub] = rc
         playerCount := room.playerCount()
+
+        // === 关键修复：在锁内设置 peer 引用 ===
+        // 之前 other.peer = rc 和 rc.peer = other 在 peerOf 的锁外执行，
+        // 导致 1P 的 relayLoop 可能读不到 rc_1p.peer 的更新（Go 内存模型
+        // 跨 goroutine 需要 sync）。现在在 h.mu 锁内设置 peer，保证
+        // relayLoop 下次读 rc.peer 时一定能看到。
+        var other *relayConn
+        for id, c := range room.conns {
+                if id != claims.Sub {
+                        other = c
+                        break
+                }
+        }
+        if other != nil {
+                other.peer = rc
+                rc.peer = other
+        }
         h.mu.Unlock()
 
         conn.SetReadDeadline(time.Time{}) // 清除超时
@@ -178,11 +195,7 @@ func (h *relayHub) handleConn(conn net.Conn) {
         })
 
         // 通知对方（peer_joined）—— 告诉 1P 有新玩家加入。
-        // 1P 此时还不启动引擎，要等 2P 发的 ready 信号（经 relayLoop 转发）。
-        other := h.peerOf(room, claims.Sub)
         if other != nil {
-                other.peer = rc
-                rc.peer = other
                 _ = other.send(relayMsg{Type: "peer_joined", Msg: rc.user.Username})
         }
 
@@ -192,6 +205,12 @@ func (h *relayHub) handleConn(conn net.Conn) {
 
 // relayLoop 读取一条输入消息，原样转发给对端
 func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
+        logf := func(format string, args ...interface{}) {
+                // 简单日志 —— 帮助调试转发问题
+                // fmt.Fprintf(os.Stderr, "[relay] "+format+"\n", args...)
+        }
+        _ = logf
+
         for {
                 line, err := reader.ReadString('\n')
                 if err != nil {
@@ -209,9 +228,14 @@ func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
                 switch msg.Type {
                 case "input":
                         // 转发给对端
-                        if rc.peer != nil && rc.peer.conn != nil {
-                                if err := rc.peer.send(relayMsg{Type: "input", Frame: msg.Frame, Pad: msg.Pad}); err != nil {
-                                        rc.peer.close()
+                        // 加锁读 peer —— 防止读到 nil 的瞬态（虽然 handleConn
+                        // 已经在锁内设了 peer，但保险起见这里也加锁）。
+                        h.mu.Lock()
+                        peer := rc.peer
+                        h.mu.Unlock()
+                        if peer != nil && peer.conn != nil {
+                                if err := peer.send(relayMsg{Type: "input", Frame: msg.Frame, Pad: msg.Pad}); err != nil {
+                                        peer.close()
                                         h.drop(rc)
                                         return
                                 }
@@ -220,8 +244,11 @@ func (h *relayHub) relayLoop(rc *relayConn, reader *bufio.Reader) {
                         // 2P (guest) 收到 hello 后发 ready，表示引擎即将启动。
                         // 服务器转发给 1P (host)，1P 收到后才知道 2P 已经准备好，
                         // 此刻双方几乎同时启动引擎。
-                        if rc.peer != nil && rc.peer.conn != nil {
-                                _ = rc.peer.send(relayMsg{Type: "peer_ready", Msg: rc.user.Username})
+                        h.mu.Lock()
+                        peer := rc.peer
+                        h.mu.Unlock()
+                        if peer != nil && peer.conn != nil {
+                                _ = peer.send(relayMsg{Type: "peer_ready", Msg: rc.user.Username})
                         }
                 case "ping":
                         _ = rc.send(relayMsg{Type: "pong"})
