@@ -831,6 +831,38 @@ fun EmulatorScreen(
                             game.title.contains("SEGA-CD", ignoreCase = true)
             if (isCdExt || titleHint) {
                 val genesisDir = java.io.File(context.filesDir, "genesis")
+
+                // === 自动解压 zip 里的 .bin ===
+                // 如果有 .zip 但没对应的 .bin，先尝试解压。这避免用户看到
+                // "有.zip但无.bin" 提示后还要手动操作。
+                val binNames = listOf("bios_CD_E.bin", "bios_CD_J.bin", "bios_CD_U.bin")
+                for (binName in binNames) {
+                    val binFile = java.io.File(genesisDir, binName)
+                    if (binFile.exists() && binFile.length() > 0) continue
+                    val zipFile = java.io.File(genesisDir, binName.replace(".bin", ".zip"))
+                    if (!zipFile.exists() || zipFile.length() <= 0) continue
+                    try {
+                        java.util.zip.ZipInputStream(zipFile.inputStream().buffered()).use { zin ->
+                            while (true) {
+                                val entry = zin.nextEntry ?: break
+                                val entryName = entry.name.lowercase()
+                                if (entryName.endsWith(".bin") || entryName.endsWith(".rom")) {
+                                    binFile.outputStream().buffered().use { out ->
+                                        val buf = ByteArray(8192)
+                                        while (true) {
+                                            val n = zin.read(buf)
+                                            if (n <= 0) break
+                                            out.write(buf, 0, n)
+                                        }
+                                    }
+                                    break
+                                }
+                                zin.closeEntry()
+                            }
+                        }
+                    } catch (_: Exception) { /* 忽略，下面 hasBios 检查会兜底 */ }
+                }
+
                 val hasBios = listOf("bios_CD_E.bin", "bios_CD_J.bin", "bios_CD_U.bin",
                                      "bios_CD_E.zip", "bios_CD_J.zip", "bios_CD_U.zip")
                     .any { java.io.File(genesisDir, it).exists() }
@@ -6472,7 +6504,39 @@ private fun GenesisBiosImportSection() {
                     append("✓ $label ($name, ${binFile.length() / 1024}KB)\n")
                     found++
                 } else if (zipOk) {
-                    append("⚠ $label (有.zip但无.bin — 建议重新导入以自动解压)\n")
+                    // === 自动解压修复 ===
+                    // 之前 ensureGenesisBios 或旧版导入只复制了 zip 没解压 .bin，
+                    // 这里检测到这种情况时自动解压一次，避免用户看到"建议重新导入"。
+                    val autoExtracted = try {
+                        java.util.zip.ZipInputStream(zipFile.inputStream().buffered()).use { zin ->
+                            var ok = false
+                            while (true) {
+                                val entry = zin.nextEntry ?: break
+                                val entryName = entry.name.lowercase()
+                                if (entryName.endsWith(".bin") || entryName.endsWith(".rom")) {
+                                    binFile.outputStream().buffered().use { out ->
+                                        val buf = ByteArray(8192)
+                                        while (true) {
+                                            val n = zin.read(buf)
+                                            if (n <= 0) break
+                                            out.write(buf, 0, n)
+                                        }
+                                    }
+                                    ok = true
+                                    break
+                                }
+                                zin.closeEntry()
+                            }
+                            ok
+                        }
+                    } catch (_: Exception) { false }
+
+                    if (autoExtracted && binFile.exists() && binFile.length() > 0) {
+                        append("✓ $label ($name, ${binFile.length() / 1024}KB, 自动解压自 ${zipFile.name})\n")
+                        found++
+                    } else {
+                        append("⚠ $label (有.zip但无.bin — 建议重新导入以自动解压)\n")
+                    }
                 }
             }
             if (found == 0) {

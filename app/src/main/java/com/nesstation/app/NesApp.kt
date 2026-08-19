@@ -260,13 +260,26 @@ class NesApp : Application() {
      * APK assets to the system directory (<filesDir>/genesis/).
      *
      * Genesis-Plus-GX looks for Mega-CD BIOS files by filename:
-     *   - bios_CD_E.zip  — European Mega-CD BIOS (contains bios_CD_E.bin)
-     *   - bios_CD_J.zip  — Japanese Mega-CD BIOS (contains bios_CD_J.bin)
-     *   - bios_CD_U.zip  — US SEGA-CD BIOS (contains bios_CD_U.bin)
+     *   - bios_CD_E.bin  — European Mega-CD BIOS
+     *   - bios_CD_J.bin  — Japanese Mega-CD BIOS
+     *   - bios_CD_U.bin  — US SEGA-CD BIOS
      *
      * Cartridge games (MD/SMS/GG/SG) do NOT require BIOS — only Mega-CD
      * games need these. Like FBNeo BIOS, these have copyright and cannot
      * be bundled in the open-source release.
+     *
+     * ## 之前 bug：只复制 zip 不解压
+     *
+     * assets/genesis/ 里存的是 `bios_CD_E.zip`（内部含 `bios_CD_E.bin`）。
+     * 之前的实现把 zip 复制到 `<filesDir>/genesis/` 后**没有解压**，导致：
+     *   - 用户打开"BIOS 管理"看到"有.zip但无.bin — 建议重新导入以自动解压"
+     *   - genplus 核心加载 Mega-CD 游戏时找不到 `bios_CD_E.bin`，黑屏
+     *
+     * ## 修复：复制 zip 后立即解压出 .bin
+     *
+     * 检测到 `bios_CD_<region>.zip` 但没有对应的 `bios_CD_<region>.bin` 时，
+     * 自动解压 zip 里的 .bin 文件出来。已存在的 .bin 不会被覆盖（用户导入
+     * 的优先于 assets 里的）。
      */
     private fun ensureGenesisBios() {
         val destDir = File(filesDir, "genesis")
@@ -276,19 +289,58 @@ class NesApp : Application() {
 
         var extracted = 0
         for (name in biosFiles) {
-            val dest = File(destDir, name)
-            if (dest.exists() && dest.length() > 0) continue
-            try {
-                assets.open("genesis/$name").use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
+            val zipDest = File(destDir, name)
+            // 如果 zip 不存在，从 assets 复制
+            if (!zipDest.exists() || zipDest.length() <= 0) {
+                try {
+                    assets.open("genesis/$name").use { input ->
+                        zipDest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    extracted++
+                    Log.i("NesApp", "Genesis BIOS copied: $name")
+                } catch (_: java.io.FileNotFoundException) {
+                    // assets 里没有这个 zip，跳过（开源发布不带版权 BIOS）
+                    continue
+                } catch (e: Exception) {
+                    Log.w("NesApp", "Failed to copy Genesis BIOS $name", e)
+                    if (zipDest.exists()) zipDest.delete()
+                    continue
                 }
-                extracted++
-                Log.i("NesApp", "Genesis BIOS extracted: $name")
-            } catch (_: java.io.FileNotFoundException) {
-                // Not bundled
+            }
+
+            // === 关键修复：解压 zip 里的 .bin ===
+            // assets 里存的是 zip（内部含 .bin），genplus 核心要的是 .bin 文件本身。
+            // 之前只复制了 zip 没解压，导致核心找不到 BIOS。
+            val binName = name.replace(".zip", ".bin")  // bios_CD_E.zip -> bios_CD_E.bin
+            val binDest = File(destDir, binName)
+            if (binDest.exists() && binDest.length() > 0) {
+                // .bin 已存在（用户之前导入过或上次解压过），不覆盖
+                continue
+            }
+            try {
+                java.util.zip.ZipInputStream(zipDest.inputStream().buffered()).use { zin ->
+                    while (true) {
+                        val entry = zin.nextEntry ?: break
+                        val entryName = entry.name.lowercase()
+                        // 找到 zip 里的 .bin 或 .rom 文件，解压为 bios_CD_<region>.bin
+                        if (entryName.endsWith(".bin") || entryName.endsWith(".rom")) {
+                            binDest.outputStream().buffered().use { out ->
+                                val buf = ByteArray(8192)
+                                while (true) {
+                                    val n = zin.read(buf)
+                                    if (n <= 0) break
+                                    out.write(buf, 0, n)
+                                }
+                            }
+                            Log.i("NesApp", "Genesis BIOS extracted: ${zipDest.name} → ${binDest.name} (${binDest.length() / 1024}KB)")
+                            break
+                        }
+                        zin.closeEntry()
+                    }
+                }
             } catch (e: Exception) {
-                Log.w("NesApp", "Failed to extract Genesis BIOS $name", e)
-                if (dest.exists()) dest.delete()
+                Log.w("NesApp", "Failed to extract .bin from ${zipDest.name}", e)
+                if (binDest.exists() && binDest.length() == 0L) binDest.delete()
             }
         }
         if (extracted > 0) {
