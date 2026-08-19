@@ -632,8 +632,47 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     // which can fail silently on paths with Chinese characters / spaces.
     // This fixes the SMS black screen bug where the core logs BIOS paths
     // but never logs "Loading N bytes" because filestream_open returned NULL.
+    //
+    // === IMPORTANT: Mega-CD games (.cue/.iso/.chd) must NOT be pre-loaded ===
+    // .cue is a tiny text file pointing at .bin tracks. If we pre-load the
+    // .cue into romData and set gameInfo.data, the core tries to parse the
+    // cue TEXT as the binary CD image → black screen + "retro_load_game
+    // failed". For Mega-CD we must pass only the file path (gameInfo.path)
+    // and let the core's own CD loader open the cue + bin tracks + BIOS.
     std::vector<uint8_t> romData;
-    {
+    // === Parse path first — we need the extension to decide whether to
+    // pre-load the file (cart) or skip pre-load (Mega-CD). ===
+    size_t lastSlash = path.find_last_of('/');
+    std::string fileName = (lastSlash != std::string::npos)
+        ? path.substr(lastSlash + 1) : path;
+    s_extRomDir = (lastSlash != std::string::npos)
+        ? path.substr(0, lastSlash) : ".";
+    size_t lastDot = fileName.find_last_of('.');
+    if (lastDot != std::string::npos) {
+        s_extRomName = fileName.substr(0, lastDot);
+        s_extRomExt = fileName.substr(lastDot + 1);
+        std::transform(s_extRomExt.begin(), s_extRomExt.end(),
+                       s_extRomExt.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+    } else {
+        s_extRomName = fileName;
+        s_extRomExt = "md";
+    }
+
+    // === IMPORTANT: Mega-CD games (.cue/.iso/.chd) must NOT be pre-loaded ===
+    // .cue is a tiny text file pointing at .bin tracks. If we pre-load the
+    // .cue into romData and set gameInfo.data, the core tries to parse the
+    // cue TEXT as the binary CD image → black screen + "retro_load_game
+    // failed". For Mega-CD we must pass only the file path (gameInfo.path)
+    // and let the core's own CD loader open the cue + bin tracks + BIOS.
+    //
+    // Note: "bin" is ambiguous (could be MD cart or CD track). For .bin we
+    // only skip pre-load if it's accompanied by a .cue sibling — but we don't
+    // have that info here. The safer bet: skip pre-load for .cue/.iso/.chd
+    // only (the unambiguous CD extensions). .bin alone is treated as MD cart.
+    bool isCdGame = (s_extRomExt == "cue" || s_extRomExt == "iso" ||
+                     s_extRomExt == "chd");
+    if (!isCdGame) {
         FILE* f = std::fopen(path.c_str(), "rb");
         if (f) {
             std::fseek(f, 0, SEEK_END);
@@ -647,24 +686,6 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
                     // survives beyond this block (GPGX queries
                     // GET_GAME_INFO_EXT later during retro_load_game()).
                     s_extRomData = std::move(romData);
-
-                    // Parse path into dir / name / ext for retro_game_info_ext
-                    size_t lastSlash = path.find_last_of('/');
-                    std::string fileName = (lastSlash != std::string::npos)
-                        ? path.substr(lastSlash + 1) : path;
-                    s_extRomDir = (lastSlash != std::string::npos)
-                        ? path.substr(0, lastSlash) : ".";
-                    size_t lastDot = fileName.find_last_of('.');
-                    if (lastDot != std::string::npos) {
-                        s_extRomName = fileName.substr(0, lastDot);
-                        s_extRomExt = fileName.substr(lastDot + 1);
-                        std::transform(s_extRomExt.begin(), s_extRomExt.end(),
-                                       s_extRomExt.begin(),
-                                       [](unsigned char c) { return std::tolower(c); });
-                    } else {
-                        s_extRomName = fileName;
-                        s_extRomExt = "md";
-                    }
 
                     std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
                     s_extGameInfo.full_path     = path.c_str();
@@ -700,6 +721,36 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
             s_extRomData.clear();
             s_extGameInfoValid = false;
         }
+    } else {
+        // === Mega-CD game: do NOT pre-load data, only fill ext info ===
+        // For CD games (.cue/.iso/.chd), the core's own CD loader needs to open
+        // the file by path (cue sheet references .bin tracks, the core opens
+        // those + the BIOS files from systemDir). Pre-loading the cue text
+        // into gameInfo.data would confuse the core → black screen.
+        s_extRomData.clear();
+
+        // Fill ext game info with path only (no data pointer) — the core
+        // still queries GET_GAME_INFO_EXT to learn the file extension, but
+        // it sees data==nullptr and uses the path to open the file itself.
+        std::memset(&s_extGameInfo, 0, sizeof(s_extGameInfo));
+        s_extGameInfo.full_path     = path.c_str();
+        s_extGameInfo.archive_path  = nullptr;
+        s_extGameInfo.archive_file  = nullptr;
+        s_extGameInfo.dir           = s_extRomDir.c_str();
+        s_extGameInfo.name          = s_extRomName.c_str();
+        s_extGameInfo.ext           = s_extRomExt.c_str();
+        s_extGameInfo.meta          = nullptr;
+        s_extGameInfo.data          = nullptr;  // ← CD games: no in-memory data
+        s_extGameInfo.size          = 0;
+        s_extGameInfo.file_in_archive = false;
+        // Mark valid=true so cb_environment's GET_GAME_INFO_EXT case returns
+        // this struct (the core needs dir/name/ext to identify it as a CD game),
+        // even though data is null.
+        s_extGameInfoValid = true;
+        LOGI("Mega-CD game detected: path=%s, dir=%s, name=%s, ext=%s — "
+             "skipping pre-load (core will load cue+bin+BIOS itself)",
+             path.c_str(), s_extRomDir.c_str(), s_extRomName.c_str(),
+             s_extRomExt.c_str());
     }
 
     // Genesis-Plus-GX accepts file paths directly. For .cue / .chd / .iso
@@ -745,14 +796,19 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 
     retro_game_info gameInfo{};
     gameInfo.path = path.c_str();
-    gameInfo.data = s_extGameInfoValid ? s_extRomData.data() : nullptr;
-    gameInfo.size = s_extGameInfoValid ? s_extRomData.size() : 0;
+    // For Mega-CD games, s_extGameInfoValid is true (ext info filled for
+    // GET_GAME_INFO_EXT) but s_extRomData is empty (no pre-load). In that case
+    // gameInfo.data MUST be nullptr so the core uses gameInfo.path instead of
+    // trying to parse the (non-existent) in-memory buffer as CD image data.
+    bool hasInMemoryData = s_extGameInfoValid && !s_extRomData.empty();
+    gameInfo.data = hasInMemoryData ? s_extRomData.data() : nullptr;
+    gameInfo.size = hasInMemoryData ? s_extRomData.size() : 0;
     gameInfo.meta = nullptr;
 
     LOGI("About to call retro_load_game for: %s (systemDir=%s, extInfoValid=%d, "
-         "data=%p, size=%zu)",
+         "data=%p, size=%zu, hasInMemoryData=%d)",
          path.c_str(), s_systemDir.c_str(), s_extGameInfoValid ? 1 : 0,
-         gameInfo.data, gameInfo.size);
+         gameInfo.data, gameInfo.size, hasInMemoryData ? 1 : 0);
 
     bool ok = s_retro_load_game(&gameInfo);
     if (!ok) {
