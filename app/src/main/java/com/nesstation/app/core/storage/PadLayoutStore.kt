@@ -406,7 +406,7 @@ data class PadLayout(
     val pceShowX: Boolean = true,          // PCE "IV"
     val pceShowY: Boolean = true,          // PCE "III"
     val pceShowL2: Boolean = true,         // PCE "TURBO II"
-    val pceShowR2: Boolean = true          // PCE "TURBO I"
+    val pceShowR2: Boolean = true,         // PCE "TURBO I"
 
     // === Per-platform hidden button lists ===
     // Comma-separated button key names that the user has hidden via the

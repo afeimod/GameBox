@@ -2525,8 +2525,9 @@ fun OnScreenController(
                 val aRect = if (showABtn) btnRect(btnA) else null
                 val bRect = if (showBBtn) btnRect(btnB) else null
                 // Turbo A/B hit areas only for non-SNES platforms
-                        val taRect = if (!showXY && showTurboABtn) btnRect(btnTurboA) else null
-                        val tbRect = if (!showXY && showTurboBBtn) btnRect(btnTurboB) else null                val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
+                val taRect = if (!showXY && showTurboABtn) btnRect(btnTurboA) else null
+                val tbRect = if (!showXY && showTurboBBtn) btnRect(btnTurboB) else null
+                val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
                 val selectRect = if (showSelectBtn) btnRect(btnSelect, 2.2f, 0.7f) else null
                 val lRect = if (showLR && showLBtn) btnRect(btnL, 1.6f, 0.7f) else null
                 val rRect = if (showLR && showRBtn) btnRect(btnR, 1.6f, 0.7f) else null
