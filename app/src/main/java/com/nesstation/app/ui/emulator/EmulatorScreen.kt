@@ -964,6 +964,30 @@ fun EmulatorScreen(
             } else {
                 loaded = true
             }
+        } else if (platform == GamePlatform.MD &&
+                   (romPath.endsWith(".cue", ignoreCase = true) ||
+                    romPath.endsWith(".iso", ignoreCase = true) ||
+                    romPath.endsWith(".chd", ignoreCase = true))) {
+            // === Mega-CD via SAF (content://) ===
+            // The .cue file references .bin audio tracks by RELATIVE path.
+            // Copying only the .cue → temp_rom.cue makes GPGX fail to open
+            // the CD tracks (temp_rom.bin doesn't exist next to temp_rom.cue).
+            // Core silently returns false → black screen.
+            //
+            // Copy the whole folder so all .bin tracks are next to the .cue,
+            // then pass the copied .cue path to the core.
+            val cdFile = loadGameFolder(context, romPath, game.id, "md_cd")
+            if (cdFile == null) {
+                errorMsg = "Mega-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
+            } else {
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                if (!ok) {
+                    val err = engine.lastError()
+                    errorMsg = err.ifEmpty { "Mega-CD 加载失败" }
+                } else {
+                    loaded = true
+                }
+            }
         } else if (platform == GamePlatform.PCE &&
                    (romPath.endsWith(".cue", ignoreCase = true) ||
                     romPath.endsWith(".chd", ignoreCase = true) ||
