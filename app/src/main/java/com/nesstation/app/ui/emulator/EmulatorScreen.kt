@@ -2391,31 +2391,33 @@ fun OnScreenController(
                    platform == GamePlatform.PCE ||
                    platform == GamePlatform.PSX
 
-    // === Per-button visibility for PCE ===
-    // Non-PCE platforms always show every button their platform supports;
-    // PCE lets the user hide/show individual buttons via the layout editor
-    // (flags persisted in PadLayout.pceShow*, shared landscape/portrait).
-    val showDpadBtn = platform != GamePlatform.PCE || padLayout.pceShowDpad
-    val showABtn = platform != GamePlatform.PCE || padLayout.pceShowA
-    val showBBtn = platform != GamePlatform.PCE || padLayout.pceShowB
-    val showStartBtn = platform != GamePlatform.PCE || padLayout.pceShowStart
-    val showSelectBtn = platform != GamePlatform.PCE || padLayout.pceShowSelect
-    val showLBtn = platform != GamePlatform.PCE || padLayout.pceShowL
-    val showRBtn = platform != GamePlatform.PCE || padLayout.pceShowR
-    val showXBtn = platform != GamePlatform.PCE || padLayout.pceShowX
-    val showYBtn = platform != GamePlatform.PCE || padLayout.pceShowY
-    val showL2Btn = platform != GamePlatform.PCE || padLayout.pceShowL2
-    val showR2Btn = platform != GamePlatform.PCE || padLayout.pceShowR2
+    // === Per-button visibility for ALL platforms ===
+    // Each platform can independently hide/show individual buttons via the
+    // "显隐按键" dialog in the pad layout editor. PCE uses legacy pceShow*
+    // booleans; all other platforms use hiddenButtons* comma-separated strings.
+    // The helper function PadLayoutStore.isButtonHidden() handles both cases.
+    val showDpadBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "dpad")
+    val showABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "a")
+    val showBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "b")
+    val showStartBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "start")
+    val showSelectBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "select")
+    val showLBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l")
+    val showRBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r")
+    val showXBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "x")
+    val showYBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "y")
+    val showL2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l2")
+    val showR2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r2")
+    val showTurboABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
+    val showTurboBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
 
-    // === Arcade input mode: D-Pad vs Analog Stick ===
-    // When arcadeInputMode == "analog", we render a circular analog stick
+    // === Input mode: D-Pad vs Analog Stick (all platforms) ===
+    // When inputMode == "analog", we render a circular analog stick
     // instead of the cross-shaped D-Pad. Both produce the same BTN_UP/DOWN/
     // LEFT/RIGHT bits — the difference is purely visual + how direction is
     // computed (analog uses thumb position relative to center, with a
-    // deadzone; D-Pad uses quadrant hit-test).
-    // This implements the user's request: "街机fbneo切换摇杆没有成功切换摇杆的ui".
-    val useAnalogStick = platform == GamePlatform.ARCADE &&
-                         padLayout.arcadeInputMode == "analog"
+    // deadzone; D-Pad uses quadrant hit-test). Arcade uses its legacy
+    // arcadeInputMode field; all other platforms use the global inputMode.
+    val useAnalogStick = PadLayoutStore.getInputMode(padLayout, platform) == "analog"
     // Track analog thumb offset (in fraction of stick radius, -1..1 on each axis)
     // for rendering. Updated by the analog gesture handler below.
     var analogThumbX by remember { mutableStateOf(0f) }
@@ -2523,9 +2525,8 @@ fun OnScreenController(
                 val aRect = if (showABtn) btnRect(btnA) else null
                 val bRect = if (showBBtn) btnRect(btnB) else null
                 // Turbo A/B hit areas only for non-SNES platforms
-                val taRect = if (!showXY) btnRect(btnTurboA) else null
-                val tbRect = if (!showXY) btnRect(btnTurboB) else null
-                val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
+                        val taRect = if (!showXY && showTurboABtn) btnRect(btnTurboA) else null
+                        val tbRect = if (!showXY && showTurboBBtn) btnRect(btnTurboB) else null                val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
                 val selectRect = if (showSelectBtn) btnRect(btnSelect, 2.2f, 0.7f) else null
                 val lRect = if (showLR && showLBtn) btnRect(btnL, 1.6f, 0.7f) else null
                 val rRect = if (showLR && showRBtn) btnRect(btnR, 1.6f, 0.7f) else null
@@ -2816,8 +2817,11 @@ fun OnScreenController(
             ActionButtonCanvas(labelB, bColor, btnB, surfaceSize, opacity, visualState and BTN_B != 0)
         }
         // Turbo A/B — hidden on SNES/PCE/ARCADE/MD (X/Y buttons take their place)
-        if (!showXY) {
+        // Also hidden if the user has explicitly toggled them off via "显隐按键".
+        if (!showXY && showTurboABtn) {
             TurboButtonCanvas(labelA, Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
+        }
+        if (!showXY && showTurboBBtn) {
             TurboButtonCanvas(labelB, Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
         }
         // Start
@@ -4566,25 +4570,29 @@ private fun PadLayoutEditor(
                  platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
     // L2/R2 editable in edit mode for Arcade (when enabled) and PCE (turbo toggle)
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
-                   platform == GamePlatform.PCE
+                   platform == GamePlatform.PCE || platform == GamePlatform.PSX
 
-    // === Per-button visibility for PCE ===
-    // Non-PCE platforms always show every button; PCE reads the user toggles
-    // from padLayout.pceShow* (shared landscape/portrait).
-    val showDpadBtn = platform != GamePlatform.PCE || padLayout.pceShowDpad
-    val showABtn = platform != GamePlatform.PCE || padLayout.pceShowA
-    val showBBtn = platform != GamePlatform.PCE || padLayout.pceShowB
-    val showStartBtn = platform != GamePlatform.PCE || padLayout.pceShowStart
-    val showSelectBtn = platform != GamePlatform.PCE || padLayout.pceShowSelect
-    val showLBtn = platform != GamePlatform.PCE || padLayout.pceShowL
-    val showRBtn = platform != GamePlatform.PCE || padLayout.pceShowR
-    val showXBtn = platform != GamePlatform.PCE || padLayout.pceShowX
-    val showYBtn = platform != GamePlatform.PCE || padLayout.pceShowY
-    val showL2Btn = platform != GamePlatform.PCE || padLayout.pceShowL2
-    val showR2Btn = platform != GamePlatform.PCE || padLayout.pceShowR2
+    // === Per-button visibility for ALL platforms ===
+    // Each platform can independently hide/show individual buttons via the
+    // "显隐按键" dialog. PCE uses legacy pceShow* booleans; all other
+    // platforms use hiddenButtons* comma-separated strings.
+    val showDpadBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "dpad")
+    val showABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "a")
+    val showBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "b")
+    val showStartBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "start")
+    val showSelectBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "select")
+    val showLBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l")
+    val showRBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r")
+    val showXBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "x")
+    val showYBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "y")
+    val showL2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l2")
+    val showR2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r2")
+    val showTurboABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
+    val showTurboBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
 
-    // "显示/隐藏按键" dialog for PCE — lets the user toggle each button's
-    // visibility so the on-screen overlay only shows the keys they need.
+    // "显示/隐藏按键" dialog — available for ALL engines (not just PCE).
+    // Lets the user toggle each button's visibility so the on-screen overlay
+    // only shows the keys they need.
     var showKeyVisibilityDialog by remember { mutableStateOf(false) }
 
     // === 横竖屏布局选择 ===
@@ -4658,7 +4666,7 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.B }
                 )
             }
-            if (!showXY) {
+            if (!showXY && showTurboABtn) {
                 EditableRoundBtn("TA", Color(0xFFE74C3C), btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -4667,6 +4675,8 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.TURBO_A }
                 )
+            }
+            if (!showXY && showTurboBBtn) {
                 EditableRoundBtn("TB", Color(0xFFE67E22), btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -4818,13 +4828,28 @@ private fun PadLayoutEditor(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
                 Spacer(Modifier.weight(1f))
-                // PCE-only: open the per-button show/hide dialog.
-                if (platform == GamePlatform.PCE) {
-                    androidx.compose.material3.TextButton(
-                        onClick = { showKeyVisibilityDialog = true }
-                    ) {
-                        Text("显隐按键", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                // "显隐按键" button — available for ALL engines. Opens a dialog
+                // that lets the user toggle each on-screen button's visibility.
+                androidx.compose.material3.TextButton(
+                    onClick = { showKeyVisibilityDialog = true }
+                ) {
+                    Text("显隐按键", color = Color(0xFFFFD66B), fontSize = 11.sp)
+                }
+                // Direction control toggle: D-Pad vs Analog Stick. Available
+                // for all engines. Lets the user switch between a cross-shaped
+                // digital D-pad and a circular analog stick.
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val current = PadLayoutStore.getInputMode(padLayout, platform)
+                        val next = if (current == "analog") "dpad" else "analog"
+                        onLayoutChange(PadLayoutStore.setInputMode(padLayout, platform, next))
                     }
+                ) {
+                    val mode = PadLayoutStore.getInputMode(padLayout, platform)
+                    Text(
+                        if (mode == "analog") "摇杆" else "十字键",
+                        color = Color(0xFFFFD66B), fontSize = 11.sp
+                    )
                 }
                 IconButton(onClick = {
                     val defaults = PadLayout()
@@ -5017,26 +5042,16 @@ private fun PadLayoutEditor(
         )
     }
 
-    // === PCE Key Visibility Dialog ===
-    // Lets the user show/hide each PCE on-screen button independently.
+    // === Key Visibility Dialog (all engines) ===
+    // Lets the user show/hide each on-screen button independently.
+    // Works for all platforms: PCE uses legacy pceShow* booleans,
+    // all others use hiddenButtons* comma-separated strings.
     if (showKeyVisibilityDialog) {
-        PceKeyVisibilityDialog(
+        KeyVisibilityDialog(
             padLayout = padLayout,
+            platform = platform,
             onToggle = { key, show ->
-                val newLayout = when (key) {
-                    "dpad" -> padLayout.copy(pceShowDpad = show)
-                    "a" -> padLayout.copy(pceShowA = show)
-                    "b" -> padLayout.copy(pceShowB = show)
-                    "start" -> padLayout.copy(pceShowStart = show)
-                    "select" -> padLayout.copy(pceShowSelect = show)
-                    "l" -> padLayout.copy(pceShowL = show)
-                    "r" -> padLayout.copy(pceShowR = show)
-                    "x" -> padLayout.copy(pceShowX = show)
-                    "y" -> padLayout.copy(pceShowY = show)
-                    "l2" -> padLayout.copy(pceShowL2 = show)
-                    "r2" -> padLayout.copy(pceShowR2 = show)
-                    else -> padLayout
-                }
+                val newLayout = PadLayoutStore.setButtonHidden(padLayout, platform, key, !show)
                 onLayoutChange(newLayout)
                 // If the hidden button was selected in the editor, deselect it
                 // (its draggable preview is no longer rendered).
@@ -5045,6 +5060,8 @@ private fun PadLayoutEditor(
                         "dpad" -> BtnType.DPAD
                         "a" -> BtnType.A
                         "b" -> BtnType.B
+                        "ta" -> BtnType.TURBO_A
+                        "tb" -> BtnType.TURBO_B
                         "start" -> BtnType.START
                         "select" -> BtnType.SELECT
                         "l" -> BtnType.L
@@ -5066,32 +5083,21 @@ private fun PadLayoutEditor(
 }
 
 // ---------------------------------------------------------------------------
-// PCE Key Visibility Dialog — lets the user show/hide each PCE on-screen button
+// Key Visibility Dialog — lets the user show/hide each on-screen button
+// for ANY platform. Uses PadLayoutStore helpers to read/write visibility
+// state. PCE uses legacy pceShow* booleans; all others use hiddenButtons*.
 // ---------------------------------------------------------------------------
-// Lists all 11 PCE buttons (D-pad, I, II, RUN, SELECT, V, VI, IV, III,
-// TURBO II, TURBO I) with a toggle per row. Toggling a key off hides it from
-// the in-game overlay (and from the layout editor); toggling it back on
-// restores it. The flags are persisted in PadLayout.pceShow*.
 @Composable
-private fun PceKeyVisibilityDialog(
+private fun KeyVisibilityDialog(
     padLayout: PadLayout,
+    platform: GamePlatform,
     onToggle: (key: String, show: Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     data class KeyItem(val key: String, val label: String, val isVisible: Boolean)
-    val items = listOf(
-        KeyItem("dpad", "十字键", padLayout.pceShowDpad),
-        KeyItem("a", "I", padLayout.pceShowA),
-        KeyItem("b", "II", padLayout.pceShowB),
-        KeyItem("start", "RUN", padLayout.pceShowStart),
-        KeyItem("select", "SELECT", padLayout.pceShowSelect),
-        KeyItem("l", "V", padLayout.pceShowL),
-        KeyItem("r", "VI", padLayout.pceShowR),
-        KeyItem("x", "IV", padLayout.pceShowX),
-        KeyItem("y", "III", padLayout.pceShowY),
-        KeyItem("l2", "TURBO II", padLayout.pceShowL2),
-        KeyItem("r2", "TURBO I", padLayout.pceShowR2)
-    )
+    val items = PadLayoutStore.getAvailableButtons(platform).map { (key, label) ->
+        KeyItem(key, label, !PadLayoutStore.isButtonHidden(padLayout, platform, key))
+    }
 
     Box(
         modifier = Modifier
@@ -5127,7 +5133,6 @@ private fun PceKeyVisibilityDialog(
                     Text(item.label, color = Color.White, fontSize = 13.sp,
                         modifier = Modifier.weight(1f),
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                    // Simple switch-style toggle
                     Box(
                         modifier = Modifier
                             .size(width = 42.dp, height = 24.dp)
@@ -5591,6 +5596,17 @@ private fun SettingsPanel(
                 "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                 else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            }
+        }
+
+        // Direction control: D-Pad vs Analog Stick. Available for all
+        // non-DOS/non-JAVA platforms. DOS uses its own overlay; JAVA uses J2ME.
+        if (platform != GamePlatform.DOS && platform != GamePlatform.JAVA) {
+            DropdownSetting("方向控制",
+                listOf("dpad" to "十字键 D-Pad", "analog" to "摇杆 Analog Stick"),
+                PadLayoutStore.getInputMode(padLayout, platform)
+            ) {
+                onLayoutChange(PadLayoutStore.setInputMode(padLayout, platform, it))
             }
         }
 

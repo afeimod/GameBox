@@ -407,6 +407,29 @@ data class PadLayout(
     val pceShowY: Boolean = true,          // PCE "III"
     val pceShowL2: Boolean = true,         // PCE "TURBO II"
     val pceShowR2: Boolean = true          // PCE "TURBO I"
+
+    // === Per-platform hidden button lists ===
+    // Comma-separated button key names that the user has hidden via the
+    // "显隐按键" dialog in the pad layout editor. Each platform has its own
+    // list so hiding a button in NES doesn't affect SNES, etc.
+    // Valid keys: dpad, a, b, ta, tb, start, select, l, r, x, y, l2, r2
+    // (ta/tb = turbo A/B; only shown on NES/GB when X/Y hidden).
+    val hiddenButtons: String = "",         // NES/GB hidden button keys
+    val hiddenButtonsSfc: String = "",     // SNES hidden button keys
+    val hiddenButtonsGba: String = "",     // GBA hidden button keys
+    val hiddenButtonsArcade: String = "",  // Arcade/FBNeo hidden button keys
+    val hiddenButtonsMd: String = "",      // MD/SEGA hidden button keys
+    val hiddenButtonsPce: String = "",     // PCE hidden button keys
+    val hiddenButtonsNds: String = "",     // NDS hidden button keys
+    val hiddenButtonsPsx: String = "",     // PSX hidden button keys
+
+    // === Input mode (joystick vs D-pad) ===
+    // "dpad" = cross-shaped digital D-pad (default); "analog" = circular
+    // analog stick. Applies to ALL platforms, not just Arcade. The rendering
+    // difference is purely visual — both produce the same UP/DOWN/LEFT/RIGHT
+    // bits. This implements the user's request for joystick/d-pad switching
+    // across all engines.
+    val inputMode: String = "dpad"         // dpad | analog
 )
 
 /**
@@ -878,7 +901,18 @@ object PadLayoutStore {
             pceShowX = p.getBoolean("pce_show_x", true),
             pceShowY = p.getBoolean("pce_show_y", true),
             pceShowL2 = p.getBoolean("pce_show_l2", true),
-            pceShowR2 = p.getBoolean("pce_show_r2", true)
+            pceShowR2 = p.getBoolean("pce_show_r2", true),
+            // === Per-platform hidden button lists ===
+            hiddenButtons = p.getString("hidden_buttons", "") ?: "",
+            hiddenButtonsSfc = p.getString("hidden_buttons_sfc", "") ?: "",
+            hiddenButtonsGba = p.getString("hidden_buttons_gba", "") ?: "",
+            hiddenButtonsArcade = p.getString("hidden_buttons_arcade", "") ?: "",
+            hiddenButtonsMd = p.getString("hidden_buttons_md", "") ?: "",
+            hiddenButtonsPce = p.getString("hidden_buttons_pce", "") ?: "",
+            hiddenButtonsNds = p.getString("hidden_buttons_nds", "") ?: "",
+            hiddenButtonsPsx = p.getString("hidden_buttons_psx", "") ?: "",
+            // === Input mode ===
+            inputMode = p.getString("input_mode", "dpad") ?: "dpad"
         )
     }
 
@@ -1198,6 +1232,182 @@ object PadLayoutStore {
             putBoolean("pce_show_y", layout.pceShowY)
             putBoolean("pce_show_l2", layout.pceShowL2)
             putBoolean("pce_show_r2", layout.pceShowR2)
+            // === Per-platform hidden button lists ===
+            putString("hidden_buttons", layout.hiddenButtons)
+            putString("hidden_buttons_sfc", layout.hiddenButtonsSfc)
+            putString("hidden_buttons_gba", layout.hiddenButtonsGba)
+            putString("hidden_buttons_arcade", layout.hiddenButtonsArcade)
+            putString("hidden_buttons_md", layout.hiddenButtonsMd)
+            putString("hidden_buttons_pce", layout.hiddenButtonsPce)
+            putString("hidden_buttons_nds", layout.hiddenButtonsNds)
+            putString("hidden_buttons_psx", layout.hiddenButtonsPsx)
+            // === Input mode ===
+            putString("input_mode", layout.inputMode)
         }.apply()
+    }
+
+    /**
+     * Check if a specific button is hidden for a given platform.
+     * For PCE, uses the legacy pceShow* booleans (backward compatible).
+     * For all other platforms, checks the hiddenButtons* comma-separated string.
+     *
+     * @param platform The game platform
+     * @param key Button key: "dpad", "a", "b", "ta", "tb", "start", "select", "l", "r", "x", "y", "l2", "r2"
+     * @return true if the button should be hidden
+     */
+    fun isButtonHidden(layout: PadLayout, platform: GamePlatform, key: String): Boolean {
+        return when (platform) {
+            GamePlatform.PCE -> {
+                // PCE uses the legacy per-button boolean toggles
+                when (key) {
+                    "dpad" -> !layout.pceShowDpad
+                    "a" -> !layout.pceShowA
+                    "b" -> !layout.pceShowB
+                    "start" -> !layout.pceShowStart
+                    "select" -> !layout.pceShowSelect
+                    "l" -> !layout.pceShowL
+                    "r" -> !layout.pceShowR
+                    "x" -> !layout.pceShowX
+                    "y" -> !layout.pceShowY
+                    "l2" -> !layout.pceShowL2
+                    "r2" -> !layout.pceShowR2
+                    else -> false
+                }
+            }
+            GamePlatform.NES, GamePlatform.GB -> isHiddenInList(layout.hiddenButtons, key)
+            GamePlatform.SFC -> isHiddenInList(layout.hiddenButtonsSfc, key)
+            GamePlatform.GBA -> isHiddenInList(layout.hiddenButtonsGba, key)
+            GamePlatform.ARCADE -> isHiddenInList(layout.hiddenButtonsArcade, key)
+            GamePlatform.MD -> isHiddenInList(layout.hiddenButtonsMd, key)
+            GamePlatform.NDS -> isHiddenInList(layout.hiddenButtonsNds, key)
+            GamePlatform.PSX -> isHiddenInList(layout.hiddenButtonsPsx, key)
+            else -> false
+        }
+    }
+
+    /**
+     * Set a button's hidden state for a given platform.
+     * For PCE, updates the legacy pceShow* booleans.
+     * For all other platforms, updates the hiddenButtons* comma-separated string.
+     */
+    fun setButtonHidden(layout: PadLayout, platform: GamePlatform, key: String, hidden: Boolean): PadLayout {
+        return when (platform) {
+            GamePlatform.PCE -> {
+                when (key) {
+                    "dpad" -> layout.copy(pceShowDpad = !hidden)
+                    "a" -> layout.copy(pceShowA = !hidden)
+                    "b" -> layout.copy(pceShowB = !hidden)
+                    "start" -> layout.copy(pceShowStart = !hidden)
+                    "select" -> layout.copy(pceShowSelect = !hidden)
+                    "l" -> layout.copy(pceShowL = !hidden)
+                    "r" -> layout.copy(pceShowR = !hidden)
+                    "x" -> layout.copy(pceShowX = !hidden)
+                    "y" -> layout.copy(pceShowY = !hidden)
+                    "l2" -> layout.copy(pceShowL2 = !hidden)
+                    "r2" -> layout.copy(pceShowR2 = !hidden)
+                    else -> layout
+                }
+            }
+            GamePlatform.NES, GamePlatform.GB -> layout.copy(hiddenButtons = updateHiddenList(layout.hiddenButtons, key, hidden))
+            GamePlatform.SFC -> layout.copy(hiddenButtonsSfc = updateHiddenList(layout.hiddenButtonsSfc, key, hidden))
+            GamePlatform.GBA -> layout.copy(hiddenButtonsGba = updateHiddenList(layout.hiddenButtonsGba, key, hidden))
+            GamePlatform.ARCADE -> layout.copy(hiddenButtonsArcade = updateHiddenList(layout.hiddenButtonsArcade, key, hidden))
+            GamePlatform.MD -> layout.copy(hiddenButtonsMd = updateHiddenList(layout.hiddenButtonsMd, key, hidden))
+            GamePlatform.NDS -> layout.copy(hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden))
+            GamePlatform.PSX -> layout.copy(hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden))
+            else -> layout
+        }
+    }
+
+    /**
+     * Get the input mode ("dpad" or "analog") for a given platform.
+     * Arcade still uses its legacy arcadeInputMode field for backward compatibility.
+     * All other platforms use the global inputMode field.
+     */
+    fun getInputMode(layout: PadLayout, platform: GamePlatform): String {
+        return if (platform == GamePlatform.ARCADE) layout.arcadeInputMode else layout.inputMode
+    }
+
+    /**
+     * Set the input mode for a given platform.
+     * Arcade updates arcadeInputMode; all others update the global inputMode.
+     */
+    fun setInputMode(layout: PadLayout, platform: GamePlatform, mode: String): PadLayout {
+        return if (platform == GamePlatform.ARCADE) {
+            layout.copy(arcadeInputMode = mode)
+        } else {
+            layout.copy(inputMode = mode)
+        }
+    }
+
+    /** Check if a key exists in a comma-separated hidden list. */
+    private fun isHiddenInList(list: String, key: String): Boolean {
+        if (list.isBlank()) return false
+        return list.split(",").map { it.trim() }.contains(key)
+    }
+
+    /** Add or remove a key from a comma-separated hidden list. */
+    private fun updateHiddenList(list: String, key: String, hidden: Boolean): String {
+        val keys = if (list.isBlank()) emptyList() else list.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val updated = if (hidden) {
+            if (keys.contains(key)) keys else keys + key
+        } else {
+            keys.filter { it != key }
+        }
+        return updated.joinToString(",")
+    }
+
+    /**
+     * Return the list of available button keys for a given platform,
+     * in display order. Used by the visibility toggle dialog.
+     */
+    fun getAvailableButtons(platform: GamePlatform): List<Pair<String, String>> {
+        // Each pair: (key, displayLabel)
+        return when (platform) {
+            GamePlatform.NES, GamePlatform.GB -> listOf(
+                "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "ta" to "连射A", "tb" to "连射B",
+                "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.GBA -> listOf(
+                "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "l" to "L键", "r" to "R键",
+                "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.SFC, GamePlatform.NDS -> listOf(
+                "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "x" to "X键", "y" to "Y键",
+                "l" to "L键", "r" to "R键",
+                "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.ARCADE -> listOf(
+                "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "x" to "X键", "y" to "Y键",
+                "l" to "L键", "r" to "R键",
+                "l2" to "L2键", "r2" to "R2键",
+                "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.MD -> listOf(
+                "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "x" to "X键", "y" to "Y键",
+                "l" to "L键", "r" to "R键",
+                "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.PCE -> listOf(
+                "dpad" to "十字键", "a" to "I键", "b" to "II键",
+                "x" to "IV键", "y" to "III键",
+                "l" to "V键", "r" to "VI键",
+                "l2" to "TURBO II", "r2" to "TURBO I",
+                "start" to "RUN", "select" to "SELECT"
+            )
+            GamePlatform.PSX -> listOf(
+                "dpad" to "十字键", "a" to "×键", "b" to "○键",
+                "x" to "□键", "y" to "△键",
+                "l" to "L1键", "r" to "R1键",
+                "l2" to "L2键", "r2" to "R2键",
+                "start" to "START", "select" to "SELECT"
+            )
+            else -> emptyList()
+        }
     }
 }
