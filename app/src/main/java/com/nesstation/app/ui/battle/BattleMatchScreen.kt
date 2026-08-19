@@ -102,20 +102,33 @@ fun BattleMatchScreen(
     var roleText by remember { mutableStateOf(if (args.isHost) "房主 · 等待对手加入" else "挑战者 · 正在进入") }
 
     // 解析后的真实平台（服务端 args.platform + ROM 文件兜底检测）。
-    // 初始用 args.platform（EmulatorEngine.forPlatform 之前就要拿到），等 ROM
-    // 文件下载好后再用 PlatformDetector 校准 —— 但要保证 controller 创建时就用对。
     var resolvedPlatform by remember(args.roomId) {
         mutableStateOf(com.nesstation.app.core.model.GamePlatform.fromString(args.platform.name))
     }
 
-    // 联机对战控制器（贯穿整个对战生命周期）。platform 会在 ROM 下载完成后通过
-    // PlatformDetector 重新校准，但因为 controller 只用 platform 做日志/分类，
-    // 即使一开始不精确也无妨；真正选引擎的是 EmulatorScreen 里的 game.platform。
+    // === 对战开始标志 —— 这是修复"2P 不同步 1P"的关键 ===
+    //
+    // 之前双方一进 BattleMatchScreen 就立即启动 EmulatorScreen，导致：
+    //  - 1P 创建房间后立即跑游戏，frame 计数到几百
+    //  - 2P 加入后从 frame 0 开始
+    //  - 双方 frame 完全错位 → 各自查不到对方的输入 → 相当于两个单机游戏
+    //
+    // 修复后的启动时序：
+    //  - 1P (host): 等 onReady（TCP 握手 OK）→ 显示"等待对手加入" →
+    //                等 onPeerJoined（2P 加入）→ 启动引擎（frame 0 开始）
+    //  - 2P (guest): 等 onReady（服务器在 playerCount==2 时才发 hello(guest)，
+    //                所以 onReady 到了就说明 1P 已经在房间里）→ 立即启动引擎
+    //
+    // 服务器几乎同时给 1P 发 peer_joined 和给 2P 发 hello(guest)，所以双方
+    // 几乎同时从 frame 0 开始。inputDelay 缓冲剩余的网络延迟。
+    var netReady by remember { mutableStateOf(false) }
+    var matchStarted by remember { mutableStateOf(false) }
+
     val controller = remember(args.roomId) {
         NetplayController(platform = resolvedPlatform)
     }
 
-    // 启动流程：连接中继 + 检查 ROM。两者都就绪后切到 EmulatorScreen。
+    // 启动流程：连接中继 + 检查 ROM。
     DisposableEffect(args.roomId, args.tcpAddr) {
         val (host, port) = parseTcpAddr(args.tcpAddr)
         val token = BattleSession.getToken(context) ?: ""
@@ -125,7 +138,7 @@ fun BattleMatchScreen(
             return@DisposableEffect onDispose { }
         }
 
-        // 1. 连接中继 —— 立即开始，不等待对方
+        // 1. 连接中继（异步，onReady 回调里会设 netReady=true）
         try {
             controller.connect(host, port, token, args.roomId)
         } catch (e: Exception) {
@@ -133,7 +146,7 @@ fun BattleMatchScreen(
             return@DisposableEffect onDispose { }
         }
 
-        // 2. 检查 ROM 是否已下载（BattleScreen 进入前已经下载完成）
+        // 2. 检查 ROM 是否已下载
         val rom = com.nesstation.app.battle.BattleRomStore.romFile(
             context, args.gameId,
             args.fileName.ifBlank { "${args.gameId}.zip" }
@@ -143,10 +156,7 @@ fun BattleMatchScreen(
             return@DisposableEffect onDispose { }
         }
 
-        // 3. 根据服务端 args.platform + ROM 文件名/zip 内容兜底，确定真实平台。
-        //    和本地游戏库走的是同一套 PlatformDetector，避免服务端配置错误
-        //    （比如写 "arcade" 但 fromString 大小写不敏感）或者完全没配 platform
-        //    时选错核心（比如街机 ROM 默认用 fceumm 启动）。
+        // 3. 根据服务端 platform + ROM 文件兜底，确定真实平台
         val detected = com.nesstation.app.core.storage.PlatformDetector.resolve(
             declared = args.platform.name,
             romFile = rom
@@ -157,21 +167,35 @@ fun BattleMatchScreen(
         romFile = rom
 
         onDispose {
-            // 真正的 stop 在 EmulatorScreen 的 onDispose 里完成；这里只兜底
-            // 处理"还没进入 EmulatorScreen 就退出"的情况（loading 阶段）。
-            // controller.stop() 是幂等的。
             try { controller.stop() } catch (_: Throwable) {}
         }
     }
 
-    // 监听对战事件（更新 roleText 等 UI 状态）
+    // 监听对战事件
     LaunchedEffect(controller) {
         controller.setUiListener(object : NetplayController.UiListener {
+            override fun onReady(role: String, inputDelay: Int) {
+                // TCP 握手 + 房间加入完成
+                netReady = true
+                roleText = if (args.isHost) {
+                    "房主 · 等待对手加入…（inputDelay=${inputDelay}f）"
+                } else {
+                    "挑战者 · 已与房主连线（inputDelay=${inputDelay}f）"
+                }
+                // 2P (guest): onReady 到了就说明 1P 在房间里，立即开战
+                if (!args.isHost) {
+                    matchStarted = true
+                }
+            }
             override fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int) {
-                // 帧信息会显示在 EmulatorScreen 的状态条里，这里不再覆盖 roleText
+                // 帧信息显示在 EmulatorScreen 状态条里
             }
             override fun onPeerJoined(username: String) {
                 roleText = if (args.isHost) "房主 · 对手 $username 已加入" else "挑战者 · 已与 $username 对战"
+                // 1P (host): 2P 加入后才启动引擎 —— 双方几乎同时从 frame 0 开始
+                if (args.isHost) {
+                    matchStarted = true
+                }
             }
             override fun onPeerLeft(username: String) {
                 errorMsg = "对手 $username 已离开，对战结束"
@@ -183,7 +207,6 @@ fun BattleMatchScreen(
                 if (errorMsg == null) errorMsg = "与对战服务器断开连接"
             }
             override fun onNetplayLost(reason: String) {
-                // 不当作致命错误 —— frame hook 会自动降级到单机模式继续跑
                 roleText = reason
             }
         })
@@ -202,15 +225,14 @@ fun BattleMatchScreen(
             )
         }
 
-        // 就绪：直接调起 EmulatorScreen，走和本地游戏完全一致的启动路径
-        rom != null -> {
-            // 用一个稳定的 id 把对战 ROM 和本地 ROM 区分开（防止 .srm 串档）
+        // 对战已开始：调起 EmulatorScreen，走和本地游戏完全一致的启动路径。
+        // matchStarted 由上面的 onReady / onPeerJoined 触发：
+        //  - 2P: onReady 即触发（1P 已在房间）
+        //  - 1P: onPeerJoined 才触发（2P 刚加入）
+        // 双方几乎同时进入这里 → 几乎同时从 frame 0 启动 → inputDelay 能正确同步。
+        rom != null && matchStarted -> {
             val battleGameId = "battle_${args.gameId}_${args.roomId}".lowercase()
                 .replace(Regex("[^a-z0-9._-]"), "_")
-            // 用 PlatformDetector 校准后的真实平台 —— 决定 EmulatorEngine.forPlatform
-            // 返回的是 NesEngine / FbNeoEngine / SnesEngine / ... 还是别的引擎。
-            // 不再信服务端的 platform 字符串单独决定（之前会 fallback 到 NES，导致
-            // 街机 ROM 默认用 fceumm 启动）。
             val platform = resolvedPlatform
             val game = remember(rom, args.gameId, args.roomId, platform) {
                 GameEntry(
@@ -227,10 +249,20 @@ fun BattleMatchScreen(
             )
         }
 
-        // Loading 态：等待连接 + ROM 检查完成
+        // 等待态：ROM 已就绪但还没开战
+        //  - 1P: netReady=true 但 matchStarted=false → "等待对手加入…"
+        //  - 2P: netReady=false → "正在连接对战服务器…"
+        //  - 通用：ROM 还没下好 → "正在准备…"
         else -> {
+            val text = when {
+                err != null -> err
+                rom == null -> "正在准备 ROM…"
+                netReady && args.isHost -> "等待对手加入…"
+                netReady && !args.isHost -> "正在进入对战…"
+                else -> "正在连接对战服务器…"
+            }
             LoadingScreen(
-                text = "正在连接对战服务器…",
+                text = text,
                 subtext = roleText,
                 onExit = { showExitConfirm = true }
             )

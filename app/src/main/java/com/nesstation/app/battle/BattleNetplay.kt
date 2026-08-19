@@ -34,6 +34,13 @@ class BattleNetplay(
     interface Listener {
         /** 收到对方的一帧输入 */
         fun onRemoteInput(frame: Long, pad: Int)
+        /**
+         * 服务器 hello 回执已收到 —— TCP 握手 + JWT 验证 + 房间加入全部完成。
+         * 此时可以开始发送/接收输入了。
+         * @param role "host" 或 "guest"
+         * @param inputDelay 服务器下发的输入延迟帧数
+         */
+        fun onReady(role: String, inputDelay: Int)
         /** 对方加入 */
         fun onPeerJoined(username: String)
         /** 对方断开 */
@@ -117,6 +124,8 @@ class BattleNetplay(
                 role = msg.optString("msg", "host")
                 // 服务器通过 pad 字段传递 inputDelay
                 inputDelay = msg.optInt("pad", 4).coerceIn(0, 8)
+                // 通知 listener：握手完成，可以开始对战了
+                listener.onReady(role, inputDelay)
             }
             "input" -> {
                 listener.onRemoteInput(msg.optLong("frame", 0), msg.optInt("pad", 0))

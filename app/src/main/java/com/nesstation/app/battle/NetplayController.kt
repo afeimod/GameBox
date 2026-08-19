@@ -57,6 +57,20 @@ class NetplayController(
      * UI 回调接口（所有方法保证在主线程被调用）。
      */
     interface UiListener {
+        /**
+         * 服务器握手完成（hello 收到）—— TCP 连接 + JWT 验证 + 房间加入全部 OK。
+         *
+         * 时序：
+         *  - 1P (host): onReady 先到 → 然后 onPeerJoined（2P 加入时）才到
+         *  - 2P (guest): onReady 到了就说明 1P 已经在房间里了（服务器在
+         *    playerCount==2 时才发 hello(guest)）
+         *
+         * BattleMatchScreen 用这个信号决定何时启动引擎：
+         *  - 1P: onReady 后显示"等待对手加入"，onPeerJoined 后才启动引擎
+         *  - 2P: onReady 后立即启动引擎
+         * 这样双方几乎同时从 frame 0 开始，inputDelay 能正确吸收网络延迟。
+         */
+        fun onReady(role: String, inputDelay: Int)
         /** 每执行一帧后回调（UI 可刷新延迟/帧号显示） */
         fun onFrameInfo(frame: Long, inputDelay: Int, desyncCount: Int)
         /** 对方加入 */
@@ -122,6 +136,13 @@ class NetplayController(
             remoteHistory[frame] = pad
         }
 
+        override fun onReady(role: String, inputDelay: Int) {
+            // 服务器握手完成。同步 inputDelay（beforeFrame 每帧也会读一次，
+            // 但这里提前更新让第一帧就用对值）。
+            this@NetplayController.inputDelay = inputDelay.coerceIn(0, 8)
+            dispatch { it.onReady(role, inputDelay) }
+        }
+
         override fun onPeerJoined(username: String) {
             dispatch { it.onPeerJoined(username) }
         }
@@ -142,7 +163,7 @@ class NetplayController(
     /**
      * 连接到中继服务器。非阻塞：[BattleNetplay.connect] 在自己的线程里完成 TCP 握手。
      *
-     * 调用本方法前可以先把 [uiListener] 设上，确保不会错过任何回调。
+     * 调用本方法前可以先把 [primaryListener] / [addUiListener] 设上，确保不会错过任何回调。
      */
     fun connect(host: String, port: Int, token: String, roomId: String) {
         val n = BattleNetplay(host, port, token, roomId, netListener)
