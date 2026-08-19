@@ -938,13 +938,27 @@ int videoWidth()  { return (int)s_videoW; }
 int videoHeight() { return (int)s_videoH; }
 
 void videoAspectRatio(int& num, int& den) {
-    // DS default aspect is 4:3 (each screen is 4:3 — 256x192 has 4:3 pixel
-    // aspect on real hardware). With the default top_bottom layout the
-    // composite is 256x384, which has a 2:3 pixel aspect — but the
-    // frontend should still display it as 4:3 (each screen is 4:3, stacked
-    // vertically).
-    num = 4;
-    den = 3;
+    // Return aspect ratio based on the active melonds_screen_layout option.
+    // melonDS composites both DS screens into a single framebuffer:
+    //   top_bottom / bottom_top: 256x384  -> 2:3  (two 4:3 screens stacked)
+    //   left_right / right_left:  512x192 -> 8:3  (two 4:3 screens side by side)
+    //   top_only / bottom_only:   256x192 -> 4:3  (single screen)
+    //   turnscreen:               dynamic   -> 4:3 (rotated, treat as 4:3)
+    std::string layout;
+    {
+        std::lock_guard<std::mutex> lk(s_optMtx);
+        auto it = s_options.find("melonds_screen_layout");
+        if (it != s_options.end()) layout = it->second;
+    }
+
+    if (layout == "left_right" || layout == "right_left") {
+        num = 8; den = 3;
+    } else if (layout == "top_only" || layout == "bottom_only") {
+        num = 4; den = 3;
+    } else {
+        // Default: top_bottom (256x384) -> 2:3
+        num = 2; den = 3;
+    }
 }
 
 void setVideoFilter(int filter) {

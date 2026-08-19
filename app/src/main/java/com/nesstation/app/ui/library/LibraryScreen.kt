@@ -225,10 +225,14 @@ fun LibraryScreen(
                         if (uriStr !in existingPaths) {
                             try {
                                 val platform = detectPlatformFromUri(context, fileUri, name, hintPlatform = hintPlatform)
-                                val title = if (platform == GamePlatform.ARCADE) {
-                                    ArcadeTitleMapper.resolveDisplayTitle(name)
-                                } else {
-                                    name.substringBeforeLast('.')
+                                val title = when (platform) {
+                                    GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(name)
+                                    GamePlatform.PSX -> {
+                                        com.nesstation.app.core.storage.PsxTitleExtractor
+                                            .extractTitle(context, uriStr)
+                                            ?: name.substringBeforeLast('.')
+                                    }
+                                    else -> name.substringBeforeLast('.')
                                 }
                                 RomStore.add(context, title, uriStr, platform)
                                 added++
@@ -301,10 +305,14 @@ fun LibraryScreen(
                             if (path !in existingPaths) {
                                 try {
                                     val platform = detectPlatformFromFile(file, hintPlatform = hintPlatform)
-                                    val title = if (platform == GamePlatform.ARCADE) {
-                                        ArcadeTitleMapper.resolveDisplayTitle(file.name)
-                                    } else {
-                                        file.nameWithoutExtension
+                                    val title = when (platform) {
+                                        GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(file.name)
+                                        GamePlatform.PSX -> {
+                                            com.nesstation.app.core.storage.PsxTitleExtractor
+                                                .extractTitle(context, path)
+                                                ?: file.nameWithoutExtension
+                                        }
+                                        else -> file.nameWithoutExtension
                                     }
                                     RomStore.add(context, title, path, platform)
                                     added++
@@ -435,10 +443,15 @@ fun LibraryScreen(
             // SEGA-CD games would default to DOS.
             val platform = detectPlatformFromUri(context, pf.uri, pf.name, hintPlatform = selectedPlatform)
             // 街机游戏使用中文名映射（kof98h → 拳皇98 - ...）
-            val title = if (platform == GamePlatform.ARCADE) {
-                ArcadeTitleMapper.resolveDisplayTitle(pf.name)
-            } else {
-                pf.name.substringBeforeLast('.')
+            // PSX游戏从ISO/CUE头提取真实游戏名
+            val title = when (platform) {
+                GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(pf.name)
+                GamePlatform.PSX -> {
+                    com.nesstation.app.core.storage.PsxTitleExtractor
+                        .extractTitle(context, pf.uri.toString())
+                        ?: pf.name.substringBeforeLast('.')
+                }
+                else -> pf.name.substringBeforeLast('.')
             }
             RomStore.add(context, title, pf.uri.toString(), platform)
             count++
@@ -516,10 +529,15 @@ fun LibraryScreen(
                         val ext = name.substringAfterLast('.', "").lowercase()
                         val platform = detectPlatformFromUri(context, fileUri, name, hintPlatform = selectedPlatform)
                         // 街机游戏使用中文名映射
-                        val title = if (platform == GamePlatform.ARCADE) {
-                            ArcadeTitleMapper.resolveDisplayTitle(name)
-                        } else {
-                            name.substringBeforeLast('.')
+                        // PSX游戏从ISO/CUE头提取真实游戏名
+                        val title = when (platform) {
+                            GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(name)
+                            GamePlatform.PSX -> {
+                                com.nesstation.app.core.storage.PsxTitleExtractor
+                                    .extractTitle(context, fileUri.toString())
+                                    ?: name.substringBeforeLast('.')
+                            }
+                            else -> name.substringBeforeLast('.')
                         }
                         RomStore.add(context, title, fileUri.toString(), platform)
                         count++
@@ -548,10 +566,14 @@ fun LibraryScreen(
                 entries.forEach { (name, path) ->
                     val ext = name.substringAfterLast('.', "").lowercase()
                     val platform = detectPlatformFromFile(File(path), hintPlatform = selectedPlatform)
-                    val title = if (platform == GamePlatform.ARCADE) {
-                        ArcadeTitleMapper.resolveDisplayTitle(name)
-                    } else {
-                        name.substringBeforeLast('.')
+                    val title = when (platform) {
+                        GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(name)
+                        GamePlatform.PSX -> {
+                            com.nesstation.app.core.storage.PsxTitleExtractor
+                                .extractTitle(context, path)
+                                ?: name.substringBeforeLast('.')
+                        }
+                        else -> name.substringBeforeLast('.')
                     }
                     RomStore.add(context, title, path, platform)
                 }

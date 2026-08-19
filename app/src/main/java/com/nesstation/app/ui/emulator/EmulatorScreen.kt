@@ -1056,7 +1056,8 @@ fun EmulatorScreen(
                     romPath.endsWith(".chd", ignoreCase = true) ||
                     romPath.endsWith(".iso", ignoreCase = true) ||
                     romPath.endsWith(".mdf", ignoreCase = true) ||
-                    romPath.endsWith(".mds", ignoreCase = true))) {
+                    romPath.endsWith(".mds", ignoreCase = true) ||
+                    romPath.endsWith(".ccd", ignoreCase = true))) {
             // === PSX CD image via SAF (content://) ===
             // The .cue file references .bin audio tracks by RELATIVE path.
             // Copying only the .cue (as the single-file branch below would)
@@ -1194,6 +1195,11 @@ fun EmulatorScreen(
                     val sanitizedOrigName = origName.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     val tempFileName = when {
                         platform == GamePlatform.ARCADE && sanitizedOrigName.isNotBlank() -> sanitizedOrigName
+                        // PSX single-file formats (.pbp/.ecm/.m3u/.ccd): use game ID
+                        // to create unique temp files. Previously all PSX games
+                        // shared "temp_rom.pbp" etc., causing the second game
+                        // opened to load the first game's data.
+                        platform == GamePlatform.PSX -> "psx_${saveName}"
                         else -> "temp_rom"
                     }
                     val ext = when {
@@ -1952,6 +1958,7 @@ private fun GameSurfaceView(
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
         val surfaceModifier = when (videoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
+            "2:3" -> Modifier.aspectRatio(2f / 3f)   // NDS 双屏 (256x384)
             "3:2" -> Modifier.aspectRatio(3f / 2f)   // GBA 原生比例 (240x160)
             "8:7" -> Modifier.aspectRatio(8f / 7f)
             "16:9" -> Modifier.aspectRatio(16f / 9f)
@@ -2366,10 +2373,12 @@ fun OnScreenController(
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
                  platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
-    // L2/R2 (Turbo toggle for PCE) — show for ARCADE when explicitly enabled,
-    // and always for PCE (PCE has turbo toggle as a standard feature).
+    // L2/R2 (Turbo toggle for PCE, L2/R2 for PSX) — show for ARCADE when explicitly enabled,
+    // always for PCE (PCE has turbo toggle as a standard feature), and for PSX
+    // (DualShock L2/R2 mapped to libretro bits 12/13).
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
-                   platform == GamePlatform.PCE
+                   platform == GamePlatform.PCE ||
+                   platform == GamePlatform.PSX
 
     // === Per-button visibility for PCE ===
     // Non-PCE platforms always show every button their platform supports;
@@ -2740,20 +2749,60 @@ fun OnScreenController(
         // Per Geargrafx reference: bit0 (BTN_A) → PCE I, bit1 (BTN_B) → PCE II.
         // (Earlier comment had I/II swapped — corrected after reading the
         // reference source's input descriptor: A="I", B="II".)
-        val labelA = if (platform == GamePlatform.PCE) "I" else "A"
-        val labelB = if (platform == GamePlatform.PCE) "II" else "B"
-        val labelX = if (platform == GamePlatform.PCE) "IV" else "X"
-        val labelY = if (platform == GamePlatform.PCE) "III" else "Y"
-        val labelL = if (platform == GamePlatform.PCE) "V" else "L"
-        val labelR = if (platform == GamePlatform.PCE) "VI" else "R"
-        val labelL2 = if (platform == GamePlatform.PCE) "TURBO II" else "L2"
-        val labelR2 = if (platform == GamePlatform.PCE) "TURBO I" else "R2"
+        val labelA = when (platform) {
+            GamePlatform.PCE -> "I"
+            GamePlatform.PSX -> "✕"  // Cross
+            else -> "A"
+        }
+        val labelB = when (platform) {
+            GamePlatform.PCE -> "II"
+            GamePlatform.PSX -> "○"  // Circle
+            else -> "B"
+        }
+        val labelX = when (platform) {
+            GamePlatform.PCE -> "IV"
+            GamePlatform.PSX -> "△"  // Triangle
+            else -> "X"
+        }
+        val labelY = when (platform) {
+            GamePlatform.PCE -> "III"
+            GamePlatform.PSX -> "□"  // Square
+            else -> "Y"
+        }
+        val labelL = when (platform) {
+            GamePlatform.PCE -> "V"
+            GamePlatform.PSX -> "L1"
+            else -> "L"
+        }
+        val labelR = when (platform) {
+            GamePlatform.PCE -> "VI"
+            GamePlatform.PSX -> "R1"
+            else -> "R"
+        }
+        val labelL2 = when (platform) {
+            GamePlatform.PCE -> "TURBO II"
+            GamePlatform.PSX -> "L2"
+            else -> "L2"
+        }
+        val labelR2 = when (platform) {
+            GamePlatform.PCE -> "TURBO I"
+            GamePlatform.PSX -> "R2"
+            else -> "R2"
+        }
         if (showABtn) {
-            ActionButtonCanvas(labelA, Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and BTN_A != 0)
+            val aColor = when (platform) {
+                GamePlatform.PSX -> Color(0xFF2ECC71)  // Green (Cross)
+                else -> Color(0xFFE74C3C)
+            }
+            ActionButtonCanvas(labelA, aColor, btnA, surfaceSize, opacity, visualState and BTN_A != 0)
         }
         // Draw B
         if (showBBtn) {
-            ActionButtonCanvas(labelB, Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and BTN_B != 0)
+            val bColor = when (platform) {
+                GamePlatform.PSX -> Color(0xFFE74C3C)  // Red (Circle)
+                else -> Color(0xFFE67E22)
+            }
+            ActionButtonCanvas(labelB, bColor, btnB, surfaceSize, opacity, visualState and BTN_B != 0)
         }
         // Turbo A/B — hidden on SNES/PCE/ARCADE/MD (X/Y buttons take their place)
         if (!showXY) {
@@ -2775,21 +2824,38 @@ fun OnScreenController(
         if (showLR && showRBtn) {
             ShoulderButtonCanvas(labelR, btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
-        // X/Y face buttons (SNES/Arcade/MD/PCE)
+        // X/Y face buttons (SNES/Arcade/MD/PCE/NDS/PSX)
         if (showXY && showXBtn) {
-            ActionButtonCanvas(labelX, Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and BTN_X != 0)
+            val xColor = when (platform) {
+                GamePlatform.PSX -> Color(0xFFE91E9B)  // Pink (Triangle)
+                else -> Color(0xFF3498DB)
+            }
+            ActionButtonCanvas(labelX, xColor, btnX, surfaceSize, opacity, visualState and BTN_X != 0)
         }
         if (showXY && showYBtn) {
-            ActionButtonCanvas(labelY, Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
+            val yColor = when (platform) {
+                GamePlatform.PSX -> Color(0xFF3498DB)  // Blue (Square)
+                else -> Color(0xFF2ECC71)
+            }
+            ActionButtonCanvas(labelY, yColor, btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
         }
         // L2/R2 extra buttons:
         //   Arcade 6-button fight layout — hidden by default, enabled via Settings
         //   PCE — Turbo toggle buttons (L2=Toggle Turbo II, R2=Toggle Turbo I)
+        //   PSX — DualShock L2/R2 shoulder buttons (bits 12/13)
         if (showL2R2 && showL2Btn) {
-            ActionButtonCanvas(labelL2, Color(0xFFFF9800), btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
+            val l2Color = when (platform) {
+                GamePlatform.PSX -> Color(0xFF95A5A6)  // Silver/gray (DualShock L2)
+                else -> Color(0xFFFF9800)
+            }
+            ActionButtonCanvas(labelL2, l2Color, btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
         }
         if (showL2R2 && showR2Btn) {
-            ActionButtonCanvas(labelR2, Color(0xFFFF9800), btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
+            val r2Color = when (platform) {
+                GamePlatform.PSX -> Color(0xFF95A5A6)  // Silver/gray (DualShock R2)
+                else -> Color(0xFFFF9800)
+            }
+            ActionButtonCanvas(labelR2, r2Color, btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
         }
         // Combo buttons (per-platform, user-defined)
         comboList.forEach { combo ->
@@ -5484,6 +5550,7 @@ private fun SettingsPanel(
             listOf(
                 "stretch" to "全屏拉伸(默认)",
                 "4:3" to "4:3",
+                "2:3" to "2:3 (NDS 双屏)",
                 "3:2" to "3:2 (GBA 原生)",
                 "8:7" to "8:7 (NES 像素比)",
                 "16:9" to "16:9",
