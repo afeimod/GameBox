@@ -13,7 +13,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = 3
-        versionName = "3.0.0"
+        versionName = "3.0.1"
         ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "26.3.11579264"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
