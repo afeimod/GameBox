@@ -183,7 +183,6 @@ class SwfDownloadManager(private val context: Context) {
                                 val percent = (totalRead * 100 / totalBytes)
                                 item.progress = percent
                                 notifyProgress()
-                            }
                             } else {
                                 item.progress = -1  // indeterminate
                                 if (totalRead % 81920 == 0) notifyProgress()
