@@ -3,6 +3,7 @@ package com.nesstation.app.core.storage
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
+import com.nesstation.app.core.model.GamePlatform
 
 /**
  * Individual button layout — each button has its own position and size.
