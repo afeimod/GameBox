@@ -19,7 +19,11 @@
 # EmulatorScreen 中 isButtonHidden/setButtonHidden 等多参数方法被 R8 内联后
 # 触发 "expected 8 arg registers, method signature has 9 or more" 的 VerifyError(闪退),
 # 禁用 inlining 即可规避,其余优化(裁剪/混淆)仍生效。
--optimizations !method/inlining/short,!method/inlining/unique
+#
+# 注意: !method/inlining/short,!method/inlining/unique 只禁用了"短方法内联"和
+# "唯一方法内联",但 isButtonHidden 即不短也不唯一(被调用 27 次),它是通过常量内联
+# (method/inlining/constant) 被优化的。所以必须禁用所有 inlining 才能覆盖此场景。
+-optimizations !method/inlining
 
 # ─── J2ME-Loader: keep all emulator classes (prevent R8 stripping) ────────
 -keep class javax.** { *; }
