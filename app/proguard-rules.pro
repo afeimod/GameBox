@@ -14,15 +14,12 @@
 
 # ─── Storage layer ─────────────────────────────────────────────────────────
 -keep class com.nesstation.app.core.storage.** { *; }
-# Prevent R8 from optimizing these classes — dense method calls in
-# EmulatorScreen trigger R8 VerifyError (expected 8 arg registers,
-# method signature has 9 or more) when R8 inlines isButtonHidden/setButtonHidden.
--dontoptimize class com.nesstation.app.core.storage.PadLayoutStore { *; }
--dontoptimize class com.nesstation.app.core.storage.PadLayout { *; }
-
-# ─── EmulatorScreen: prevent R8 from optimizing the massive OnScreenController
-# and PadLayoutEditor composables which call PadLayoutStore methods densely.
--dontoptimize class com.nesstation.app.ui.emulator.EmulatorScreenKt { *; }
+# R8 的 -dontoptimize 是全局开关,不接受类参数(带类参数会报
+# "Expected char '-'" 导致构建失败)。这里改为全局只禁用方法内联:
+# EmulatorScreen 中 isButtonHidden/setButtonHidden 等多参数方法被 R8 内联后
+# 触发 "expected 8 arg registers, method signature has 9 or more" 的 VerifyError(闪退),
+# 禁用 inlining 即可规避,其余优化(裁剪/混淆)仍生效。
+-optimizations !method/inlining/short,!method/inlining/unique
 
 # ─── J2ME-Loader: keep all emulator classes (prevent R8 stripping) ────────
 -keep class javax.** { *; }
