@@ -29,7 +29,7 @@ object FlashPrefs {
         WAFLASH("waflash", "WAFlash (AS2/AS3, Canvas渲染)");
 
         companion object {
-            fun fromValue(v: String?): Engine = entries.firstOrNull { it.value == v } ?: RUFFLE
+            fun fromValue(v: String?): Engine = values().firstOrNull { it.value == v } ?: RUFFLE
         }
     }
 

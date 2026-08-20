@@ -89,7 +89,7 @@ enum class GamePlatform(val displayName: String) {
                 // J2ME
                 "java", "j2me", "midlet" -> JAVA
                 // 兜底：未识别的字符串保持 NES 行为不变（旧 API 兼容）
-                else -> entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: NES
+                else -> values().firstOrNull { it.name.equals(value, ignoreCase = true) } ?: NES
             }
         }
 
