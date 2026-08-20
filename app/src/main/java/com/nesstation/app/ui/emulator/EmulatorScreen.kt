@@ -4912,17 +4912,17 @@ private fun PadLayoutEditor(
                         })
                     } else {
                         onLayoutChange(padLayout.copy {
-                            dpad = defaults.dpad
- btnA = defaults.btnA
- btnB = defaults.btnB
-                            btnTurboA = defaults.btnTurboA
- btnTurboB = defaults.btnTurboB
-                            btnStart = defaults.btnStart
- btnSelect = defaults.btnSelect
-                            btnL = defaults.btnL
- btnR = defaults.btnR
-                            btnX = defaults.btnX
- btnY = defaults.btnY
+                            this.dpad = defaults.dpad
+                            this.btnA = defaults.btnA
+                            this.btnB = defaults.btnB
+                            this.btnTurboA = defaults.btnTurboA
+                            this.btnTurboB = defaults.btnTurboB
+                            this.btnStart = defaults.btnStart
+                            this.btnSelect = defaults.btnSelect
+                            this.btnL = defaults.btnL
+                            this.btnR = defaults.btnR
+                            this.btnX = defaults.btnX
+                            this.btnY = defaults.btnY
                             pceShowDpad = defaults.pceShowDpad
  pceShowA = defaults.pceShowA
                             pceShowB = defaults.pceShowB
