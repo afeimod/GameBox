@@ -167,7 +167,6 @@ class SwfDownloadManager(private val context: Context) {
                     conn.inputStream.use { input ->
                         val chunk = ByteArray(8192)
                         var bytesRead: Int
-                        var lastPercent = -1
                         while (true) {
                             if (isCancelled || Thread.currentThread().isInterrupted) {
                                 tmpFile.delete()
@@ -182,11 +181,9 @@ class SwfDownloadManager(private val context: Context) {
                             totalRead += bytesRead
                             if (totalBytes > 0) {
                                 val percent = (totalRead * 100 / totalBytes)
-                                if (percent != lastPercent) {
-                                    lastPercent = percent
-                                    item.progress = percent
-                                    notifyProgress()
-                                }
+                                item.progress = percent
+                                notifyProgress()
+                            }
                             } else {
                                 item.progress = -1  // indeterminate
                                 if (totalRead % 81920 == 0) notifyProgress()

@@ -15,11 +15,11 @@ object BattleRomStore {
         File(ctx.filesDir, "battle_roms").apply { mkdirs() }
 
     /** 游戏 ROM 文件路径（如 kof97.zip） */
-    fun romFile(ctx: Context, gameId: String, fileName: String): File =
+    fun romFile(ctx: Context, fileName: String): File =
         File(romDir(ctx), fileName)
 
-    fun hasRom(ctx: Context, gameId: String, fileName: String): Boolean {
-        val f = romFile(ctx, gameId, fileName)
+    fun hasRom(ctx: Context, fileName: String): Boolean {
+        val f = romFile(ctx, fileName)
         return f.exists() && f.length() > 0 && !f.name.endsWith(".part")
     }
 

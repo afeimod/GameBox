@@ -27,8 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Settings
@@ -233,8 +233,8 @@ private fun TvBottomDock(
         TvDockItem("在线游戏", Icons.Rounded.Public),
         TvDockItem("SWF", Icons.Rounded.PlayArrow),
         TvDockItem("设置", Icons.Rounded.Settings),
-        TvDockItem("关于", Icons.Rounded.HelpOutline),
-        TvDockItem("退出", Icons.Rounded.Logout)
+        TvDockItem("关于", Icons.AutoMirrored.Rounded.HelpOutline),
+        TvDockItem("退出", Icons.AutoMirrored.Rounded.Logout)
     )
 
     Row(

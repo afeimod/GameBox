@@ -1,6 +1,5 @@
 package com.nesstation.app.ui.swf
 
-import android.content.Context
 import com.nesstation.app.flash.data.PrefsManager
 
 /**
@@ -33,26 +32,26 @@ object FlashPrefs {
         }
     }
 
-    fun getEngine(ctx: Context): Engine = Engine.fromValue(PrefsManager.sp.getString(KEY_ENGINE, null))
+    fun getEngine(): Engine = Engine.fromValue(PrefsManager.sp.getString(KEY_ENGINE, null))
 
-    fun setEngine(ctx: Context, engine: Engine) {
+    fun setEngine(engine: Engine) {
         PrefsManager.sp.edit().putString(KEY_ENGINE, engine.value).apply()
     }
 
-    fun getQuality(ctx: Context): String = PrefsManager.sp.getString(KEY_QUALITY, "high") ?: "high"
+    fun getQuality(): String = PrefsManager.sp.getString(KEY_QUALITY, "high") ?: "high"
 
-    fun setQuality(ctx: Context, quality: String) {
+    fun setQuality(quality: String) {
         PrefsManager.sp.edit().putString(KEY_QUALITY, quality).apply()
     }
 
-    fun isAutoplay(ctx: Context): Boolean = PrefsManager.sp.getBoolean(KEY_AUTOPLAY, true)
+    fun isAutoplay(): Boolean = PrefsManager.sp.getBoolean(KEY_AUTOPLAY, true)
 
-    fun setAutoplay(ctx: Context, autoplay: Boolean) {
+    fun setAutoplay(autoplay: Boolean) {
         PrefsManager.sp.edit().putBoolean(KEY_AUTOPLAY, autoplay).apply()
     }
 
     /** 取得当前 scale，无效值或缺失值都回退到 Ruffle 官方默认 "showAll"。 */
-    fun getScale(ctx: Context): String {
+    fun getScale(): String {
         val v = PrefsManager.sp.getString(KEY_SCALE, "showAll") ?: "showAll"
         return when (v) {
             "showAll", "noBorder", "exactFit", "noScale" -> v
@@ -60,7 +59,7 @@ object FlashPrefs {
         }
     }
 
-    fun setScale(ctx: Context, scale: String) {
+    fun setScale(scale: String) {
         val normalized = when (scale) {
             "showAll", "noBorder", "exactFit", "noScale" -> scale
             else -> "showAll"

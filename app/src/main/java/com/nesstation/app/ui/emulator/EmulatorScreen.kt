@@ -432,8 +432,6 @@ private fun loadGameFolder(
     }
 
     val uri = android.net.Uri.parse(launcherUriStr)
-    val cr = context.contentResolver
-
     // Determine the document ID of the launcher file. For a document URI
     // built via buildDocumentUriUsingTree, this is the last path segment
     // after "/document/".
@@ -2053,10 +2051,9 @@ private fun GameSurfaceView(
                 }
             },
             update = { sv ->
-                val surfaceView = sv as SurfaceView
                 // Re-bind the key listener whenever uiBlocked changes so the
                 // closure captures the latest value.
-                surfaceView.setOnKeyListener { _, keyCode, event ->
+                sv.setOnKeyListener { _, keyCode, event ->
                     val bits = resolveKeyBits(keyCode, platform, currentPlayer, ctx)
                     if (uiBlocked) {
                         // UI is blocking — let Compose handle D-pad navigation.
@@ -2320,7 +2317,6 @@ private fun serializeComboButtons(list: List<ComboButtonEntry>): String {
 @Composable
 private fun BoxScope.PlayerSwitchButton(
     currentPlayer: Int,
-    maxPlayers: Int,
     onSwitch: () -> Unit
 ) {
     val label = "${currentPlayer + 1}P"
@@ -3200,7 +3196,6 @@ private fun MenuOverlay(
     gameTitle: String,
     running: Boolean,
     fastForwardSpeed: Int,
-    currentSlot: Int = 0,
     isPortrait: Boolean = false,
     onTogglePause: () -> Unit,
     onToggleFastForward: () -> Unit,
@@ -3964,7 +3959,7 @@ private fun DosKeyPickerDialog(
     // Compute which fixed buttons are hidden (can be added)
     val hiddenFixedBtns = DosBtnType.values().filter { !it.isVisible(padLayout) }
     // Compute which extra keys are not yet added
-    val availableExtraKeys = allAvailableKeys.filter { (label, code) ->
+    val availableExtraKeys = allAvailableKeys.filter { (_, code) ->
         code !in existingExtraKeyCodes
     }
 
@@ -4464,7 +4459,6 @@ private fun DosEditableButton(
     val currentLayout by rememberUpdatedState(layout)
     val currentOnMove by rememberUpdatedState(onMove)
     val currentOnSelect by rememberUpdatedState(onSelect)
-    val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentSurfaceSize by rememberUpdatedState(surfaceSize)
 
     // Compute pixel offset from fraction coords.
@@ -4557,7 +4551,6 @@ private fun PadLayoutEditor(
         return
     }
 
-    val density = LocalDensity.current
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
     // Combo button picker dialog state — when true, shows a dialog that lets
     // the user pick 2-4 buttons to combine into a single on-screen combo key.

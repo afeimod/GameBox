@@ -122,6 +122,7 @@ open class GameWebView @JvmOverloads constructor(
         }, "NativeIme")
     }
 
+    @Suppress("DEPRECATION")
     private fun configureSettings() = settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true                       // H5 游戏依赖 localStorage
@@ -415,7 +416,7 @@ open class GameWebView @JvmOverloads constructor(
      * 使用 JavaScript KeyboardEvent 直接分发，比 Android dispatchKeyEvent 更可靠，
      * 避免 WebView 失焦时 keyup 丢失导致 Ruffle 角色持续移动。
      */
-    fun injectKey(keyCode: Int, repeat: Int = 0) {
+    fun injectKey(keyCode: Int) {
         injectKeyDown(keyCode)
         injectKeyUp(keyCode)
     }

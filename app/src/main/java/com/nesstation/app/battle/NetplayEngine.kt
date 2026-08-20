@@ -161,7 +161,6 @@ class NetplayEngine(
                     }
 
                     // 3. 60fps 节拍
-                    val elapsed = System.nanoTime() - t0
                     val target = startNs + frame * frameNs
                     val wait = target - System.nanoTime()
                     if (wait > 0) {

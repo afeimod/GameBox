@@ -127,9 +127,6 @@ fun LibraryScreen(
     onOpenGame: (GameEntry) -> Unit,
     onBack: () -> Unit = {},
     onHome: () -> Unit = onBack,
-    onImport: () -> Unit,
-    onSearch: () -> Unit,
-    onLongClickGame: (GameEntry) -> Unit = {},
     onGamesChanged: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -527,7 +524,6 @@ fun LibraryScreen(
                 var failed = 0
                 romFiles.forEach { (name, fileUri) ->
                     try {
-                        val ext = name.substringAfterLast('.', "").lowercase()
                         val platform = detectPlatformFromUri(context, fileUri, name, hintPlatform = selectedPlatform)
                         // 街机游戏使用中文名映射
                         // PSX游戏从ISO/CUE头提取真实游戏名
@@ -565,7 +561,6 @@ fun LibraryScreen(
             val entries = scanForRoms(context)
             if (entries.isNotEmpty()) {
                 entries.forEach { (name, path) ->
-                    val ext = name.substringAfterLast('.', "").lowercase()
                     val platform = detectPlatformFromFile(File(path), hintPlatform = selectedPlatform)
                     val title = when (platform) {
                         GamePlatform.ARCADE -> ArcadeTitleMapper.resolveDisplayTitle(name)

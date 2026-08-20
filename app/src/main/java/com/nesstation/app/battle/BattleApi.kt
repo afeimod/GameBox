@@ -66,7 +66,7 @@ class BattleApi(private val ctx: Context) {
     private fun readJSON(conn: HttpURLConnection): JSONObject {
         val code = conn.responseCode
         val stream: InputStream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+        val text = stream.bufferedReader().use { it.readText() }
         if (code !in 200..299) {
             val msg = try {
                 JSONObject(text).optString("error")

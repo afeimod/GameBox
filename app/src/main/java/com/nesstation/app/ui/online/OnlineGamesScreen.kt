@@ -23,7 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Smartphone
@@ -120,7 +120,7 @@ fun OnlineGamesScreen(
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
-                        Icons.Rounded.ArrowBack,
+                        Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "返回",
                         tint = PrimaryText
                     )

@@ -399,7 +399,7 @@ fun SwfPlayerScreen(
                         color = Color.White, fontSize = 12.sp
                     )
                     LinearProgressIndicator(
-                        progress = if (total > 0) completed.toFloat() / total else 0f,
+                        progress = { if (total > 0) completed.toFloat() / total else 0f },
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         color = Color(0xFFFFC107)
                     )
@@ -563,7 +563,7 @@ fun SwfPlayerScreen(
                 override fun getCachedSwfPath(): String? = null
                 override fun getLocalSwfUri(): String? = localSwfUri.value
                 override fun getLocalSwfDir(): String? {
-                    val uri = localSwfUri.value ?: return null
+                    val uri = localSwfUri.value
                     return try {
                         when {
                             uri.startsWith("content://") -> {

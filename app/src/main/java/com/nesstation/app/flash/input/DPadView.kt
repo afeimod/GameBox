@@ -334,7 +334,7 @@ class DPadView @JvmOverloads constructor(
                     val active = HashSet<Int>()
                     for (i in 0 until event.pointerCount) {
                         if (i == event.actionIndex) continue
-                        val p = event.getPointerId(i)
+                        event.getPointerId(i)
                         computeDirections(event.getX(i), event.getY(i)).forEach { d -> active.add(d) }
                     }
                     val toUp = pressed - active

@@ -125,7 +125,7 @@ open class GameWebViewClient(
             else -> "on" // 内联注入默认 on，保证缩放语义与 buildRuffleAspectRatioScript 配合
         }
         // 防御性 fallback：scale 必须是非 null 字符串
-        val safeScale = scale ?: "showAll"
+        val safeScale = scale
         val quality = PrefsManager.flashQuality
         return """
         <script>
@@ -721,8 +721,8 @@ open class GameWebViewClient(
         // 强制重绘：部分网页（如使用 View Transitions 的 SPA）加载完成后
         // 渲染管线未正确触发重绘，导致页面"卡住"（切后台再回来才显示）。
         // invalidate + requestLayout 强制 WebView 重新绘制当前帧。
-        view?.invalidate()
-        view?.requestLayout()
+        view.invalidate()
+        view.requestLayout()
         // 延迟二次重绘：等待 evaluateJavascript 注入的脚本执行完毕后再触发一次
         view?.postDelayed({
             view?.invalidate()
@@ -757,6 +757,7 @@ open class GameWebViewClient(
     /**
      * 废弃版错误回调：不触发 callback.onError，避免子资源错误误显示错误页。
      */
+    @Suppress("DEPRECATION")
     @Deprecated("Deprecated in Java")
     override fun onReceivedError(
         view: WebView?, errorCode: Int, description: String?, failingUrl: String?

@@ -16,8 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Settings
@@ -57,8 +57,8 @@ fun BottomDock(
         DockItem("在线游戏", Icons.Rounded.Public),
         DockItem("SWF", Icons.Rounded.PlayArrow),
         DockItem("设置", Icons.Rounded.Settings),
-        DockItem("关于", Icons.Rounded.HelpOutline),
-        DockItem("退出", Icons.Rounded.Logout)
+        DockItem("关于", Icons.AutoMirrored.Rounded.HelpOutline),
+        DockItem("退出", Icons.AutoMirrored.Rounded.Logout)
     )
 
     var selected by rememberSaveable { mutableIntStateOf(selectedIndex) }
@@ -109,8 +109,8 @@ fun VerticalDock(
         DockItem("浏览器", Icons.Rounded.Public),
         DockItem("SWF", Icons.Rounded.PlayArrow),
         DockItem("设置", Icons.Rounded.Settings),
-        DockItem("说明", Icons.Rounded.HelpOutline),
-        DockItem("退出", Icons.Rounded.Logout)
+        DockItem("说明", Icons.AutoMirrored.Rounded.HelpOutline),
+        DockItem("退出", Icons.AutoMirrored.Rounded.Logout)
     )
 
     var selected by rememberSaveable { mutableIntStateOf(selectedIndex) }

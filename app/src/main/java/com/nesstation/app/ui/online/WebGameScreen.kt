@@ -130,7 +130,7 @@ fun WebGameScreen(
     val activityResultLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
-        val arr = uris?.takeIf { it.isNotEmpty() }?.toTypedArray()
+        val arr = uris.takeIf { it.isNotEmpty() }?.toTypedArray()
         filePathCallback.value?.onReceiveValue(arr)
         filePathCallback.value = null
     }
@@ -360,7 +360,7 @@ fun WebGameScreen(
                     mainBoxRef.value = this
                 }
             },
-            update = { container ->
+            update = { _ ->
                 // 每次 reload 触发重新加载 URL
                 val wv = webViewRef.value
                 if (wv != null) {
@@ -395,7 +395,7 @@ fun WebGameScreen(
                 Column {
                     Text("下载进度: $completed/$total" + if (currentPercent > 0) " (当前: $currentPercent%)" else "", color = Color.White, fontSize = 12.sp)
                     LinearProgressIndicator(
-                        progress = if (total > 0) completed.toFloat() / total else 0f,
+                        progress = { if (total > 0) completed.toFloat() / total else 0f },
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         color = Color(0xFFFFC107)
                     )
@@ -553,7 +553,7 @@ fun WebGameScreen(
                     useDesktopMode(true)
                 }
                 cameraRotationEnabled = PrefsManager.isCameraRotationEnabled
-                setOnKeyListener { _, keyCode, event ->
+                setOnKeyListener { _, _, event ->
                     keyEventHandler(event)
                 }
             }

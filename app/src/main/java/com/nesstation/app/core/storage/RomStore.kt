@@ -159,7 +159,7 @@ object RomStore {
             list.forEachIndexed { i, entry ->
                 putString("${KEY_PREFIX_ID}$i", entry.id)
                 putString("${KEY_PREFIX_TITLE}$i", entry.title)
-                putString("${KEY_PREFIX_PATH}$i", entry.romPath ?: "")
+                putString("${KEY_PREFIX_PATH}$i", entry.romPath)
                 putInt("${KEY_PREFIX_ACCENT}$i", entry.accent.value.toInt())
                 putString("${KEY_PREFIX_PLATFORM}$i", entry.platform.name)
                 putString("${KEY_PREFIX_ICON}$i", entry.customIconPath)

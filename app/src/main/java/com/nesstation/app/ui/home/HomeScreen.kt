@@ -68,7 +68,6 @@ import kotlinx.coroutines.delay
 fun HomeScreen(
     onOpenGame: (GameEntry) -> Unit,
     onOpenLibrary: () -> Unit,
-    onOpenFileList: () -> Unit,
     onOpenOnlineGames: () -> Unit,
     onOpenBattle: () -> Unit,
     onOpenSwf: () -> Unit,

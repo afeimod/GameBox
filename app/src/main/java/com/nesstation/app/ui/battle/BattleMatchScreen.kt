@@ -261,7 +261,6 @@ fun BattleMatchScreen(
         //  - 通用：ROM 还没下好 → "正在准备…"
         else -> {
             val text = when {
-                err != null -> err
                 rom == null -> "正在准备 ROM…"
                 netReady && args.isHost -> "等待对手加入…"
                 netReady && !args.isHost -> "正在进入对战…"

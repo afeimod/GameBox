@@ -30,10 +30,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Login
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.AlertDialog
@@ -189,7 +189,7 @@ fun BattleScreen(
                 IconButton(onClick = {
                     if (selectedGame != null) selectedGame = null else onBack()
                 }) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PrimaryText)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = PrimaryText)
                 }
                 HomePill(onClick = onHome, modifier = Modifier.padding(start = 2.dp))
                 Column(
@@ -227,11 +227,9 @@ fun BattleScreen(
                     games = games,
                     loading = loading,
                     downloading = downloading,
-                    iconVersion = iconVersion,
                     selectedPlatform = selectedPlatform,
                     onPlatformChange = { selectedPlatform = it },
                     onDownloadAndEnter = { game ->
-                        // 点击游戏卡片直接进入街机厅房间列表，ROM 在点击房间进入对战时才下载
                         selectedGame = game
                         refreshAll()
                     }
@@ -241,7 +239,6 @@ fun BattleScreen(
                 ArcadeHallGrid(
                     game = selectedGame!!,
                     rooms = rooms,
-                    iconVersion = iconVersion,
                     onBackToLibrary = { selectedGame = null },
                     onJoinTable = { room, isFull ->
                         if (!BattleSession.isLoggedIn(context)) {
@@ -355,7 +352,6 @@ private fun GameLibraryGrid(
     games: List<BattleApi.Game>,
     loading: Boolean,
     downloading: DownloadTask?,
-    iconVersion: Int,
     selectedPlatform: com.nesstation.app.core.model.GamePlatform?,
     onPlatformChange: (com.nesstation.app.core.model.GamePlatform?) -> Unit,
     onDownloadAndEnter: (BattleApi.Game) -> Unit
@@ -457,7 +453,6 @@ private fun GameLibraryGrid(
                         game = game,
                         downloaded = BattleRomStore.hasRom(context, game.id, game.fileName),
                         downloadTask = downloading?.takeIf { it.gameId == game.id },
-                        iconVersion = iconVersion,
                         onClick = { onDownloadAndEnter(game) }
                     )
                 }
@@ -501,7 +496,6 @@ private fun BattleGameCard(
     game: BattleApi.Game,
     downloaded: Boolean,
     downloadTask: DownloadTask?,
-    iconVersion: Int,
     onClick: () -> Unit
 ) {
     val accent = CabinetPalette[game.id.hashCode().mod(CabinetPalette.size)]
@@ -624,7 +618,6 @@ private fun BattleGameCard(
 private fun ArcadeHallGrid(
     game: BattleApi.Game,
     rooms: List<BattleApi.Room>,
-    iconVersion: Int,
     onBackToLibrary: () -> Unit,
     onJoinTable: (BattleApi.Room?, Boolean) -> Unit
 ) {
@@ -643,7 +636,7 @@ private fun ArcadeHallGrid(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBackToLibrary) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = null, tint = Accent, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = Accent, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("返回游戏库", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
@@ -668,7 +661,6 @@ private fun ArcadeHallGrid(
                     tableNo = index + 1,
                     game = game,
                     room = room,
-                    iconVersion = iconVersion,
                     accent = CabinetPalette[index % CabinetPalette.size],
                     onClick = { onJoinTable(room, room != null && room.guest.isNotBlank()) }
                 )
@@ -686,7 +678,6 @@ private fun ArcadeTableCard(
     tableNo: Int,
     game: BattleApi.Game,
     room: BattleApi.Room?,
-    iconVersion: Int,
     accent: Color,
     onClick: () -> Unit
 ) {
@@ -932,7 +923,7 @@ private fun LoginDialog(
                         )
                     } else {
                         Icon(
-                            if (mode == "login") Icons.Rounded.Login else Icons.Rounded.PersonAdd,
+                            if (mode == "login") Icons.AutoMirrored.Rounded.Login else Icons.Rounded.PersonAdd,
                             contentDescription = null
                         )
                         Spacer(Modifier.width(6.dp))

@@ -871,7 +871,6 @@ private fun DosKeyboardOverlay(
 private fun ModeSwitchButton(
     isKeyboard: Boolean,
     opacity: Float,
-    isPortrait: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {

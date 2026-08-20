@@ -165,7 +165,7 @@ object SwfPadStore {
         }
         return SwfPadConfig(
             dpadMode = run {
-                val modeStr = obj.optString("dpadMode", null)
+                val modeStr = obj.optString("dpadMode", null as String?)
                 when {
                     !modeStr.isNullOrBlank() -> DpadMode.valueOf(modeStr)
                     obj.optBoolean("useWASD", false) -> DpadMode.WASD

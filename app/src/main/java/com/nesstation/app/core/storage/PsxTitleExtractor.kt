@@ -31,7 +31,7 @@ object PsxTitleExtractor {
         val lower = romPath.lowercase()
         return when {
             lower.endsWith(".iso") -> extractFromIso(romPath)
-            lower.endsWith(".cue") -> extractFromCue(context, romPath)
+            lower.endsWith(".cue") -> extractFromCue(romPath)
             lower.endsWith(".chd") -> extractFromChd(romPath)
             else -> null
         }
@@ -66,7 +66,7 @@ object PsxTitleExtractor {
      * 1. Parsing the CUE sheet to find the referenced .bin/.iso file
      * 2. Reading the title from that file's ISO header
      */
-    private fun extractFromCue(context: Context, cuePath: String): String? {
+    private fun extractFromCue(cuePath: String): String? {
         val cueFile = File(cuePath)
         if (!cueFile.exists()) return null
 

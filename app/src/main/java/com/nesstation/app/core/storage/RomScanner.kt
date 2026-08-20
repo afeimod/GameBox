@@ -202,7 +202,7 @@ class RomScanner(private val context: Context) {
     }
 
     private fun DocumentFile.traverse(visit: (String) -> Unit) {
-        val children = listFiles() ?: return
+        val children = listFiles()
         children.forEach { c ->
             if (c.isDirectory) c.traverse(visit)
             else if (c.isFile) c.uri.lastPathSegment?.let(visit)
