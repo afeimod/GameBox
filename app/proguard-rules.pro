@@ -14,16 +14,16 @@
 
 # ─── Storage layer ─────────────────────────────────────────────────────────
 -keep class com.nesstation.app.core.storage.** { *; }
-# R8 的 -dontoptimize 是全局开关,不接受类参数(带类参数会报
-# "Expected char '-'" 导致构建失败)。这里改为全局只禁用方法内联:
-# EmulatorScreen 中 isButtonHidden/setButtonHidden 等多参数方法被 R8 内联后
-# 触发 "expected 8 arg registers, method signature has 9 or more" 的 VerifyError(闪退),
-# 禁用 inlining 即可规避,其余优化(裁剪/混淆)仍生效。
-#
-# 注意: !method/inlining/short,!method/inlining/unique 只禁用了"短方法内联"和
-# "唯一方法内联",但 isButtonHidden 即不短也不唯一(被调用 27 次),它是通过常量内联
-# (method/inlining/constant) 被优化的。所以必须禁用所有 inlining 才能覆盖此场景。
--optimizations !method/inlining
+# 闪退根因: R8 在 release 优化阶段生成了 ART 校验器不接受的字节码
+# (java.lang.VerifyError: Verifier rejected class e1.b0: void e1.b0.invoke()
+#  [0x69A] Rejecting invocation, expected 8 argument registers,
+#  method signature has 9 or more)。
+# 之前的修复只写了 -optimizations !method/inlining, 但 AGP 8.0+ release
+# 默认开启 R8 full mode, 该模式下 -dontoptimize / -optimizations 等 ProGuard
+# 优化开关会被 R8 忽略, 所以始终无法生效(反复闪退)。
+# 处理: 已在 gradle.properties 关闭 full mode (android.enableR8.fullMode=false),
+# 这里再全局禁用优化(保留裁剪与混淆), 彻底规避该 VerifyError。
+-dontoptimize
 
 # ─── J2ME-Loader: keep all emulator classes (prevent R8 stripping) ────────
 -keep class javax.** { *; }
