@@ -1455,7 +1455,6 @@ fun EmulatorScreen(
             if (maxPlayers > 1 && netplayController == null) {
                 PlayerSwitchButton(
                     currentPlayer = currentPlayer,
-                    maxPlayers = maxPlayers,
                     onSwitch = {
                         currentPlayer = (currentPlayer + 1) % maxPlayers
                     }
@@ -1468,7 +1467,6 @@ fun EmulatorScreen(
                 gameTitle = game.title,
                 running = running,
                 fastForwardSpeed = fastForwardSpeed,
-                currentSlot = saveLoadSlot,
                 isPortrait = isPortrait,
                 onTogglePause = { running = !running },
                 onToggleFastForward = { fastForwardSpeed = if (fastForwardSpeed > 0) 0 else 6 },
@@ -2097,9 +2095,9 @@ private fun GameSurfaceView(
                 // When UI becomes unblocked (menu closed), re-request focus
                 // so the SurfaceView can receive gamepad keys again.
                 if (!uiBlocked) {
-                    surfaceView.isFocusable = true
-                    surfaceView.isFocusableInTouchMode = true
-                    surfaceView.requestFocus()
+                    sv.isFocusable = true
+                    sv.isFocusableInTouchMode = true
+                    sv.requestFocus()
                 }
             },
             modifier = surfaceModifier

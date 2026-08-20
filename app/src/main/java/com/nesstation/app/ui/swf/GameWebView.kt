@@ -196,7 +196,7 @@ open class GameWebView @JvmOverloads constructor(
      * 通过 JS 按键状态管理器分发到 window / document / activeElement，
      * 确保 Ruffle 必定收到事件。
      */
-    fun injectKey(keyCode: Int, _: Int = 0) {
+    fun injectKey(keyCode: Int, flags: Int = 0) {
         injectKeyDown(keyCode)
         injectKeyUp(keyCode)
     }

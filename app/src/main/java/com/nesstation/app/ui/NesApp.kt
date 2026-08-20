@@ -199,7 +199,6 @@ private fun PhoneNavHost(
             HomeScreen(
                 onOpenGame = openGame,
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
-                onOpenFileList = { nav.navigate(Routes.FILE_LIST) },
                 onOpenOnlineGames = { nav.navigate(Routes.ONLINE_GAMES) },
                 onOpenBattle = { nav.navigate(Routes.BATTLE) },
                 onOpenSwf = { nav.navigate(Routes.SWF_LIST) },
@@ -268,9 +267,6 @@ private fun PhoneNavHost(
                     // 返回主页：弹出到 HOME 路由
                     nav.popBackStack(Routes.HOME, inclusive = false)
                 },
-                onImport = { /* TODO: ACTION_OPEN_DOCUMENT */ },
-                onSearch = { /* TODO */ },
-                onLongClickGame = { },   // LibraryScreen 自身处理长按菜单
                 onGamesChanged = reloadGames
             )
         }
@@ -327,9 +323,6 @@ private fun PhoneNavHost(
                 onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
-                onImport = { },
-                onSearch = { },
-                onLongClickGame = { },
                 onGamesChanged = reloadGames
             )
         }
@@ -339,9 +332,6 @@ private fun PhoneNavHost(
                 onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
-                onImport = { },
-                onSearch = { },
-                onLongClickGame = { },
                 onGamesChanged = reloadGames
             )
         }
@@ -628,8 +618,6 @@ private fun TvNavHost(
                 onOpenGame = openGame,
                 onBack = { nav.popBackStack() },
                 onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
-                onImport = { },
-                onSearch = { },
                 onGamesChanged = reloadGames
             )
         }

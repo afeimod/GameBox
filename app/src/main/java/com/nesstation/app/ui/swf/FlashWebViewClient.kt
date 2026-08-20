@@ -591,7 +591,7 @@ open class FlashWebViewClient(
     private val swfCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
     private fun interceptRemoteSwf(
-        _: WebView,
+        webView: WebView,
         url: String,
         request: WebResourceRequest
     ): WebResourceResponse? {

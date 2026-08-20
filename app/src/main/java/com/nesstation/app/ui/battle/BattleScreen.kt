@@ -251,7 +251,7 @@ fun BattleScreen(
                         }
                         val targetGame = selectedGame!!
                         // 进入房间前先确保 ROM 已下载；未下载则提示并下载，完成后自动进入房间
-                        val has = BattleRomStore.hasRom(context, targetGame.id, targetGame.fileName)
+                        val has = BattleRomStore.hasRom(context, targetGame.fileName)
                         if (!has) {
                             statusMsg = "正在下载 ${targetGame.title}，完成后自动进入房间…"
                             downloading = DownloadTask(targetGame.id, targetGame.fileName, 0f)
@@ -261,7 +261,7 @@ fun BattleScreen(
                                 if (!has) {
                                     BattleApi(context).downloadRom(
                                         targetGame,
-                                        BattleRomStore.romFile(context, targetGame.id, targetGame.fileName)
+                                        BattleRomStore.romFile(context, targetGame.fileName)
                                     ) { done, total ->
                                         if (total > 0) {
                                             downloading = DownloadTask(
@@ -451,7 +451,7 @@ private fun GameLibraryGrid(
                 items(visibleGames, key = { it.id }) { game ->
                     BattleGameCard(
                         game = game,
-                        downloaded = BattleRomStore.hasRom(context, game.id, game.fileName),
+                        downloaded = BattleRomStore.hasRom(context, game.fileName),
                         downloadTask = downloading?.takeIf { it.gameId == game.id },
                         onClick = { onDownloadAndEnter(game) }
                     )

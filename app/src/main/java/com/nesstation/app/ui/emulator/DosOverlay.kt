@@ -123,7 +123,6 @@ fun DosOnScreenController(
         ModeSwitchButton(
             isKeyboard = padLayout.dosInputMode == "keyboard",
             opacity = opacity,
-            isPortrait = isPortrait,
             onClick = onToggleMode,
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
         )

@@ -195,7 +195,7 @@ fun BattleMatchScreen(
 
         // 2. 检查 ROM 是否已下载
         val rom = com.nesstation.app.battle.BattleRomStore.romFile(
-            context, args.gameId,
+            context,
             args.fileName.ifBlank { "${args.gameId}.zip" }
         )
         if (!rom.exists() || rom.length() <= 0) {
