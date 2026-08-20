@@ -4647,19 +4647,19 @@ private fun PadLayoutEditor(
     // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段
     fun updateBtn(btnType: BtnType, newLayout: ButtonLayout) {
         val updated = when (btnType) {
-            BtnType.DPAD -> if (isPortrait) padLayout.copy {dpadP = newLayout} else padLayout.copy {dpad = newLayout}
-            BtnType.A -> if (isPortrait) padLayout.copy {btnAP = newLayout} else padLayout.copy {btnA = newLayout}
-            BtnType.B -> if (isPortrait) padLayout.copy {btnBP = newLayout} else padLayout.copy {btnB = newLayout}
-            BtnType.TURBO_A -> if (isPortrait) padLayout.copy {btnTurboAP = newLayout} else padLayout.copy {btnTurboA = newLayout}
-            BtnType.TURBO_B -> if (isPortrait) padLayout.copy {btnTurboBP = newLayout} else padLayout.copy {btnTurboB = newLayout}
-            BtnType.START -> if (isPortrait) padLayout.copy {btnStartP = newLayout} else padLayout.copy {btnStart = newLayout}
-            BtnType.SELECT -> if (isPortrait) padLayout.copy {btnSelectP = newLayout} else padLayout.copy {btnSelect = newLayout}
-            BtnType.L -> if (isPortrait) padLayout.copy {btnLP = newLayout} else padLayout.copy {btnL = newLayout}
-            BtnType.R -> if (isPortrait) padLayout.copy {btnRP = newLayout} else padLayout.copy {btnR = newLayout}
-            BtnType.X -> if (isPortrait) padLayout.copy {btnXP = newLayout} else padLayout.copy {btnX = newLayout}
-            BtnType.Y -> if (isPortrait) padLayout.copy {btnYP = newLayout} else padLayout.copy {btnY = newLayout}
-            BtnType.L2 -> if (isPortrait) padLayout.copy {btnL2P = newLayout} else padLayout.copy {btnL2 = newLayout}
-            BtnType.R2 -> if (isPortrait) padLayout.copy {btnR2P = newLayout} else padLayout.copy {btnR2 = newLayout}
+            BtnType.DPAD -> if (isPortrait) padLayout.copy {this.dpadP = newLayout} else padLayout.copy {this.dpad = newLayout}
+            BtnType.A -> if (isPortrait) padLayout.copy {this.btnAP = newLayout} else padLayout.copy {this.btnA = newLayout}
+            BtnType.B -> if (isPortrait) padLayout.copy {this.btnBP = newLayout} else padLayout.copy {this.btnB = newLayout}
+            BtnType.TURBO_A -> if (isPortrait) padLayout.copy {this.btnTurboAP = newLayout} else padLayout.copy {this.btnTurboA = newLayout}
+            BtnType.TURBO_B -> if (isPortrait) padLayout.copy {this.btnTurboBP = newLayout} else padLayout.copy {this.btnTurboB = newLayout}
+            BtnType.START -> if (isPortrait) padLayout.copy {this.btnStartP = newLayout} else padLayout.copy {this.btnStart = newLayout}
+            BtnType.SELECT -> if (isPortrait) padLayout.copy {this.btnSelectP = newLayout} else padLayout.copy {this.btnSelect = newLayout}
+            BtnType.L -> if (isPortrait) padLayout.copy {this.btnLP = newLayout} else padLayout.copy {this.btnL = newLayout}
+            BtnType.R -> if (isPortrait) padLayout.copy {this.btnRP = newLayout} else padLayout.copy {this.btnR = newLayout}
+            BtnType.X -> if (isPortrait) padLayout.copy {this.btnXP = newLayout} else padLayout.copy {this.btnX = newLayout}
+            BtnType.Y -> if (isPortrait) padLayout.copy {this.btnYP = newLayout} else padLayout.copy {this.btnY = newLayout}
+            BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
+            BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
         }
         onLayoutChange(updated)
