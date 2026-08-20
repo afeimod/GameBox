@@ -1427,7 +1427,7 @@ fun EmulatorScreen(
                     isPortrait = isPortrait,
                     onToggleMode = {
                         val newMode = if (padLayout.dosInputMode == "gamepad") "keyboard" else "gamepad"
-                        val newLayout = padLayout.copy(dosInputMode = newMode)
+                        val newLayout = padLayout.copy {dosInputMode = newMode}
                         padLayout = newLayout
                         // Persisted by the debounced LaunchedEffect above.
                     }
@@ -1635,15 +1635,19 @@ fun EmulatorScreen(
                                 if (confirm) {
                                     // Touch-up — persist into padLayout (saved by the debounced effect)
                                     padLayout = if (isPortrait) {
-                                        padLayout.copy(
-                                            customLayoutLeftP = x1, customLayoutTopP = y1,
-                                            customLayoutRightP = x2, customLayoutBottomP = y2
-                                        )
+                                        padLayout.copy {
+                                            customLayoutLeftP = x1
+ customLayoutTopP = y1
+                                            customLayoutRightP = x2
+ customLayoutBottomP = y2
+                                        }
                                     } else {
-                                        padLayout.copy(
-                                            customLayoutLeft = x1, customLayoutTop = y1,
-                                            customLayoutRight = x2, customLayoutBottom = y2
-                                        )
+                                        padLayout.copy {
+                                            customLayoutLeft = x1
+ customLayoutTop = y1
+                                            customLayoutRight = x2
+ customLayoutBottom = y2
+                                        }
                                     }
                                 }
                             }
@@ -1674,15 +1678,19 @@ fun EmulatorScreen(
                     showCustomLayoutEditor = false
                     // Persist the current rect even if the last drag was cancelled
                     padLayout = if (isPortrait) {
-                        padLayout.copy(
-                            customLayoutLeftP = customRect[0], customLayoutTopP = customRect[1],
-                            customLayoutRightP = customRect[2], customLayoutBottomP = customRect[3]
-                        )
+                        padLayout.copy {
+                            customLayoutLeftP = customRect[0]
+ customLayoutTopP = customRect[1]
+                            customLayoutRightP = customRect[2]
+ customLayoutBottomP = customRect[3]
+                        }
                     } else {
-                        padLayout.copy(
-                            customLayoutLeft = customRect[0], customLayoutTop = customRect[1],
-                            customLayoutRight = customRect[2], customLayoutBottom = customRect[3]
-                        )
+                        padLayout.copy {
+                            customLayoutLeft = customRect[0]
+ customLayoutTop = customRect[1]
+                            customLayoutRight = customRect[2]
+ customLayoutBottom = customRect[3]
+                        }
                     }
                 },
                 modifier = Modifier
@@ -1696,15 +1704,19 @@ fun EmulatorScreen(
                 onClick = {
                     customRect = floatArrayOf(0f, 0f, 1f, 1f)
                     padLayout = if (isPortrait) {
-                        padLayout.copy(
-                            customLayoutLeftP = 0f, customLayoutTopP = 0f,
-                            customLayoutRightP = 1f, customLayoutBottomP = 1f
-                        )
+                        padLayout.copy {
+                            customLayoutLeftP = 0f
+ customLayoutTopP = 0f
+                            customLayoutRightP = 1f
+ customLayoutBottomP = 1f
+                        }
                     } else {
-                        padLayout.copy(
-                            customLayoutLeft = 0f, customLayoutTop = 0f,
-                            customLayoutRight = 1f, customLayoutBottom = 1f
-                        )
+                        padLayout.copy {
+                            customLayoutLeft = 0f
+ customLayoutTop = 0f
+                            customLayoutRight = 1f
+ customLayoutBottom = 1f
+                        }
                     }
                 },
                 modifier = Modifier
@@ -3542,8 +3554,8 @@ private fun DosPadLayoutEditor(
         val newList = current + entry
         val json = DosExtraKeyEntry.formatList(newList)
         onLayoutChange(
-            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
-            else padLayout.copy(dosExtraKeys = json)
+            if (isPortrait) padLayout.copy {dosExtraKeysP = json}
+            else padLayout.copy {dosExtraKeys = json}
         )
     }
 
@@ -3552,8 +3564,8 @@ private fun DosPadLayoutEditor(
         val newList = current.filter { it.keyCode != keyCode }
         val json = DosExtraKeyEntry.formatList(newList)
         onLayoutChange(
-            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
-            else padLayout.copy(dosExtraKeys = json)
+            if (isPortrait) padLayout.copy {dosExtraKeysP = json}
+            else padLayout.copy {dosExtraKeys = json}
         )
     }
 
@@ -3562,8 +3574,8 @@ private fun DosPadLayoutEditor(
         val newList = current.map { if (it.keyCode == oldKeyCode) newEntry else it }
         val json = DosExtraKeyEntry.formatList(newList)
         onLayoutChange(
-            if (isPortrait) padLayout.copy(dosExtraKeysP = json)
-            else padLayout.copy(dosExtraKeys = json)
+            if (isPortrait) padLayout.copy {dosExtraKeysP = json}
+            else padLayout.copy {dosExtraKeys = json}
         )
     }
 
@@ -3696,33 +3708,61 @@ private fun DosPadLayoutEditor(
                 Spacer(Modifier.size(6.dp))
                 IconButton(onClick = {
                     val defaults = PadLayout()
-                    onLayoutChange(padLayout.copy(
-                        dosDpad = defaults.dosDpad, dosBtnEsc = defaults.dosBtnEsc,
-                        dosBtnEnter = defaults.dosBtnEnter, dosBtnSpace = defaults.dosBtnSpace,
-                        dosBtnTab = defaults.dosBtnTab, dosBtnCtrl = defaults.dosBtnCtrl,
-                        dosBtnAlt = defaults.dosBtnAlt, dosBtnShift = defaults.dosBtnShift,
-                        dosBtnBack = defaults.dosBtnBack,
-                        dosBtnMouseL = defaults.dosBtnMouseL, dosBtnMouseR = defaults.dosBtnMouseR,
-                        dosBtnInsert = defaults.dosBtnInsert, dosBtnDelete = defaults.dosBtnDelete,
-                        dosBtnHome = defaults.dosBtnHome, dosBtnEnd = defaults.dosBtnEnd,
-                        dosBtnPageUp = defaults.dosBtnPageUp, dosBtnPageDown = defaults.dosBtnPageDown,
-                        dosDpadP = defaults.dosDpadP, dosBtnEscP = defaults.dosBtnEscP,
-                        dosBtnEnterP = defaults.dosBtnEnterP, dosBtnSpaceP = defaults.dosBtnSpaceP,
-                        dosBtnTabP = defaults.dosBtnTabP, dosBtnCtrlP = defaults.dosBtnCtrlP,
-                        dosBtnAltP = defaults.dosBtnAltP, dosBtnShiftP = defaults.dosBtnShiftP,
-                        dosBtnBackP = defaults.dosBtnBackP,
-                        dosBtnMouseLP = defaults.dosBtnMouseLP, dosBtnMouseRP = defaults.dosBtnMouseRP,
-                        dosBtnInsertP = defaults.dosBtnInsertP, dosBtnDeleteP = defaults.dosBtnDeleteP,
-                        dosBtnHomeP = defaults.dosBtnHomeP, dosBtnEndP = defaults.dosBtnEndP,
-                        dosBtnPageUpP = defaults.dosBtnPageUpP, dosBtnPageDownP = defaults.dosBtnPageDownP,
-                        dosShowDpad = true, dosShowEsc = true, dosShowEnter = true,
-                        dosShowSpace = true, dosShowTab = true, dosShowCtrl = true,
-                        dosShowAlt = true, dosShowShift = true, dosShowBack = true,
-                        dosShowMouseL = true, dosShowMouseR = true,
-                        dosShowInsert = false, dosShowDelete = false, dosShowHome = false,
-                        dosShowEnd = false, dosShowPageUp = false, dosShowPageDown = false,
-                        dosExtraKeys = "", dosExtraKeysP = ""
-                    ))
+                    onLayoutChange(padLayout.copy {
+                        dosDpad = defaults.dosDpad
+ dosBtnEsc = defaults.dosBtnEsc
+                        dosBtnEnter = defaults.dosBtnEnter
+ dosBtnSpace = defaults.dosBtnSpace
+                        dosBtnTab = defaults.dosBtnTab
+ dosBtnCtrl = defaults.dosBtnCtrl
+                        dosBtnAlt = defaults.dosBtnAlt
+ dosBtnShift = defaults.dosBtnShift
+                        dosBtnBack = defaults.dosBtnBack
+                        dosBtnMouseL = defaults.dosBtnMouseL
+ dosBtnMouseR = defaults.dosBtnMouseR
+                        dosBtnInsert = defaults.dosBtnInsert
+ dosBtnDelete = defaults.dosBtnDelete
+                        dosBtnHome = defaults.dosBtnHome
+ dosBtnEnd = defaults.dosBtnEnd
+                        dosBtnPageUp = defaults.dosBtnPageUp
+ dosBtnPageDown = defaults.dosBtnPageDown
+                        dosDpadP = defaults.dosDpadP
+ dosBtnEscP = defaults.dosBtnEscP
+                        dosBtnEnterP = defaults.dosBtnEnterP
+ dosBtnSpaceP = defaults.dosBtnSpaceP
+                        dosBtnTabP = defaults.dosBtnTabP
+ dosBtnCtrlP = defaults.dosBtnCtrlP
+                        dosBtnAltP = defaults.dosBtnAltP
+ dosBtnShiftP = defaults.dosBtnShiftP
+                        dosBtnBackP = defaults.dosBtnBackP
+                        dosBtnMouseLP = defaults.dosBtnMouseLP
+ dosBtnMouseRP = defaults.dosBtnMouseRP
+                        dosBtnInsertP = defaults.dosBtnInsertP
+ dosBtnDeleteP = defaults.dosBtnDeleteP
+                        dosBtnHomeP = defaults.dosBtnHomeP
+ dosBtnEndP = defaults.dosBtnEndP
+                        dosBtnPageUpP = defaults.dosBtnPageUpP
+ dosBtnPageDownP = defaults.dosBtnPageDownP
+                        dosShowDpad = true
+ dosShowEsc = true
+ dosShowEnter = true
+                        dosShowSpace = true
+ dosShowTab = true
+ dosShowCtrl = true
+                        dosShowAlt = true
+ dosShowShift = true
+ dosShowBack = true
+                        dosShowMouseL = true
+ dosShowMouseR = true
+                        dosShowInsert = false
+ dosShowDelete = false
+ dosShowHome = false
+                        dosShowEnd = false
+ dosShowPageUp = false
+ dosShowPageDown = false
+                        dosExtraKeys = ""
+ dosExtraKeysP = ""
+                    })
                 }) {
                     Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
                 }
@@ -3747,7 +3787,7 @@ private fun DosPadLayoutEditor(
             Slider(
                 value = padLayout.opacity,
                 onValueChange = { newVal ->
-                    onLayoutChange(padLayout.copy(opacity = newVal.coerceIn(0.3f, 1.0f)))
+                    onLayoutChange(padLayout.copy {opacity = newVal.coerceIn(0.3f, 1.0f)})
                 },
                 valueRange = 0.3f..1.0f,
                 colors = SliderDefaults.colors(
@@ -3778,7 +3818,7 @@ private fun DosPadLayoutEditor(
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
-                                onLayoutChange(padLayout.copy(dosInputMode = "gamepad"))
+                                onLayoutChange(padLayout.copy {dosInputMode = "gamepad"})
                             }
                         }
                         .padding(vertical = 4.dp),
@@ -3807,7 +3847,7 @@ private fun DosPadLayoutEditor(
                         )
                         .pointerInput(Unit) {
                             detectTapGestures {
-                                onLayoutChange(padLayout.copy(dosInputMode = "keyboard"))
+                                onLayoutChange(padLayout.copy {dosInputMode = "keyboard"})
                             }
                         }
                         .padding(vertical = 4.dp),
@@ -4328,43 +4368,43 @@ private enum class DosBtnType(
     }
 
     fun updateLandscape(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
-        DPAD -> p.copy(dosDpad = l)
-        ESC -> p.copy(dosBtnEsc = l)
-        ENTER -> p.copy(dosBtnEnter = l)
-        SPACE -> p.copy(dosBtnSpace = l)
-        TAB -> p.copy(dosBtnTab = l)
-        CTRL -> p.copy(dosBtnCtrl = l)
-        ALT -> p.copy(dosBtnAlt = l)
-        SHIFT -> p.copy(dosBtnShift = l)
-        BACK -> p.copy(dosBtnBack = l)
-        MOUSE_L -> p.copy(dosBtnMouseL = l)
-        MOUSE_R -> p.copy(dosBtnMouseR = l)
-        INSERT -> p.copy(dosBtnInsert = l)
-        DELETE -> p.copy(dosBtnDelete = l)
-        HOME -> p.copy(dosBtnHome = l)
-        END -> p.copy(dosBtnEnd = l)
-        PAGEUP -> p.copy(dosBtnPageUp = l)
-        PAGEDOWN -> p.copy(dosBtnPageDown = l)
+        DPAD -> p.copy {dosDpad = l}
+        ESC -> p.copy {dosBtnEsc = l}
+        ENTER -> p.copy {dosBtnEnter = l}
+        SPACE -> p.copy {dosBtnSpace = l}
+        TAB -> p.copy {dosBtnTab = l}
+        CTRL -> p.copy {dosBtnCtrl = l}
+        ALT -> p.copy {dosBtnAlt = l}
+        SHIFT -> p.copy {dosBtnShift = l}
+        BACK -> p.copy {dosBtnBack = l}
+        MOUSE_L -> p.copy {dosBtnMouseL = l}
+        MOUSE_R -> p.copy {dosBtnMouseR = l}
+        INSERT -> p.copy {dosBtnInsert = l}
+        DELETE -> p.copy {dosBtnDelete = l}
+        HOME -> p.copy {dosBtnHome = l}
+        END -> p.copy {dosBtnEnd = l}
+        PAGEUP -> p.copy {dosBtnPageUp = l}
+        PAGEDOWN -> p.copy {dosBtnPageDown = l}
     }
 
     fun updatePortrait(p: PadLayout, l: ButtonLayout): PadLayout = when (this) {
-        DPAD -> p.copy(dosDpadP = l)
-        ESC -> p.copy(dosBtnEscP = l)
-        ENTER -> p.copy(dosBtnEnterP = l)
-        SPACE -> p.copy(dosBtnSpaceP = l)
-        TAB -> p.copy(dosBtnTabP = l)
-        CTRL -> p.copy(dosBtnCtrlP = l)
-        ALT -> p.copy(dosBtnAltP = l)
-        SHIFT -> p.copy(dosBtnShiftP = l)
-        BACK -> p.copy(dosBtnBackP = l)
-        MOUSE_L -> p.copy(dosBtnMouseLP = l)
-        MOUSE_R -> p.copy(dosBtnMouseRP = l)
-        INSERT -> p.copy(dosBtnInsertP = l)
-        DELETE -> p.copy(dosBtnDeleteP = l)
-        HOME -> p.copy(dosBtnHomeP = l)
-        END -> p.copy(dosBtnEndP = l)
-        PAGEUP -> p.copy(dosBtnPageUpP = l)
-        PAGEDOWN -> p.copy(dosBtnPageDownP = l)
+        DPAD -> p.copy {dosDpadP = l}
+        ESC -> p.copy {dosBtnEscP = l}
+        ENTER -> p.copy {dosBtnEnterP = l}
+        SPACE -> p.copy {dosBtnSpaceP = l}
+        TAB -> p.copy {dosBtnTabP = l}
+        CTRL -> p.copy {dosBtnCtrlP = l}
+        ALT -> p.copy {dosBtnAltP = l}
+        SHIFT -> p.copy {dosBtnShiftP = l}
+        BACK -> p.copy {dosBtnBackP = l}
+        MOUSE_L -> p.copy {dosBtnMouseLP = l}
+        MOUSE_R -> p.copy {dosBtnMouseRP = l}
+        INSERT -> p.copy {dosBtnInsertP = l}
+        DELETE -> p.copy {dosBtnDeleteP = l}
+        HOME -> p.copy {dosBtnHomeP = l}
+        END -> p.copy {dosBtnEndP = l}
+        PAGEUP -> p.copy {dosBtnPageUpP = l}
+        PAGEDOWN -> p.copy {dosBtnPageDownP = l}
     }
 
     fun isVisible(p: PadLayout): Boolean = when (this) {
@@ -4388,23 +4428,23 @@ private enum class DosBtnType(
     }
 
     fun toggleVisible(p: PadLayout): PadLayout = when (this) {
-        DPAD -> p.copy(dosShowDpad = !p.dosShowDpad)
-        ESC -> p.copy(dosShowEsc = !p.dosShowEsc)
-        ENTER -> p.copy(dosShowEnter = !p.dosShowEnter)
-        SPACE -> p.copy(dosShowSpace = !p.dosShowSpace)
-        TAB -> p.copy(dosShowTab = !p.dosShowTab)
-        CTRL -> p.copy(dosShowCtrl = !p.dosShowCtrl)
-        ALT -> p.copy(dosShowAlt = !p.dosShowAlt)
-        SHIFT -> p.copy(dosShowShift = !p.dosShowShift)
-        BACK -> p.copy(dosShowBack = !p.dosShowBack)
-        MOUSE_L -> p.copy(dosShowMouseL = !p.dosShowMouseL)
-        MOUSE_R -> p.copy(dosShowMouseR = !p.dosShowMouseR)
-        INSERT -> p.copy(dosShowInsert = !p.dosShowInsert)
-        DELETE -> p.copy(dosShowDelete = !p.dosShowDelete)
-        HOME -> p.copy(dosShowHome = !p.dosShowHome)
-        END -> p.copy(dosShowEnd = !p.dosShowEnd)
-        PAGEUP -> p.copy(dosShowPageUp = !p.dosShowPageUp)
-        PAGEDOWN -> p.copy(dosShowPageDown = !p.dosShowPageDown)
+        DPAD -> p.copy {dosShowDpad = !p.dosShowDpad}
+        ESC -> p.copy {dosShowEsc = !p.dosShowEsc}
+        ENTER -> p.copy {dosShowEnter = !p.dosShowEnter}
+        SPACE -> p.copy {dosShowSpace = !p.dosShowSpace}
+        TAB -> p.copy {dosShowTab = !p.dosShowTab}
+        CTRL -> p.copy {dosShowCtrl = !p.dosShowCtrl}
+        ALT -> p.copy {dosShowAlt = !p.dosShowAlt}
+        SHIFT -> p.copy {dosShowShift = !p.dosShowShift}
+        BACK -> p.copy {dosShowBack = !p.dosShowBack}
+        MOUSE_L -> p.copy {dosShowMouseL = !p.dosShowMouseL}
+        MOUSE_R -> p.copy {dosShowMouseR = !p.dosShowMouseR}
+        INSERT -> p.copy {dosShowInsert = !p.dosShowInsert}
+        DELETE -> p.copy {dosShowDelete = !p.dosShowDelete}
+        HOME -> p.copy {dosShowHome = !p.dosShowHome}
+        END -> p.copy {dosShowEnd = !p.dosShowEnd}
+        PAGEUP -> p.copy {dosShowPageUp = !p.dosShowPageUp}
+        PAGEDOWN -> p.copy {dosShowPageDown = !p.dosShowPageDown}
     }
 
     /** Key code for injection (used by DosGamepadOverlay to render the button). */
@@ -4607,19 +4647,19 @@ private fun PadLayoutEditor(
     // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段
     fun updateBtn(btnType: BtnType, newLayout: ButtonLayout) {
         val updated = when (btnType) {
-            BtnType.DPAD -> if (isPortrait) padLayout.copy(dpadP = newLayout) else padLayout.copy(dpad = newLayout)
-            BtnType.A -> if (isPortrait) padLayout.copy(btnAP = newLayout) else padLayout.copy(btnA = newLayout)
-            BtnType.B -> if (isPortrait) padLayout.copy(btnBP = newLayout) else padLayout.copy(btnB = newLayout)
-            BtnType.TURBO_A -> if (isPortrait) padLayout.copy(btnTurboAP = newLayout) else padLayout.copy(btnTurboA = newLayout)
-            BtnType.TURBO_B -> if (isPortrait) padLayout.copy(btnTurboBP = newLayout) else padLayout.copy(btnTurboB = newLayout)
-            BtnType.START -> if (isPortrait) padLayout.copy(btnStartP = newLayout) else padLayout.copy(btnStart = newLayout)
-            BtnType.SELECT -> if (isPortrait) padLayout.copy(btnSelectP = newLayout) else padLayout.copy(btnSelect = newLayout)
-            BtnType.L -> if (isPortrait) padLayout.copy(btnLP = newLayout) else padLayout.copy(btnL = newLayout)
-            BtnType.R -> if (isPortrait) padLayout.copy(btnRP = newLayout) else padLayout.copy(btnR = newLayout)
-            BtnType.X -> if (isPortrait) padLayout.copy(btnXP = newLayout) else padLayout.copy(btnX = newLayout)
-            BtnType.Y -> if (isPortrait) padLayout.copy(btnYP = newLayout) else padLayout.copy(btnY = newLayout)
-            BtnType.L2 -> if (isPortrait) padLayout.copy(btnL2P = newLayout) else padLayout.copy(btnL2 = newLayout)
-            BtnType.R2 -> if (isPortrait) padLayout.copy(btnR2P = newLayout) else padLayout.copy(btnR2 = newLayout)
+            BtnType.DPAD -> if (isPortrait) padLayout.copy {dpadP = newLayout} else padLayout.copy {dpad = newLayout}
+            BtnType.A -> if (isPortrait) padLayout.copy {btnAP = newLayout} else padLayout.copy {btnA = newLayout}
+            BtnType.B -> if (isPortrait) padLayout.copy {btnBP = newLayout} else padLayout.copy {btnB = newLayout}
+            BtnType.TURBO_A -> if (isPortrait) padLayout.copy {btnTurboAP = newLayout} else padLayout.copy {btnTurboA = newLayout}
+            BtnType.TURBO_B -> if (isPortrait) padLayout.copy {btnTurboBP = newLayout} else padLayout.copy {btnTurboB = newLayout}
+            BtnType.START -> if (isPortrait) padLayout.copy {btnStartP = newLayout} else padLayout.copy {btnStart = newLayout}
+            BtnType.SELECT -> if (isPortrait) padLayout.copy {btnSelectP = newLayout} else padLayout.copy {btnSelect = newLayout}
+            BtnType.L -> if (isPortrait) padLayout.copy {btnLP = newLayout} else padLayout.copy {btnL = newLayout}
+            BtnType.R -> if (isPortrait) padLayout.copy {btnRP = newLayout} else padLayout.copy {btnR = newLayout}
+            BtnType.X -> if (isPortrait) padLayout.copy {btnXP = newLayout} else padLayout.copy {btnX = newLayout}
+            BtnType.Y -> if (isPortrait) padLayout.copy {btnYP = newLayout} else padLayout.copy {btnY = newLayout}
+            BtnType.L2 -> if (isPortrait) padLayout.copy {btnL2P = newLayout} else padLayout.copy {btnL2 = newLayout}
+            BtnType.R2 -> if (isPortrait) padLayout.copy {btnR2P = newLayout} else padLayout.copy {btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
         }
         onLayoutChange(updated)
@@ -4782,12 +4822,12 @@ private fun PadLayoutEditor(
                         val updated = combos.map { if (it.id == combo.id) it.copy(x = nx, y = ny) else it }
                         val json = serializeComboButtons(updated)
                         val newLayout = when (platform) {
-                            GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
-                            GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
-                            GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
-                            GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
-                            GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
-                            GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
+                            GamePlatform.NES, GamePlatform.GB -> padLayout.copy {comboButtons = json}
+                            GamePlatform.SFC -> padLayout.copy {comboButtonsSfc = json}
+                            GamePlatform.GBA -> padLayout.copy {comboButtonsGba = json}
+                            GamePlatform.ARCADE -> padLayout.copy {comboButtonsArcade = json}
+                            GamePlatform.MD -> padLayout.copy {comboButtonsMd = json}
+                            GamePlatform.PCE -> padLayout.copy {comboButtonsPce = json}
                             else -> padLayout
                         }
                         onLayoutChange(newLayout)
@@ -4846,33 +4886,55 @@ private fun PadLayoutEditor(
                 IconButton(onClick = {
                     val defaults = PadLayout()
                     if (isPortrait) {
-                        onLayoutChange(padLayout.copy(
-                            dpadP = defaults.dpadP, btnAP = defaults.btnAP, btnBP = defaults.btnBP,
-                            btnTurboAP = defaults.btnTurboAP, btnTurboBP = defaults.btnTurboBP,
-                            btnStartP = defaults.btnStartP, btnSelectP = defaults.btnSelectP,
-                            btnLP = defaults.btnLP, btnRP = defaults.btnRP,
-                            btnXP = defaults.btnXP, btnYP = defaults.btnYP,
-                            pceShowDpad = defaults.pceShowDpad, pceShowA = defaults.pceShowA,
-                            pceShowB = defaults.pceShowB, pceShowStart = defaults.pceShowStart,
-                            pceShowSelect = defaults.pceShowSelect, pceShowL = defaults.pceShowL,
-                            pceShowR = defaults.pceShowR, pceShowX = defaults.pceShowX,
-                            pceShowY = defaults.pceShowY, pceShowL2 = defaults.pceShowL2,
+                        onLayoutChange(padLayout.copy {
+                            dpadP = defaults.dpadP
+ btnAP = defaults.btnAP
+ btnBP = defaults.btnBP
+                            btnTurboAP = defaults.btnTurboAP
+ btnTurboBP = defaults.btnTurboBP
+                            btnStartP = defaults.btnStartP
+ btnSelectP = defaults.btnSelectP
+                            btnLP = defaults.btnLP
+ btnRP = defaults.btnRP
+                            btnXP = defaults.btnXP
+ btnYP = defaults.btnYP
+                            pceShowDpad = defaults.pceShowDpad
+ pceShowA = defaults.pceShowA
+                            pceShowB = defaults.pceShowB
+ pceShowStart = defaults.pceShowStart
+                            pceShowSelect = defaults.pceShowSelect
+ pceShowL = defaults.pceShowL
+                            pceShowR = defaults.pceShowR
+ pceShowX = defaults.pceShowX
+                            pceShowY = defaults.pceShowY
+ pceShowL2 = defaults.pceShowL2
                             pceShowR2 = defaults.pceShowR2
-                        ))
+                        })
                     } else {
-                        onLayoutChange(padLayout.copy(
-                            dpad = defaults.dpad, btnA = defaults.btnA, btnB = defaults.btnB,
-                            btnTurboA = defaults.btnTurboA, btnTurboB = defaults.btnTurboB,
-                            btnStart = defaults.btnStart, btnSelect = defaults.btnSelect,
-                            btnL = defaults.btnL, btnR = defaults.btnR,
-                            btnX = defaults.btnX, btnY = defaults.btnY,
-                            pceShowDpad = defaults.pceShowDpad, pceShowA = defaults.pceShowA,
-                            pceShowB = defaults.pceShowB, pceShowStart = defaults.pceShowStart,
-                            pceShowSelect = defaults.pceShowSelect, pceShowL = defaults.pceShowL,
-                            pceShowR = defaults.pceShowR, pceShowX = defaults.pceShowX,
-                            pceShowY = defaults.pceShowY, pceShowL2 = defaults.pceShowL2,
+                        onLayoutChange(padLayout.copy {
+                            dpad = defaults.dpad
+ btnA = defaults.btnA
+ btnB = defaults.btnB
+                            btnTurboA = defaults.btnTurboA
+ btnTurboB = defaults.btnTurboB
+                            btnStart = defaults.btnStart
+ btnSelect = defaults.btnSelect
+                            btnL = defaults.btnL
+ btnR = defaults.btnR
+                            btnX = defaults.btnX
+ btnY = defaults.btnY
+                            pceShowDpad = defaults.pceShowDpad
+ pceShowA = defaults.pceShowA
+                            pceShowB = defaults.pceShowB
+ pceShowStart = defaults.pceShowStart
+                            pceShowSelect = defaults.pceShowSelect
+ pceShowL = defaults.pceShowL
+                            pceShowR = defaults.pceShowR
+ pceShowX = defaults.pceShowX
+                            pceShowY = defaults.pceShowY
+ pceShowL2 = defaults.pceShowL2
                             pceShowR2 = defaults.pceShowR2
-                        ))
+                        })
                     }
                 }) {
                     Icon(Icons.Rounded.Refresh, "重置", tint = Color(0xFFFFD66B))
@@ -4978,12 +5040,12 @@ private fun PadLayoutEditor(
                             val updated = combos2.filter { it.id != combo.id }
                             val json = serializeComboButtons(updated)
                             val newLayout = when (platform) {
-                                GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
-                                GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
-                                GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
-                                GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
-                                GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
-                                GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
+                                GamePlatform.NES, GamePlatform.GB -> padLayout.copy {comboButtons = json}
+                                GamePlatform.SFC -> padLayout.copy {comboButtonsSfc = json}
+                                GamePlatform.GBA -> padLayout.copy {comboButtonsGba = json}
+                                GamePlatform.ARCADE -> padLayout.copy {comboButtonsArcade = json}
+                                GamePlatform.MD -> padLayout.copy {comboButtonsMd = json}
+                                GamePlatform.PCE -> padLayout.copy {comboButtonsPce = json}
                                 else -> padLayout
                             }
                             onLayoutChange(newLayout)
@@ -5019,12 +5081,12 @@ private fun PadLayoutEditor(
                     val updated = current + newCombo
                     val json = serializeComboButtons(updated)
                     val newLayout = when (platform) {
-                        GamePlatform.NES, GamePlatform.GB -> padLayout.copy(comboButtons = json)
-                        GamePlatform.SFC -> padLayout.copy(comboButtonsSfc = json)
-                        GamePlatform.GBA -> padLayout.copy(comboButtonsGba = json)
-                        GamePlatform.ARCADE -> padLayout.copy(comboButtonsArcade = json)
-                        GamePlatform.MD -> padLayout.copy(comboButtonsMd = json)
-                        GamePlatform.PCE -> padLayout.copy(comboButtonsPce = json)
+                        GamePlatform.NES, GamePlatform.GB -> padLayout.copy {comboButtons = json}
+                        GamePlatform.SFC -> padLayout.copy {comboButtonsSfc = json}
+                        GamePlatform.GBA -> padLayout.copy {comboButtonsGba = json}
+                        GamePlatform.ARCADE -> padLayout.copy {comboButtonsArcade = json}
+                        GamePlatform.MD -> padLayout.copy {comboButtonsMd = json}
+                        GamePlatform.PCE -> padLayout.copy {comboButtonsPce = json}
                         else -> padLayout
                     }
                     onLayoutChange(newLayout)
@@ -5566,7 +5628,7 @@ private fun SettingsPanel(
             ),
             padLayout.videoScale
         ) {
-            onLayoutChange(padLayout.copy(videoScale = it))
+            onLayoutChange(padLayout.copy {videoScale = it})
             if (it == "custom") onEnterCustomLayout()
         }
 
@@ -5575,13 +5637,13 @@ private fun SettingsPanel(
                    "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
                    "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
             padLayout.videoFilter
-        ) { onLayoutChange(padLayout.copy(videoFilter = it)) }
+        ) { onLayoutChange(padLayout.copy {videoFilter = it}) }
 
         DropdownSetting("横竖屏",
             listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
             padLayout.screenOrientation
         ) {
-            onLayoutChange(padLayout.copy(screenOrientation = it))
+            onLayoutChange(padLayout.copy {screenOrientation = it})
             // Apply orientation change immediately
             val activity = context as? android.app.Activity
             activity?.requestedOrientation = when (it) {
@@ -5609,7 +5671,7 @@ private fun SettingsPanel(
             label = "高质量缩放",
             description = "关闭=快速(推荐TV) · 开启=清晰(推荐手机)",
             checked = padLayout.highQualityScaling
-        ) { onLayoutChange(padLayout.copy(highQualityScaling = it)) }
+        ) { onLayoutChange(padLayout.copy {highQualityScaling = it}) }
 
         Spacer(Modifier.size(8.dp))
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
@@ -5624,7 +5686,7 @@ private fun SettingsPanel(
                 DropdownSetting("NTSC 滤镜",
                     listOf("disabled" to "关闭", "composite" to "复合", "svideo" to "S-Video", "rgb" to "RGB", "monochrome" to "黑白"),
                     padLayout.ntscFilter
-                ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
+                ) { onLayoutChange(padLayout.copy {ntscFilter = it}) }
 
                 DropdownSetting("调色板",
                     listOf(
@@ -5635,22 +5697,22 @@ private fun SettingsPanel(
                         "ntsc-hardware-fbx" to "FBX NTSC HW", "nes-classic-fbx" to "FBX NES Classic"
                     ),
                     padLayout.palette
-                ) { onLayoutChange(padLayout.copy(palette = it)) }
+                ) { onLayoutChange(padLayout.copy {palette = it}) }
 
                 DropdownSetting("区域",
                     listOf("Auto" to "自动", "NTSC" to "NTSC", "PAL" to "PAL", "Dendy" to "Dendy"),
                     padLayout.region
-                ) { onLayoutChange(padLayout.copy(region = it)) }
+                ) { onLayoutChange(padLayout.copy {region = it}) }
 
                 DropdownSetting("裁剪过扫描",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.cropOverscan
-                ) { onLayoutChange(padLayout.copy(cropOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {cropOverscan = it}) }
 
                 DropdownSetting("超频(减少慢动作)",
                     listOf("disabled" to "关闭", "2x-Postrender" to "后渲染(兼容性好)", "2x-VBlank" to "VBlank(推荐·魂斗罗力量)"),
                     padLayout.overclocking
-                ) { onLayoutChange(padLayout.copy(overclocking = it)) }
+                ) { onLayoutChange(padLayout.copy {overclocking = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
@@ -5683,43 +5745,43 @@ private fun SettingsPanel(
                     listOf("4:3" to "4:3 (标准)", "uncorrected" to "8:7 (原始像素比)",
                            "auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
                     padLayout.aspectRatio
-                ) { onLayoutChange(padLayout.copy(aspectRatio = it)) }
+                ) { onLayoutChange(padLayout.copy {aspectRatio = it}) }
 
                 DropdownSetting("NTSC 滤镜",
                     listOf("disabled" to "关闭", "monochrome" to "黑白", "rf" to "RF",
                            "composite" to "复合", "s-video" to "S-Video", "rgb" to "RGB"),
                     padLayout.ntscFilter
-                ) { onLayoutChange(padLayout.copy(ntscFilter = it)) }
+                ) { onLayoutChange(padLayout.copy {ntscFilter = it}) }
 
                 DropdownSetting("裁剪过扫描",
                     listOf("enabled" to "开启", "disabled" to "关闭", "auto" to "自动"),
                     padLayout.sfcOverscan
-                ) { onLayoutChange(padLayout.copy(sfcOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcOverscan = it}) }
 
                 DropdownSetting("高分辨率模式",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.sfcGfxHires
-                ) { onLayoutChange(padLayout.copy(sfcGfxHires = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcGfxHires = it}) }
 
                 DropdownSetting("透明效果",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.sfcGfxTransparency
-                ) { onLayoutChange(padLayout.copy(sfcGfxTransparency = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcGfxTransparency = it}) }
 
                 DropdownSetting("图形裁剪",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.sfcGfxClip
-                ) { onLayoutChange(padLayout.copy(sfcGfxClip = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcGfxClip = it}) }
 
                 DropdownSetting("允许无效VRAM访问",
                     listOf("disabled" to "开启 (允许)", "enabled" to "关闭 (禁止)"),
                     padLayout.sfcBlockInvalidVram
-                ) { onLayoutChange(padLayout.copy(sfcBlockInvalidVram = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcBlockInvalidVram = it}) }
 
                 DropdownSetting("高分辨率混合",
                     listOf("disabled" to "关闭", "merge" to "合并", "blur" to "模糊"),
                     padLayout.sfcSideBySide
-                ) { onLayoutChange(padLayout.copy(sfcSideBySide = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcSideBySide = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -5727,18 +5789,18 @@ private fun SettingsPanel(
                     listOf("100%" to "100% (默认)", "150%" to "150%", "200%" to "200%",
                            "300%" to "300%", "400%" to "400%", "500%" to "500%"),
                     padLayout.sfcOverclock
-                ) { onLayoutChange(padLayout.copy(sfcOverclock = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcOverclock = it}) }
 
                 DropdownSetting("减少精灵闪烁",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.sfcReduceSpriteFlicker
-                ) { onLayoutChange(padLayout.copy(sfcReduceSpriteFlicker = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcReduceSpriteFlicker = it}) }
 
                 DropdownSetting("减少慢动作",
                     listOf("disabled" to "关闭", "light" to "轻微",
                            "compatible" to "兼容", "max" to "最大"),
                     padLayout.sfcReduceSlowdown
-                ) { onLayoutChange(padLayout.copy(sfcReduceSlowdown = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcReduceSlowdown = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -5746,51 +5808,51 @@ private fun SettingsPanel(
                     listOf("gaussian" to "高斯(默认)", "cubic" to "三次", "sinc" to "Sinc",
                            "linear" to "线性", "none" to "无"),
                     padLayout.sfcAudioInterpolation
-                ) { onLayoutChange(padLayout.copy(sfcAudioInterpolation = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcAudioInterpolation = it}) }
 
                 DropdownSetting("回声缓冲Hack",
                     listOf("disabled" to "关闭", "enabled" to "开启(旧版Addmusic)"),
                     padLayout.sfcSoundOutput
-                ) { onLayoutChange(padLayout.copy(sfcSoundOutput = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcSoundOutput = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("上下方向同时输入",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.sfcUpDownAllowed
-                ) { onLayoutChange(padLayout.copy(sfcUpDownAllowed = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcUpDownAllowed = it}) }
 
                 DropdownSetting("随机内存(不安全)",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.sfcSuperScope
-                ) { onLayoutChange(padLayout.copy(sfcSuperScope = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcSuperScope = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("图层显示", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("BG图层 1",
                     listOf("enabled" to "显示", "disabled" to "隐藏"),
                     padLayout.sfcLayer1
-                ) { onLayoutChange(padLayout.copy(sfcLayer1 = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcLayer1 = it}) }
 
                 DropdownSetting("BG图层 2",
                     listOf("enabled" to "显示", "disabled" to "隐藏"),
                     padLayout.sfcLayer2
-                ) { onLayoutChange(padLayout.copy(sfcLayer2 = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcLayer2 = it}) }
 
                 DropdownSetting("BG图层 3",
                     listOf("enabled" to "显示", "disabled" to "隐藏"),
                     padLayout.sfcLayer3
-                ) { onLayoutChange(padLayout.copy(sfcLayer3 = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcLayer3 = it}) }
 
                 DropdownSetting("BG图层 4",
                     listOf("enabled" to "显示", "disabled" to "隐藏"),
                     padLayout.sfcLayer4
-                ) { onLayoutChange(padLayout.copy(sfcLayer4 = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcLayer4 = it}) }
 
                 DropdownSetting("精灵图层",
                     listOf("enabled" to "显示", "disabled" to "隐藏"),
                     padLayout.sfcLayer5
-                ) { onLayoutChange(padLayout.copy(sfcLayer5 = it)) }
+                ) { onLayoutChange(padLayout.copy {sfcLayer5 = it}) }
             }
             GamePlatform.GB, GamePlatform.GBA -> {
                 val platName = if (platform == GamePlatform.GBA) "GBA" else "GB/GBC"
@@ -5804,12 +5866,12 @@ private fun SettingsPanel(
                            "Super Game Boy" to "Super Game Boy", "Game Boy Color" to "Game Boy Color",
                            "Game Boy Advance" to "Game Boy Advance"),
                     padLayout.gbModel
-                ) { onLayoutChange(padLayout.copy(gbModel = it)) }
+                ) { onLayoutChange(padLayout.copy {gbModel = it}) }
 
                 DropdownSetting("SGB 边框",
                     listOf("ON" to "显示", "OFF" to "隐藏"),
                     padLayout.gbSgbBorders
-                ) { onLayoutChange(padLayout.copy(gbSgbBorders = it)) }
+                ) { onLayoutChange(padLayout.copy {gbSgbBorders = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("色彩校正", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -5817,25 +5879,25 @@ private fun SettingsPanel(
                     DropdownSetting("GB色彩校正",
                         listOf("enabled" to "开启", "disabled" to "关闭"),
                         padLayout.gbColorCorrection
-                    ) { onLayoutChange(padLayout.copy(gbColorCorrection = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbColorCorrection = it}) }
 
                     DropdownSetting("GB色彩预设",
                         listOf("default" to "默认", "AGB" to "GBA风格", "GB Pocket" to "Pocket风格",
                                "GB Light" to "亮色", "GB Original" to "原始"),
                         padLayout.gbcColorPreset
-                    ) { onLayoutChange(padLayout.copy(gbcColorPreset = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbcColorPreset = it}) }
                 }
                 if (platform == GamePlatform.GBA) {
                     DropdownSetting("GBA色彩校正",
                         listOf("enabled" to "开启", "disabled" to "关闭"),
                         padLayout.gbaColorCorrection
-                    ) { onLayoutChange(padLayout.copy(gbaColorCorrection = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbaColorCorrection = it}) }
 
                     DropdownSetting("GBA色彩预设",
                         listOf("default" to "默认", "AGB" to "GBA原机", "GBA SP" to "GBA SP风格",
                                "GB Micro" to "GB Micro风格"),
                         padLayout.gbaColorPreset
-                    ) { onLayoutChange(padLayout.copy(gbaColorPreset = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbaColorPreset = it}) }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5843,7 +5905,7 @@ private fun SettingsPanel(
                 DropdownSetting("帧混合",
                     listOf("OFF" to "关闭", "ON" to "开启", "fast" to "快速"),
                     padLayout.gbaFrameBlending
-                ) { onLayoutChange(padLayout.copy(gbaFrameBlending = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaFrameBlending = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -5851,44 +5913,44 @@ private fun SettingsPanel(
                     listOf("nearest" to "最近邻(快速)", "sinc" to "Sinc(高质量)",
                            "cosine" to "余弦(均衡)", "cubic" to "三次(高质量)"),
                     padLayout.gbaAudioResampler
-                ) { onLayoutChange(padLayout.copy(gbaAudioResampler = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaAudioResampler = it}) }
 
                 DropdownSetting("低通滤波",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.gbaAudioLowPass
-                ) { onLayoutChange(padLayout.copy(gbaAudioLowPass = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaAudioLowPass = it}) }
 
                 DropdownSetting("低通滤波范围",
                     listOf("20" to "20", "40" to "40", "60" to "60 (默认)",
                            "80" to "80", "100" to "100"),
                     padLayout.gbaAudioLowPassRange
-                ) { onLayoutChange(padLayout.copy(gbaAudioLowPassRange = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaAudioLowPassRange = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("跳帧类型",
                     listOf("disabled" to "关闭", "auto" to "自动跳帧", "fixed" to "固定跳帧"),
                     padLayout.gbaFrameskipType
-                ) { onLayoutChange(padLayout.copy(gbaFrameskipType = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaFrameskipType = it}) }
 
                 DropdownSetting("跳帧数量",
                     listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
                            "4" to "4", "5" to "5", "6" to "6", "7" to "7",
                            "8" to "8", "9" to "9", "10" to "10"),
                     padLayout.gbaFrameskipCount
-                ) { onLayoutChange(padLayout.copy(gbaFrameskipCount = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaFrameskipCount = it}) }
 
                 DropdownSetting("跳帧阈值(自动)",
                     listOf("10" to "10", "20" to "20", "33" to "33 (默认)",
                            "50" to "50", "70" to "70", "90" to "90"),
                     padLayout.gbaFrameskipThreshold
-                ) { onLayoutChange(padLayout.copy(gbaFrameskipThreshold = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaFrameskipThreshold = it}) }
 
                 if (platform == GamePlatform.GBA) {
                     DropdownSetting("空闲优化",
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.gbaIdleOptimization
-                    ) { onLayoutChange(padLayout.copy(gbaIdleOptimization = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbaIdleOptimization = it}) }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5896,20 +5958,20 @@ private fun SettingsPanel(
                 DropdownSetting("允许相反方向",
                     listOf("OFF" to "关闭", "ON" to "开启"),
                     padLayout.gbaAllowOpposite
-                ) { onLayoutChange(padLayout.copy(gbaAllowOpposite = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaAllowOpposite = it}) }
 
                 DropdownSetting("太阳能传感器",
                     listOf("0" to "0 (黑暗)", "1" to "1", "2" to "2", "3" to "3",
                            "4" to "4", "5" to "5 (中等)", "6" to "6", "7" to "7",
                            "8" to "8", "9" to "9", "10" to "10 (明亮)"),
                     padLayout.gbaSolarSensor
-                ) { onLayoutChange(padLayout.copy(gbaSolarSensor = it)) }
+                ) { onLayoutChange(padLayout.copy {gbaSolarSensor = it}) }
 
                 if (platform == GamePlatform.GBA) {
                     DropdownSetting("强制RTC",
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.gbaForceRTC
-                    ) { onLayoutChange(padLayout.copy(gbaForceRTC = it)) }
+                    ) { onLayoutChange(padLayout.copy {gbaForceRTC = it}) }
                 }
             }
             GamePlatform.DOS -> {
@@ -5930,7 +5992,7 @@ private fun SettingsPanel(
                         "none" to "无(仅文本模式)"
                     ),
                     padLayout.dosMachine
-                ) { onLayoutChange(padLayout.copy(dosMachine = it)) }
+                ) { onLayoutChange(padLayout.copy {dosMachine = it}) }
 
                 Text("CPU 性能", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("CPU 周期",
@@ -5945,7 +6007,7 @@ private fun SettingsPanel(
                         "custom" to "自定义"
                     ),
                     padLayout.dosCycles
-                ) { onLayoutChange(padLayout.copy(dosCycles = it)) }
+                ) { onLayoutChange(padLayout.copy {dosCycles = it}) }
 
                 if (padLayout.dosCycles == "custom") {
                     DropdownSetting("自定义周期",
@@ -5953,7 +6015,7 @@ private fun SettingsPanel(
                                "30000" to "30000", "50000" to "50000",
                                "80000" to "80000", "100000" to "100000"),
                         padLayout.dosCyclesMax
-                    ) { onLayoutChange(padLayout.copy(dosCyclesMax = it)) }
+                    ) { onLayoutChange(padLayout.copy {dosCyclesMax = it}) }
                 }
 
                 Spacer(Modifier.size(8.dp))
@@ -5967,7 +6029,7 @@ private fun SettingsPanel(
                         "none" to "关闭声音"
                     ),
                     padLayout.dosSbType
-                ) { onLayoutChange(padLayout.copy(dosSbType = it)) }
+                ) { onLayoutChange(padLayout.copy {dosSbType = it}) }
 
                 // 移除复杂的 Adlib / GUS 设置，使用 DOSBox-Pure 默认值即可。
                 // 大部分 DOS 游戏使用 Sound Blaster 16 即可获得原始声音效果，
@@ -5985,12 +6047,12 @@ private fun SettingsPanel(
                         "off" to "关闭"
                     ),
                     padLayout.dosMouseInput
-                ) { onLayoutChange(padLayout.copy(dosMouseInput = it)) }
+                ) { onLayoutChange(padLayout.copy {dosMouseInput = it}) }
 
                 DropdownSetting("鼠标超时",
                     listOf("off" to "关闭", "3" to "3秒", "5" to "5秒", "10" to "10秒"),
                     padLayout.dosMouseTimeout
-                ) { onLayoutChange(padLayout.copy(dosMouseTimeout = it)) }
+                ) { onLayoutChange(padLayout.copy {dosMouseTimeout = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("键盘", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6002,19 +6064,19 @@ private fun SettingsPanel(
                         "jp" to "日语"
                     ),
                     padLayout.dosKeyboardLayout
-                ) { onLayoutChange(padLayout.copy(dosKeyboardLayout = it)) }
+                ) { onLayoutChange(padLayout.copy {dosKeyboardLayout = it}) }
 
                 DropdownSetting("按键延迟",
                     listOf("100" to "100ms", "200" to "200ms", "300" to "300ms",
                            "400" to "400ms", "500" to "500ms"),
                     padLayout.dosKeyboardDelay
-                ) { onLayoutChange(padLayout.copy(dosKeyboardDelay = it)) }
+                ) { onLayoutChange(padLayout.copy {dosKeyboardDelay = it}) }
 
                 DropdownSetting("按键重复率",
                     listOf("5" to "5/s", "10" to "10/s", "15" to "15/s",
                            "20" to "20/s", "30" to "30/s"),
                     padLayout.dosKeyboardRate
-                ) { onLayoutChange(padLayout.copy(dosKeyboardRate = it)) }
+                ) { onLayoutChange(padLayout.copy {dosKeyboardRate = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6030,65 +6092,65 @@ private fun SettingsPanel(
                         "custom" to "自定义"
                     ),
                     padLayout.dosResolution
-                ) { onLayoutChange(padLayout.copy(dosResolution = it)) }
+                ) { onLayoutChange(padLayout.copy {dosResolution = it}) }
 
                 DropdownSetting("缩放倍数",
                     listOf("1" to "1×", "2" to "2×", "3" to "3×", "4" to "4×", "5" to "5×"),
                     padLayout.dosScale
-                ) { onLayoutChange(padLayout.copy(dosScale = it)) }
+                ) { onLayoutChange(padLayout.copy {dosScale = it}) }
 
                 DropdownSetting("画面比例",
                     listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9",
                            "16:10" to "16:10", "stretch" to "拉伸"),
                     padLayout.dosAspectRatio
-                ) { onLayoutChange(padLayout.copy(dosAspectRatio = it)) }
+                ) { onLayoutChange(padLayout.copy {dosAspectRatio = it}) }
 
                 DropdownSetting("CGA 配色",
                     listOf("default" to "默认", "amber" to "琥珀色",
                            "green" to "绿色", "white" to "白色", "bright" to "高亮"),
                     padLayout.dosCgaColors
-                ) { onLayoutChange(padLayout.copy(dosCgaColors = it)) }
+                ) { onLayoutChange(padLayout.copy {dosCgaColors = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("高级", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("自动键位映射",
                     listOf("on" to "开启(推荐)", "off" to "关闭"),
                     padLayout.dosAutoMapping
-                ) { onLayoutChange(padLayout.copy(dosAutoMapping = it)) }
+                ) { onLayoutChange(padLayout.copy {dosAutoMapping = it}) }
 
                 DropdownSetting("Voodoo 显卡",
                     listOf("off" to "关闭", "on" to "开启"),
                     padLayout.dosVoodoo
-                ) { onLayoutChange(padLayout.copy(dosVoodoo = it)) }
+                ) { onLayoutChange(padLayout.copy {dosVoodoo = it}) }
 
                 DropdownSetting("强制 60fps",
                     listOf("on" to "开启(推荐)", "off" to "关闭"),
                     padLayout.dosForce60fps
-                ) { onLayoutChange(padLayout.copy(dosForce60fps = it)) }
+                ) { onLayoutChange(padLayout.copy {dosForce60fps = it}) }
 
                 DropdownSetting("时间播报",
                     listOf("none" to "关闭", "boot" to "启动时", "quiet" to "静默"),
                     padLayout.dosTimeAnnounce
-                ) { onLayoutChange(padLayout.copy(dosTimeAnnounce = it)) }
+                ) { onLayoutChange(padLayout.copy {dosTimeAnnounce = it}) }
 
                 DropdownSetting("暗屏超时",
                     listOf("off" to "关闭", "5" to "5秒", "10" to "10秒",
                            "20" to "20秒", "30" to "30秒", "60" to "60秒"),
                     padLayout.dosDimScreen
-                ) { onLayoutChange(padLayout.copy(dosDimScreen = it)) }
+                ) { onLayoutChange(padLayout.copy {dosDimScreen = it}) }
 
                 DropdownSetting("存档大小",
                     listOf("on" to "默认", "500" to "500MB", "1000" to "1GB",
                            "2000" to "2GB", "4000" to "4GB", "8000" to "8GB", "0" to "关闭"),
                     padLayout.dosSavestate
-                ) { onLayoutChange(padLayout.copy(dosSavestate = it)) }
+                ) { onLayoutChange(padLayout.copy {dosSavestate = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("输入模式", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("虚拟按键模式",
                     listOf("gamepad" to "手柄(圆形按钮)", "keyboard" to "全键盘(QWERTY)"),
                     padLayout.dosInputMode
-                ) { onLayoutChange(padLayout.copy(dosInputMode = it)) }
+                ) { onLayoutChange(padLayout.copy {dosInputMode = it}) }
             }
             GamePlatform.ARCADE -> {
                 Text("Arcade (FBNeo) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
@@ -6099,11 +6161,11 @@ private fun SettingsPanel(
                 DropdownSetting("方向控制",
                     listOf("dpad" to "十字键 D-Pad", "analog" to "摇杆 Analog Stick"),
                     padLayout.arcadeInputMode
-                ) { onLayoutChange(padLayout.copy(arcadeInputMode = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeInputMode = it}) }
                 DropdownSetting("显示 L2/R2 按键",
                     listOf("false" to "关闭 (4键默认)", "true" to "开启 (6键格斗)"),
                     padLayout.arcadeShowL2R2.toString()
-                ) { onLayoutChange(padLayout.copy(arcadeShowL2R2 = it.toBoolean())) }
+                ) { onLayoutChange(padLayout.copy {arcadeShowL2R2 = it.toBoolean()}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6111,23 +6173,23 @@ private fun SettingsPanel(
                     listOf("auto" to "自动", "4:3" to "4:3 (标准)",
                            "3:4" to "3:4 (竖屏)", "16:9" to "16:9", "16:15" to "16:15"),
                     padLayout.arcadeAspect
-                ) { onLayoutChange(padLayout.copy(arcadeAspect = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeAspect = it}) }
 
                 DropdownSetting("画面旋转",
                     listOf("norotate" to "不旋转", "cw" to "顺时针90°",
                            "ccw" to "逆时针90°", "flip" to "翻转180°"),
                     padLayout.arcadeRotate
-                ) { onLayoutChange(padLayout.copy(arcadeRotate = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeRotate = it}) }
 
                 DropdownSetting("竖屏模式",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.arcadeVerticalMode
-                ) { onLayoutChange(padLayout.copy(arcadeVerticalMode = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeVerticalMode = it}) }
 
                 DropdownSetting("裁剪过扫描",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.arcadeCropOverscan
-                ) { onLayoutChange(padLayout.copy(arcadeCropOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeCropOverscan = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6135,18 +6197,18 @@ private fun SettingsPanel(
                     listOf("100" to "100%", "75" to "75%", "50" to "50%",
                            "150" to "150%", "200" to "200%", "250" to "250%"),
                     padLayout.arcadeCpuSpeed
-                ) { onLayoutChange(padLayout.copy(arcadeCpuSpeed = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeCpuSpeed = it}) }
 
                 DropdownSetting("跳帧",
                     listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
                            "4" to "4", "5" to "5", "6" to "6", "8" to "8", "10" to "10"),
                     padLayout.arcadeFrameskip
-                ) { onLayoutChange(padLayout.copy(arcadeFrameskip = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeFrameskip = it}) }
 
                 DropdownSetting("强制60Hz",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.arcadeForce60hz
-                ) { onLayoutChange(padLayout.copy(arcadeForce60hz = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeForce60hz = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6154,29 +6216,29 @@ private fun SettingsPanel(
                     listOf("48000" to "48000 Hz", "44100" to "44100 Hz",
                            "22050" to "22050 Hz"),
                     padLayout.arcadeSampleRate
-                ) { onLayoutChange(padLayout.copy(arcadeSampleRate = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeSampleRate = it}) }
 
                 DropdownSetting("音频插值",
                     listOf("0" to "关闭", "1" to "最近邻", "2" to "线性(推荐)", "3" to "三次"),
                     padLayout.arcadeAudioInterp
-                ) { onLayoutChange(padLayout.copy(arcadeAudioInterp = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeAudioInterp = it}) }
 
                 DropdownSetting("低通滤波",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.arcadeLowpass
-                ) { onLayoutChange(padLayout.copy(arcadeLowpass = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeLowpass = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("NeoGeo", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("NeoGeo模式",
                     listOf("MVS" to "MVS(街机)", "AES" to "AES(家用)"),
                     padLayout.arcadeNeogeomode
-                ) { onLayoutChange(padLayout.copy(arcadeNeogeomode = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeNeogeomode = it}) }
 
                 DropdownSetting("记忆卡",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.arcadeMemcard
-                ) { onLayoutChange(padLayout.copy(arcadeMemcard = it)) }
+                ) { onLayoutChange(padLayout.copy {arcadeMemcard = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
@@ -6275,13 +6337,13 @@ private fun SettingsPanel(
                     listOf("auto" to "自动", "ntsc-u" to "NTSC-U(美)",
                            "pal" to "PAL(欧)", "ntsc-j" to "NTSC-J(日)"),
                     padLayout.mdRegion
-                ) { onLayoutChange(padLayout.copy(mdRegion = it)) }
+                ) { onLayoutChange(padLayout.copy {mdRegion = it}) }
 
                 DropdownSetting("系统型号",
                     listOf("auto" to "自动", "md" to "Mega Drive",
                            "sms" to "Master System", "gg" to "Game Gear", "sg" to "SG-1000"),
                     padLayout.mdSystem
-                ) { onLayoutChange(padLayout.copy(mdSystem = it)) }
+                ) { onLayoutChange(padLayout.copy {mdSystem = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6289,56 +6351,56 @@ private fun SettingsPanel(
                     listOf("auto" to "自动", "4:3" to "4:3 (标准)",
                            "16:9" to "16:9", "stretch" to "全屏拉伸"),
                     padLayout.mdAspect
-                ) { onLayoutChange(padLayout.copy(mdAspect = it)) }
+                ) { onLayoutChange(padLayout.copy {mdAspect = it}) }
 
                 DropdownSetting("渲染模式",
                     listOf("normal" to "普通", "double" to "双倍",
                            "interlaced" to "隔行扫描"),
                     padLayout.mdRender
-                ) { onLayoutChange(padLayout.copy(mdRender = it)) }
+                ) { onLayoutChange(padLayout.copy {mdRender = it}) }
 
                 DropdownSetting("NTSC滤镜",
                     listOf("disabled" to "关闭", "monochrome" to "黑白", "rf" to "RF",
                            "composite" to "复合", "s-video" to "S-Video", "rgb" to "RGB"),
                     padLayout.mdNtscFilter
-                ) { onLayoutChange(padLayout.copy(mdNtscFilter = it)) }
+                ) { onLayoutChange(padLayout.copy {mdNtscFilter = it}) }
 
                 DropdownSetting("LCD滤镜",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.mdLcdFilter
-                ) { onLayoutChange(padLayout.copy(mdLcdFilter = it)) }
+                ) { onLayoutChange(padLayout.copy {mdLcdFilter = it}) }
 
                 DropdownSetting("过扫描",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.mdOverscan
-                ) { onLayoutChange(padLayout.copy(mdOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {mdOverscan = it}) }
 
                 DropdownSetting("GG扩展屏幕",
                     listOf("disabled" to "关闭(原始160x144)", "enabled" to "开启(扩展256x144)"),
                     padLayout.mdGgExtra
-                ) { onLayoutChange(padLayout.copy(mdGgExtra = it)) }
+                ) { onLayoutChange(padLayout.copy {mdGgExtra = it}) }
 
                 DropdownSetting("GG画面拉伸",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.mdGgStretch
-                ) { onLayoutChange(padLayout.copy(mdGgStretch = it)) }
+                ) { onLayoutChange(padLayout.copy {mdGgStretch = it}) }
 
                 DropdownSetting("左侧边框",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.mdLeftBorder
-                ) { onLayoutChange(padLayout.copy(mdLeftBorder = it)) }
+                ) { onLayoutChange(padLayout.copy {mdLeftBorder = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("手柄类型",
                     listOf("3 button" to "3键手柄(经典)", "6 button" to "6键手柄(街机)"),
                     padLayout.mdInput
-                ) { onLayoutChange(padLayout.copy(mdInput = it)) }
+                ) { onLayoutChange(padLayout.copy {mdInput = it}) }
 
                 DropdownSetting("允许上下同时输入",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.mdAllowUpDown
-                ) { onLayoutChange(padLayout.copy(mdAllowUpDown = it)) }
+                ) { onLayoutChange(padLayout.copy {mdAllowUpDown = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6346,26 +6408,26 @@ private fun SettingsPanel(
                     listOf("100%" to "100%", "125%" to "125%",
                            "150%" to "150%", "200%" to "200%"),
                     padLayout.mdOverclock
-                ) { onLayoutChange(padLayout.copy(mdOverclock = it)) }
+                ) { onLayoutChange(padLayout.copy {mdOverclock = it}) }
 
                 DropdownSetting("跳帧",
                     listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3", "4" to "4", "5" to "5"),
                     padLayout.mdFrameskip
-                ) { onLayoutChange(padLayout.copy(mdFrameskip = it)) }
+                ) { onLayoutChange(padLayout.copy {mdFrameskip = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("Mega-CD", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("CD快速启动",
                     listOf("enabled" to "开启(跳过BIOS动画)", "disabled" to "关闭"),
                     padLayout.mdCdFastboot
-                ) { onLayoutChange(padLayout.copy(mdCdFastboot = it)) }
+                ) { onLayoutChange(padLayout.copy {mdCdFastboot = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("Master System", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("FM音源",
                     listOf("auto" to "自动", "on" to "开启", "off" to "关闭"),
                     padLayout.mdSmsFm
-                ) { onLayoutChange(padLayout.copy(mdSmsFm = it)) }
+                ) { onLayoutChange(padLayout.copy {mdSmsFm = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
@@ -6398,7 +6460,7 @@ private fun SettingsPanel(
                            "SuperGrafx (JAP)" to "SuperGrafx(日)",
                            "TurboGrafx-16 (USA)" to "TurboGrafx-16(美)"),
                     padLayout.pceConsoleType
-                ) { onLayoutChange(padLayout.copy(pceConsoleType = it)) }
+                ) { onLayoutChange(padLayout.copy {pceConsoleType = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6408,39 +6470,39 @@ private fun SettingsPanel(
                            "6:5 DAR" to "6:5",
                            "16:9 DAR" to "16:9", "16:10 DAR" to "16:10"),
                     padLayout.pceAspect
-                ) { onLayoutChange(padLayout.copy(pceAspect = it)) }
+                ) { onLayoutChange(padLayout.copy {pceAspect = it}) }
 
                 DropdownSetting("过扫描",
                     listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceOverscan
-                ) { onLayoutChange(padLayout.copy(pceOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {pceOverscan = it}) }
 
                 DropdownSetting("精灵数限制",
                     listOf("Disabled" to "关闭(原始,可能有闪烁)", "Enabled" to "开启(消除闪烁)"),
                     padLayout.pceNoSpriteLimit
-                ) { onLayoutChange(padLayout.copy(pceNoSpriteLimit = it)) }
+                ) { onLayoutChange(padLayout.copy {pceNoSpriteLimit = it}) }
 
                 DropdownSetting("调色板",
                     listOf("Standard RGB" to "标准RGB", "Turboxray" to "Turboxray", "Kitrinx" to "Kitrinx"),
                     padLayout.pcePalette
-                ) { onLayoutChange(padLayout.copy(pcePalette = it)) }
+                ) { onLayoutChange(padLayout.copy {pcePalette = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("允许上下同时输入",
                     listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceAllowUpDown
-                ) { onLayoutChange(padLayout.copy(pceAllowUpDown = it)) }
+                ) { onLayoutChange(padLayout.copy {pceAllowUpDown = it}) }
 
                 DropdownSetting("TurboTap(5人多人)",
                     listOf("Disabled" to "关闭", "Enabled" to "开启"),
                     padLayout.pceTurbotap
-                ) { onLayoutChange(padLayout.copy(pceTurbotap = it)) }
+                ) { onLayoutChange(padLayout.copy {pceTurbotap = it}) }
 
                 DropdownSetting("Memory Base 128",
                     listOf("Auto" to "自动", "Enabled" to "开启", "Disabled" to "关闭"),
                     padLayout.pceMb128
-                ) { onLayoutChange(padLayout.copy(pceMb128 = it)) }
+                ) { onLayoutChange(padLayout.copy {pceMb128 = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("PCE-CD", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6451,7 +6513,7 @@ private fun SettingsPanel(
                            "System Card 3" to "System Card 3 (推荐)",
                            "Game Express" to "Games Express"),
                     padLayout.pceCdromBios
-                ) { onLayoutChange(padLayout.copy(pceCdromBios = it)) }
+                ) { onLayoutChange(padLayout.copy {pceCdromBios = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
@@ -6479,108 +6541,108 @@ private fun SettingsPanel(
                            "scph5501" to "SCPH-5501", "scph5502" to "SCPH-5502",
                            "psxonpsp660" to "PSP-660"),
                     padLayout.pscxBios
-                ) { onLayoutChange(padLayout.copy(pscxBios = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxBios = it}) }
 
                 DropdownSetting("区域",
                     listOf("auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
                     padLayout.pscxRegion
-                ) { onLayoutChange(padLayout.copy(pscxRegion = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxRegion = it}) }
 
                 DropdownSetting("显示开机LOGO",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.pscxShowBootlogo
-                ) { onLayoutChange(padLayout.copy(pscxShowBootlogo = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxShowBootlogo = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("CPU/性能", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("DRC(JIT)",
                     listOf("enabled" to "开启(推荐)", "disabled" to "关闭"),
                     padLayout.pscxDrc
-                ) { onLayoutChange(padLayout.copy(pscxDrc = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxDrc = it}) }
 
                 DropdownSetting("CPU 时钟",
                     listOf("auto" to "自动", "30" to "30%", "50" to "50%", "75" to "75%",
                            "100" to "100%", "125" to "125%", "150" to "150%", "200" to "200%"),
                     padLayout.pscxClock
-                ) { onLayoutChange(padLayout.copy(pscxClock = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxClock = it}) }
 
                 DropdownSetting("跳帧类型",
                     listOf("disabled" to "关闭", "auto" to "自动", "fixed" to "固定"),
                     padLayout.pscxFrameskipType
-                ) { onLayoutChange(padLayout.copy(pscxFrameskipType = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxFrameskipType = it}) }
 
                 DropdownSetting("跳帧数",
                     listOf("0" to "0", "1" to "1", "2" to "2", "3" to "3",
                            "4" to "4", "5" to "5", "6" to "6", "7" to "7",
                            "8" to "8", "9" to "9", "10" to "10"),
                     padLayout.pscxFrameskip
-                ) { onLayoutChange(padLayout.copy(pscxFrameskip = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxFrameskip = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("RGB32 输出",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.pscxRgb32
-                ) { onLayoutChange(padLayout.copy(pscxRgb32 = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxRgb32 = it}) }
 
                 DropdownSetting("缩放高分辨率",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.pscxScaleHires
-                ) { onLayoutChange(padLayout.copy(pscxScaleHires = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxScaleHires = it}) }
 
                 DropdownSetting("显示过扫描区域",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.pscxShowOverscan
-                ) { onLayoutChange(padLayout.copy(pscxShowOverscan = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxShowOverscan = it}) }
 
                 DropdownSetting("GPU 奇偶行修正",
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.pscxGpuOddEven
-                ) { onLayoutChange(padLayout.copy(pscxGpuOddEven = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxGpuOddEven = it}) }
 
                 DropdownSetting("抖动效果",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.pscxDithering
-                ) { onLayoutChange(padLayout.copy(pscxDithering = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxDithering = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("手柄", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("手柄1类型",
                     listOf("standard" to "标准", "analog" to "模拟", "negcon" to "力反馈", "gun" to "光枪"),
                     padLayout.pscxPad1Type
-                ) { onLayoutChange(padLayout.copy(pscxPad1Type = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxPad1Type = it}) }
 
                 DropdownSetting("手柄2类型",
                     listOf("standard" to "标准", "analog" to "模拟", "negcon" to "力反馈", "gun" to "光枪"),
                     padLayout.pscxPad2Type
-                ) { onLayoutChange(padLayout.copy(pscxPad2Type = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxPad2Type = it}) }
 
                 DropdownSetting("振动",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.pscxVibration
-                ) { onLayoutChange(padLayout.copy(pscxVibration = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxVibration = it}) }
 
                 DropdownSetting("模拟摇杆边界",
                     listOf("circle" to "圆形", "square" to "方形"),
                     padLayout.pscxAnalogAxis
-                ) { onLayoutChange(padLayout.copy(pscxAnalogAxis = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxAnalogAxis = it}) }
 
                 DropdownSetting("多手柄",
                     listOf("disabled" to "关闭", "port1" to "端口1", "port2" to "端口2", "both" to "全部"),
                     padLayout.pscxMultitap
-                ) { onLayoutChange(padLayout.copy(pscxMultitap = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxMultitap = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("音频", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("SPU 插值",
                     listOf("simple" to "简单", "gaussian" to "高斯", "cubic" to "三次", "off" to "关闭"),
                     padLayout.pscxSpuInterp
-                ) { onLayoutChange(padLayout.copy(pscxSpuInterp = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxSpuInterp = it}) }
 
                 DropdownSetting("SPU 混响",
                     listOf("enabled" to "开启", "disabled" to "关闭"),
                     padLayout.pscxSpuReverb
-                ) { onLayoutChange(padLayout.copy(pscxSpuReverb = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxSpuReverb = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("CD/记忆卡", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6588,17 +6650,17 @@ private fun SettingsPanel(
                     listOf("0" to "0", "6" to "6", "12" to "12(默认)", "18" to "18",
                            "24" to "24", "30" to "30"),
                     padLayout.pscxCdReadahead
-                ) { onLayoutChange(padLayout.copy(pscxCdReadahead = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxCdReadahead = it}) }
 
                 DropdownSetting("记忆卡1",
                     listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
                     padLayout.pscxMemcard1
-                ) { onLayoutChange(padLayout.copy(pscxMemcard1 = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxMemcard1 = it}) }
 
                 DropdownSetting("记忆卡2",
                     listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
                     padLayout.pscxMemcard2
-                ) { onLayoutChange(padLayout.copy(pscxMemcard2 = it)) }
+                ) { onLayoutChange(padLayout.copy {pscxMemcard2 = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))

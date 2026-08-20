@@ -241,14 +241,14 @@ fun SettingsScreen(
                                     "custom" to "自定义(拖动四角)"
                                 ),
                                 padLayout.videoScale
-                            ) { updateLayout(padLayout.copy(videoScale = it)) }
+                            ) { updateLayout(padLayout.copy {videoScale = it}) }
 
                             DropdownRow("视频滤镜",
                                 listOf("none" to "关闭", "scanline" to "扫描线", "crt" to "CRT", "dot" to "点阵",
                                        "xbr" to "XBR", "hq2x" to "HQ2X", "hq4x" to "HQ4X", "xbr_dot" to "XBR+点阵",
                                        "4xbr" to "4XBR", "4xbr_dot" to "4XBR+点阵", "hq4x_dot" to "HQ4X+点阵"),
                                 padLayout.videoFilter
-                            ) { updateLayout(padLayout.copy(videoFilter = it)) }
+                            ) { updateLayout(padLayout.copy {videoFilter = it}) }
                         }
                     }
 
@@ -274,7 +274,7 @@ fun SettingsScreen(
                                 listOf("sensor" to "自动(传感器)", "landscape" to "强制横屏", "portrait" to "强制竖屏"),
                                 padLayout.screenOrientation
                             ) {
-                                updateLayout(padLayout.copy(screenOrientation = it))
+                                updateLayout(padLayout.copy {screenOrientation = it})
                                 applyOrientation(it)
                             }
                         }
@@ -292,7 +292,7 @@ fun SettingsScreen(
                                 showSubtitle = true,
                                 trailing = {
                                     Switch(checked = padLayout.highQualityScaling, onCheckedChange = {
-                                        updateLayout(padLayout.copy(highQualityScaling = it))
+                                        updateLayout(padLayout.copy {highQualityScaling = it})
                                     }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                                 }
                             )
@@ -310,7 +310,7 @@ fun SettingsScreen(
                                     showSubtitle = false,
                                     trailing = {
                                         Switch(checked = padLayout.showPad, onCheckedChange = {
-                                            updateLayout(padLayout.copy(showPad = it))
+                                            updateLayout(padLayout.copy {showPad = it})
                                         }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                                     }
                                 )

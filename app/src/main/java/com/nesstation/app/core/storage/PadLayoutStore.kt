@@ -77,192 +77,192 @@ data class DosExtraKeyEntry(
  * 用户在横屏编辑手柄位置后切到竖屏，竖屏布局保持自己原来的设置；反之亦然。
  * 全局设置（透明度、是否显示手柄、核心选项等）两个方向共享。
  */
-data class PadLayout(
+class PadLayout {
     // === 横屏布局（landscape） ===
-    val dpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140),
-    val btnA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.76f, sizeDp = 72),
-    val btnB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.82f, sizeDp = 72),
-    val btnTurboA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.60f, sizeDp = 48),
-    val btnTurboB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.66f, sizeDp = 48),
-    val btnStart: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.92f, sizeDp = 56),
-    val btnSelect: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.92f, sizeDp = 56),
-    val btnL: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.15f, sizeDp = 56),
-    val btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56),
-    val btnX: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.54f, sizeDp = 60),
-    val btnY: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.60f, sizeDp = 60),
+    var dpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140)
+    var btnA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.76f, sizeDp = 72)
+    var btnB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.82f, sizeDp = 72)
+    var btnTurboA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.60f, sizeDp = 48)
+    var btnTurboB: ButtonLayout = ButtonLayout(x = 0.72f, y = 0.66f, sizeDp = 48)
+    var btnStart: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.92f, sizeDp = 56)
+    var btnSelect: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.92f, sizeDp = 56)
+    var btnL: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.15f, sizeDp = 56)
+    var btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56)
+    var btnX: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.54f, sizeDp = 60)
+    var btnY: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.60f, sizeDp = 60)
     // === 竖屏布局（portrait）—— 默认值给竖屏一个更舒服的排布 ===
     // dpad 放左下、A/B 放右下，跟横屏差不多但 y 坐标稍微上移避开屏幕底部
-    val dpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130),
-    val btnAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.72f, sizeDp = 68),
-    val btnBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.80f, sizeDp = 68),
-    val btnTurboAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.56f, sizeDp = 46),
-    val btnTurboBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.62f, sizeDp = 46),
-    val btnStartP: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.90f, sizeDp = 54),
-    val btnSelectP: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.90f, sizeDp = 54),
-    val btnLP: ButtonLayout = ButtonLayout(x = 0.12f, y = 0.12f, sizeDp = 54),
-    val btnRP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.12f, sizeDp = 54),
-    val btnXP: ButtonLayout = ButtonLayout(x = 0.83f, y = 0.50f, sizeDp = 56),
-    val btnYP: ButtonLayout = ButtonLayout(x = 0.69f, y = 0.56f, sizeDp = 56),
+    var dpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130)
+    var btnAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.72f, sizeDp = 68)
+    var btnBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.80f, sizeDp = 68)
+    var btnTurboAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.56f, sizeDp = 46)
+    var btnTurboBP: ButtonLayout = ButtonLayout(x = 0.68f, y = 0.62f, sizeDp = 46)
+    var btnStartP: ButtonLayout = ButtonLayout(x = 0.62f, y = 0.90f, sizeDp = 54)
+    var btnSelectP: ButtonLayout = ButtonLayout(x = 0.38f, y = 0.90f, sizeDp = 54)
+    var btnLP: ButtonLayout = ButtonLayout(x = 0.12f, y = 0.12f, sizeDp = 54)
+    var btnRP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.12f, sizeDp = 54)
+    var btnXP: ButtonLayout = ButtonLayout(x = 0.83f, y = 0.50f, sizeDp = 56)
+    var btnYP: ButtonLayout = ButtonLayout(x = 0.69f, y = 0.56f, sizeDp = 56)
     // === 全局设置（横竖屏共享） ===
-    val opacity: Float = 0.7f,     // 0.3 – 1.0
-    val showPad: Boolean = true,
+    var opacity: Float = 0.7f     // 0.3 – 1.0
+    var showPad: Boolean = true
     // Core options — values MUST match FCEUmm's libretro_core_options.h
-    val ntscFilter: String = "disabled",  // disabled | composite | svideo | rgb | monochrome
-    val aspectRatio: String = "4:3",  // SNES9x: "4:3" | "uncorrected" | "auto" | "ntsc" | "pal"
-    val palette: String = "default",      // default | dq | nx | asq | rp2 | ...
-    val region: String = "Auto",          // Auto | NTSC | PAL | Dendy
-    val soundQuality: String = "Low",     // Low | High | Very High
-    val cropOverscan: String = "disabled",// disabled | enabled  (maps to 4 individual overscan keys)
+    var ntscFilter: String = "disabled"  // disabled | composite | svideo | rgb | monochrome
+    var aspectRatio: String = "4:3"  // SNES9x: "4:3" | "uncorrected" | "auto" | "ntsc" | "pal"
+    var palette: String = "default"      // default | dq | nx | asq | rp2 | ...
+    var region: String = "Auto"          // Auto | NTSC | PAL | Dendy
+    var soundQuality: String = "Low"     // Low | High | Very High
+    var cropOverscan: String = "disabled"// disabled | enabled  (maps to 4 individual overscan keys)
     // Video scaling — controls SurfaceView layout aspect ratio (frontend-level, not FCEUmm option)
     // "custom" = free-form rect controlled by the 4-corner drag editor
-    val videoScale: String = "stretch",   // stretch | 4:3 | 8:7 | 16:9 | custom
+    var videoScale: String = "stretch"   // stretch | 4:3 | 8:7 | 16:9 | custom
     // Custom free-form layout rect (normalized 0..1, relative to the game
     // surface container). Used when videoScale == "custom": left/top is the
     // top-left corner, right/bottom is the bottom-right corner. The user
     // drags the 4 corners to resize and the rectangle body to move.
-    val customLayoutLeft: Float = 0f,
-    val customLayoutTop: Float = 0f,
-    val customLayoutRight: Float = 1f,
-    val customLayoutBottom: Float = 1f,
+    var customLayoutLeft: Float = 0f
+    var customLayoutTop: Float = 0f
+    var customLayoutRight: Float = 1f
+    var customLayoutBottom: Float = 1f
     // 竖屏版自由布局矩形：横竖屏分别保存，旋转屏幕时不互相覆盖
     //（与手柄按钮 padLayoutP 等竖屏字段的 p_ 前缀命名保持一致）。
-    val customLayoutLeftP: Float = 0f,
-    val customLayoutTopP: Float = 0f,
-    val customLayoutRightP: Float = 1f,
-    val customLayoutBottomP: Float = 1f,
+    var customLayoutLeftP: Float = 0f
+    var customLayoutTopP: Float = 0f
+    var customLayoutRightP: Float = 1f
+    var customLayoutBottomP: Float = 1f
     // Video filter — applied in the native blit function (frontend-level post-processing)
-    val videoFilter: String = "none",     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
+    var videoFilter: String = "none"     // none | scanline | crt | dot | xbr | hq2x | hq4x | xbr_dot
     // Overclocking — adds dummy scanlines to the PPU loop, reducing slowdowns
-    val overclocking: String = "disabled", // disabled | 2x-Postrender | 2x-VBlank
+    var overclocking: String = "disabled" // disabled | 2x-Postrender | 2x-VBlank
     // --- SFC/SNES (snes9x) specific options ---
-    val sfcReduceSpriteFlicker: String = "disabled",  // disabled | enabled
-    val sfcReduceSlowdown: String = "disabled",       // disabled | light | compatible | max
-    val sfcAudioInterpolation: String = "gaussian",   // gaussian | cubic | sinc | none | linear
-    val sfcGfxTransparency: String = "enabled",       // enabled | disabled
-    val sfcGfxHires: String = "enabled",              // enabled | disabled
-    val sfcGfxClip: String = "enabled",               // enabled | disabled
-    val sfcBlockInvalidVram: String = "disabled",      // disabled(allow) | enabled(block) — allow by default to fix font garbling
-    val sfcSoundOutput: String = "disabled",           // disabled | enabled (echo buffer hack)
-    val sfcOverscan: String = "enabled",              // enabled | disabled | auto
-    val sfcSideBySide: String = "disabled",            // disabled | merge | blur (hires blend)
-    val sfcUpDownAllowed: String = "disabled",        // disabled | enabled
-    val sfcSuperScope: String = "disabled",            // disabled | enabled (randomize memory)
-    val sfcLayer1: String = "enabled",                // BG layer 1
-    val sfcLayer2: String = "enabled",                // BG layer 2
-    val sfcLayer3: String = "enabled",                // BG layer 3
-    val sfcLayer4: String = "enabled",                // BG layer 4
-    val sfcLayer5: String = "enabled",                // OBJ/sprite layer
-    val sfcOverclock: String = "100%",                // 50%-500% (SuperFX frequency)
+    var sfcReduceSpriteFlicker: String = "disabled"  // disabled | enabled
+    var sfcReduceSlowdown: String = "disabled"       // disabled | light | compatible | max
+    var sfcAudioInterpolation: String = "gaussian"   // gaussian | cubic | sinc | none | linear
+    var sfcGfxTransparency: String = "enabled"       // enabled | disabled
+    var sfcGfxHires: String = "enabled"              // enabled | disabled
+    var sfcGfxClip: String = "enabled"               // enabled | disabled
+    var sfcBlockInvalidVram: String = "disabled"      // disabled(allow) | enabled(block) — allow by default to fix font garbling
+    var sfcSoundOutput: String = "disabled"           // disabled | enabled (echo buffer hack)
+    var sfcOverscan: String = "enabled"              // enabled | disabled | auto
+    var sfcSideBySide: String = "disabled"            // disabled | merge | blur (hires blend)
+    var sfcUpDownAllowed: String = "disabled"        // disabled | enabled
+    var sfcSuperScope: String = "disabled"            // disabled | enabled (randomize memory)
+    var sfcLayer1: String = "enabled"                // BG layer 1
+    var sfcLayer2: String = "enabled"                // BG layer 2
+    var sfcLayer3: String = "enabled"                // BG layer 3
+    var sfcLayer4: String = "enabled"                // BG layer 4
+    var sfcLayer5: String = "enabled"                // OBJ/sprite layer
+    var sfcOverclock: String = "100%"                // 50%-500% (SuperFX frequency)
     // --- GB/GBA (mGBA) specific options ---
-    val gbColorCorrection: String = "enabled",        // enabled | disabled
-    val gbcColorPreset: String = "default",           // default | various presets
-    val gbaColorCorrection: String = "enabled",       // enabled | disabled
-    val gbaColorPreset: String = "default",           // default | various presets
-    val gbaFrameBlending: String = "OFF",             // OFF | ON | fast
-    val gbaAudioResampler: String = "sinc",         // sinc | nearest | cosine | cubic
-    val gbaAudioLowPass: String = "enabled",          // disabled | enabled
-    val gbaAudioLowPassRange: String = "50",          // 0-100 (50 = balanced for GBA)
-    val gbaFrameskipType: String = "disabled",        // disabled | auto | fixed
-    val gbaFrameskipCount: String = "0",              // 0-10
-    val gbaSolarSensor: String = "0",                 // 0-10
-    val gbaIdleOptimization: String = "disabled",     // disabled | enabled (GBA only)
-    val gbaForceRTC: String = "disabled",             // disabled | enabled
-    val gbaAllowOpposite: String = "OFF",             // OFF | ON
+    var gbColorCorrection: String = "enabled"        // enabled | disabled
+    var gbcColorPreset: String = "default"           // default | various presets
+    var gbaColorCorrection: String = "enabled"       // enabled | disabled
+    var gbaColorPreset: String = "default"           // default | various presets
+    var gbaFrameBlending: String = "OFF"             // OFF | ON | fast
+    var gbaAudioResampler: String = "sinc"         // sinc | nearest | cosine | cubic
+    var gbaAudioLowPass: String = "enabled"          // disabled | enabled
+    var gbaAudioLowPassRange: String = "50"          // 0-100 (50 = balanced for GBA)
+    var gbaFrameskipType: String = "disabled"        // disabled | auto | fixed
+    var gbaFrameskipCount: String = "0"              // 0-10
+    var gbaSolarSensor: String = "0"                 // 0-10
+    var gbaIdleOptimization: String = "disabled"     // disabled | enabled (GBA only)
+    var gbaForceRTC: String = "disabled"             // disabled | enabled
+    var gbaAllowOpposite: String = "OFF"             // OFF | ON
     // --- Additional GB/GBA (mGBA) options ---
-    val gbModel: String = "Autodetect",               // Autodetect | Game Boy | Super Game Boy | Game Boy Color | Game Boy Advance
-    val gbSgbBorders: String = "ON",                  // ON | OFF
-    val gbaFrameskipThreshold: String = "33",         // 0-100 (audio buffer threshold for auto frameskip)
+    var gbModel: String = "Autodetect"               // Autodetect | Game Boy | Super Game Boy | Game Boy Color | Game Boy Advance
+    var gbSgbBorders: String = "ON"                  // ON | OFF
+    var gbaFrameskipThreshold: String = "33"         // 0-100 (audio buffer threshold for auto frameskip)
     // --- DOSBox-Pure (DOS) specific options ---
-    val dosMachine: String = "svga_s3",               // svga_s3 | hercules | cga | tandy | pcjr | ega | vgaonly | none
-    val dosCycles: String = "auto",                    // auto | max | 6000 | 10000 | 20000 | 40000 | 80000 | custom
-    val dosCyclesMax: String = "50000",                // string (used when dosCycles = custom)
-    val dosSbType: String = "sb16",                    // sb1 | sb2 | sbpro1 | sbpro2 | sb16 | gb | none
-    val dosSbAdlibMode: String = "off",                // on | off
-    val dosSbAdlibEmu: String = "default",             // default | cms | dual
-    val dosGus: String = "off",                        // off | on
-    val dosMouseInput: String = "touchpad",            // touchpad | auto | virtual | direct | off
-    val dosMouseTimeout: String = "off",               // off | 3 | 5 | 10
-    val dosKeyboardLayout: String = "us",              // us | uk | br | de | it | fr | ru | es | ...
-    val dosKeyboardDelay: String = "300",              // 100 | 200 | 300 | 400 | 500
-    val dosKeyboardRate: String = "10",                // 5 | 10 | 15 | 20 | 30
-    val dosAutoMapping: String = "on",                 // on | off
-    val dosSavestate: String = "on",                   // on | 500 | 1000 | 2000 | 4000 | 8000 | 0
-    val dosDimScreen: String = "off",                  // off | 5 | 10 | 20 | 30 | 60
-    val dosResolution: String = "original",            // custom | 640x480 | 800x600 | 1024x768 | 1280x720 | 1600x900 | 1920x1080 | original
-    val dosScale: String = "2",                        // 1 | 2 | 3 | 4 | 5
-    val dosAspectRatio: String = "auto",               // auto | 4:3 | 16:9 | 16:10 | stretch
-    val dosCgaColors: String = "default",              // default | amber | green | white | bright
-    val dosVoodoo: String = "off",                     // off | on
-    val dosForce60fps: String = "on",                  // off | on
-    val dosTimeAnnounce: String = "none",              // none | boot | quiet
+    var dosMachine: String = "svga_s3"               // svga_s3 | hercules | cga | tandy | pcjr | ega | vgaonly | none
+    var dosCycles: String = "auto"                    // auto | max | 6000 | 10000 | 20000 | 40000 | 80000 | custom
+    var dosCyclesMax: String = "50000"                // string (used when dosCycles = custom)
+    var dosSbType: String = "sb16"                    // sb1 | sb2 | sbpro1 | sbpro2 | sb16 | gb | none
+    var dosSbAdlibMode: String = "off"                // on | off
+    var dosSbAdlibEmu: String = "default"             // default | cms | dual
+    var dosGus: String = "off"                        // off | on
+    var dosMouseInput: String = "touchpad"            // touchpad | auto | virtual | direct | off
+    var dosMouseTimeout: String = "off"               // off | 3 | 5 | 10
+    var dosKeyboardLayout: String = "us"              // us | uk | br | de | it | fr | ru | es | ...
+    var dosKeyboardDelay: String = "300"              // 100 | 200 | 300 | 400 | 500
+    var dosKeyboardRate: String = "10"                // 5 | 10 | 15 | 20 | 30
+    var dosAutoMapping: String = "on"                 // on | off
+    var dosSavestate: String = "on"                   // on | 500 | 1000 | 2000 | 4000 | 8000 | 0
+    var dosDimScreen: String = "off"                  // off | 5 | 10 | 20 | 30 | 60
+    var dosResolution: String = "original"            // custom | 640x480 | 800x600 | 1024x768 | 1280x720 | 1600x900 | 1920x1080 | original
+    var dosScale: String = "2"                        // 1 | 2 | 3 | 4 | 5
+    var dosAspectRatio: String = "auto"               // auto | 4:3 | 16:9 | 16:10 | stretch
+    var dosCgaColors: String = "default"              // default | amber | green | white | bright
+    var dosVoodoo: String = "off"                     // off | on
+    var dosForce60fps: String = "on"                  // off | on
+    var dosTimeAnnounce: String = "none"              // none | boot | quiet
     // DOS on-screen controller mode: "gamepad" (circular buttons, transparent)
     // or "keyboard" (full QWERTY layout). Switchable at runtime via a button.
-    val dosInputMode: String = "gamepad",              // gamepad | keyboard
+    var dosInputMode: String = "gamepad"              // gamepad | keyboard
     // === DOS gamepad overlay button positions (landscape) ===
     // Each button has x/y (0.0-1.0 of screen) and sizeDp.
     // dosBtnEnabled controls whether the button is shown (user can hide/add).
-    val dosDpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140),
-    val dosBtnEsc: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56),
-    val dosBtnEnter: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56),
-    val dosBtnSpace: ButtonLayout = ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56),
-    val dosBtnTab: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56),
-    val dosBtnCtrl: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48),
-    val dosBtnAlt: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48),
-    val dosBtnShift: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48),
-    val dosBtnBack: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48),
-    val dosBtnMouseL: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40),
-    val dosBtnMouseR: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40),
+    var dosDpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140)
+    var dosBtnEsc: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56)
+    var dosBtnEnter: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56)
+    var dosBtnSpace: ButtonLayout = ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56)
+    var dosBtnTab: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56)
+    var dosBtnCtrl: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48)
+    var dosBtnAlt: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48)
+    var dosBtnShift: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48)
+    var dosBtnBack: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48)
+    var dosBtnMouseL: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40)
+    var dosBtnMouseR: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40)
     // === DOS gamepad overlay button positions (portrait - independent) ===
-    val dosDpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130),
-    val dosBtnEscP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52),
-    val dosBtnEnterP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52),
-    val dosBtnSpaceP: ButtonLayout = ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52),
-    val dosBtnTabP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52),
-    val dosBtnCtrlP: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46),
-    val dosBtnAltP: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46),
-    val dosBtnShiftP: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46),
-    val dosBtnBackP: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46),
-    val dosBtnMouseLP: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38),
-    val dosBtnMouseRP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38),
+    var dosDpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130)
+    var dosBtnEscP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52)
+    var dosBtnEnterP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52)
+    var dosBtnSpaceP: ButtonLayout = ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52)
+    var dosBtnTabP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52)
+    var dosBtnCtrlP: ButtonLayout = ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46)
+    var dosBtnAltP: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46)
+    var dosBtnShiftP: ButtonLayout = ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46)
+    var dosBtnBackP: ButtonLayout = ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46)
+    var dosBtnMouseLP: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38)
+    var dosBtnMouseRP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38)
     // === DOS extra buttons (addable via editor, hidden by default) ===
-    val dosBtnInsert: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40),
-    val dosBtnDelete: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40),
-    val dosBtnHome: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40),
-    val dosBtnEnd: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40),
-    val dosBtnPageUp: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40),
-    val dosBtnPageDown: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40),
+    var dosBtnInsert: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40)
+    var dosBtnDelete: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40)
+    var dosBtnHome: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40)
+    var dosBtnEnd: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40)
+    var dosBtnPageUp: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40)
+    var dosBtnPageDown: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40)
     // Extra button portrait positions
-    val dosBtnInsertP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38),
-    val dosBtnDeleteP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38),
-    val dosBtnHomeP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38),
-    val dosBtnEndP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38),
-    val dosBtnPageUpP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38),
-    val dosBtnPageDownP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38),
+    var dosBtnInsertP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38)
+    var dosBtnDeleteP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38)
+    var dosBtnHomeP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38)
+    var dosBtnEndP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38)
+    var dosBtnPageUpP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38)
+    var dosBtnPageDownP: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38)
     // === DOS button visibility toggles (which buttons are shown) ===
-    val dosShowDpad: Boolean = true,
-    val dosShowEsc: Boolean = true,
-    val dosShowEnter: Boolean = true,
-    val dosShowSpace: Boolean = true,
-    val dosShowTab: Boolean = true,
-    val dosShowCtrl: Boolean = true,
-    val dosShowAlt: Boolean = true,
-    val dosShowShift: Boolean = true,
-    val dosShowBack: Boolean = true,
-    val dosShowMouseL: Boolean = true,
-    val dosShowMouseR: Boolean = true,
+    var dosShowDpad: Boolean = true
+    var dosShowEsc: Boolean = true
+    var dosShowEnter: Boolean = true
+    var dosShowSpace: Boolean = true
+    var dosShowTab: Boolean = true
+    var dosShowCtrl: Boolean = true
+    var dosShowAlt: Boolean = true
+    var dosShowShift: Boolean = true
+    var dosShowBack: Boolean = true
+    var dosShowMouseL: Boolean = true
+    var dosShowMouseR: Boolean = true
     // Extra button visibility (hidden by default — user adds them via editor)
-    val dosShowInsert: Boolean = false,
-    val dosShowDelete: Boolean = false,
-    val dosShowHome: Boolean = false,
-    val dosShowEnd: Boolean = false,
-    val dosShowPageUp: Boolean = false,
-    val dosShowPageDown: Boolean = false,
+    var dosShowInsert: Boolean = false
+    var dosShowDelete: Boolean = false
+    var dosShowHome: Boolean = false
+    var dosShowEnd: Boolean = false
+    var dosShowPageUp: Boolean = false
+    var dosShowPageDown: Boolean = false
     // --- Dynamic extra keys (letters, numbers, symbols, F-keys, etc.) ---
     // JSON-encoded list of DosExtraKeyEntry — can be freely added/removed by the user.
-    val dosExtraKeys: String = "",          // landscape extra keys (JSON)
-    val dosExtraKeysP: String = "",         // portrait extra keys (JSON)
+    var dosExtraKeys: String = ""          // landscape extra keys (JSON)
+    var dosExtraKeysP: String = ""         // portrait extra keys (JSON)
     // --- Display orientation ---
-    val screenOrientation: String = "sensor",          // sensor | landscape | portrait
+    var screenOrientation: String = "sensor"          // sensor | landscape | portrait
     // --- Performance ---
     // When true, the native surface buffer matches the source resolution
     // (256x240 / 240x160) and the Android hardware compositor does GPU
@@ -270,111 +270,111 @@ data class PadLayout(
     // When false, the native buffer matches the display resolution and
     // the C++ blit does per-pixel nearest-neighbor scaling — sharper but
     // much heavier on CPU (can cause lag on low-power devices).
-    val highQualityScaling: Boolean = false,           // false = native-res buffer (fast), true = display-res buffer (sharp)
+    var highQualityScaling: Boolean = false           // false = native-res buffer (fast), true = display-res buffer (sharp)
 
     // === FBNeo (Arcade) core options ===
     // Keys must match fbneo's libretro_core_options.h exactly.
-    val arcadeAspect: String = "auto",                  // auto | 4:3 | 3:4 | 16:9 | 16:15
-    val arcadeRotate: String = "norotate",              // norotate | cw | ccw | flip
-    val arcadeVerticalMode: String = "disabled",        // disabled | enabled
-    val arcadeCropOverscan: String = "enabled",         // enabled | disabled
-    val arcadeCpuSpeed: String = "100",                 // 100 | 75 | 50 | 150 | 200 | 250
-    val arcadeFrameskip: String = "0",                  // 0..10
-    val arcadeForce60hz: String = "disabled",           // disabled | enabled
-    val arcadeSampleRate: String = "48000",             // 48000 | 44100 | 22050
-    val arcadeAudioInterp: String = "2",                // 0=off 1=nearest 2=linear 3=cubic
-    val arcadeLowpass: String = "disabled",             // disabled | enabled
-    val arcadeNeogeomode: String = "MVS",               // MVS | AES
-    val arcadeMemcard: String = "enabled",              // enabled | disabled
+    var arcadeAspect: String = "auto"                  // auto | 4:3 | 3:4 | 16:9 | 16:15
+    var arcadeRotate: String = "norotate"              // norotate | cw | ccw | flip
+    var arcadeVerticalMode: String = "disabled"        // disabled | enabled
+    var arcadeCropOverscan: String = "enabled"         // enabled | disabled
+    var arcadeCpuSpeed: String = "100"                 // 100 | 75 | 50 | 150 | 200 | 250
+    var arcadeFrameskip: String = "0"                  // 0..10
+    var arcadeForce60hz: String = "disabled"           // disabled | enabled
+    var arcadeSampleRate: String = "48000"             // 48000 | 44100 | 22050
+    var arcadeAudioInterp: String = "2"                // 0=off 1=nearest 2=linear 3=cubic
+    var arcadeLowpass: String = "disabled"             // disabled | enabled
+    var arcadeNeogeomode: String = "MVS"               // MVS | AES
+    var arcadeMemcard: String = "enabled"              // enabled | disabled
 
     // === Genesis-Plus-GX (MD/SEGA) core options ===
     // Keys must match genesis_plus_gx's libretro_core_options.h exactly.
-    val mdRegion: String = "auto",                      // auto | ntsc-u | pal | ntsc-j
-    val mdSystem: String = "auto",                      // auto | md | sms | gg | sg
-    val mdAspect: String = "auto",                      // auto | 4:3 | 16:9 | stretch
-    val mdRender: String = "normal",                    // normal | double | interlaced
-    val mdNtscFilter: String = "disabled",              // disabled | monochrome | rf | composite | s-video | rgb
-    val mdLcdFilter: String = "disabled",               // disabled | enabled
-    val mdOverscan: String = "disabled",                // disabled | enabled
-    val mdGgExtra: String = "disabled",                 // disabled | enabled (GG extended screen)
-    val mdLeftBorder: String = "disabled",              // disabled | enabled
-    val mdInput: String = "6 button",                   // 3 button | 6 button
-    val mdAllowUpDown: String = "disabled",             // disabled | enabled
-    val mdOverclock: String = "100%",                   // 100% | 125% | 150% | 200%
-    val mdFrameskip: String = "0",                      // 0..5
-    val mdCdFastboot: String = "enabled",               // enabled | disabled
-    val mdSmsFm: String = "auto",                       // auto | on | off (SMS FM sound)
-    val mdGgStretch: String = "disabled",               // disabled | enabled (Game Gear stretch)
+    var mdRegion: String = "auto"                      // auto | ntsc-u | pal | ntsc-j
+    var mdSystem: String = "auto"                      // auto | md | sms | gg | sg
+    var mdAspect: String = "auto"                      // auto | 4:3 | 16:9 | stretch
+    var mdRender: String = "normal"                    // normal | double | interlaced
+    var mdNtscFilter: String = "disabled"              // disabled | monochrome | rf | composite | s-video | rgb
+    var mdLcdFilter: String = "disabled"               // disabled | enabled
+    var mdOverscan: String = "disabled"                // disabled | enabled
+    var mdGgExtra: String = "disabled"                 // disabled | enabled (GG extended screen)
+    var mdLeftBorder: String = "disabled"              // disabled | enabled
+    var mdInput: String = "6 button"                   // 3 button | 6 button
+    var mdAllowUpDown: String = "disabled"             // disabled | enabled
+    var mdOverclock: String = "100%"                   // 100% | 125% | 150% | 200%
+    var mdFrameskip: String = "0"                      // 0..5
+    var mdCdFastboot: String = "enabled"               // enabled | disabled
+    var mdSmsFm: String = "auto"                       // auto | on | off (SMS FM sound)
+    var mdGgStretch: String = "disabled"               // disabled | enabled (Game Gear stretch)
 
     // === Geargrafx (PCE/TG16) core options ===
     // Keys AND values must match geargrafx's libretro_core_options.h exactly.
     // Geargrafx uses case-sensitive strcmp() to compare option values, so
     // "disabled" (lowercase) will NOT match "Disabled" and the option is
     // ignored. Values below are copied from the reference source's defaults.
-    val pceConsoleType: String = "Auto",                // Auto | PC Engine (JAP) | SuperGrafx (JAP) | TurboGrafx-16 (USA)
-    val pceAspect: String = "4:3 DAR",                  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR | 16:10 DAR
-    val pceOverscan: String = "Disabled",               // Disabled | Enabled
-    val pceNoSpriteLimit: String = "Disabled",          // Disabled | Enabled
-    val pcePalette: String = "Standard RGB",            // Standard RGB | Turboxray | Kitrinx
-    val pceCdromBios: String = "Auto",                  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
-    val pceTurbotap: String = "Disabled",               // Disabled | Enabled (5-player multitap)
-    val pceMb128: String = "Auto",                      // Auto | Enabled | Disabled (Memory Base 128 save)
-    val pceAllowUpDown: String = "Disabled",            // Disabled | Enabled
+    var pceConsoleType: String = "Auto"                // Auto | PC Engine (JAP) | SuperGrafx (JAP) | TurboGrafx-16 (USA)
+    var pceAspect: String = "4:3 DAR"                  // 1:1 PAR | 4:3 DAR | 6:5 DAR | 16:9 DAR | 16:10 DAR
+    var pceOverscan: String = "Disabled"               // Disabled | Enabled
+    var pceNoSpriteLimit: String = "Disabled"          // Disabled | Enabled
+    var pcePalette: String = "Standard RGB"            // Standard RGB | Turboxray | Kitrinx
+    var pceCdromBios: String = "Auto"                  // Auto | System Card 1 | System Card 2 | System Card 3 | Game Express
+    var pceTurbotap: String = "Disabled"               // Disabled | Enabled (5-player multitap)
+    var pceMb128: String = "Auto"                      // Auto | Enabled | Disabled (Memory Base 128 save)
+    var pceAllowUpDown: String = "Disabled"            // Disabled | Enabled
 
     // === NDS (melonDS) core options ===
     // Keys must match melonDS libretro frontend's option declarations.
-    val ndsConsoleMode: String = "ds",                  // ds | dsi
-    val ndsScreenLayout: String = "top_bottom",          // top_bottom | bottom_top | left_right | right_left | top_only | bottom_only | turnscreen
-    val ndsResolution: String = "1",                    // 1 | 2 | 3 | 4 | 5 (software renderer upscale factor)
-    val ndsFiltering: String = "nearest",               // nearest | linear
-    val ndsScreensaver: String = "disabled",            // disabled | enabled
-    val ndsTouchMode: String = "mouse",                 // mouse | touch | disabled
-    val ndsMouseSpeed: String = "100",                  // 50 | 75 | 100 | 125 | 150 | 175 | 200
-    val ndsDsiSdcard: String = "disabled",              // disabled | enabled (DSi mode SD card)
-    val ndsRandomizeMac: String = "disabled",           // disabled | enabled (randomize MAC for online play)
+    var ndsConsoleMode: String = "ds"                  // ds | dsi
+    var ndsScreenLayout: String = "top_bottom"          // top_bottom | bottom_top | left_right | right_left | top_only | bottom_only | turnscreen
+    var ndsResolution: String = "1"                    // 1 | 2 | 3 | 4 | 5 (software renderer upscale factor)
+    var ndsFiltering: String = "nearest"               // nearest | linear
+    var ndsScreensaver: String = "disabled"            // disabled | enabled
+    var ndsTouchMode: String = "mouse"                 // mouse | touch | disabled
+    var ndsMouseSpeed: String = "100"                  // 50 | 75 | 100 | 125 | 150 | 175 | 200
+    var ndsDsiSdcard: String = "disabled"              // disabled | enabled (DSi mode SD card)
+    var ndsRandomizeMac: String = "disabled"           // disabled | enabled (randomize MAC for online play)
 
     // === PSX (PCSX-ReARMed) core options ===
     // Keys must match PCSX-ReARMed libretro_core_options.h.
-    val pscxBios: String = "auto",                      // auto | HLE | scph1000 | scph1001 | scph1002 | scph5500 | scph5501 | scph5502 | psxonpsp660
-    val pscxRegion: String = "auto",                    // auto | ntsc | pal
-    val pscxFrameskipType: String = "disabled",        // disabled | auto | fixed
-    val pscxFrameskip: String = "0",                    // 0..10 (only when frameskip_type=fixed)
-    val pscxPad1Type: String = "standard",              // standard | analog | negcon | gun
-    val pscxPad2Type: String = "standard",              // standard | analog | negcon | gun
-    val pscxVibration: String = "enabled",              // enabled | disabled
-    val pscxDithering: String = "enabled",              // enabled | disabled
-    val pscxSpuInterp: String = "simple",               // simple | gaussian | cubic | off
-    val pscxSpuReverb: String = "enabled",              // enabled | disabled
-    val pscxShowBootlogo: String = "disabled",          // disabled | enabled (show PSX BIOS boot logo)
-    val pscxCdReadahead: String = "12",                 // 0..30 (CD read-ahead in sectors)
-    val pscxMemcard1: String = "libretro",              // libretro | shared | disabled
-    val pscxMemcard2: String = "shared",                // libretro | shared | disabled
+    var pscxBios: String = "auto"                      // auto | HLE | scph1000 | scph1001 | scph1002 | scph5500 | scph5501 | scph5502 | psxonpsp660
+    var pscxRegion: String = "auto"                    // auto | ntsc | pal
+    var pscxFrameskipType: String = "disabled"        // disabled | auto | fixed
+    var pscxFrameskip: String = "0"                    // 0..10 (only when frameskip_type=fixed)
+    var pscxPad1Type: String = "standard"              // standard | analog | negcon | gun
+    var pscxPad2Type: String = "standard"              // standard | analog | negcon | gun
+    var pscxVibration: String = "enabled"              // enabled | disabled
+    var pscxDithering: String = "enabled"              // enabled | disabled
+    var pscxSpuInterp: String = "simple"               // simple | gaussian | cubic | off
+    var pscxSpuReverb: String = "enabled"              // enabled | disabled
+    var pscxShowBootlogo: String = "disabled"          // disabled | enabled (show PSX BIOS boot logo)
+    var pscxCdReadahead: String = "12"                 // 0..30 (CD read-ahead in sectors)
+    var pscxMemcard1: String = "libretro"              // libretro | shared | disabled
+    var pscxMemcard2: String = "shared"                // libretro | shared | disabled
     // === Additional PSX/PCSX-ReARMed options ===
-    val pscxDrc: String = "enabled",                 // enabled | disabled (dynarec JIT compiler)
-    val pscxClock: String = "auto",                  // auto | 30..100 (CPU overclock %)
-    val pscxRgb32: String = "disabled",              // disabled | enabled (32-bit color output)
-    val pscxScaleHires: String = "disabled",         // disabled | enabled (downscale 480i/512i to 320x240)
-    val pscxShowOverscan: String = "disabled",       // disabled | enabled (show overscan area)
-    val pscxMultitap: String = "disabled",           // disabled | port1 | port2 | both
-    val pscxGpuOddEven: String = "disabled",         // disabled | enabled (Peops odd/even GPU hack)
-    val pscxAnalogAxis: String = "square",           // circle | square (analog stick bounds)
+    var pscxDrc: String = "enabled"                 // enabled | disabled (dynarec JIT compiler)
+    var pscxClock: String = "auto"                  // auto | 30..100 (CPU overclock %)
+    var pscxRgb32: String = "disabled"              // disabled | enabled (32-bit color output)
+    var pscxScaleHires: String = "disabled"         // disabled | enabled (downscale 480i/512i to 320x240)
+    var pscxShowOverscan: String = "disabled"       // disabled | enabled (show overscan area)
+    var pscxMultitap: String = "disabled"           // disabled | port1 | port2 | both
+    var pscxGpuOddEven: String = "disabled"         // disabled | enabled (Peops odd/even GPU hack)
+    var pscxAnalogAxis: String = "square"           // circle | square (analog stick bounds)
 
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
     // Used for 6-button fight-stick layouts and as Coin/Start shortcuts.
-    val btnL2: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48),
-    val btnR2: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48),
-    val btnL2P: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46),
-    val btnR2P: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46),
+    var btnL2: ButtonLayout = ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48)
+    var btnR2: ButtonLayout = ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48)
+    var btnL2P: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46)
+    var btnR2P: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46)
     // Whether to show L2/R2 buttons on the arcade overlay (hidden by default —
     // 4 face buttons + L/R is enough for most arcade games; 6-button fight
     // games like SFII/KOF benefit from L2/R2 mapped to strong punch/kick).
-    val arcadeShowL2R2: Boolean = false,
+    var arcadeShowL2R2: Boolean = false
     // Arcade input mode: "dpad" (digital D-pad) or "analog" (left stick →
     // D-pad bits). FBNeo uses the same bit layout for both; this toggle only
     // affects which on-screen control is drawn — "analog" draws a circular
     // analog-stick widget whose 8 directions map to the same bits as D-pad.
-    val arcadeInputMode: String = "dpad",               // dpad | analog
+    var arcadeInputMode: String = "dpad"               // dpad | analog
 
     // === Combo buttons (per-platform) ===
     // JSON-encoded list of ComboButton entries. Each combo button is a single
@@ -385,29 +385,29 @@ data class PadLayout(
     // Format: [{"id":"combo1","label":"AB","bits":3,"x":0.5,"y":0.85,"size":56,"color":-14031360}]
     // bits is the OR'd bit mask (BTN_A|BTN_B = 0x01|0x02 = 3).
     // This is per-platform: each platform tab has its own combo list.
-    val comboButtons: String = "",         // NES combo list (JSON)
-    val comboButtonsSfc: String = "",      // SNES combo list (JSON)
-    val comboButtonsGba: String = "",      // GBA combo list (JSON)
-    val comboButtonsArcade: String = "",   // Arcade combo list (JSON)
-    val comboButtonsMd: String = "",       // MD combo list (JSON)
-    val comboButtonsPce: String = "",      // PCE combo list (JSON)
+    var comboButtons: String = ""         // NES combo list (JSON)
+    var comboButtonsSfc: String = ""      // SNES combo list (JSON)
+    var comboButtonsGba: String = ""      // GBA combo list (JSON)
+    var comboButtonsArcade: String = ""   // Arcade combo list (JSON)
+    var comboButtonsMd: String = ""       // MD combo list (JSON)
+    var comboButtonsPce: String = ""      // PCE combo list (JSON)
 
     // === PCE button visibility toggles (which on-screen buttons are shown) ===
     // PCE uses the shared SNES/Arcade/MD layout slots (D-pad, I/II, RUN,
     // SELECT, V/VI, IV/III, Turbo I/II). Each can be individually shown or
     // hidden from the layout editor so the user can declutter the overlay.
     // These flags are global (shared between landscape and portrait).
-    val pceShowDpad: Boolean = true,
-    val pceShowA: Boolean = true,          // PCE "I"
-    val pceShowB: Boolean = true,          // PCE "II"
-    val pceShowStart: Boolean = true,      // PCE "RUN"
-    val pceShowSelect: Boolean = true,
-    val pceShowL: Boolean = true,          // PCE "V"
-    val pceShowR: Boolean = true,          // PCE "VI"
-    val pceShowX: Boolean = true,          // PCE "IV"
-    val pceShowY: Boolean = true,          // PCE "III"
-    val pceShowL2: Boolean = true,         // PCE "TURBO II"
-    val pceShowR2: Boolean = true,         // PCE "TURBO I"
+    var pceShowDpad: Boolean = true
+    var pceShowA: Boolean = true          // PCE "I"
+    var pceShowB: Boolean = true          // PCE "II"
+    var pceShowStart: Boolean = true      // PCE "RUN"
+    var pceShowSelect: Boolean = true
+    var pceShowL: Boolean = true          // PCE "V"
+    var pceShowR: Boolean = true          // PCE "VI"
+    var pceShowX: Boolean = true          // PCE "IV"
+    var pceShowY: Boolean = true          // PCE "III"
+    var pceShowL2: Boolean = true         // PCE "TURBO II"
+    var pceShowR2: Boolean = true         // PCE "TURBO I"
 
     // === Per-platform hidden button lists ===
     // Comma-separated button key names that the user has hidden via the
@@ -415,14 +415,14 @@ data class PadLayout(
     // list so hiding a button in NES doesn't affect SNES, etc.
     // Valid keys: dpad, a, b, ta, tb, start, select, l, r, x, y, l2, r2
     // (ta/tb = turbo A/B; only shown on NES/GB when X/Y hidden).
-    val hiddenButtons: String = "",         // NES/GB hidden button keys
-    val hiddenButtonsSfc: String = "",     // SNES hidden button keys
-    val hiddenButtonsGba: String = "",     // GBA hidden button keys
-    val hiddenButtonsArcade: String = "",  // Arcade/FBNeo hidden button keys
-    val hiddenButtonsMd: String = "",      // MD/SEGA hidden button keys
-    val hiddenButtonsPce: String = "",     // PCE hidden button keys
-    val hiddenButtonsNds: String = "",     // NDS hidden button keys
-    val hiddenButtonsPsx: String = "",     // PSX hidden button keys
+    var hiddenButtons: String = ""         // NES/GB hidden button keys
+    var hiddenButtonsSfc: String = ""     // SNES hidden button keys
+    var hiddenButtonsGba: String = ""     // GBA hidden button keys
+    var hiddenButtonsArcade: String = ""  // Arcade/FBNeo hidden button keys
+    var hiddenButtonsMd: String = ""      // MD/SEGA hidden button keys
+    var hiddenButtonsPce: String = ""     // PCE hidden button keys
+    var hiddenButtonsNds: String = ""     // NDS hidden button keys
+    var hiddenButtonsPsx: String = ""     // PSX hidden button keys
 
     // === Input mode (joystick vs D-pad) ===
     // "dpad" = cross-shaped digital D-pad (default); "analog" = circular
@@ -430,8 +430,277 @@ data class PadLayout(
     // difference is purely visual — both produce the same UP/DOWN/LEFT/RIGHT
     // bits. This implements the user's request for joystick/d-pad switching
     // across all engines.
-    val inputMode: String = "dpad"         // dpad | analog
-)
+    var inputMode: String = "dpad"         // dpad | analog
+
+
+    /**
+     * 块式复制:返回与当前实例字段完全相同的新实例,再执行 block 修改指定字段。
+     * 注意:不能用 data class 的 copy() — 254 个参数会突破 DEX 的 invoke 指令
+     * 255 寄存器上限,导致 ART 校验器 VerifyError("expected 8 argument registers,
+     * method signature has 9 or more")。这里用无参构造 + copyFrom + block 实现。
+     */
+    fun copy(block: PadLayout.() -> Unit): PadLayout {
+        return PadLayout().also { it.copyFrom(this) }.apply(block)
+    }
+
+    /** 将 another 的全部属性逐字段复制到当前实例。 */
+    fun copyFrom(another: PadLayout) {
+        dpad = another.dpad
+        btnA = another.btnA
+        btnB = another.btnB
+        btnTurboA = another.btnTurboA
+        btnTurboB = another.btnTurboB
+        btnStart = another.btnStart
+        btnSelect = another.btnSelect
+        btnL = another.btnL
+        btnR = another.btnR
+        btnX = another.btnX
+        btnY = another.btnY
+        dpadP = another.dpadP
+        btnAP = another.btnAP
+        btnBP = another.btnBP
+        btnTurboAP = another.btnTurboAP
+        btnTurboBP = another.btnTurboBP
+        btnStartP = another.btnStartP
+        btnSelectP = another.btnSelectP
+        btnLP = another.btnLP
+        btnRP = another.btnRP
+        btnXP = another.btnXP
+        btnYP = another.btnYP
+        opacity = another.opacity
+        showPad = another.showPad
+        ntscFilter = another.ntscFilter
+        aspectRatio = another.aspectRatio
+        palette = another.palette
+        region = another.region
+        soundQuality = another.soundQuality
+        cropOverscan = another.cropOverscan
+        videoScale = another.videoScale
+        customLayoutLeft = another.customLayoutLeft
+        customLayoutTop = another.customLayoutTop
+        customLayoutRight = another.customLayoutRight
+        customLayoutBottom = another.customLayoutBottom
+        customLayoutLeftP = another.customLayoutLeftP
+        customLayoutTopP = another.customLayoutTopP
+        customLayoutRightP = another.customLayoutRightP
+        customLayoutBottomP = another.customLayoutBottomP
+        videoFilter = another.videoFilter
+        overclocking = another.overclocking
+        sfcReduceSpriteFlicker = another.sfcReduceSpriteFlicker
+        sfcReduceSlowdown = another.sfcReduceSlowdown
+        sfcAudioInterpolation = another.sfcAudioInterpolation
+        sfcGfxTransparency = another.sfcGfxTransparency
+        sfcGfxHires = another.sfcGfxHires
+        sfcGfxClip = another.sfcGfxClip
+        sfcBlockInvalidVram = another.sfcBlockInvalidVram
+        sfcSoundOutput = another.sfcSoundOutput
+        sfcOverscan = another.sfcOverscan
+        sfcSideBySide = another.sfcSideBySide
+        sfcUpDownAllowed = another.sfcUpDownAllowed
+        sfcSuperScope = another.sfcSuperScope
+        sfcLayer1 = another.sfcLayer1
+        sfcLayer2 = another.sfcLayer2
+        sfcLayer3 = another.sfcLayer3
+        sfcLayer4 = another.sfcLayer4
+        sfcLayer5 = another.sfcLayer5
+        sfcOverclock = another.sfcOverclock
+        gbColorCorrection = another.gbColorCorrection
+        gbcColorPreset = another.gbcColorPreset
+        gbaColorCorrection = another.gbaColorCorrection
+        gbaColorPreset = another.gbaColorPreset
+        gbaFrameBlending = another.gbaFrameBlending
+        gbaAudioResampler = another.gbaAudioResampler
+        gbaAudioLowPass = another.gbaAudioLowPass
+        gbaAudioLowPassRange = another.gbaAudioLowPassRange
+        gbaFrameskipType = another.gbaFrameskipType
+        gbaFrameskipCount = another.gbaFrameskipCount
+        gbaSolarSensor = another.gbaSolarSensor
+        gbaIdleOptimization = another.gbaIdleOptimization
+        gbaForceRTC = another.gbaForceRTC
+        gbaAllowOpposite = another.gbaAllowOpposite
+        gbModel = another.gbModel
+        gbSgbBorders = another.gbSgbBorders
+        gbaFrameskipThreshold = another.gbaFrameskipThreshold
+        dosMachine = another.dosMachine
+        dosCycles = another.dosCycles
+        dosCyclesMax = another.dosCyclesMax
+        dosSbType = another.dosSbType
+        dosSbAdlibMode = another.dosSbAdlibMode
+        dosSbAdlibEmu = another.dosSbAdlibEmu
+        dosGus = another.dosGus
+        dosMouseInput = another.dosMouseInput
+        dosMouseTimeout = another.dosMouseTimeout
+        dosKeyboardLayout = another.dosKeyboardLayout
+        dosKeyboardDelay = another.dosKeyboardDelay
+        dosKeyboardRate = another.dosKeyboardRate
+        dosAutoMapping = another.dosAutoMapping
+        dosSavestate = another.dosSavestate
+        dosDimScreen = another.dosDimScreen
+        dosResolution = another.dosResolution
+        dosScale = another.dosScale
+        dosAspectRatio = another.dosAspectRatio
+        dosCgaColors = another.dosCgaColors
+        dosVoodoo = another.dosVoodoo
+        dosForce60fps = another.dosForce60fps
+        dosTimeAnnounce = another.dosTimeAnnounce
+        dosInputMode = another.dosInputMode
+        dosDpad = another.dosDpad
+        dosBtnEsc = another.dosBtnEsc
+        dosBtnEnter = another.dosBtnEnter
+        dosBtnSpace = another.dosBtnSpace
+        dosBtnTab = another.dosBtnTab
+        dosBtnCtrl = another.dosBtnCtrl
+        dosBtnAlt = another.dosBtnAlt
+        dosBtnShift = another.dosBtnShift
+        dosBtnBack = another.dosBtnBack
+        dosBtnMouseL = another.dosBtnMouseL
+        dosBtnMouseR = another.dosBtnMouseR
+        dosDpadP = another.dosDpadP
+        dosBtnEscP = another.dosBtnEscP
+        dosBtnEnterP = another.dosBtnEnterP
+        dosBtnSpaceP = another.dosBtnSpaceP
+        dosBtnTabP = another.dosBtnTabP
+        dosBtnCtrlP = another.dosBtnCtrlP
+        dosBtnAltP = another.dosBtnAltP
+        dosBtnShiftP = another.dosBtnShiftP
+        dosBtnBackP = another.dosBtnBackP
+        dosBtnMouseLP = another.dosBtnMouseLP
+        dosBtnMouseRP = another.dosBtnMouseRP
+        dosBtnInsert = another.dosBtnInsert
+        dosBtnDelete = another.dosBtnDelete
+        dosBtnHome = another.dosBtnHome
+        dosBtnEnd = another.dosBtnEnd
+        dosBtnPageUp = another.dosBtnPageUp
+        dosBtnPageDown = another.dosBtnPageDown
+        dosBtnInsertP = another.dosBtnInsertP
+        dosBtnDeleteP = another.dosBtnDeleteP
+        dosBtnHomeP = another.dosBtnHomeP
+        dosBtnEndP = another.dosBtnEndP
+        dosBtnPageUpP = another.dosBtnPageUpP
+        dosBtnPageDownP = another.dosBtnPageDownP
+        dosShowDpad = another.dosShowDpad
+        dosShowEsc = another.dosShowEsc
+        dosShowEnter = another.dosShowEnter
+        dosShowSpace = another.dosShowSpace
+        dosShowTab = another.dosShowTab
+        dosShowCtrl = another.dosShowCtrl
+        dosShowAlt = another.dosShowAlt
+        dosShowShift = another.dosShowShift
+        dosShowBack = another.dosShowBack
+        dosShowMouseL = another.dosShowMouseL
+        dosShowMouseR = another.dosShowMouseR
+        dosShowInsert = another.dosShowInsert
+        dosShowDelete = another.dosShowDelete
+        dosShowHome = another.dosShowHome
+        dosShowEnd = another.dosShowEnd
+        dosShowPageUp = another.dosShowPageUp
+        dosShowPageDown = another.dosShowPageDown
+        dosExtraKeys = another.dosExtraKeys
+        dosExtraKeysP = another.dosExtraKeysP
+        screenOrientation = another.screenOrientation
+        highQualityScaling = another.highQualityScaling
+        arcadeAspect = another.arcadeAspect
+        arcadeRotate = another.arcadeRotate
+        arcadeVerticalMode = another.arcadeVerticalMode
+        arcadeCropOverscan = another.arcadeCropOverscan
+        arcadeCpuSpeed = another.arcadeCpuSpeed
+        arcadeFrameskip = another.arcadeFrameskip
+        arcadeForce60hz = another.arcadeForce60hz
+        arcadeSampleRate = another.arcadeSampleRate
+        arcadeAudioInterp = another.arcadeAudioInterp
+        arcadeLowpass = another.arcadeLowpass
+        arcadeNeogeomode = another.arcadeNeogeomode
+        arcadeMemcard = another.arcadeMemcard
+        mdRegion = another.mdRegion
+        mdSystem = another.mdSystem
+        mdAspect = another.mdAspect
+        mdRender = another.mdRender
+        mdNtscFilter = another.mdNtscFilter
+        mdLcdFilter = another.mdLcdFilter
+        mdOverscan = another.mdOverscan
+        mdGgExtra = another.mdGgExtra
+        mdLeftBorder = another.mdLeftBorder
+        mdInput = another.mdInput
+        mdAllowUpDown = another.mdAllowUpDown
+        mdOverclock = another.mdOverclock
+        mdFrameskip = another.mdFrameskip
+        mdCdFastboot = another.mdCdFastboot
+        mdSmsFm = another.mdSmsFm
+        mdGgStretch = another.mdGgStretch
+        pceConsoleType = another.pceConsoleType
+        pceAspect = another.pceAspect
+        pceOverscan = another.pceOverscan
+        pceNoSpriteLimit = another.pceNoSpriteLimit
+        pcePalette = another.pcePalette
+        pceCdromBios = another.pceCdromBios
+        pceTurbotap = another.pceTurbotap
+        pceMb128 = another.pceMb128
+        pceAllowUpDown = another.pceAllowUpDown
+        ndsConsoleMode = another.ndsConsoleMode
+        ndsScreenLayout = another.ndsScreenLayout
+        ndsResolution = another.ndsResolution
+        ndsFiltering = another.ndsFiltering
+        ndsScreensaver = another.ndsScreensaver
+        ndsTouchMode = another.ndsTouchMode
+        ndsMouseSpeed = another.ndsMouseSpeed
+        ndsDsiSdcard = another.ndsDsiSdcard
+        ndsRandomizeMac = another.ndsRandomizeMac
+        pscxBios = another.pscxBios
+        pscxRegion = another.pscxRegion
+        pscxFrameskipType = another.pscxFrameskipType
+        pscxFrameskip = another.pscxFrameskip
+        pscxPad1Type = another.pscxPad1Type
+        pscxPad2Type = another.pscxPad2Type
+        pscxVibration = another.pscxVibration
+        pscxDithering = another.pscxDithering
+        pscxSpuInterp = another.pscxSpuInterp
+        pscxSpuReverb = another.pscxSpuReverb
+        pscxShowBootlogo = another.pscxShowBootlogo
+        pscxCdReadahead = another.pscxCdReadahead
+        pscxMemcard1 = another.pscxMemcard1
+        pscxMemcard2 = another.pscxMemcard2
+        pscxDrc = another.pscxDrc
+        pscxClock = another.pscxClock
+        pscxRgb32 = another.pscxRgb32
+        pscxScaleHires = another.pscxScaleHires
+        pscxShowOverscan = another.pscxShowOverscan
+        pscxMultitap = another.pscxMultitap
+        pscxGpuOddEven = another.pscxGpuOddEven
+        pscxAnalogAxis = another.pscxAnalogAxis
+        btnL2 = another.btnL2
+        btnR2 = another.btnR2
+        btnL2P = another.btnL2P
+        btnR2P = another.btnR2P
+        arcadeShowL2R2 = another.arcadeShowL2R2
+        arcadeInputMode = another.arcadeInputMode
+        comboButtons = another.comboButtons
+        comboButtonsSfc = another.comboButtonsSfc
+        comboButtonsGba = another.comboButtonsGba
+        comboButtonsArcade = another.comboButtonsArcade
+        comboButtonsMd = another.comboButtonsMd
+        comboButtonsPce = another.comboButtonsPce
+        pceShowDpad = another.pceShowDpad
+        pceShowA = another.pceShowA
+        pceShowB = another.pceShowB
+        pceShowStart = another.pceShowStart
+        pceShowSelect = another.pceShowSelect
+        pceShowL = another.pceShowL
+        pceShowR = another.pceShowR
+        pceShowX = another.pceShowX
+        pceShowY = another.pceShowY
+        pceShowL2 = another.pceShowL2
+        pceShowR2 = another.pceShowR2
+        hiddenButtons = another.hiddenButtons
+        hiddenButtonsSfc = another.hiddenButtonsSfc
+        hiddenButtonsGba = another.hiddenButtonsGba
+        hiddenButtonsArcade = another.hiddenButtonsArcade
+        hiddenButtonsMd = another.hiddenButtonsMd
+        hiddenButtonsPce = another.hiddenButtonsPce
+        hiddenButtonsNds = another.hiddenButtonsNds
+        hiddenButtonsPsx = another.hiddenButtonsPsx
+        inputMode = another.inputMode
+    }
+}
 
 /**
  * Persistent on-screen controller layout + core option settings.
@@ -567,354 +836,354 @@ object PadLayoutStore {
 
     fun load(ctx: Context): PadLayout {
         val p = prefs(ctx)
-        return PadLayout(
+        return PadLayout().apply {
             // === 横屏布局 ===
             dpad = ButtonLayout(
                 p.getFloat(KEY_DPAD_X, 0.13f),
                 p.getFloat(KEY_DPAD_Y, 0.78f),
                 p.getInt(KEY_DPAD_SIZE, 140)
-            ),
+            )
             btnA = ButtonLayout(
                 p.getFloat(KEY_A_X, 0.87f),
                 p.getFloat(KEY_A_Y, 0.76f),
                 p.getInt(KEY_A_SIZE, 72)
-            ),
+            )
             btnB = ButtonLayout(
                 p.getFloat(KEY_B_X, 0.72f),
                 p.getFloat(KEY_B_Y, 0.82f),
                 p.getInt(KEY_B_SIZE, 72)
-            ),
+            )
             btnTurboA = ButtonLayout(
                 p.getFloat(KEY_TA_X, 0.87f),
                 p.getFloat(KEY_TA_Y, 0.60f),
                 p.getInt(KEY_TA_SIZE, 48)
-            ),
+            )
             btnTurboB = ButtonLayout(
                 p.getFloat(KEY_TB_X, 0.72f),
                 p.getFloat(KEY_TB_Y, 0.66f),
                 p.getInt(KEY_TB_SIZE, 48)
-            ),
+            )
             btnStart = ButtonLayout(
                 p.getFloat(KEY_START_X, 0.62f),
                 p.getFloat(KEY_START_Y, 0.92f),
                 p.getInt(KEY_START_SIZE, 56)
-            ),
+            )
             btnSelect = ButtonLayout(
                 p.getFloat(KEY_SELECT_X, 0.38f),
                 p.getFloat(KEY_SELECT_Y, 0.92f),
                 p.getInt(KEY_SELECT_SIZE, 56)
-            ),
+            )
             btnL = ButtonLayout(
                 p.getFloat(KEY_L_X, 0.10f),
                 p.getFloat(KEY_L_Y, 0.15f),
                 p.getInt(KEY_L_SIZE, 56)
-            ),
+            )
             btnR = ButtonLayout(
                 p.getFloat(KEY_R_X, 0.90f),
                 p.getFloat(KEY_R_Y, 0.15f),
                 p.getInt(KEY_R_SIZE, 56)
-            ),
+            )
             btnX = ButtonLayout(
                 p.getFloat(KEY_X_X, 0.88f),
                 p.getFloat(KEY_X_Y, 0.54f),
                 p.getInt(KEY_X_SIZE, 60)
-            ),
+            )
             btnY = ButtonLayout(
                 p.getFloat(KEY_Y_X, 0.73f),
                 p.getFloat(KEY_Y_Y, 0.60f),
                 p.getInt(KEY_Y_SIZE, 60)
-            ),
+            )
             // === 竖屏布局（独立持久化，跟横屏互不干扰） ===
             dpadP = ButtonLayout(
                 p.getFloat(KEY_PDAD_X, 0.18f),
                 p.getFloat(KEY_PDAD_Y, 0.74f),
                 p.getInt(KEY_PDAD_SIZE, 130)
-            ),
+            )
             btnAP = ButtonLayout(
                 p.getFloat(KEY_PA_X, 0.82f),
                 p.getFloat(KEY_PA_Y, 0.72f),
                 p.getInt(KEY_PA_SIZE, 68)
-            ),
+            )
             btnBP = ButtonLayout(
                 p.getFloat(KEY_PB_X, 0.68f),
                 p.getFloat(KEY_PB_Y, 0.80f),
                 p.getInt(KEY_PB_SIZE, 68)
-            ),
+            )
             btnTurboAP = ButtonLayout(
                 p.getFloat(KEY_PTA_X, 0.82f),
                 p.getFloat(KEY_PTA_Y, 0.56f),
                 p.getInt(KEY_PTA_SIZE, 46)
-            ),
+            )
             btnTurboBP = ButtonLayout(
                 p.getFloat(KEY_PTB_X, 0.68f),
                 p.getFloat(KEY_PTB_Y, 0.62f),
                 p.getInt(KEY_PTB_SIZE, 46)
-            ),
+            )
             btnStartP = ButtonLayout(
                 p.getFloat(KEY_PSTART_X, 0.62f),
                 p.getFloat(KEY_PSTART_Y, 0.90f),
                 p.getInt(KEY_PSTART_SIZE, 54)
-            ),
+            )
             btnSelectP = ButtonLayout(
                 p.getFloat(KEY_PSELECT_X, 0.38f),
                 p.getFloat(KEY_PSELECT_Y, 0.90f),
                 p.getInt(KEY_PSELECT_SIZE, 54)
-            ),
+            )
             btnLP = ButtonLayout(
                 p.getFloat(KEY_PL_X, 0.12f),
                 p.getFloat(KEY_PL_Y, 0.12f),
                 p.getInt(KEY_PL_SIZE, 54)
-            ),
+            )
             btnRP = ButtonLayout(
                 p.getFloat(KEY_PR_X, 0.88f),
                 p.getFloat(KEY_PR_Y, 0.12f),
                 p.getInt(KEY_PR_SIZE, 54)
-            ),
+            )
             btnXP = ButtonLayout(
                 p.getFloat(KEY_PX_X, 0.83f),
                 p.getFloat(KEY_PX_Y, 0.50f),
                 p.getInt(KEY_PX_SIZE, 56)
-            ),
+            )
             btnYP = ButtonLayout(
                 p.getFloat(KEY_PY_X, 0.69f),
                 p.getFloat(KEY_PY_Y, 0.56f),
                 p.getInt(KEY_PY_SIZE, 56)
-            ),
+            )
             // === 全局设置 ===
-            opacity = p.getFloat(KEY_OPACITY, 0.7f),
-            showPad = p.getBoolean(KEY_SHOW_PAD, true),
-            highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false),
-            ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled",
-            aspectRatio = p.getString(KEY_ASPECT_RATIO, "4:3") ?: "4:3",
-            palette = p.getString(KEY_PALETTE, "default") ?: "default",
-            region = p.getString(KEY_REGION, "Auto") ?: "Auto",
-            soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low",
-            cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled",
-            videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch",
-            customLayoutLeft = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT, 0f),
-            customLayoutTop = p.getFloat(KEY_CUSTOM_LAYOUT_TOP, 0f),
-            customLayoutRight = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT, 1f),
-            customLayoutBottom = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM, 1f),
-            customLayoutLeftP = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT_P, 0f),
-            customLayoutTopP = p.getFloat(KEY_CUSTOM_LAYOUT_TOP_P, 0f),
-            customLayoutRightP = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, 1f),
-            customLayoutBottomP = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, 1f),
-            videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none",
-            overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled",
-            sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled",
-            sfcReduceSlowdown = p.getString("sfc_reduce_slowdown", "disabled") ?: "disabled",
-            sfcAudioInterpolation = p.getString("sfc_audio_interpolation", "gaussian") ?: "gaussian",
-            sfcGfxTransparency = p.getString("sfc_gfx_transparency", "enabled") ?: "enabled",
-            sfcGfxHires = p.getString("sfc_gfx_hires", "enabled") ?: "enabled",
-            sfcGfxClip = p.getString("sfc_gfx_clip", "enabled") ?: "enabled",
-            sfcBlockInvalidVram = p.getString("sfc_block_invalid_vram", "disabled") ?: "disabled",
-            sfcSoundOutput = p.getString("sfc_sound_output", "disabled") ?: "disabled",
-            sfcOverscan = p.getString("sfc_overscan", "enabled") ?: "enabled",
-            sfcSideBySide = p.getString("sfc_side_by_side", "disabled") ?: "disabled",
-            sfcUpDownAllowed = p.getString("sfc_up_down_allowed", "disabled") ?: "disabled",
-            sfcSuperScope = p.getString("sfc_superscope", "disabled") ?: "disabled",
-            sfcLayer1 = p.getString("sfc_layer_1", "enabled") ?: "enabled",
-            sfcLayer2 = p.getString("sfc_layer_2", "enabled") ?: "enabled",
-            sfcLayer3 = p.getString("sfc_layer_3", "enabled") ?: "enabled",
-            sfcLayer4 = p.getString("sfc_layer_4", "enabled") ?: "enabled",
-            sfcLayer5 = p.getString("sfc_layer_5", "enabled") ?: "enabled",
-            sfcOverclock = p.getString("sfc_overclock", "100%") ?: "100%",
-            gbColorCorrection = p.getString("gb_color_correction", "enabled") ?: "enabled",
-            gbcColorPreset = p.getString("gbc_color_preset", "default") ?: "default",
-            gbaColorCorrection = p.getString("gba_color_correction", "enabled") ?: "enabled",
-            gbaColorPreset = p.getString("gba_color_preset", "default") ?: "default",
-            gbaFrameBlending = p.getString("gba_frame_blending", "OFF") ?: "OFF",
-            gbaAudioResampler = p.getString("gba_audio_resampler", "sinc") ?: "sinc",
-            gbaAudioLowPass = p.getString("gba_audio_low_pass", "enabled") ?: "enabled",
-            gbaAudioLowPassRange = p.getString("gba_audio_low_pass_range", "50") ?: "50",
-            gbaFrameskipType = p.getString("gba_frameskip_type", "disabled") ?: "disabled",
-            gbaFrameskipCount = p.getString("gba_frameskip_count", "0") ?: "0",
-            gbaSolarSensor = p.getString("gba_solar_sensor", "0") ?: "0",
-            gbaIdleOptimization = p.getString("gba_idle_optimization", "disabled") ?: "disabled",
-            gbaForceRTC = p.getString("gba_force_rtc", "disabled") ?: "disabled",
-            gbaAllowOpposite = p.getString("gba_allow_opposite", "OFF") ?: "OFF",
-            gbModel = p.getString("gb_model", "Autodetect") ?: "Autodetect",
-            gbSgbBorders = p.getString("gb_sgb_borders", "ON") ?: "ON",
-            gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33",
+            opacity = p.getFloat(KEY_OPACITY, 0.7f)
+            showPad = p.getBoolean(KEY_SHOW_PAD, true)
+            highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false)
+            ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled"
+            aspectRatio = p.getString(KEY_ASPECT_RATIO, "4:3") ?: "4:3"
+            palette = p.getString(KEY_PALETTE, "default") ?: "default"
+            region = p.getString(KEY_REGION, "Auto") ?: "Auto"
+            soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low"
+            cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled"
+            videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch"
+            customLayoutLeft = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT, 0f)
+            customLayoutTop = p.getFloat(KEY_CUSTOM_LAYOUT_TOP, 0f)
+            customLayoutRight = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT, 1f)
+            customLayoutBottom = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM, 1f)
+            customLayoutLeftP = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT_P, 0f)
+            customLayoutTopP = p.getFloat(KEY_CUSTOM_LAYOUT_TOP_P, 0f)
+            customLayoutRightP = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, 1f)
+            customLayoutBottomP = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, 1f)
+            videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none"
+            overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled"
+            sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled"
+            sfcReduceSlowdown = p.getString("sfc_reduce_slowdown", "disabled") ?: "disabled"
+            sfcAudioInterpolation = p.getString("sfc_audio_interpolation", "gaussian") ?: "gaussian"
+            sfcGfxTransparency = p.getString("sfc_gfx_transparency", "enabled") ?: "enabled"
+            sfcGfxHires = p.getString("sfc_gfx_hires", "enabled") ?: "enabled"
+            sfcGfxClip = p.getString("sfc_gfx_clip", "enabled") ?: "enabled"
+            sfcBlockInvalidVram = p.getString("sfc_block_invalid_vram", "disabled") ?: "disabled"
+            sfcSoundOutput = p.getString("sfc_sound_output", "disabled") ?: "disabled"
+            sfcOverscan = p.getString("sfc_overscan", "enabled") ?: "enabled"
+            sfcSideBySide = p.getString("sfc_side_by_side", "disabled") ?: "disabled"
+            sfcUpDownAllowed = p.getString("sfc_up_down_allowed", "disabled") ?: "disabled"
+            sfcSuperScope = p.getString("sfc_superscope", "disabled") ?: "disabled"
+            sfcLayer1 = p.getString("sfc_layer_1", "enabled") ?: "enabled"
+            sfcLayer2 = p.getString("sfc_layer_2", "enabled") ?: "enabled"
+            sfcLayer3 = p.getString("sfc_layer_3", "enabled") ?: "enabled"
+            sfcLayer4 = p.getString("sfc_layer_4", "enabled") ?: "enabled"
+            sfcLayer5 = p.getString("sfc_layer_5", "enabled") ?: "enabled"
+            sfcOverclock = p.getString("sfc_overclock", "100%") ?: "100%"
+            gbColorCorrection = p.getString("gb_color_correction", "enabled") ?: "enabled"
+            gbcColorPreset = p.getString("gbc_color_preset", "default") ?: "default"
+            gbaColorCorrection = p.getString("gba_color_correction", "enabled") ?: "enabled"
+            gbaColorPreset = p.getString("gba_color_preset", "default") ?: "default"
+            gbaFrameBlending = p.getString("gba_frame_blending", "OFF") ?: "OFF"
+            gbaAudioResampler = p.getString("gba_audio_resampler", "sinc") ?: "sinc"
+            gbaAudioLowPass = p.getString("gba_audio_low_pass", "enabled") ?: "enabled"
+            gbaAudioLowPassRange = p.getString("gba_audio_low_pass_range", "50") ?: "50"
+            gbaFrameskipType = p.getString("gba_frameskip_type", "disabled") ?: "disabled"
+            gbaFrameskipCount = p.getString("gba_frameskip_count", "0") ?: "0"
+            gbaSolarSensor = p.getString("gba_solar_sensor", "0") ?: "0"
+            gbaIdleOptimization = p.getString("gba_idle_optimization", "disabled") ?: "disabled"
+            gbaForceRTC = p.getString("gba_force_rtc", "disabled") ?: "disabled"
+            gbaAllowOpposite = p.getString("gba_allow_opposite", "OFF") ?: "OFF"
+            gbModel = p.getString("gb_model", "Autodetect") ?: "Autodetect"
+            gbSgbBorders = p.getString("gb_sgb_borders", "ON") ?: "ON"
+            gbaFrameskipThreshold = p.getString("gba_frameskip_threshold", "33") ?: "33"
             // DOSBox-Pure options
-            dosMachine = p.getString("dos_machine", "svga_s3") ?: "svga_s3",
-            dosCycles = p.getString("dos_cycles", "auto") ?: "auto",
-            dosCyclesMax = p.getString("dos_cycles_max", "50000") ?: "50000",
-            dosSbType = p.getString("dos_sb_type", "sb16") ?: "sb16",
-            dosSbAdlibMode = p.getString("dos_sb_adlib_mode", "off") ?: "off",
-            dosSbAdlibEmu = p.getString("dos_sb_adlib_emu", "default") ?: "default",
-            dosGus = p.getString("dos_gus", "off") ?: "off",
+            dosMachine = p.getString("dos_machine", "svga_s3") ?: "svga_s3"
+            dosCycles = p.getString("dos_cycles", "auto") ?: "auto"
+            dosCyclesMax = p.getString("dos_cycles_max", "50000") ?: "50000"
+            dosSbType = p.getString("dos_sb_type", "sb16") ?: "sb16"
+            dosSbAdlibMode = p.getString("dos_sb_adlib_mode", "off") ?: "off"
+            dosSbAdlibEmu = p.getString("dos_sb_adlib_emu", "default") ?: "default"
+            dosGus = p.getString("dos_gus", "off") ?: "off"
             // Migrate the old invalid dosbox_pure_mouse_input values
             // ("emulated"/"absolute"/"ps2"/"none") to the valid "touchpad".
             dosMouseInput = run {
                 val v = p.getString("dos_mouse_input", "touchpad") ?: "touchpad"
                 if (v in setOf("emulated", "absolute", "ps2", "none")) "touchpad" else v
-            },
-            dosMouseTimeout = p.getString("dos_mouse_timeout", "off") ?: "off",
-            dosKeyboardLayout = p.getString("dos_keyboard_layout", "us") ?: "us",
-            dosKeyboardDelay = p.getString("dos_keyboard_delay", "300") ?: "300",
-            dosKeyboardRate = p.getString("dos_keyboard_rate", "10") ?: "10",
-            dosAutoMapping = p.getString("dos_auto_mapping", "on") ?: "on",
-            dosSavestate = p.getString("dos_savestate", "on") ?: "on",
-            dosDimScreen = p.getString("dos_dim_screen", "off") ?: "off",
-            dosResolution = p.getString("dos_resolution", "original") ?: "original",
-            dosScale = p.getString("dos_scale", "2") ?: "2",
-            dosAspectRatio = p.getString("dos_aspect_ratio", "auto") ?: "auto",
-            dosCgaColors = p.getString("dos_cga_colors", "default") ?: "default",
-            dosVoodoo = p.getString("dos_voodoo", "off") ?: "off",
-            dosForce60fps = p.getString("dos_force60fps", "on") ?: "on",
-            dosTimeAnnounce = p.getString("dos_time_announce", "none") ?: "none",
-            dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad",
+            }
+            dosMouseTimeout = p.getString("dos_mouse_timeout", "off") ?: "off"
+            dosKeyboardLayout = p.getString("dos_keyboard_layout", "us") ?: "us"
+            dosKeyboardDelay = p.getString("dos_keyboard_delay", "300") ?: "300"
+            dosKeyboardRate = p.getString("dos_keyboard_rate", "10") ?: "10"
+            dosAutoMapping = p.getString("dos_auto_mapping", "on") ?: "on"
+            dosSavestate = p.getString("dos_savestate", "on") ?: "on"
+            dosDimScreen = p.getString("dos_dim_screen", "off") ?: "off"
+            dosResolution = p.getString("dos_resolution", "original") ?: "original"
+            dosScale = p.getString("dos_scale", "2") ?: "2"
+            dosAspectRatio = p.getString("dos_aspect_ratio", "auto") ?: "auto"
+            dosCgaColors = p.getString("dos_cga_colors", "default") ?: "default"
+            dosVoodoo = p.getString("dos_voodoo", "off") ?: "off"
+            dosForce60fps = p.getString("dos_force60fps", "on") ?: "on"
+            dosTimeAnnounce = p.getString("dos_time_announce", "none") ?: "none"
+            dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad"
             // DOS gamepad overlay button positions (landscape)
-            dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140)),
-            dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56)),
-            dosBtnEnter = loadBtn(p, "dos_btn_enter", ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56)),
-            dosBtnSpace = loadBtn(p, "dos_btn_space", ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56)),
-            dosBtnTab = loadBtn(p, "dos_btn_tab", ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56)),
-            dosBtnCtrl = loadBtn(p, "dos_btn_ctrl", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48)),
-            dosBtnAlt = loadBtn(p, "dos_btn_alt", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48)),
-            dosBtnShift = loadBtn(p, "dos_btn_shift", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48)),
-            dosBtnBack = loadBtn(p, "dos_btn_back", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48)),
-            dosBtnMouseL = loadBtn(p, "dos_btn_mouse_l", ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40)),
-            dosBtnMouseR = loadBtn(p, "dos_btn_mouse_r", ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40)),
+            dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
+            dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56))
+            dosBtnEnter = loadBtn(p, "dos_btn_enter", ButtonLayout(x = 0.92f, y = 0.76f, sizeDp = 56))
+            dosBtnSpace = loadBtn(p, "dos_btn_space", ButtonLayout(x = 0.78f, y = 0.82f, sizeDp = 56))
+            dosBtnTab = loadBtn(p, "dos_btn_tab", ButtonLayout(x = 0.87f, y = 0.92f, sizeDp = 56))
+            dosBtnCtrl = loadBtn(p, "dos_btn_ctrl", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 48))
+            dosBtnAlt = loadBtn(p, "dos_btn_alt", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 48))
+            dosBtnShift = loadBtn(p, "dos_btn_shift", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 48))
+            dosBtnBack = loadBtn(p, "dos_btn_back", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 48))
+            dosBtnMouseL = loadBtn(p, "dos_btn_mouse_l", ButtonLayout(x = 0.92f, y = 0.40f, sizeDp = 40))
+            dosBtnMouseR = loadBtn(p, "dos_btn_mouse_r", ButtonLayout(x = 0.82f, y = 0.40f, sizeDp = 40))
             // DOS gamepad overlay button positions (portrait)
-            dosDpadP = loadBtn(p, "dos_dpad_p", ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130)),
-            dosBtnEscP = loadBtn(p, "dos_btn_esc_p", ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52)),
-            dosBtnEnterP = loadBtn(p, "dos_btn_enter_p", ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52)),
-            dosBtnSpaceP = loadBtn(p, "dos_btn_space_p", ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52)),
-            dosBtnTabP = loadBtn(p, "dos_btn_tab_p", ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52)),
-            dosBtnCtrlP = loadBtn(p, "dos_btn_ctrl_p", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46)),
-            dosBtnAltP = loadBtn(p, "dos_btn_alt_p", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46)),
-            dosBtnShiftP = loadBtn(p, "dos_btn_shift_p", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46)),
-            dosBtnBackP = loadBtn(p, "dos_btn_back_p", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46)),
-            dosBtnMouseLP = loadBtn(p, "dos_btn_mouse_l_p", ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38)),
-            dosBtnMouseRP = loadBtn(p, "dos_btn_mouse_r_p", ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38)),
+            dosDpadP = loadBtn(p, "dos_dpad_p", ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130))
+            dosBtnEscP = loadBtn(p, "dos_btn_esc_p", ButtonLayout(x = 0.82f, y = 0.58f, sizeDp = 52))
+            dosBtnEnterP = loadBtn(p, "dos_btn_enter_p", ButtonLayout(x = 0.88f, y = 0.72f, sizeDp = 52))
+            dosBtnSpaceP = loadBtn(p, "dos_btn_space_p", ButtonLayout(x = 0.74f, y = 0.80f, sizeDp = 52))
+            dosBtnTabP = loadBtn(p, "dos_btn_tab_p", ButtonLayout(x = 0.82f, y = 0.90f, sizeDp = 52))
+            dosBtnCtrlP = loadBtn(p, "dos_btn_ctrl_p", ButtonLayout(x = 0.30f, y = 0.92f, sizeDp = 46))
+            dosBtnAltP = loadBtn(p, "dos_btn_alt_p", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 46))
+            dosBtnShiftP = loadBtn(p, "dos_btn_shift_p", ButtonLayout(x = 0.54f, y = 0.92f, sizeDp = 46))
+            dosBtnBackP = loadBtn(p, "dos_btn_back_p", ButtonLayout(x = 0.66f, y = 0.92f, sizeDp = 46))
+            dosBtnMouseLP = loadBtn(p, "dos_btn_mouse_l_p", ButtonLayout(x = 0.92f, y = 0.36f, sizeDp = 38))
+            dosBtnMouseRP = loadBtn(p, "dos_btn_mouse_r_p", ButtonLayout(x = 0.82f, y = 0.36f, sizeDp = 38))
             // DOS extra buttons (landscape)
-            dosBtnInsert = loadBtn(p, "dos_btn_insert", ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40)),
-            dosBtnDelete = loadBtn(p, "dos_btn_delete", ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40)),
-            dosBtnHome = loadBtn(p, "dos_btn_home", ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40)),
-            dosBtnEnd = loadBtn(p, "dos_btn_end", ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40)),
-            dosBtnPageUp = loadBtn(p, "dos_btn_pageup", ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40)),
-            dosBtnPageDown = loadBtn(p, "dos_btn_pagedown", ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40)),
+            dosBtnInsert = loadBtn(p, "dos_btn_insert", ButtonLayout(x = 0.08f, y = 0.40f, sizeDp = 40))
+            dosBtnDelete = loadBtn(p, "dos_btn_delete", ButtonLayout(x = 0.08f, y = 0.50f, sizeDp = 40))
+            dosBtnHome = loadBtn(p, "dos_btn_home", ButtonLayout(x = 0.08f, y = 0.30f, sizeDp = 40))
+            dosBtnEnd = loadBtn(p, "dos_btn_end", ButtonLayout(x = 0.08f, y = 0.60f, sizeDp = 40))
+            dosBtnPageUp = loadBtn(p, "dos_btn_pageup", ButtonLayout(x = 0.08f, y = 0.20f, sizeDp = 40))
+            dosBtnPageDown = loadBtn(p, "dos_btn_pagedown", ButtonLayout(x = 0.08f, y = 0.70f, sizeDp = 40))
             // DOS extra buttons (portrait)
-            dosBtnInsertP = loadBtn(p, "dos_btn_insert_p", ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38)),
-            dosBtnDeleteP = loadBtn(p, "dos_btn_delete_p", ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38)),
-            dosBtnHomeP = loadBtn(p, "dos_btn_home_p", ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38)),
-            dosBtnEndP = loadBtn(p, "dos_btn_end_p", ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38)),
-            dosBtnPageUpP = loadBtn(p, "dos_btn_pageup_p", ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38)),
-            dosBtnPageDownP = loadBtn(p, "dos_btn_pagedown_p", ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38)),
+            dosBtnInsertP = loadBtn(p, "dos_btn_insert_p", ButtonLayout(x = 0.10f, y = 0.36f, sizeDp = 38))
+            dosBtnDeleteP = loadBtn(p, "dos_btn_delete_p", ButtonLayout(x = 0.10f, y = 0.46f, sizeDp = 38))
+            dosBtnHomeP = loadBtn(p, "dos_btn_home_p", ButtonLayout(x = 0.10f, y = 0.26f, sizeDp = 38))
+            dosBtnEndP = loadBtn(p, "dos_btn_end_p", ButtonLayout(x = 0.10f, y = 0.56f, sizeDp = 38))
+            dosBtnPageUpP = loadBtn(p, "dos_btn_pageup_p", ButtonLayout(x = 0.10f, y = 0.16f, sizeDp = 38))
+            dosBtnPageDownP = loadBtn(p, "dos_btn_pagedown_p", ButtonLayout(x = 0.10f, y = 0.66f, sizeDp = 38))
             // DOS button visibility toggles
-            dosShowDpad = p.getBoolean("dos_show_dpad", true),
-            dosShowEsc = p.getBoolean("dos_show_esc", true),
-            dosShowEnter = p.getBoolean("dos_show_enter", true),
-            dosShowSpace = p.getBoolean("dos_show_space", true),
-            dosShowTab = p.getBoolean("dos_show_tab", true),
-            dosShowCtrl = p.getBoolean("dos_show_ctrl", true),
-            dosShowAlt = p.getBoolean("dos_show_alt", true),
-            dosShowShift = p.getBoolean("dos_show_shift", true),
-            dosShowBack = p.getBoolean("dos_show_back", true),
-            dosShowMouseL = p.getBoolean("dos_show_mouse_l", true),
-            dosShowMouseR = p.getBoolean("dos_show_mouse_r", true),
-            dosShowInsert = p.getBoolean("dos_show_insert", false),
-            dosShowDelete = p.getBoolean("dos_show_delete", false),
-            dosShowHome = p.getBoolean("dos_show_home", false),
-            dosShowEnd = p.getBoolean("dos_show_end", false),
-            dosShowPageUp = p.getBoolean("dos_show_pageup", false),
-            dosShowPageDown = p.getBoolean("dos_show_pagedown", false),
-            dosExtraKeys = p.getString("dos_extra_keys", "") ?: "",
-            dosExtraKeysP = p.getString("dos_extra_keys_p", "") ?: "",
-            screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor",
+            dosShowDpad = p.getBoolean("dos_show_dpad", true)
+            dosShowEsc = p.getBoolean("dos_show_esc", true)
+            dosShowEnter = p.getBoolean("dos_show_enter", true)
+            dosShowSpace = p.getBoolean("dos_show_space", true)
+            dosShowTab = p.getBoolean("dos_show_tab", true)
+            dosShowCtrl = p.getBoolean("dos_show_ctrl", true)
+            dosShowAlt = p.getBoolean("dos_show_alt", true)
+            dosShowShift = p.getBoolean("dos_show_shift", true)
+            dosShowBack = p.getBoolean("dos_show_back", true)
+            dosShowMouseL = p.getBoolean("dos_show_mouse_l", true)
+            dosShowMouseR = p.getBoolean("dos_show_mouse_r", true)
+            dosShowInsert = p.getBoolean("dos_show_insert", false)
+            dosShowDelete = p.getBoolean("dos_show_delete", false)
+            dosShowHome = p.getBoolean("dos_show_home", false)
+            dosShowEnd = p.getBoolean("dos_show_end", false)
+            dosShowPageUp = p.getBoolean("dos_show_pageup", false)
+            dosShowPageDown = p.getBoolean("dos_show_pagedown", false)
+            dosExtraKeys = p.getString("dos_extra_keys", "") ?: ""
+            dosExtraKeysP = p.getString("dos_extra_keys_p", "") ?: ""
+            screenOrientation = p.getString("screen_orientation", "sensor") ?: "sensor"
             // FBNeo (Arcade) options
-            arcadeAspect = p.getString("arcade_aspect", "auto") ?: "auto",
-            arcadeRotate = p.getString("arcade_rotate", "norotate") ?: "norotate",
-            arcadeVerticalMode = p.getString("arcade_vertical_mode", "disabled") ?: "disabled",
-            arcadeCropOverscan = p.getString("arcade_crop_overscan", "enabled") ?: "enabled",
-            arcadeCpuSpeed = p.getString("arcade_cpu_speed", "100") ?: "100",
-            arcadeFrameskip = p.getString("arcade_frameskip", "0") ?: "0",
-            arcadeForce60hz = p.getString("arcade_force_60hz", "disabled") ?: "disabled",
-            arcadeSampleRate = p.getString("arcade_sample_rate", "48000") ?: "48000",
-            arcadeAudioInterp = p.getString("arcade_audio_interp", "2") ?: "2",
-            arcadeLowpass = p.getString("arcade_lowpass", "disabled") ?: "disabled",
-            arcadeNeogeomode = p.getString("arcade_neogeo_mode", "MVS") ?: "MVS",
-            arcadeMemcard = p.getString("arcade_memcard", "enabled") ?: "enabled",
+            arcadeAspect = p.getString("arcade_aspect", "auto") ?: "auto"
+            arcadeRotate = p.getString("arcade_rotate", "norotate") ?: "norotate"
+            arcadeVerticalMode = p.getString("arcade_vertical_mode", "disabled") ?: "disabled"
+            arcadeCropOverscan = p.getString("arcade_crop_overscan", "enabled") ?: "enabled"
+            arcadeCpuSpeed = p.getString("arcade_cpu_speed", "100") ?: "100"
+            arcadeFrameskip = p.getString("arcade_frameskip", "0") ?: "0"
+            arcadeForce60hz = p.getString("arcade_force_60hz", "disabled") ?: "disabled"
+            arcadeSampleRate = p.getString("arcade_sample_rate", "48000") ?: "48000"
+            arcadeAudioInterp = p.getString("arcade_audio_interp", "2") ?: "2"
+            arcadeLowpass = p.getString("arcade_lowpass", "disabled") ?: "disabled"
+            arcadeNeogeomode = p.getString("arcade_neogeo_mode", "MVS") ?: "MVS"
+            arcadeMemcard = p.getString("arcade_memcard", "enabled") ?: "enabled"
             // Genesis-Plus-GX (MD/SEGA) options
-            mdRegion = p.getString("md_region", "auto") ?: "auto",
-            mdSystem = p.getString("md_system", "auto") ?: "auto",
-            mdAspect = p.getString("md_aspect", "auto") ?: "auto",
-            mdRender = p.getString("md_render", "normal") ?: "normal",
-            mdNtscFilter = p.getString("md_ntsc_filter", "disabled") ?: "disabled",
-            mdLcdFilter = p.getString("md_lcd_filter", "disabled") ?: "disabled",
-            mdOverscan = p.getString("md_overscan", "disabled") ?: "disabled",
-            mdGgExtra = p.getString("md_gg_extra", "disabled") ?: "disabled",
-            mdLeftBorder = p.getString("md_left_border", "disabled") ?: "disabled",
-            mdInput = p.getString("md_input", "6 button") ?: "6 button",
-            mdAllowUpDown = p.getString("md_allow_up_down", "disabled") ?: "disabled",
-            mdOverclock = p.getString("md_overclock", "100%") ?: "100%",
-            mdFrameskip = p.getString("md_frameskip", "0") ?: "0",
-            mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled",
-            mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto",
-            mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled",
+            mdRegion = p.getString("md_region", "auto") ?: "auto"
+            mdSystem = p.getString("md_system", "auto") ?: "auto"
+            mdAspect = p.getString("md_aspect", "auto") ?: "auto"
+            mdRender = p.getString("md_render", "normal") ?: "normal"
+            mdNtscFilter = p.getString("md_ntsc_filter", "disabled") ?: "disabled"
+            mdLcdFilter = p.getString("md_lcd_filter", "disabled") ?: "disabled"
+            mdOverscan = p.getString("md_overscan", "disabled") ?: "disabled"
+            mdGgExtra = p.getString("md_gg_extra", "disabled") ?: "disabled"
+            mdLeftBorder = p.getString("md_left_border", "disabled") ?: "disabled"
+            mdInput = p.getString("md_input", "6 button") ?: "6 button"
+            mdAllowUpDown = p.getString("md_allow_up_down", "disabled") ?: "disabled"
+            mdOverclock = p.getString("md_overclock", "100%") ?: "100%"
+            mdFrameskip = p.getString("md_frameskip", "0") ?: "0"
+            mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled"
+            mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto"
+            mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled"
             // PSX (PCSX-ReARMed) options
-            pscxBios = p.getString("psx_bios", "auto") ?: "auto",
-            pscxRegion = p.getString("psx_region", "auto") ?: "auto",
-            pscxFrameskipType = p.getString("psx_frameskip_type", "disabled") ?: "disabled",
-            pscxFrameskip = p.getString("psx_frameskip", "0") ?: "0",
-            pscxPad1Type = p.getString("psx_pad1_type", "standard") ?: "standard",
-            pscxPad2Type = p.getString("psx_pad2_type", "standard") ?: "standard",
-            pscxVibration = p.getString("psx_vibration", "enabled") ?: "enabled",
-            pscxDithering = p.getString("psx_dithering", "enabled") ?: "enabled",
-            pscxSpuInterp = p.getString("psx_spu_interp", "simple") ?: "simple",
-            pscxSpuReverb = p.getString("psx_spu_reverb", "enabled") ?: "enabled",
-            pscxShowBootlogo = p.getString("psx_show_bootlogo", "disabled") ?: "disabled",
-            pscxCdReadahead = p.getString("psx_cd_readahead", "12") ?: "12",
-            pscxMemcard1 = p.getString("psx_memcard1", "libretro") ?: "libretro",
-            pscxMemcard2 = p.getString("psx_memcard2", "shared") ?: "shared",
-            pscxDrc = p.getString("psx_drc", "enabled") ?: "enabled",
-            pscxClock = p.getString("psx_clock", "auto") ?: "auto",
-            pscxRgb32 = p.getString("psx_rgb32", "disabled") ?: "disabled",
-            pscxScaleHires = p.getString("psx_scale_hires", "disabled") ?: "disabled",
-            pscxShowOverscan = p.getString("psx_show_overscan", "disabled") ?: "disabled",
-            pscxMultitap = p.getString("psx_multitap", "disabled") ?: "disabled",
-            pscxGpuOddEven = p.getString("psx_gpu_odd_even", "disabled") ?: "disabled",
-            pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square",
+            pscxBios = p.getString("psx_bios", "auto") ?: "auto"
+            pscxRegion = p.getString("psx_region", "auto") ?: "auto"
+            pscxFrameskipType = p.getString("psx_frameskip_type", "disabled") ?: "disabled"
+            pscxFrameskip = p.getString("psx_frameskip", "0") ?: "0"
+            pscxPad1Type = p.getString("psx_pad1_type", "standard") ?: "standard"
+            pscxPad2Type = p.getString("psx_pad2_type", "standard") ?: "standard"
+            pscxVibration = p.getString("psx_vibration", "enabled") ?: "enabled"
+            pscxDithering = p.getString("psx_dithering", "enabled") ?: "enabled"
+            pscxSpuInterp = p.getString("psx_spu_interp", "simple") ?: "simple"
+            pscxSpuReverb = p.getString("psx_spu_reverb", "enabled") ?: "enabled"
+            pscxShowBootlogo = p.getString("psx_show_bootlogo", "disabled") ?: "disabled"
+            pscxCdReadahead = p.getString("psx_cd_readahead", "12") ?: "12"
+            pscxMemcard1 = p.getString("psx_memcard1", "libretro") ?: "libretro"
+            pscxMemcard2 = p.getString("psx_memcard2", "shared") ?: "shared"
+            pscxDrc = p.getString("psx_drc", "enabled") ?: "enabled"
+            pscxClock = p.getString("psx_clock", "auto") ?: "auto"
+            pscxRgb32 = p.getString("psx_rgb32", "disabled") ?: "disabled"
+            pscxScaleHires = p.getString("psx_scale_hires", "disabled") ?: "disabled"
+            pscxShowOverscan = p.getString("psx_show_overscan", "disabled") ?: "disabled"
+            pscxMultitap = p.getString("psx_multitap", "disabled") ?: "disabled"
+            pscxGpuOddEven = p.getString("psx_gpu_odd_even", "disabled") ?: "disabled"
+            pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square"
             // === Arcade extras ===
-            btnL2 = loadBtn(p, "btn_l2", ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48)),
-            btnR2 = loadBtn(p, "btn_r2", ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48)),
-            btnL2P = loadBtn(p, "p_btn_l2", ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46)),
-            btnR2P = loadBtn(p, "p_btn_r2", ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46)),
-            arcadeShowL2R2 = p.getBoolean("arcade_show_l2r2", false),
-            arcadeInputMode = p.getString("arcade_input_mode", "dpad") ?: "dpad",
+            btnL2 = loadBtn(p, "btn_l2", ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48))
+            btnR2 = loadBtn(p, "btn_r2", ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48))
+            btnL2P = loadBtn(p, "p_btn_l2", ButtonLayout(x = 0.10f, y = 0.28f, sizeDp = 46))
+            btnR2P = loadBtn(p, "p_btn_r2", ButtonLayout(x = 0.90f, y = 0.28f, sizeDp = 46))
+            arcadeShowL2R2 = p.getBoolean("arcade_show_l2r2", false)
+            arcadeInputMode = p.getString("arcade_input_mode", "dpad") ?: "dpad"
             // === Combo buttons (per-platform JSON) ===
-            comboButtons = p.getString("combo_buttons", "") ?: "",
-            comboButtonsSfc = p.getString("combo_buttons_sfc", "") ?: "",
-            comboButtonsGba = p.getString("combo_buttons_gba", "") ?: "",
-            comboButtonsArcade = p.getString("combo_buttons_arcade", "") ?: "",
-            comboButtonsMd = p.getString("combo_buttons_md", "") ?: "",
-            comboButtonsPce = p.getString("combo_buttons_pce", "") ?: "",
+            comboButtons = p.getString("combo_buttons", "") ?: ""
+            comboButtonsSfc = p.getString("combo_buttons_sfc", "") ?: ""
+            comboButtonsGba = p.getString("combo_buttons_gba", "") ?: ""
+            comboButtonsArcade = p.getString("combo_buttons_arcade", "") ?: ""
+            comboButtonsMd = p.getString("combo_buttons_md", "") ?: ""
+            comboButtonsPce = p.getString("combo_buttons_pce", "") ?: ""
             // PCE button visibility toggles
-            pceShowDpad = p.getBoolean("pce_show_dpad", true),
-            pceShowA = p.getBoolean("pce_show_a", true),
-            pceShowB = p.getBoolean("pce_show_b", true),
-            pceShowStart = p.getBoolean("pce_show_start", true),
-            pceShowSelect = p.getBoolean("pce_show_select", true),
-            pceShowL = p.getBoolean("pce_show_l", true),
-            pceShowR = p.getBoolean("pce_show_r", true),
-            pceShowX = p.getBoolean("pce_show_x", true),
-            pceShowY = p.getBoolean("pce_show_y", true),
-            pceShowL2 = p.getBoolean("pce_show_l2", true),
-            pceShowR2 = p.getBoolean("pce_show_r2", true),
+            pceShowDpad = p.getBoolean("pce_show_dpad", true)
+            pceShowA = p.getBoolean("pce_show_a", true)
+            pceShowB = p.getBoolean("pce_show_b", true)
+            pceShowStart = p.getBoolean("pce_show_start", true)
+            pceShowSelect = p.getBoolean("pce_show_select", true)
+            pceShowL = p.getBoolean("pce_show_l", true)
+            pceShowR = p.getBoolean("pce_show_r", true)
+            pceShowX = p.getBoolean("pce_show_x", true)
+            pceShowY = p.getBoolean("pce_show_y", true)
+            pceShowL2 = p.getBoolean("pce_show_l2", true)
+            pceShowR2 = p.getBoolean("pce_show_r2", true)
             // === Per-platform hidden button lists ===
-            hiddenButtons = p.getString("hidden_buttons", "") ?: "",
-            hiddenButtonsSfc = p.getString("hidden_buttons_sfc", "") ?: "",
-            hiddenButtonsGba = p.getString("hidden_buttons_gba", "") ?: "",
-            hiddenButtonsArcade = p.getString("hidden_buttons_arcade", "") ?: "",
-            hiddenButtonsMd = p.getString("hidden_buttons_md", "") ?: "",
-            hiddenButtonsPce = p.getString("hidden_buttons_pce", "") ?: "",
-            hiddenButtonsNds = p.getString("hidden_buttons_nds", "") ?: "",
-            hiddenButtonsPsx = p.getString("hidden_buttons_psx", "") ?: "",
+            hiddenButtons = p.getString("hidden_buttons", "") ?: ""
+            hiddenButtonsSfc = p.getString("hidden_buttons_sfc", "") ?: ""
+            hiddenButtonsGba = p.getString("hidden_buttons_gba", "") ?: ""
+            hiddenButtonsArcade = p.getString("hidden_buttons_arcade", "") ?: ""
+            hiddenButtonsMd = p.getString("hidden_buttons_md", "") ?: ""
+            hiddenButtonsPce = p.getString("hidden_buttons_pce", "") ?: ""
+            hiddenButtonsNds = p.getString("hidden_buttons_nds", "") ?: ""
+            hiddenButtonsPsx = p.getString("hidden_buttons_psx", "") ?: ""
             // === Input mode ===
             inputMode = p.getString("input_mode", "dpad") ?: "dpad"
-        )
+    }
     }
 
     fun save(ctx: Context, layout: PadLayout) {
@@ -1295,27 +1564,27 @@ object PadLayoutStore {
         return when (platform) {
             GamePlatform.PCE -> {
                 when (key) {
-                    "dpad" -> layout.copy(pceShowDpad = !hidden)
-                    "a" -> layout.copy(pceShowA = !hidden)
-                    "b" -> layout.copy(pceShowB = !hidden)
-                    "start" -> layout.copy(pceShowStart = !hidden)
-                    "select" -> layout.copy(pceShowSelect = !hidden)
-                    "l" -> layout.copy(pceShowL = !hidden)
-                    "r" -> layout.copy(pceShowR = !hidden)
-                    "x" -> layout.copy(pceShowX = !hidden)
-                    "y" -> layout.copy(pceShowY = !hidden)
-                    "l2" -> layout.copy(pceShowL2 = !hidden)
-                    "r2" -> layout.copy(pceShowR2 = !hidden)
+                    "dpad" -> layout.copy {pceShowDpad = !hidden}
+                    "a" -> layout.copy {pceShowA = !hidden}
+                    "b" -> layout.copy {pceShowB = !hidden}
+                    "start" -> layout.copy {pceShowStart = !hidden}
+                    "select" -> layout.copy {pceShowSelect = !hidden}
+                    "l" -> layout.copy {pceShowL = !hidden}
+                    "r" -> layout.copy {pceShowR = !hidden}
+                    "x" -> layout.copy {pceShowX = !hidden}
+                    "y" -> layout.copy {pceShowY = !hidden}
+                    "l2" -> layout.copy {pceShowL2 = !hidden}
+                    "r2" -> layout.copy {pceShowR2 = !hidden}
                     else -> layout
                 }
             }
-            GamePlatform.NES, GamePlatform.GB -> layout.copy(hiddenButtons = updateHiddenList(layout.hiddenButtons, key, hidden))
-            GamePlatform.SFC -> layout.copy(hiddenButtonsSfc = updateHiddenList(layout.hiddenButtonsSfc, key, hidden))
-            GamePlatform.GBA -> layout.copy(hiddenButtonsGba = updateHiddenList(layout.hiddenButtonsGba, key, hidden))
-            GamePlatform.ARCADE -> layout.copy(hiddenButtonsArcade = updateHiddenList(layout.hiddenButtonsArcade, key, hidden))
-            GamePlatform.MD -> layout.copy(hiddenButtonsMd = updateHiddenList(layout.hiddenButtonsMd, key, hidden))
-            GamePlatform.NDS -> layout.copy(hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden))
-            GamePlatform.PSX -> layout.copy(hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden))
+            GamePlatform.NES, GamePlatform.GB -> layout.copy {hiddenButtons = updateHiddenList(layout.hiddenButtons, key, hidden)}
+            GamePlatform.SFC -> layout.copy {hiddenButtonsSfc = updateHiddenList(layout.hiddenButtonsSfc, key, hidden)}
+            GamePlatform.GBA -> layout.copy {hiddenButtonsGba = updateHiddenList(layout.hiddenButtonsGba, key, hidden)}
+            GamePlatform.ARCADE -> layout.copy {hiddenButtonsArcade = updateHiddenList(layout.hiddenButtonsArcade, key, hidden)}
+            GamePlatform.MD -> layout.copy {hiddenButtonsMd = updateHiddenList(layout.hiddenButtonsMd, key, hidden)}
+            GamePlatform.NDS -> layout.copy {hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden)}
+            GamePlatform.PSX -> layout.copy {hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden)}
             else -> layout
         }
     }
@@ -1335,9 +1604,9 @@ object PadLayoutStore {
      */
     fun setInputMode(layout: PadLayout, platform: GamePlatform, mode: String): PadLayout {
         return if (platform == GamePlatform.ARCADE) {
-            layout.copy(arcadeInputMode = mode)
+            layout.copy {arcadeInputMode = mode}
         } else {
-            layout.copy(inputMode = mode)
+            layout.copy {inputMode = mode}
         }
     }
 
