@@ -323,6 +323,7 @@ class PadLayout {
 
     // === NDS (melonDS) core options ===
     // Keys must match melonDS libretro frontend's option declarations.
+    var ndsUseFwBios: String = "enabled"               // enabled | disabled (use built-in FreeBIOS, no BIOS files needed)
     var ndsConsoleMode: String = "ds"                  // ds | dsi
     var ndsScreenLayout: String = "top_bottom"          // top_bottom | bottom_top | left_right | right_left | top_only | bottom_only | turnscreen
     var ndsResolution: String = "1"                    // 1 | 2 | 3 | 4 | 5 (software renderer upscale factor)
@@ -636,6 +637,7 @@ class PadLayout {
         pceTurbotap = another.pceTurbotap
         pceMb128 = another.pceMb128
         pceAllowUpDown = another.pceAllowUpDown
+        ndsUseFwBios = another.ndsUseFwBios
         ndsConsoleMode = another.ndsConsoleMode
         ndsScreenLayout = another.ndsScreenLayout
         ndsResolution = another.ndsResolution
@@ -1123,6 +1125,17 @@ object PadLayoutStore {
             mdCdFastboot = p.getString("md_cd_fastboot", "enabled") ?: "enabled"
             mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto"
             mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled"
+            // NDS (melonDS) options
+            ndsUseFwBios = p.getString("nds_use_fw_bios", "enabled") ?: "enabled"
+            ndsConsoleMode = p.getString("nds_console_mode", "ds") ?: "ds"
+            ndsScreenLayout = p.getString("nds_screen_layout", "top_bottom") ?: "top_bottom"
+            ndsResolution = p.getString("nds_resolution", "1") ?: "1"
+            ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"
+            ndsScreensaver = p.getString("nds_screensaver", "disabled") ?: "disabled"
+            ndsTouchMode = p.getString("nds_touch_mode", "mouse") ?: "mouse"
+            ndsMouseSpeed = p.getString("nds_mouse_speed", "100") ?: "100"
+            ndsDsiSdcard = p.getString("nds_dsi_sdcard", "disabled") ?: "disabled"
+            ndsRandomizeMac = p.getString("nds_randomize_mac", "disabled") ?: "disabled"
             // PSX (PCSX-ReARMed) options
             pscxBios = p.getString("psx_bios", "auto") ?: "auto"
             pscxRegion = p.getString("psx_region", "auto") ?: "auto"
@@ -1453,6 +1466,17 @@ object PadLayoutStore {
             putString("md_cd_fastboot", layout.mdCdFastboot)
             putString("md_sms_fm", layout.mdSmsFm)
             putString("md_gg_stretch", layout.mdGgStretch)
+            // NDS (melonDS) options
+            putString("nds_use_fw_bios", layout.ndsUseFwBios)
+            putString("nds_console_mode", layout.ndsConsoleMode)
+            putString("nds_screen_layout", layout.ndsScreenLayout)
+            putString("nds_resolution", layout.ndsResolution)
+            putString("nds_filtering", layout.ndsFiltering)
+            putString("nds_screensaver", layout.ndsScreensaver)
+            putString("nds_touch_mode", layout.ndsTouchMode)
+            putString("nds_mouse_speed", layout.ndsMouseSpeed)
+            putString("nds_dsi_sdcard", layout.ndsDsiSdcard)
+            putString("nds_randomize_mac", layout.ndsRandomizeMac)
             // === PSX (PCSX-ReARMed) ===
             putString("psx_bios", layout.pscxBios)
             putString("psx_region", layout.pscxRegion)

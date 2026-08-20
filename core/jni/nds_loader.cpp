@@ -239,6 +239,12 @@ static void initDefaultOptions() {
         }
     };
 
+    // --- BIOS / Boot ---
+    // Enable built-in FreeBIOS so games boot without requiring external
+    // bios7.bin / bios9.bin / firmware.bin files. The user can disable
+    // this in Settings → NDS to use real BIOS files for better accuracy.
+    setIfMissing("melonds_use_fw_bios",            "enabled");
+
     // --- Display / Layout ---
     setIfMissing("melonds_screen_layout",          "top_bottom");
     setIfMissing("melonds_screensaver",            "disabled");

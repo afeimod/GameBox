@@ -686,7 +686,7 @@ fun EmulatorScreen(
                    padLayout.pceNoSpriteLimit, padLayout.pcePalette, padLayout.pceCdromBios,
                    padLayout.pceTurbotap, padLayout.pceMb128, padLayout.pceAllowUpDown,
                    // NDS / melonDS options
-                   padLayout.ndsConsoleMode, padLayout.ndsScreenLayout, padLayout.ndsResolution,
+                   padLayout.ndsUseFwBios, padLayout.ndsConsoleMode, padLayout.ndsScreenLayout, padLayout.ndsResolution,
                    padLayout.ndsFiltering, padLayout.ndsScreensaver, padLayout.ndsTouchMode,
                    padLayout.ndsMouseSpeed, padLayout.ndsDsiSdcard, padLayout.ndsRandomizeMac,
                    // PSX / PCSX-ReARMed options
@@ -1902,6 +1902,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
         }
         GamePlatform.NDS -> {
             // melonDS core options — keys match melonDS libretro frontend.
+            engine.setCoreOption("melonds_use_fw_bios", layout.ndsUseFwBios)
             engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)
             engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout)
             engine.setCoreOption("melonds_opengl_resolution", layout.ndsResolution)
@@ -6524,7 +6525,84 @@ private fun SettingsPanel(
                 PceBiosImportSection()
             }
             GamePlatform.NDS -> {
-                // NDS / DSi BIOS import section (melonDS)
+                Text("NDS / DSi (melonDS) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+                Text("melonDS 内置 FreeBIOS，默认无需 BIOS 文件即可运行 NDS 游戏。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
+                Text("如使用真实 BIOS 可获得更好的兼容性，请在下方关闭「内置 BIOS」并导入 BIOS 文件。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
+
+                Spacer(Modifier.size(6.dp))
+                Text("系统", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("内置 BIOS (免 BIOS)",
+                    listOf("enabled" to "开启(无需 BIOS 文件)", "disabled" to "关闭(需导入 BIOS)"),
+                    padLayout.ndsUseFwBios
+                ) { onLayoutChange(padLayout.copy {ndsUseFwBios = it}) }
+
+                DropdownSetting("主机模式",
+                    listOf("ds" to "DS", "dsi" to "DSi"),
+                    padLayout.ndsConsoleMode
+                ) { onLayoutChange(padLayout.copy {ndsConsoleMode = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("屏幕布局", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("屏幕排列",
+                    listOf("top_bottom" to "上下排列(上屏在上)",
+                           "bottom_top" to "下上排列(下屏在上)",
+                           "left_right" to "左右排列(左屏在上)",
+                           "right_left" to "右左排列(右屏在上)",
+                           "top_only" to "仅上方屏",
+                           "bottom_only" to "仅下方屏",
+                           "turnscreen" to "旋转屏"),
+                    padLayout.ndsScreenLayout
+                ) { onLayoutChange(padLayout.copy {ndsScreenLayout = it}) }
+
+                DropdownSetting("渲染分辨率",
+                    listOf("1" to "1x (原生)", "2" to "2x", "3" to "3x", "4" to "4x", "5" to "5x"),
+                    padLayout.ndsResolution
+                ) { onLayoutChange(padLayout.copy {ndsResolution = it}) }
+
+                DropdownSetting("OpenGL 过滤",
+                    listOf("nearest" to "最近邻(锐利)", "linear" to "线性(平滑)"),
+                    padLayout.ndsFiltering
+                ) { onLayoutChange(padLayout.copy {ndsFiltering = it}) }
+
+                DropdownSetting("屏保",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.ndsScreensaver
+                ) { onLayoutChange(padLayout.copy {ndsScreensaver = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("触摸/输入", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("触摸模式",
+                    listOf("mouse" to "鼠标", "touch" to "触摸", "disabled" to "关闭"),
+                    padLayout.ndsTouchMode
+                ) { onLayoutChange(padLayout.copy {ndsTouchMode = it}) }
+
+                DropdownSetting("鼠标速度",
+                    listOf("50" to "50%", "75" to "75%", "100" to "100%",
+                           "125" to "125%", "150" to "150%", "175" to "175%", "200" to "200%"),
+                    padLayout.ndsMouseSpeed
+                ) { onLayoutChange(padLayout.copy {ndsMouseSpeed = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("DSi 模式", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("DSi SD 卡",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.ndsDsiSdcard
+                ) { onLayoutChange(padLayout.copy {ndsDsiSdcard = it}) }
+
+                DropdownSetting("随机 MAC 地址",
+                    listOf("disabled" to "关闭", "enabled" to "开启"),
+                    padLayout.ndsRandomizeMac
+                ) { onLayoutChange(padLayout.copy {ndsRandomizeMac = it}) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("NDS BIOS 管理", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(4.dp))
                 NdsBiosImportSection()
             }
@@ -7219,22 +7297,26 @@ private fun PceBiosImportSection() {
 /**
  * NDS / DSi BIOS import section for the melonDS core.
  *
- * melonDS requires BIOS files in <filesDir>/nds/:
- *   bios7.bin      — ARM7 BIOS (required for NDS)
- *   bios9.bin      — ARM9 BIOS (required for NDS)
- *   firmware.bin   — DS firmware (required for NDS)
- *   dsi_arm7.bin   — (DSi only) ARM7 binary
- *   dsi_bios7.bin  — (DSi only) ARM7 BIOS
- *   dsi_bios9.bin  — (DSi only) ARM9 BIOS
- *   dsi_firmware.bin — (DSi only) DSi firmware
- *   dsi_nand.bin   — (DSi only) DSi NAND image
+ * melonDS can use either:
+ *   1. Built-in FreeBIOS (no file needed) — enabled via "melonds_use_fw_bios"="enabled"
+ *   2. Real BIOS files in <filesDir>/nds/:
+ *      bios7.bin      — ARM7 BIOS (required for NDS)
+ *      bios9.bin      — ARM9 BIOS (required for NDS)
+ *      firmware.bin   — DS firmware (required for NDS)
+ *      dsi_arm7.bin   — (DSi only) ARM7 binary
+ *      dsi_bios7.bin  — (DSi only) ARM7 BIOS
+ *      dsi_bios9.bin  — (DSi only) ARM9 BIOS
+ *      dsi_firmware.bin — (DSi only) DSi firmware
+ *      dsi_nand.bin   — (DSi only) DSi NAND image
+ *
+ * The "melonds_use_fw_bios" core option (default: enabled) controls whether
+ * to use the built-in FreeBIOS or require external BIOS files. When set to
+ * "enabled", the built-in ARM7/ARM9 BIOS replacement and generated firmware
+ * are used — no BIOS files needed. Set to "disabled" to use real BIOS files
+ * for better accuracy.
  *
  * These BIOS files have copyright and cannot be bundled with the app.
- * Users provide them via this import UI.
- *
- * Also supports "免 BIOS" mode via the core option "melonds_console_mode" —
- * but melonDS libretro always requires the BIOS files. There's no HLE BIOS
- * mode in melonDS (unlike PCSX-ReARMed). So this section just imports files.
+ * Users provide them via this import UI when FreeBIOS is disabled.
  */
 @Composable
 private fun NdsBiosImportSection() {
@@ -7278,9 +7360,9 @@ private fun NdsBiosImportSection() {
                 }
             }
             if (found < 3) {
-                append("\n⚠ NDS 至少需要 bios7.bin + bios9.bin + firmware.bin\n")
-                append("DSi 模式还需要 dsi_*.bin 系列\n")
-                append("melonDS 没有 HLE 免 BIOS 模式（必须提供 BIOS 文件）\n")
+                append("\nℹ 内置 FreeBIOS 已开启，无需 BIOS 文件即可运行 NDS 游戏\n")
+                append("如需使用真实 BIOS 以获得更好兼容性，请导入 bios7.bin + bios9.bin + firmware.bin\n")
+                append("并在设置中关闭「内置 BIOS」选项\n")
             }
             append("\n目录: ${biosDir.absolutePath}")
         }

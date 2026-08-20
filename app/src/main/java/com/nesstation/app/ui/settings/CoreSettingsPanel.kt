@@ -657,6 +657,10 @@ fun CoreSettingsPanel(
             }
             GamePlatform.NDS -> item {
                 SettingsSection("NDS / DSi (melonDS)") {
+                    DropdownRow("内置 BIOS (免 BIOS)",
+                        listOf("enabled" to "开启(无需 BIOS 文件)", "disabled" to "关闭(需导入 BIOS)"),
+                        padLayout.ndsUseFwBios
+                    ) { updateLayout(padLayout.copy {ndsUseFwBios = it}) }
                     DropdownRow("主机模式",
                         listOf("ds" to "DS", "dsi" to "DSi"),
                         padLayout.ndsConsoleMode
