@@ -14,6 +14,15 @@
 
 # ─── Storage layer ─────────────────────────────────────────────────────────
 -keep class com.nesstation.app.core.storage.** { *; }
+# Prevent R8 from optimizing these classes — dense method calls in
+# EmulatorScreen trigger R8 VerifyError (expected 8 arg registers,
+# method signature has 9 or more) when R8 inlines isButtonHidden/setButtonHidden.
+-dontoptimize class com.nesstation.app.core.storage.PadLayoutStore { *; }
+-dontoptimize class com.nesstation.app.core.storage.PadLayout { *; }
+
+# ─── EmulatorScreen: prevent R8 from optimizing the massive OnScreenController
+# and PadLayoutEditor composables which call PadLayoutStore methods densely.
+-dontoptimize class com.nesstation.app.ui.emulator.EmulatorScreenKt { *; }
 
 # ─── J2ME-Loader: keep all emulator classes (prevent R8 stripping) ────────
 -keep class javax.** { *; }
