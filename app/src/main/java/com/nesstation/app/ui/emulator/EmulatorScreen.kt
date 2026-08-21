@@ -49,6 +49,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CameraAlt
+import com.nesstation.app.ui.swf.NdsScreenPositionEditor
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -1841,7 +1842,7 @@ fun EmulatorScreen(
                         }
                     }
                 },
-                update = { ed ->
+                update = { ed: NdsScreenPositionEditor ->
                     ed.setRects(ndsTopRect, ndsBottomRect)
                 },
                 modifier = Modifier.fillMaxSize()
@@ -2219,7 +2220,7 @@ private fun GameSurfaceView(
             AndroidView(
                 factory = { ctx ->
                     NdsDualScreenView(ctx).apply {
-                        uiBlocked = uiBlocked
+                        this.uiBlocked = uiBlocked
                         setRects(ndsTopRect, ndsBottomRect)
                         // 设置焦点以便接收物理手柄 / 键盘按键
                         isFocusable = true

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.Choreographer
@@ -110,11 +111,23 @@ class NdsDualScreenView @JvmOverloads constructor(
 
         if (topSrc != null) {
             val dst = rectToViewRect(topRect, viewW, viewH)
-            canvas.drawBitmap(bmp, topSrc, dst, paint)
+            val srcRect = Rect(
+                topSrc.left.toInt(),
+                topSrc.top.toInt(),
+                topSrc.right.toInt(),
+                topSrc.bottom.toInt()
+            )
+            canvas.drawBitmap(bmp, srcRect, dst, paint)
         }
         if (bottomSrc != null) {
             val dst = rectToViewRect(bottomRect, viewW, viewH)
-            canvas.drawBitmap(bmp, bottomSrc, dst, paint)
+            val srcRect = Rect(
+                bottomSrc.left.toInt(),
+                bottomSrc.top.toInt(),
+                bottomSrc.right.toInt(),
+                bottomSrc.bottom.toInt()
+            )
+            canvas.drawBitmap(bmp, srcRect, dst, paint)
         }
     }
 
@@ -165,7 +178,7 @@ class NdsDualScreenView @JvmOverloads constructor(
         val viewH = height.coerceAtLeast(1)
         val (_topSrc, bottomSrc) = computeSrcRects(vw, vh)
 
-        when (event.actionMasked) {
+        return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                 val bottomDst = rectToViewRect(bottomRect, viewW, viewH)
                 val src = bottomSrc
