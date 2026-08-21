@@ -61,7 +61,10 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
     // C++ per-pixel scaler runs (sharper but heavier CPU).
     // When false, set the buffer to source resolution for a fast 1:1 blit.
     if (!highQualityScaling) {
-        ANativeWindow_setBuffersGeometry(window, w, h, WINDOW_FORMAT_RGBA_8888);
+        int32_t geomRc = ANativeWindow_setBuffersGeometry(window, (int32_t)w, (int32_t)h, WINDOW_FORMAT_RGBA_8888);
+        if (geomRc != 0) {
+            LOGE("ANativeWindow_setBuffersGeometry(%ux%u) failed: %d", w, h, geomRc);
+        }
     }
 
     ANativeWindow_Buffer buf;
@@ -75,8 +78,17 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
     const uint32_t dstW = (uint32_t)buf.width;
     const uint32_t dstH = (uint32_t)buf.height;
     if (dstW == 0 || dstH == 0) {
+        LOGW("blitToSurface: buffer has zero dimensions (%ux%u) — skipping", dstW, dstH);
         ANativeWindow_unlockAndPost(window);
         return;
+    }
+    // Log buffer dimensions on first frame or when they change
+    static uint32_t lastDstW = 0, lastDstH = 0;
+    if (dstW != lastDstW || dstH != lastDstH) {
+        LOGI("blitToSurface: src=%ux%u dst=%ux%u fmt=%d hq=%d",
+             w, h, dstW, dstH, buf.format, highQualityScaling ? 1 : 0);
+        lastDstW = dstW;
+        lastDstH = dstH;
     }
 
     // Fast path: 1:1 copy when source and destination match.
@@ -658,7 +670,14 @@ static inline void setSurface(ANativeWindow*& window, std::mutex& windowMtx,
     if (nativeWindow) {
         window = static_cast<ANativeWindow*>(nativeWindow);
         ANativeWindow_acquire(window);
-        ANativeWindow_setBuffersGeometry(window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        int32_t geomRc = ANativeWindow_setBuffersGeometry(window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        if (geomRc != 0) {
+            LOGE("setSurface: ANativeWindow_setBuffersGeometry(0,0) failed: %d", geomRc);
+        } else {
+            LOGI("setSurface: window attached (0x0 -> display resolution)");
+        }
+    } else {
+        LOGI("setSurface: window detached");
     }
 }
 

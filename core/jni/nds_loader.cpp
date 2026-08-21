@@ -563,6 +563,7 @@ static void libretroLog(retro_log_level level, const char* fmt, ...) {
 }
 
 static bool cb_environment(unsigned cmd, void* data) {
+    LOGI("cb_environment cmd=%u", cmd);
     switch (cmd) {
         case RETRO_ENVIRONMENT_GET_CAN_DUPE:
             if (data) *static_cast<bool*>(data) = true;
@@ -669,6 +670,13 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
             return true;
 
+        // Handle both old (13) and new (14) values of SET_HW_RENDER.
+        // Some prebuilt melonDS cores were compiled with an older libretro.h
+        // where the value was 13, while our libretro.h uses 14.
+        case 13:
+            LOGI("HW render requested (old API, value=13) — falling back to software rendering");
+            return false;
+
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
             // melonDS libretro core requests an OpenGL ES context for
             // hardware-accelerated 3D rendering. We must accept this
@@ -726,10 +734,24 @@ static bool cb_environment(unsigned cmd, void* data) {
 }
 
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
-    if (!data) return;
+    if (!data) {
+        LOGW("cb_video: data is NULL (dupe frame)");
+        return;
+    }
+
+    // Auto-detect pixel format from pitch if the core didn't set it.
+    // XRGB8888: pitch = width * 4, RGB565/0RGB1555: pitch = width * 2.
+    if (s_pixelFormat == RETRO_PIXEL_FORMAT_0RGB1555 && pitch >= width * 4) {
+        s_pixelFormat = RETRO_PIXEL_FORMAT_XRGB8888;
+        LOGI("cb_video: auto-detected XRGB8888 from pitch=%zu (w=%u)", pitch, width);
+    } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_0RGB1555 && pitch == width * 2) {
+        s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+    }
 
     s_videoW = width;
     s_videoH = height;
+
+    LOGI("cb_video: %ux%u pitch=%zu fmt=%u", width, height, pitch, s_pixelFormat);
 
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
@@ -1121,7 +1143,10 @@ void resetEmulation(bool /*hard*/) {
 }
 
 void stepFrame() {
-    if (!s_loaded || !s_gameLoaded) return;
+    if (!s_loaded || !s_gameLoaded) {
+        LOGW("stepFrame: not loaded (s_loaded=%d s_gameLoaded=%d)", s_loaded, s_gameLoaded);
+        return;
+    }
 
     // Ensure the EGL context is current on the emulation thread
     // before calling retro_run(). The melonDS core's 3D renderer

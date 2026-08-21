@@ -1975,8 +1975,15 @@ private fun GameSurfaceView(
         isPortrait -> Alignment.TopCenter
         else -> Alignment.Center
     }
+    // Auto-select "2:3" aspect ratio for NDS dual-screen if the user hasn't
+    // explicitly changed the videoScale from the default "stretch".
+    val effectiveVideoScale = if (videoScale == "stretch" && platform == GamePlatform.NDS) {
+        "2:3"
+    } else {
+        videoScale
+    }
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
-        val surfaceModifier = when (videoScale) {
+        val surfaceModifier = when (effectiveVideoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
             "2:3" -> Modifier.aspectRatio(2f / 3f)   // NDS 双屏 (256x384)
             "3:2" -> Modifier.aspectRatio(3f / 2f)   // GBA 原生比例 (240x160)
