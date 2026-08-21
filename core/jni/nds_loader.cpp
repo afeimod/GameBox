@@ -238,11 +238,13 @@ static retro_hw_context_reset_t s_hwContextReset = nullptr;
 static retro_hw_context_reset_t s_hwContextDestroy = nullptr;
 
 // ---------------------------------------------------------------------------
-// Create an offscreen EGL context for OpenGL ES 2.0 rendering.
+// Create an offscreen EGL context for OpenGL ES rendering.
+// Supports both ES 2.0 and ES 3.0 based on the core's request.
 // Uses a small Pbuffer surface (1x1) — the melonDS core renders to its
 // own framebuffer objects internally.
 // ---------------------------------------------------------------------------
-static bool createEglContext() {
+static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
+                              int versionMajor = 2, int versionMinor = 0) {
     if (s_eglInitialized) return true;
 
     s_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -259,10 +261,23 @@ static bool createEglContext() {
     }
     LOGI("EGL initialized: %d.%d", major, minor);
 
+    // Determine the EGL renderable type and client version based on the
+    // core's HW render request. If the core requests ES 3.0 (either via
+    // RETRO_HW_CONTEXT_OPENGLES3 or RETRO_HW_CONTEXT_OPENGLES_VERSION
+    // with version >= 3), we try ES 3.0 first, falling back to ES 2.0.
+    EGLint renderableType = EGL_OPENGL_ES2_BIT;
+    EGLint clientVersion = 2;
+    bool wantES3 = (contextType == RETRO_HW_CONTEXT_OPENGLES3) ||
+                   (contextType == RETRO_HW_CONTEXT_OPENGLES_VERSION && versionMajor >= 3);
+    if (wantES3) {
+        renderableType = EGL_OPENGL_ES3_BIT;
+        clientVersion = 3;
+    }
+
     // Choose config with RGBA 8888, depth 24, stencil 8.
     // melonDS needs depth for 3D rendering and stencil for some effects.
-    const EGLint attribs[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+    EGLint attribs[] = {
+        EGL_RENDERABLE_TYPE, renderableType,
         EGL_SURFACE_TYPE,    EGL_PBUFFER_BIT,
         EGL_RED_SIZE,        8,
         EGL_GREEN_SIZE,      8,
@@ -275,10 +290,24 @@ static bool createEglContext() {
     EGLConfig config;
     EGLint numConfigs;
     if (!eglChooseConfig(s_eglDisplay, attribs, &config, 1, &numConfigs) || numConfigs == 0) {
-        LOGE("eglChooseConfig failed: 0x%x", eglGetError());
-        eglTerminate(s_eglDisplay);
-        s_eglDisplay = EGL_NO_DISPLAY;
-        return false;
+        if (wantES3) {
+            // ES 3.0 config not available — fall back to ES 2.0
+            LOGW("ES 3.0 config not available, falling back to ES 2.0");
+            renderableType = EGL_OPENGL_ES2_BIT;
+            clientVersion = 2;
+            attribs[1] = renderableType;
+            if (!eglChooseConfig(s_eglDisplay, attribs, &config, 1, &numConfigs) || numConfigs == 0) {
+                LOGE("eglChooseConfig failed (ES 2.0 fallback): 0x%x", eglGetError());
+                eglTerminate(s_eglDisplay);
+                s_eglDisplay = EGL_NO_DISPLAY;
+                return false;
+            }
+        } else {
+            LOGE("eglChooseConfig failed: 0x%x", eglGetError());
+            eglTerminate(s_eglDisplay);
+            s_eglDisplay = EGL_NO_DISPLAY;
+            return false;
+        }
     }
 
     // Create a small Pbuffer surface — just needs to be valid for the
@@ -296,9 +325,9 @@ static bool createEglContext() {
         return false;
     }
 
-    // Create OpenGL ES 2.0 context.
+    // Create OpenGL ES context with the appropriate client version.
     const EGLint ctxAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_CONTEXT_CLIENT_VERSION, clientVersion,
         EGL_NONE
     };
     s_eglContext = eglCreateContext(s_eglDisplay, config, EGL_NO_CONTEXT, ctxAttribs);
@@ -324,7 +353,8 @@ static bool createEglContext() {
     }
 
     s_eglInitialized = true;
-    LOGI("EGL context created: ES 2.0, Pbuffer 1x1, depth=24, stencil=8");
+    LOGI("EGL context created: ES %d.0, Pbuffer 1x1, depth=24, stencil=8",
+         clientVersion);
     return true;
 }
 
@@ -663,10 +693,13 @@ static bool cb_environment(unsigned cmd, void* data) {
                  hw->version_major, hw->version_minor,
                  hw->bottom_left_origin);
 
-            // Create the EGL context. This must be done before the
-            // core's context_reset is called, because the core needs
-            // a valid GL context to initialize its resources.
-            if (!createEglContext()) {
+            // Create the EGL context matching the core's requested
+            // context type and version. This must be done before
+            // the core's context_reset is called, because the core
+            // needs a valid GL context to initialize its resources.
+            if (!createEglContext(hw->context_type,
+                                  hw->version_major,
+                                  hw->version_minor)) {
                 LOGE("Failed to create EGL context for HW render");
                 // Fall back: return false so the core uses software
                 // rendering. If the core was compiled without software
@@ -960,6 +993,19 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_gameLoaded = true;
     s_lastRomPath = path;
 
+    // CRITICAL: Unbind the EGL context from this (loader/JNI) thread so
+    // the emulation thread can re-bind it via ensureEglContextCurrent().
+    // On some Android EGL implementations, eglMakeCurrent() on a different
+    // thread will fail if the context is still current on this thread.
+    // The context was made current on this thread in createEglContext()
+    // (called from cb_environment/RETRO_ENVIRONMENT_SET_HW_RENDER during
+    // retro_load_game()). After unbinding, the emulation thread's
+    // stepFrame() will re-bind it before each retro_run().
+    if (s_eglInitialized) {
+        eglMakeCurrent(s_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        LOGI("EGL context unbound from loader thread — emulation thread will re-bind");
+    }
+
     // Load SRAM from disk into the core's SAVE_RAM region.
     if (s_retro_get_memory_data && s_retro_get_memory_size) {
         void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
@@ -1027,19 +1073,24 @@ void unload() {
             // in this callback. Must be called before retro_unload_game()
             // because the core may need a valid GL context to clean up.
             if (s_eglInitialized && s_hwContextDestroy) {
-                ensureEglContextCurrent();
-                LOGI("Calling HW context_destroy");
-                s_hwContextDestroy();
+                if (ensureEglContextCurrent()) {
+                    LOGI("Calling HW context_destroy");
+                    s_hwContextDestroy();
+                } else {
+                    LOGW("Cannot make EGL context current for context_destroy, skipping");
+                }
             }
 
             s_retro_unload_game();
             s_gameLoaded = false;
         }
 
-        destroyEglContext();
-
         s_retro_deinit();
         s_loaded = false;
+
+        // Destroy EGL context AFTER retro_deinit() so the core can
+        // clean up any remaining GL resources during deinitialization.
+        destroyEglContext();
     }
     s_hwContextReset = nullptr;
     s_hwContextDestroy = nullptr;
@@ -1077,7 +1128,13 @@ void stepFrame() {
     // needs a valid GL context to render 3D content. Without this,
     // the 3D layer renders as grey.
     if (s_eglInitialized) {
-        ensureEglContextCurrent();
+        if (!ensureEglContextCurrent()) {
+            // EGL context re-bind failed — skip this frame to avoid
+            // the core's 3D renderer operating on a non-current GL
+            // context, which would produce a grey screen.
+            LOGE("ensureEglContextCurrent failed, skipping frame");
+            return;
+        }
     }
 
     s_retro_run();
