@@ -332,13 +332,23 @@ class PadLayout {
     var ndsResolution: String = "1"
     var ndsFiltering: String = "nearest"
     var ndsScreensaver: String = "disabled"
-    var ndsTouchMode: String = "Mouse"                 // Mouse | Touch | Joystick
+    var ndsTouchMode: String = "Touch"                  // Touch | Mouse | Joystick
     var ndsMouseSpeed: String = "100"
     var ndsDsiSdcard: String = "disabled"              // disabled | enabled (DSi mode SD card)
     var ndsRandomizeMac: String = "disabled"           // disabled | enabled (randomize MAC for online play)
     var ndsJitEnable: String = "enabled"               // enabled | disabled (JIT compiler)
     var ndsAudioInterpolation: String = "Cosine"       // Cosine | Linear | Sinc | None
     var ndsUseFwSettings: String = "disabled"          // enabled | disabled (use firmware settings)
+    var ndsScreenGap: String = "0"                     // 0..20 两屏间距
+    var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
+    var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
+    var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
+    var ndsAudioBitrate: String = "Automatic"            // Automatic | 10-bit | 16-bit
+    var ndsJitBlockSize: String = "12"                  // 1..24 JIT 块大小
+    var ndsJitFastMemory: String = "enabled"             // enabled | disabled
+    var ndsJitBranchOptimisations: String = "enabled"    // enabled | disabled
+    var ndsJitLiteralOptimisations: String = "enabled"   // enabled | disabled
+    var ndsHybridSmallScreen: String = "Bottom"          // Bottom | Top | Duplicate
     // === NDS 双屏独立布局 (videoScale == "custom" 时生效) ===
     // 参照 melonDS 官方 Android 布局模型：上屏 / 下屏各占一个独立矩形，
     // 可分别拖动 4 角调整大小、拖动矩形内部移动位置。归一化 0..1，横竖屏分开保存。

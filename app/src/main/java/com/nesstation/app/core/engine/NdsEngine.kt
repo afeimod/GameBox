@@ -30,7 +30,7 @@ import kotlin.concurrent.thread
  *   bit4=Up, bit5=Down, bit6=Left, bit7=Right,
  *   bit8=X, bit9=Y, bit10=L, bit11=R
  *
- * Touchscreen input is supported via [setTouchInput] — pass normalized
+ * Touchscreen input is supported via [setTouchInput] — pass signed
  * coordinates (0..0xFFFF) and a pressed flag. The state is stored in
  * atomics on the native side and read by the core on each frame.
  */

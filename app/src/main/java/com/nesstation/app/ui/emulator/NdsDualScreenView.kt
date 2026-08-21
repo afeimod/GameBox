@@ -186,11 +186,11 @@ class NdsDualScreenView @JvmOverloads constructor(
                     // 触摸点在下屏目标矩形内的归一化 uv
                     val t = ((event.x - bottomDst.left) / bottomDst.width()).toFloat().coerceIn(0f, 1f)
                     val s = ((event.y - bottomDst.top) / bottomDst.height()).toFloat().coerceIn(0f, 1f)
-                    // 映射回合成帧中下屏源区域的坐标，再归一化为 0..0xFFFF
+                    // 映射回合成帧中下屏源区域的坐标，再归一化为有符号 -0x8000..0x7FFF
                     val frameX = src.left + t * src.width()
                     val frameY = src.top + s * src.height()
-                    val x16 = (frameX / vw * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
-                    val y16 = (frameY / vh * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                    val x16 = ((frameX / vw) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+                    val y16 = ((frameY / vh) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
                     eng.setTouchInput(x16, y16, true)
                 } else {
                     // 点击不在触屏（下屏）区域 → 释放触摸

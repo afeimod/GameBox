@@ -7,9 +7,11 @@
 //
 // DS uses the standard 12-button libretro gamepad layout (same bit layout
 // as SNES). The bridge therefore only needs setPad1/2/3/4(int) for input
-// — no keyboard / mouse injection. DS touchscreen input is NOT exposed
-// in this version (the melonDS core supports it via RETRO_DEVICE_POINTER,
-// but we only wire up the standard digital gamepad for now).
+// — no keyboard / mouse injection. DS touchscreen input is exposed via
+// setTouchInput(x, y, pressed) where x/y are 16-bit signed coordinates
+// in [-0x8000, 0x7FFF] mapping to the full composited frame buffer
+// (libretro RETRO_DEVICE_POINTER convention). The melonDS core's Touch
+// mode handles the per-screen touch region check internally.
 //
 // Video resolution is fixed at 256x192 per screen. The default layout
 // stacks the two screens vertically (top+bottom = 256x384), but melonDS

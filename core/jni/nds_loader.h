@@ -11,10 +11,10 @@
 //   * Runtime loading of prebuilt libmelonds_libretro_android.so
 //   * 12-button DS gamepad (RETRO_DEVICE_JOYPAD) on ports 0-3 with the
 //     standard DS layout: D-pad + A/B/X/Y + L/R + Start/Select. DS has
-//     the same 12-button layout as SNES. Touchscreen input is NOT exposed
-//     via this 12-bit field — it requires RETRO_DEVICE_POINTER which we'll
-//     add in a future revision. For now the touch mode defaults to "mouse"
-//     in core options so a hardware mouse would still work via pointer.
+//     the same 12-button layout as SNES.
+//   * DS touchscreen input via RETRO_DEVICE_POINTER (setTouchInput).
+//     Coordinates are 16-bit signed in [-0x8000, 0x7FFF] mapping to the
+//     composited frame buffer, matching the melonDS core Touch mode.
 //   * Fixed 256x192 per-screen frame buffer; default layout stacks both
 //     screens vertically (256x384). melonDS's libretro port renders the
 //     two-screen layout into a single 256x384 (or 512x192 horizontal)

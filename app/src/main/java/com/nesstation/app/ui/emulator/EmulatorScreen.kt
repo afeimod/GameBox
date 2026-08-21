@@ -384,29 +384,30 @@ internal const val BTN_R2 = 0x2000     // bit13 — R2 (Arcade / extra)
 internal const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
 internal const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
 
-// NDS 本机 KEYINPUT 寄存器位布局（与标准 libretro 布局不同）：
-//   bit0=A, bit1=B, bit2=Select, bit3=Start,
-//   bit4=Right, bit5=Left, bit6=Up, bit7=Down,
-//   bit8=R, bit9=L, bit10=X, bit11=Y
-// 将标准 libretro 位掩码转换为 NDS 本机位掩码。
-private fun remapToNdsLayout(bits: Int): Int {
+// 将项目 SNES 风格布局转换为 libretro 标准 JOYPAD 布局。
+// 项目布局：A=bit0, B=bit1, Select=bit2, Start=bit3, Up=bit4, Down=bit5, Left=bit6, Right=bit7,
+//            X=bit8, Y=bit9, L=bit10, R=bit11
+// libretro 标准：B=bit0, Y=bit1, Select=bit2, Start=bit3, Up=bit4, Down=bit5, Left=bit6, Right=bit7,
+//                A=bit8, X=bit9, L=bit10, R=bit11
+// melonDS 内部用 ADD_KEY_TO_MASK(libretro_id, nds_bit) 将 libretro 布局映射到 NDS KEYINPUT。
+private fun projectToLibretroLayout(bits: Int): Int {
     var r = 0
-    if (bits and BTN_A != 0)       r = r or (1 shl 0)   // A
-    if (bits and BTN_B != 0)       r = r or (1 shl 1)   // B
-    if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select
-    if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start
-    if (bits and BTN_RIGHT != 0)   r = r or (1 shl 4)   // DS Right
-    if (bits and BTN_LEFT != 0)    r = r or (1 shl 5)   // DS Left
-    if (bits and BTN_UP != 0)      r = r or (1 shl 6)   // DS Up
-    if (bits and BTN_DOWN != 0)    r = r or (1 shl 7)   // DS Down
-    if (bits and BTN_R_SNES != 0)  r = r or (1 shl 8)   // DS R
-    if (bits and BTN_L_SNES != 0)  r = r or (1 shl 9)   // DS L
-    if (bits and BTN_X != 0)       r = r or (1 shl 10)  // DS X
-    if (bits and BTN_Y != 0)       r = r or (1 shl 11)  // DS Y
-    if (bits and BTN_L2 != 0)      r = r or (1 shl 12)
-    if (bits and BTN_R2 != 0)      r = r or (1 shl 13)
-    if (bits and BTN_L3 != 0)      r = r or (1 shl 14)
-    if (bits and BTN_R3 != 0)      r = r or (1 shl 15)
+    if (bits and BTN_A != 0)       r = r or (1 shl 8)   // proj A(bit0) -> libretro A(bit8)
+    if (bits and BTN_B != 0)       r = r or (1 shl 0)   // proj B(bit1) -> libretro B(bit0)
+    if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select(bit2) -> Select(bit2)
+    if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start(bit3)  -> Start(bit3)
+    if (bits and BTN_UP != 0)      r = r or (1 shl 4)   // Up(bit4)     -> Up(bit4)
+    if (bits and BTN_DOWN != 0)    r = r or (1 shl 5)   // Down(bit5)   -> Down(bit5)
+    if (bits and BTN_LEFT != 0)    r = r or (1 shl 6)   // Left(bit6)   -> Left(bit6)
+    if (bits and BTN_RIGHT != 0)   r = r or (1 shl 7)   // Right(bit7)  -> Right(bit7)
+    if (bits and BTN_X != 0)       r = r or (1 shl 9)   // proj X(bit8) -> libretro X(bit9)
+    if (bits and BTN_Y != 0)       r = r or (1 shl 1)   // proj Y(bit9) -> libretro Y(bit1)
+    if (bits and BTN_L_SNES != 0)  r = r or (1 shl 10)  // L(bit10)     -> L(bit10)
+    if (bits and BTN_R_SNES != 0)  r = r or (1 shl 11)  // R(bit11)     -> R(bit11)
+    if (bits and BTN_L2 != 0)      r = r or (1 shl 12)  // L2
+    if (bits and BTN_R2 != 0)      r = r or (1 shl 13)  // R2
+    if (bits and BTN_L3 != 0)      r = r or (1 shl 14)  // L3
+    if (bits and BTN_R3 != 0)      r = r or (1 shl 15)  // R3
     return r
 }
 
@@ -1961,8 +1962,8 @@ private fun routePadBits(
     netplayController: com.nesstation.app.battle.NetplayController? = null,
     platform: GamePlatform = GamePlatform.NES
 ) {
-    // NDS 使用本机 KEYINPUT 寄存器位布局，需要重映射
-    val ndsBits = if (platform == GamePlatform.NDS) remapToNdsLayout(bits) else bits
+    // NDS 使用 libretro 标准 JOYPAD 布局（melonDS 内部用 ADD_KEY_TO_MASK 转换）
+    val ndsBits = if (platform == GamePlatform.NDS) projectToLibretroLayout(bits) else bits
     if (netplayController != null) {
         // 联机对战：只接受本地 1P 输入；2P 由远端玩家控制
         if (player == 0) netplayController.setLocalPad(ndsBits)
@@ -2130,6 +2131,16 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("melonds_audio_interpolation", layout.ndsAudioInterpolation)
             engine.setCoreOption("melonds_use_fw_settings", layout.ndsUseFwSettings)
             engine.setCoreOption("melonds_threaded_renderer", "enabled")
+            engine.setCoreOption("melonds_screen_gap", layout.ndsScreenGap)
+            engine.setCoreOption("melonds_swapscreen_mode", layout.ndsSwapscreenMode)
+            engine.setCoreOption("melonds_mic_input", layout.ndsMicInput)
+            engine.setCoreOption("melonds_language", layout.ndsLanguage)
+            engine.setCoreOption("melonds_audio_bitrate", layout.ndsAudioBitrate)
+            engine.setCoreOption("melonds_jit_block_size", layout.ndsJitBlockSize)
+            engine.setCoreOption("melonds_jit_fast_memory", layout.ndsJitFastMemory)
+            engine.setCoreOption("melonds_jit_branch_optimisations", layout.ndsJitBranchOptimisations)
+            engine.setCoreOption("melonds_jit_literal_optimisations", layout.ndsJitLiteralOptimisations)
+            engine.setCoreOption("melonds_hybrid_small_screen", layout.ndsHybridSmallScreen)
         }
         GamePlatform.PSX -> {
             // PCSX-ReARMed core options — keys match libretro_core_options.h.
@@ -2325,8 +2336,9 @@ private fun GameSurfaceView(
                                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                                     val w = width.coerceAtLeast(1)
                                     val h = height.coerceAtLeast(1)
-                                    val x = (event.x / w * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
-                                    val y = (event.y / h * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                    // libretro POINTER 规范：[-0x8000, 0x7FFF] 对应屏幕左上到右下
+                                    val x = ((event.x / w) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+                                    val y = ((event.y / h) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
                                     ndsEngine.setTouchInput(x, y, true)
                                     true
                                 }
@@ -2446,8 +2458,9 @@ private fun GameSurfaceView(
                             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                                 val w = sv.width.coerceAtLeast(1)
                                 val h = sv.height.coerceAtLeast(1)
-                                val x = (event.x / w * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
-                                val y = (event.y / h * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                // libretro POINTER 规范：[-0x8000, 0x7FFF] 对应屏幕左上到右下
+                                val x = ((event.x / w) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+                                val y = ((event.y / h) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
                                 ndsEngine.setTouchInput(x, y, true)
                                 true
                             }
@@ -6896,14 +6909,26 @@ private fun SettingsPanel(
                            "Left/Right" to "左右排列(上屏在左)",
                            "Right/Left" to "右左排列(上屏在右)",
                            "Top Only" to "仅上方屏",
-                           "Bottom Only" to "仅下方屏"),
+                           "Bottom Only" to "仅下方屏",
+                           "Hybrid Top" to "混合(上屏大)",
+                           "Hybrid Bottom" to "混合(下屏大)"),
                     padLayout.ndsScreenLayout
                 ) { onLayoutChange(padLayout.copy {ndsScreenLayout = it}) }
+
+                DropdownSetting("屏幕间距",
+                    (0..20).map { it.toString() to "${it}px" },
+                    padLayout.ndsScreenGap
+                ) { onLayoutChange(padLayout.copy {ndsScreenGap = it}) }
+
+                DropdownSetting("混合小屏模式",
+                    listOf("Bottom" to "下方", "Top" to "上方", "Duplicate" to "复制双屏"),
+                    padLayout.ndsHybridSmallScreen
+                ) { onLayoutChange(padLayout.copy {ndsHybridSmallScreen = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("触摸/输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("触摸模式",
-                    listOf("Mouse" to "鼠标", "Touch" to "触摸", "Joystick" to "摇杆"),
+                    listOf("Touch" to "触摸", "Mouse" to "鼠标", "Joystick" to "摇杆", "disabled" to "关闭"),
                     padLayout.ndsTouchMode
                 ) { onLayoutChange(padLayout.copy {ndsTouchMode = it}) }
 
@@ -6919,6 +6944,11 @@ private fun SettingsPanel(
                     padLayout.ndsRandomizeMac
                 ) { onLayoutChange(padLayout.copy {ndsRandomizeMac = it}) }
 
+                DropdownSetting("换屏模式",
+                    listOf("Toggle" to "切换", "Hold" to "按住"),
+                    padLayout.ndsSwapscreenMode
+                ) { onLayoutChange(padLayout.copy {ndsSwapscreenMode = it}) }
+
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("JIT 编译器",
@@ -6926,11 +6956,48 @@ private fun SettingsPanel(
                     padLayout.ndsJitEnable
                 ) { onLayoutChange(padLayout.copy {ndsJitEnable = it}) }
 
+                DropdownSetting("JIT 块大小",
+                    (1..24).map { it.toString() to it.toString() },
+                    padLayout.ndsJitBlockSize
+                ) { onLayoutChange(padLayout.copy {ndsJitBlockSize = it}) }
+
+                DropdownSetting("JIT 快速内存",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.ndsJitFastMemory
+                ) { onLayoutChange(padLayout.copy {ndsJitFastMemory = it}) }
+
+                DropdownSetting("JIT 分支优化",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.ndsJitBranchOptimisations
+                ) { onLayoutChange(padLayout.copy {ndsJitBranchOptimisations = it}) }
+
+                DropdownSetting("JIT 字面量优化",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.ndsJitLiteralOptimisations
+                ) { onLayoutChange(padLayout.copy {ndsJitLiteralOptimisations = it}) }
+
                 DropdownSetting("音频插值",
                     listOf("Cosine" to "余弦(高质量)", "Linear" to "线性(中等)",
                            "Sinc" to "Sinc(最高质量)", "None" to "无(低质量)"),
                     padLayout.ndsAudioInterpolation
                 ) { onLayoutChange(padLayout.copy {ndsAudioInterpolation = it}) }
+
+                DropdownSetting("音频比特率",
+                    listOf("Automatic" to "自动", "10-bit" to "10-bit", "16-bit" to "16-bit"),
+                    padLayout.ndsAudioBitrate
+                ) { onLayoutChange(padLayout.copy {ndsAudioBitrate = it}) }
+
+                DropdownSetting("麦克风输入",
+                    listOf("Blow Noise" to "吹气声", "White Noise" to "白噪声"),
+                    padLayout.ndsMicInput
+                ) { onLayoutChange(padLayout.copy {ndsMicInput = it}) }
+
+                DropdownSetting("语言",
+                    listOf("Japanese" to "日本語", "English" to "English",
+                           "French" to "Français", "German" to "Deutsch",
+                           "Italian" to "Italiano", "Spanish" to "Español"),
+                    padLayout.ndsLanguage
+                ) { onLayoutChange(padLayout.copy {ndsLanguage = it}) }
 
                 DropdownSetting("使用固件设置",
                     listOf("disabled" to "关闭(推荐)", "enabled" to "开启"),

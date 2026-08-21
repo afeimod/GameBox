@@ -26,7 +26,7 @@ import android.view.Surface
  * the standard SNES bit layout, so the same keymap used for SNES works here.
  *
  * DS also has a touchscreen (bottom screen). Touch input is exposed via
- * [setTouchInput] — pass normalized coordinates (0..0xFFFF) and a pressed
+ * [setTouchInput] — pass signed coordinates (-0x8000..0x7FFF) and a pressed
  * flag. The native bridge forwards these to the core via RETRO_DEVICE_POINTER.
  *
  * ## BIOS files

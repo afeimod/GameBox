@@ -657,10 +657,6 @@ fun CoreSettingsPanel(
             }
             GamePlatform.NDS -> item {
                 SettingsSection("NDS / DSi (melonDS)") {
-                    // 注意:本核心是预编译的 melonDS 0.9.3,仅支持以下选项;
-                    // "内置 BIOS / 渲染分辨率 / OpenGL 过滤 / 屏保 / 鼠标速度"
-                    // 等选项在该版本核心中不存在,已移除。
-                    // 游戏始终以 melonds_boot_directly=enabled 直接启动。
                     DropdownRow("主机模式",
                         listOf("DS" to "DS", "DSi" to "DSi"),
                         padLayout.ndsConsoleMode
@@ -668,11 +664,20 @@ fun CoreSettingsPanel(
                     DropdownRow("屏幕布局",
                         listOf("Top/Bottom" to "上下排列", "Bottom/Top" to "下上排列",
                                "Left/Right" to "左右排列", "Right/Left" to "右左排列",
-                               "Top Only" to "仅上方屏", "Bottom Only" to "仅下方屏"),
+                               "Top Only" to "仅上方屏", "Bottom Only" to "仅下方屏",
+                               "Hybrid Top" to "混合(上屏大)", "Hybrid Bottom" to "混合(下屏大)"),
                         padLayout.ndsScreenLayout
                     ) { updateLayout(padLayout.copy {ndsScreenLayout = it}) }
+                    DropdownRow("屏幕间距",
+                        (0..20).map { it.toString() to "${it}px" },
+                        padLayout.ndsScreenGap
+                    ) { updateLayout(padLayout.copy {ndsScreenGap = it}) }
+                    DropdownRow("混合小屏模式",
+                        listOf("Bottom" to "下方", "Top" to "上方", "Duplicate" to "复制双屏"),
+                        padLayout.ndsHybridSmallScreen
+                    ) { updateLayout(padLayout.copy {ndsHybridSmallScreen = it}) }
                     DropdownRow("触摸模式",
-                        listOf("Mouse" to "鼠标", "Touch" to "触摸", "Joystick" to "摇杆"),
+                        listOf("Touch" to "触摸", "Mouse" to "鼠标", "Joystick" to "摇杆", "disabled" to "关闭"),
                         padLayout.ndsTouchMode
                     ) { updateLayout(padLayout.copy {ndsTouchMode = it}) }
                     DropdownRow("DSi SD 卡",
@@ -683,15 +688,49 @@ fun CoreSettingsPanel(
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.ndsRandomizeMac
                     ) { updateLayout(padLayout.copy {ndsRandomizeMac = it}) }
+                    DropdownRow("换屏模式",
+                        listOf("Toggle" to "切换", "Hold" to "按住"),
+                        padLayout.ndsSwapscreenMode
+                    ) { updateLayout(padLayout.copy {ndsSwapscreenMode = it}) }
                     DropdownRow("JIT 编译器",
                         listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
                         padLayout.ndsJitEnable
                     ) { updateLayout(padLayout.copy {ndsJitEnable = it}) }
+                    DropdownRow("JIT 块大小",
+                        (1..24).map { it.toString() to it.toString() },
+                        padLayout.ndsJitBlockSize
+                    ) { updateLayout(padLayout.copy {ndsJitBlockSize = it}) }
+                    DropdownRow("JIT 快速内存",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.ndsJitFastMemory
+                    ) { updateLayout(padLayout.copy {ndsJitFastMemory = it}) }
+                    DropdownRow("JIT 分支优化",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.ndsJitBranchOptimisations
+                    ) { updateLayout(padLayout.copy {ndsJitBranchOptimisations = it}) }
+                    DropdownRow("JIT 字面量优化",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.ndsJitLiteralOptimisations
+                    ) { updateLayout(padLayout.copy {ndsJitLiteralOptimisations = it}) }
                     DropdownRow("音频插值",
                         listOf("Cosine" to "余弦(高质量)", "Linear" to "线性(中等)",
                                "Sinc" to "Sinc(最高质量)", "None" to "无(低质量)"),
                         padLayout.ndsAudioInterpolation
                     ) { updateLayout(padLayout.copy {ndsAudioInterpolation = it}) }
+                    DropdownRow("音频比特率",
+                        listOf("Automatic" to "自动", "10-bit" to "10-bit", "16-bit" to "16-bit"),
+                        padLayout.ndsAudioBitrate
+                    ) { updateLayout(padLayout.copy {ndsAudioBitrate = it}) }
+                    DropdownRow("麦克风输入",
+                        listOf("Blow Noise" to "吹气声", "White Noise" to "白噪声"),
+                        padLayout.ndsMicInput
+                    ) { updateLayout(padLayout.copy {ndsMicInput = it}) }
+                    DropdownRow("语言",
+                        listOf("Japanese" to "日本語", "English" to "English",
+                               "French" to "Français", "German" to "Deutsch",
+                               "Italian" to "Italiano", "Spanish" to "Español"),
+                        padLayout.ndsLanguage
+                    ) { updateLayout(padLayout.copy {ndsLanguage = it}) }
                     DropdownRow("使用固件设置",
                         listOf("disabled" to "关闭(推荐)", "enabled" to "开启"),
                         padLayout.ndsUseFwSettings

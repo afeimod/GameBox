@@ -476,7 +476,7 @@ static void initDefaultOptions() {
 
     // --- Renderer / Input / Touch ---
     setIfMissing("melonds_threaded_renderer",  "enabled");
-    setIfMissing("melonds_touch_mode",         "Mouse");
+    setIfMissing("melonds_touch_mode",         "Touch");
 }
 
 // ---------------------------------------------------------------------------
