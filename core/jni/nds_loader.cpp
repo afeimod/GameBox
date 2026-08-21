@@ -73,6 +73,14 @@
 #include <string>
 #include <vector>
 
+// EGL + OpenGL ES headers for hardware-accelerated 3D rendering.
+// melonDS's libretro core requires an OpenGL ES context for its 3D
+// renderer (GPU 3D). Without this, the 3D layer renders as grey.
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+
 #define TAG "ndscore-rom"
 #undef LOGI
 #undef LOGW
@@ -206,6 +214,172 @@ static std::mutex s_windowMtx;
 static std::mutex s_optMtx;
 static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
+
+// ---------------------------------------------------------------------------
+// EGL / OpenGL ES context — required by melonDS libretro core for the
+// hardware-accelerated 3D renderer (GPU 3D). Without this, the core's
+// 3D layer renders as grey ("灰屏").
+//
+// We create an offscreen Pbuffer context that persists for the lifetime
+// of the emulation session. The melonDS core renders 3D content to its
+// own FBOs internally, then reads back the pixels and submits them
+// through the cb_video() callback — so the ANativeWindow blitting path
+// is unaffected and the EGL context is only used for the core's internal
+// 3D rendering.
+// ---------------------------------------------------------------------------
+static EGLDisplay s_eglDisplay = EGL_NO_DISPLAY;
+static EGLContext s_eglContext = EGL_NO_CONTEXT;
+static EGLSurface s_eglSurface = EGL_NO_SURFACE;
+static bool s_eglInitialized = false;
+
+// libretro HW render callbacks — set by the core via
+// RETRO_ENVIRONMENT_SET_HW_RENDER.
+static retro_hw_context_reset_t s_hwContextReset = nullptr;
+static retro_hw_context_reset_t s_hwContextDestroy = nullptr;
+
+// ---------------------------------------------------------------------------
+// Create an offscreen EGL context for OpenGL ES 2.0 rendering.
+// Uses a small Pbuffer surface (1x1) — the melonDS core renders to its
+// own framebuffer objects internally.
+// ---------------------------------------------------------------------------
+static bool createEglContext() {
+    if (s_eglInitialized) return true;
+
+    s_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (s_eglDisplay == EGL_NO_DISPLAY) {
+        LOGE("eglGetDisplay failed: 0x%x", eglGetError());
+        return false;
+    }
+
+    EGLint major, minor;
+    if (!eglInitialize(s_eglDisplay, &major, &minor)) {
+        LOGE("eglInitialize failed: 0x%x", eglGetError());
+        s_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+    LOGI("EGL initialized: %d.%d", major, minor);
+
+    // Choose config with RGBA 8888, depth 24, stencil 8.
+    // melonDS needs depth for 3D rendering and stencil for some effects.
+    const EGLint attribs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_SURFACE_TYPE,    EGL_PBUFFER_BIT,
+        EGL_RED_SIZE,        8,
+        EGL_GREEN_SIZE,      8,
+        EGL_BLUE_SIZE,       8,
+        EGL_ALPHA_SIZE,      8,
+        EGL_DEPTH_SIZE,      24,
+        EGL_STENCIL_SIZE,    8,
+        EGL_NONE
+    };
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(s_eglDisplay, attribs, &config, 1, &numConfigs) || numConfigs == 0) {
+        LOGE("eglChooseConfig failed: 0x%x", eglGetError());
+        eglTerminate(s_eglDisplay);
+        s_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    // Create a small Pbuffer surface — just needs to be valid for the
+    // context to be current. The melonDS core renders to its own FBOs.
+    const EGLint pbAttribs[] = {
+        EGL_WIDTH,  1,
+        EGL_HEIGHT, 1,
+        EGL_NONE
+    };
+    s_eglSurface = eglCreatePbufferSurface(s_eglDisplay, config, pbAttribs);
+    if (s_eglSurface == EGL_NO_SURFACE) {
+        LOGE("eglCreatePbufferSurface failed: 0x%x", eglGetError());
+        eglTerminate(s_eglDisplay);
+        s_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    // Create OpenGL ES 2.0 context.
+    const EGLint ctxAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_NONE
+    };
+    s_eglContext = eglCreateContext(s_eglDisplay, config, EGL_NO_CONTEXT, ctxAttribs);
+    if (s_eglContext == EGL_NO_CONTEXT) {
+        LOGE("eglCreateContext failed: 0x%x", eglGetError());
+        eglDestroySurface(s_eglDisplay, s_eglSurface);
+        s_eglSurface = EGL_NO_SURFACE;
+        eglTerminate(s_eglDisplay);
+        s_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    // Make the context current on this thread.
+    if (!eglMakeCurrent(s_eglDisplay, s_eglSurface, s_eglSurface, s_eglContext)) {
+        LOGE("eglMakeCurrent failed: 0x%x", eglGetError());
+        eglDestroyContext(s_eglDisplay, s_eglContext);
+        s_eglContext = EGL_NO_CONTEXT;
+        eglDestroySurface(s_eglDisplay, s_eglSurface);
+        s_eglSurface = EGL_NO_SURFACE;
+        eglTerminate(s_eglDisplay);
+        s_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    s_eglInitialized = true;
+    LOGI("EGL context created: ES 2.0, Pbuffer 1x1, depth=24, stencil=8");
+    return true;
+}
+
+static void destroyEglContext() {
+    if (!s_eglInitialized) return;
+
+    eglMakeCurrent(s_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    if (s_eglContext != EGL_NO_CONTEXT) {
+        eglDestroyContext(s_eglDisplay, s_eglContext);
+        s_eglContext = EGL_NO_CONTEXT;
+    }
+    if (s_eglSurface != EGL_NO_SURFACE) {
+        eglDestroySurface(s_eglDisplay, s_eglSurface);
+        s_eglSurface = EGL_NO_SURFACE;
+    }
+    if (s_eglDisplay != EGL_NO_DISPLAY) {
+        eglTerminate(s_eglDisplay);
+        s_eglDisplay = EGL_NO_DISPLAY;
+    }
+    s_eglInitialized = false;
+    LOGI("EGL context destroyed");
+}
+
+// Ensure the EGL context is current on the calling thread.
+// Called before each retro_run() to handle cases where the context
+// might have been lost (e.g., thread migration).
+static bool ensureEglContextCurrent() {
+    if (!s_eglInitialized) return false;
+    if (eglGetCurrentContext() != s_eglContext) {
+        if (!eglMakeCurrent(s_eglDisplay, s_eglSurface, s_eglSurface, s_eglContext)) {
+            LOGE("eglMakeCurrent (re-bind) failed: 0x%x", eglGetError());
+            return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// libretro HW render callbacks — getters for the retro_hw_render_callback
+// struct. The core provides its own context_reset/context_destroy callbacks
+// through the HW_RENDER environment call; we store those and invoke them
+// at the appropriate time.
+// ---------------------------------------------------------------------------
+
+// Get the current framebuffer object for rendering.
+// melonDS renders to its own FBOs, so we return 0 (default framebuffer).
+static uintptr_t hw_get_current_framebuffer(void) {
+    return 0;
+}
+
+// Get a GL function pointer by name.
+static retro_proc_address_t hw_get_proc_address(const char* sym) {
+    return (retro_proc_address_t)eglGetProcAddress(sym);
+}
 
 // ---------------------------------------------------------------------------
 // Initialize melonDS core options with sensible defaults.
@@ -464,6 +638,54 @@ static bool cb_environment(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_LANGUAGE:
             if (data) *static_cast<unsigned*>(data) = RETRO_LANGUAGE_ENGLISH;
             return true;
+
+        case RETRO_ENVIRONMENT_SET_HW_RENDER: {
+            // melonDS libretro core requests an OpenGL ES context for
+            // hardware-accelerated 3D rendering. We must accept this
+            // request, otherwise the 3D renderer fails and produces a
+            // grey screen.
+            if (!data) return false;
+            auto* hw = static_cast<retro_hw_render_callback*>(data);
+
+            // Store the core's reset/destroy callbacks so we can call
+            // them at the appropriate time.
+            s_hwContextReset = hw->context_reset;
+            s_hwContextDestroy = hw->context_destroy;
+
+            // Provide the frontend's get_current_framebuffer and
+            // get_proc_address implementations.
+            hw->get_current_framebuffer = hw_get_current_framebuffer;
+            hw->get_proc_address = hw_get_proc_address;
+
+            LOGI("HW render requested: type=%d, depth=%d, stencil=%d, "
+                 "version=%d.%d, bottom_left=%d",
+                 hw->context_type, hw->depth, hw->stencil,
+                 hw->version_major, hw->version_minor,
+                 hw->bottom_left_origin);
+
+            // Create the EGL context. This must be done before the
+            // core's context_reset is called, because the core needs
+            // a valid GL context to initialize its resources.
+            if (!createEglContext()) {
+                LOGE("Failed to create EGL context for HW render");
+                // Fall back: return false so the core uses software
+                // rendering. If the core was compiled without software
+                // renderer, it will fail gracefully.
+                return false;
+            }
+
+            // Notify the core that the GL context is ready.
+            // The core initializes its FBOs, shaders, textures, etc.
+            // here. If context_reset is null, the core handles its
+            // own initialization differently.
+            if (s_hwContextReset) {
+                LOGI("Calling HW context_reset");
+                s_hwContextReset();
+            }
+
+            LOGI("HW render setup complete");
+            return true;
+        }
 
         default:
             return false;
@@ -799,12 +1021,28 @@ void unload() {
                 size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
                 coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
             }
+
+            // Notify the core that the GL context is about to be destroyed.
+            // The core cleans up its OpenGL resources (FBOs, shaders, etc.)
+            // in this callback. Must be called before retro_unload_game()
+            // because the core may need a valid GL context to clean up.
+            if (s_eglInitialized && s_hwContextDestroy) {
+                ensureEglContextCurrent();
+                LOGI("Calling HW context_destroy");
+                s_hwContextDestroy();
+            }
+
             s_retro_unload_game();
             s_gameLoaded = false;
         }
+
+        destroyEglContext();
+
         s_retro_deinit();
         s_loaded = false;
     }
+    s_hwContextReset = nullptr;
+    s_hwContextDestroy = nullptr;
     s_sampleRate = 0;
     s_region = 0;
     s_audio.reset();
@@ -833,6 +1071,15 @@ void resetEmulation(bool /*hard*/) {
 
 void stepFrame() {
     if (!s_loaded || !s_gameLoaded) return;
+
+    // Ensure the EGL context is current on the emulation thread
+    // before calling retro_run(). The melonDS core's 3D renderer
+    // needs a valid GL context to render 3D content. Without this,
+    // the 3D layer renders as grey.
+    if (s_eglInitialized) {
+        ensureEglContextCurrent();
+    }
+
     s_retro_run();
 }
 

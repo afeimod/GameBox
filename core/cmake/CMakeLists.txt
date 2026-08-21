@@ -632,7 +632,9 @@ target_compile_options(ndscore PRIVATE
 )
 
 # `dl` is required for dlopen() / dlsym() on the prebuilt melonDS .so.
-target_link_libraries(ndscore log android dl)
+# `EGL` and `GLESv2` are required for the EGL context (OpenGL ES 2.0)
+# that melonDS's libretro core needs for its 3D hardware renderer.
+target_link_libraries(ndscore log android dl EGL GLESv2)
 
 # ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)
