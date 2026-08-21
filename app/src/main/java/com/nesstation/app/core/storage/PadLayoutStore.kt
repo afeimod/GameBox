@@ -339,6 +339,25 @@ class PadLayout {
     var ndsJitEnable: String = "enabled"               // enabled | disabled (JIT compiler)
     var ndsAudioInterpolation: String = "Cosine"       // Cosine | Linear | Sinc | None
     var ndsUseFwSettings: String = "disabled"          // enabled | disabled (use firmware settings)
+    // === NDS 双屏独立布局 (videoScale == "custom" 时生效) ===
+    // 参照 melonDS 官方 Android 布局模型：上屏 / 下屏各占一个独立矩形，
+    // 可分别拖动 4 角调整大小、拖动矩形内部移动位置。归一化 0..1，横竖屏分开保存。
+    var ndsTopLayoutLeft: Float = 0.05f
+    var ndsTopLayoutTop: Float = 0.05f
+    var ndsTopLayoutRight: Float = 0.95f
+    var ndsTopLayoutBottom: Float = 0.48f
+    var ndsBottomLayoutLeft: Float = 0.05f
+    var ndsBottomLayoutTop: Float = 0.52f
+    var ndsBottomLayoutRight: Float = 0.95f
+    var ndsBottomLayoutBottom: Float = 0.98f
+    var ndsTopLayoutLeftP: Float = 0.05f
+    var ndsTopLayoutTopP: Float = 0.05f
+    var ndsTopLayoutRightP: Float = 0.95f
+    var ndsTopLayoutBottomP: Float = 0.48f
+    var ndsBottomLayoutLeftP: Float = 0.05f
+    var ndsBottomLayoutTopP: Float = 0.52f
+    var ndsBottomLayoutRightP: Float = 0.95f
+    var ndsBottomLayoutBottomP: Float = 0.98f
 
     // === PSX (PCSX-ReARMed) core options ===
     // Keys must match PCSX-ReARMed libretro_core_options.h.
@@ -656,6 +675,22 @@ class PadLayout {
         ndsJitEnable = another.ndsJitEnable
         ndsAudioInterpolation = another.ndsAudioInterpolation
         ndsUseFwSettings = another.ndsUseFwSettings
+        ndsTopLayoutLeft = another.ndsTopLayoutLeft
+        ndsTopLayoutTop = another.ndsTopLayoutTop
+        ndsTopLayoutRight = another.ndsTopLayoutRight
+        ndsTopLayoutBottom = another.ndsTopLayoutBottom
+        ndsBottomLayoutLeft = another.ndsBottomLayoutLeft
+        ndsBottomLayoutTop = another.ndsBottomLayoutTop
+        ndsBottomLayoutRight = another.ndsBottomLayoutRight
+        ndsBottomLayoutBottom = another.ndsBottomLayoutBottom
+        ndsTopLayoutLeftP = another.ndsTopLayoutLeftP
+        ndsTopLayoutTopP = another.ndsTopLayoutTopP
+        ndsTopLayoutRightP = another.ndsTopLayoutRightP
+        ndsTopLayoutBottomP = another.ndsTopLayoutBottomP
+        ndsBottomLayoutLeftP = another.ndsBottomLayoutLeftP
+        ndsBottomLayoutTopP = another.ndsBottomLayoutTopP
+        ndsBottomLayoutRightP = another.ndsBottomLayoutRightP
+        ndsBottomLayoutBottomP = another.ndsBottomLayoutBottomP
         pscxBios = another.pscxBios
         pscxRegion = another.pscxRegion
         pscxFrameskipType = another.pscxFrameskipType
@@ -824,6 +859,24 @@ object PadLayoutStore {
     private const val KEY_CUSTOM_LAYOUT_TOP_P = "custom_layout_top_p"
     private const val KEY_CUSTOM_LAYOUT_RIGHT_P = "custom_layout_right_p"
     private const val KEY_CUSTOM_LAYOUT_BOTTOM_P = "custom_layout_bottom_p"
+    // NDS 双屏独立布局 rect keys（videoScale=="custom" 时上/下屏各一个矩形）
+    private const val KEY_NDS_TOP_LEFT = "nds_top_layout_left"
+    private const val KEY_NDS_TOP_TOP = "nds_top_layout_top"
+    private const val KEY_NDS_TOP_RIGHT = "nds_top_layout_right"
+    private const val KEY_NDS_TOP_BOTTOM = "nds_top_layout_bottom"
+    private const val KEY_NDS_BOTTOM_LEFT = "nds_bottom_layout_left"
+    private const val KEY_NDS_BOTTOM_TOP = "nds_bottom_layout_top"
+    private const val KEY_NDS_BOTTOM_RIGHT = "nds_bottom_layout_right"
+    private const val KEY_NDS_BOTTOM_BOTTOM = "nds_bottom_layout_bottom"
+    // 竖屏版
+    private const val KEY_NDS_TOP_LEFT_P = "nds_top_layout_left_p"
+    private const val KEY_NDS_TOP_TOP_P = "nds_top_layout_top_p"
+    private const val KEY_NDS_TOP_RIGHT_P = "nds_top_layout_right_p"
+    private const val KEY_NDS_TOP_BOTTOM_P = "nds_top_layout_bottom_p"
+    private const val KEY_NDS_BOTTOM_LEFT_P = "nds_bottom_layout_left_p"
+    private const val KEY_NDS_BOTTOM_TOP_P = "nds_bottom_layout_top_p"
+    private const val KEY_NDS_BOTTOM_RIGHT_P = "nds_bottom_layout_right_p"
+    private const val KEY_NDS_BOTTOM_BOTTOM_P = "nds_bottom_layout_bottom_p"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1164,6 +1217,22 @@ object PadLayoutStore {
             ndsJitEnable = p.getString("nds_jit_enable", "enabled") ?: "enabled"
             ndsAudioInterpolation = p.getString("nds_audio_interpolation", "Cosine") ?: "Cosine"
             ndsUseFwSettings = p.getString("nds_use_fw_settings", "disabled") ?: "disabled"
+            ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
+            ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
+            ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
+            ndsTopLayoutBottom = p.getFloat(KEY_NDS_TOP_BOTTOM, ndsTopLayoutBottom)
+            ndsBottomLayoutLeft = p.getFloat(KEY_NDS_BOTTOM_LEFT, ndsBottomLayoutLeft)
+            ndsBottomLayoutTop = p.getFloat(KEY_NDS_BOTTOM_TOP, ndsBottomLayoutTop)
+            ndsBottomLayoutRight = p.getFloat(KEY_NDS_BOTTOM_RIGHT, ndsBottomLayoutRight)
+            ndsBottomLayoutBottom = p.getFloat(KEY_NDS_BOTTOM_BOTTOM, ndsBottomLayoutBottom)
+            ndsTopLayoutLeftP = p.getFloat(KEY_NDS_TOP_LEFT_P, ndsTopLayoutLeftP)
+            ndsTopLayoutTopP = p.getFloat(KEY_NDS_TOP_TOP_P, ndsTopLayoutTopP)
+            ndsTopLayoutRightP = p.getFloat(KEY_NDS_TOP_RIGHT_P, ndsTopLayoutRightP)
+            ndsTopLayoutBottomP = p.getFloat(KEY_NDS_TOP_BOTTOM_P, ndsTopLayoutBottomP)
+            ndsBottomLayoutLeftP = p.getFloat(KEY_NDS_BOTTOM_LEFT_P, ndsBottomLayoutLeftP)
+            ndsBottomLayoutTopP = p.getFloat(KEY_NDS_BOTTOM_TOP_P, ndsBottomLayoutTopP)
+            ndsBottomLayoutRightP = p.getFloat(KEY_NDS_BOTTOM_RIGHT_P, ndsBottomLayoutRightP)
+            ndsBottomLayoutBottomP = p.getFloat(KEY_NDS_BOTTOM_BOTTOM_P, ndsBottomLayoutBottomP)
             // PSX (PCSX-ReARMed) options
             pscxBios = p.getString("psx_bios", "auto") ?: "auto"
             pscxRegion = p.getString("psx_region", "auto") ?: "auto"
@@ -1508,6 +1577,22 @@ object PadLayoutStore {
             putString("nds_jit_enable", layout.ndsJitEnable)
             putString("nds_audio_interpolation", layout.ndsAudioInterpolation)
             putString("nds_use_fw_settings", layout.ndsUseFwSettings)
+            putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
+            putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
+            putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)
+            putFloat(KEY_NDS_TOP_BOTTOM, layout.ndsTopLayoutBottom)
+            putFloat(KEY_NDS_BOTTOM_LEFT, layout.ndsBottomLayoutLeft)
+            putFloat(KEY_NDS_BOTTOM_TOP, layout.ndsBottomLayoutTop)
+            putFloat(KEY_NDS_BOTTOM_RIGHT, layout.ndsBottomLayoutRight)
+            putFloat(KEY_NDS_BOTTOM_BOTTOM, layout.ndsBottomLayoutBottom)
+            putFloat(KEY_NDS_TOP_LEFT_P, layout.ndsTopLayoutLeftP)
+            putFloat(KEY_NDS_TOP_TOP_P, layout.ndsTopLayoutTopP)
+            putFloat(KEY_NDS_TOP_RIGHT_P, layout.ndsTopLayoutRightP)
+            putFloat(KEY_NDS_TOP_BOTTOM_P, layout.ndsTopLayoutBottomP)
+            putFloat(KEY_NDS_BOTTOM_LEFT_P, layout.ndsBottomLayoutLeftP)
+            putFloat(KEY_NDS_BOTTOM_TOP_P, layout.ndsBottomLayoutTopP)
+            putFloat(KEY_NDS_BOTTOM_RIGHT_P, layout.ndsBottomLayoutRightP)
+            putFloat(KEY_NDS_BOTTOM_BOTTOM_P, layout.ndsBottomLayoutBottomP)
             // === PSX (PCSX-ReARMed) ===
             putString("psx_bios", layout.pscxBios)
             putString("psx_region", layout.pscxRegion)

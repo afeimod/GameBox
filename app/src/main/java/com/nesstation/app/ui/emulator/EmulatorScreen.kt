@@ -657,6 +657,27 @@ fun EmulatorScreen(
         ))
     }
 
+    // NDS 双屏自由布局编辑器（videoScale == "custom" 且 NDS 平台时使用）。
+    // 参照 melonDS 官方 Android 布局模型：上屏 / 下屏是两个独立组件，各有
+    // 独立归一化矩形 (left, top, right, bottom)，横竖屏分开保存。
+    var showNdsCustomLayoutEditor by remember { mutableStateOf(false) }
+    var ndsTopRect by remember(isPortrait) {
+        mutableStateOf(floatArrayOf(
+            if (isPortrait) padLayout.ndsTopLayoutLeftP else padLayout.ndsTopLayoutLeft,
+            if (isPortrait) padLayout.ndsTopLayoutTopP else padLayout.ndsTopLayoutTop,
+            if (isPortrait) padLayout.ndsTopLayoutRightP else padLayout.ndsTopLayoutRight,
+            if (isPortrait) padLayout.ndsTopLayoutBottomP else padLayout.ndsTopLayoutBottom
+        ))
+    }
+    var ndsBottomRect by remember(isPortrait) {
+        mutableStateOf(floatArrayOf(
+            if (isPortrait) padLayout.ndsBottomLayoutLeftP else padLayout.ndsBottomLayoutLeft,
+            if (isPortrait) padLayout.ndsBottomLayoutTopP else padLayout.ndsBottomLayoutTop,
+            if (isPortrait) padLayout.ndsBottomLayoutRightP else padLayout.ndsBottomLayoutRight,
+            if (isPortrait) padLayout.ndsBottomLayoutBottomP else padLayout.ndsBottomLayoutBottom
+        ))
+    }
+
     // === Debounced persistence of PadLayout ===
     // Dragging a button fires onLayoutChange on EVERY pointer move event
     // (60+ times per second). Calling PadLayoutStore.save() on each event
@@ -716,6 +737,7 @@ fun EmulatorScreen(
                    padLayout.ndsUseFwBios, padLayout.ndsConsoleMode, padLayout.ndsScreenLayout, padLayout.ndsResolution,
                    padLayout.ndsFiltering, padLayout.ndsScreensaver, padLayout.ndsTouchMode,
                    padLayout.ndsMouseSpeed, padLayout.ndsDsiSdcard, padLayout.ndsRandomizeMac,
+                   padLayout.ndsJitEnable, padLayout.ndsAudioInterpolation, padLayout.ndsUseFwSettings,
                    // PSX / PCSX-ReARMed options
                    padLayout.pscxBios, padLayout.pscxRegion, padLayout.pscxFrameskipType,
                    padLayout.pscxFrameskip, padLayout.pscxPad1Type, padLayout.pscxPad2Type,
@@ -775,7 +797,7 @@ fun EmulatorScreen(
         }
     }
 
-    BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings && !showCustomLayoutEditor) {
+    BackHandler(enabled = !showMenu && !showLayoutEditor && !showSettings && !showCustomLayoutEditor && !showNdsCustomLayoutEditor) {
         showMenu = true
     }
     BackHandler(enabled = showMenu && !showLayoutEditor && !showSettings) {
@@ -784,6 +806,7 @@ fun EmulatorScreen(
     BackHandler(enabled = showLayoutEditor) { showLayoutEditor = false }
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = showCustomLayoutEditor) { showCustomLayoutEditor = false }
+    BackHandler(enabled = showNdsCustomLayoutEditor) { showNdsCustomLayoutEditor = false }
 
     // === 联机对战：把 NetplayController 挂到引擎的 frameHook 上 ===
     // 必须在 LaunchedEffect(game) 之前设置，否则引擎模拟线程的第 0 帧会
@@ -1357,11 +1380,13 @@ fun EmulatorScreen(
                 // The key listener returns false (don't consume) when
                 // uiBlocked is true, letting the event propagate to Compose.
                 uiBlocked = showMenu || showLayoutEditor || showSettings || showCustomLayoutEditor ||
-                            showSlotPicker != null || showFFSpeedPicker,
+                            showNdsCustomLayoutEditor || showSlotPicker != null || showFFSpeedPicker,
                 onMenuToggle = { showMenu = !showMenu },
                 customRect = customRect,
                 netplayController = netplayController,
                 ndsScreenLayout = padLayout.ndsScreenLayout,
+                ndsTopRect = ndsTopRect,
+                ndsBottomRect = ndsBottomRect,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -1634,14 +1659,32 @@ fun EmulatorScreen(
                     applyCoreOptions(engine, newLayout, platform)
                 },
                 onEnterCustomLayout = {
-                    customRect = floatArrayOf(
-                        if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
-                        if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
-                        if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
-                        if (isPortrait) padLayout.customLayoutBottomP else padLayout.customLayoutBottom
-                    )
-                    showSettings = false
-                    showCustomLayoutEditor = true
+                    val isNdsPlatform = platform == GamePlatform.NDS
+                    if (isNdsPlatform) {
+                        ndsTopRect = floatArrayOf(
+                            if (isPortrait) padLayout.ndsTopLayoutLeftP else padLayout.ndsTopLayoutLeft,
+                            if (isPortrait) padLayout.ndsTopLayoutTopP else padLayout.ndsTopLayoutTop,
+                            if (isPortrait) padLayout.ndsTopLayoutRightP else padLayout.ndsTopLayoutRight,
+                            if (isPortrait) padLayout.ndsTopLayoutBottomP else padLayout.ndsTopLayoutBottom
+                        )
+                        ndsBottomRect = floatArrayOf(
+                            if (isPortrait) padLayout.ndsBottomLayoutLeftP else padLayout.ndsBottomLayoutLeft,
+                            if (isPortrait) padLayout.ndsBottomLayoutTopP else padLayout.ndsBottomLayoutTop,
+                            if (isPortrait) padLayout.ndsBottomLayoutRightP else padLayout.ndsBottomLayoutRight,
+                            if (isPortrait) padLayout.ndsBottomLayoutBottomP else padLayout.ndsBottomLayoutBottom
+                        )
+                        showSettings = false
+                        showNdsCustomLayoutEditor = true
+                    } else {
+                        customRect = floatArrayOf(
+                            if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
+                            if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
+                            if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
+                            if (isPortrait) padLayout.customLayoutBottomP else padLayout.customLayoutBottom
+                        )
+                        showSettings = false
+                        showCustomLayoutEditor = true
+                    }
                 },
                 onClose = { showSettings = false }
             )
@@ -1744,6 +1787,148 @@ fun EmulatorScreen(
  customLayoutTop = 0f
                             customLayoutRight = 1f
  customLayoutBottom = 1f
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+            ) {
+                Text("重置")
+            }
+        }
+
+        // NDS 双屏自由布局编辑器 — 上屏/下屏各自独立矩形，可分别拖动调整。
+        // NdsScreenPositionEditor 同时管理两个矩形（上屏蓝色、下屏粉红），
+        // 参照 melonDS 官方 Android 布局模型（TOP_SCREEN / BOTTOM_SCREEN）。
+        if (showNdsCustomLayoutEditor) {
+            AndroidView(
+                factory = { ctx ->
+                    NdsScreenPositionEditor(ctx).apply {
+                        setRects(ndsTopRect, ndsBottomRect)
+                        listener = object : NdsScreenPositionEditor.Listener {
+                            override fun onRectChanged(top: FloatArray, bottom: FloatArray, confirm: Boolean) {
+                                // Live-update 双屏渲染
+                                ndsTopRect = top
+                                ndsBottomRect = bottom
+                                if (confirm) {
+                                    // Touch-up — persist into padLayout
+                                    padLayout = if (isPortrait) {
+                                        padLayout.copy {
+                                            ndsTopLayoutLeftP = top[0]
+                                            ndsTopLayoutTopP = top[1]
+                                            ndsTopLayoutRightP = top[2]
+                                            ndsTopLayoutBottomP = top[3]
+                                            ndsBottomLayoutLeftP = bottom[0]
+                                            ndsBottomLayoutTopP = bottom[1]
+                                            ndsBottomLayoutRightP = bottom[2]
+                                            ndsBottomLayoutBottomP = bottom[3]
+                                        }
+                                    } else {
+                                        padLayout.copy {
+                                            ndsTopLayoutLeft = top[0]
+                                            ndsTopLayoutTop = top[1]
+                                            ndsTopLayoutRight = top[2]
+                                            ndsTopLayoutBottom = top[3]
+                                            ndsBottomLayoutLeft = bottom[0]
+                                            ndsBottomLayoutTop = bottom[1]
+                                            ndsBottomLayoutRight = bottom[2]
+                                            ndsBottomLayoutBottom = bottom[3]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                update = { ed ->
+                    ed.setRects(ndsTopRect, ndsBottomRect)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            // Top hint bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xCC000000))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    "NDS 双屏自由布局:分别拖动 上屏(蓝)/下屏(粉) 的 4 角与内部",
+                    color = Color.White,
+                    fontSize = 13.sp
+                )
+            }
+            // Bottom-right confirm button
+            androidx.compose.material3.Button(
+                onClick = {
+                    showNdsCustomLayoutEditor = false
+                    padLayout = if (isPortrait) {
+                        padLayout.copy {
+                            ndsTopLayoutLeftP = ndsTopRect[0]
+                                            ndsTopLayoutTopP = ndsTopRect[1]
+                            ndsTopLayoutRightP = ndsTopRect[2]
+                                            ndsTopLayoutBottomP = ndsTopRect[3]
+                            ndsBottomLayoutLeftP = ndsBottomRect[0]
+                                            ndsBottomLayoutTopP = ndsBottomRect[1]
+                            ndsBottomLayoutRightP = ndsBottomRect[2]
+                                            ndsBottomLayoutBottomP = ndsBottomRect[3]
+                        }
+                    } else {
+                        padLayout.copy {
+                            ndsTopLayoutLeft = ndsTopRect[0]
+                                            ndsTopLayoutTop = ndsTopRect[1]
+                            ndsTopLayoutRight = ndsTopRect[2]
+                                            ndsTopLayoutBottom = ndsTopRect[3]
+                            ndsBottomLayoutLeft = ndsBottomRect[0]
+                                            ndsBottomLayoutTop = ndsBottomRect[1]
+                            ndsBottomLayoutRight = ndsBottomRect[2]
+                                            ndsBottomLayoutBottom = ndsBottomRect[3]
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Text("完成")
+            }
+            // Bottom-left reset button (restore default stacked layout)
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    val defaultTop = if (isPortrait) {
+                        floatArrayOf(0.05f, 0.05f, 0.95f, 0.48f)
+                    } else {
+                        floatArrayOf(0.05f, 0.05f, 0.95f, 0.48f)
+                    }
+                    val defaultBottom = if (isPortrait) {
+                        floatArrayOf(0.05f, 0.52f, 0.95f, 0.98f)
+                    } else {
+                        floatArrayOf(0.05f, 0.52f, 0.95f, 0.98f)
+                    }
+                    ndsTopRect = defaultTop
+                    ndsBottomRect = defaultBottom
+                    padLayout = if (isPortrait) {
+                        padLayout.copy {
+                            ndsTopLayoutLeftP = defaultTop[0]
+                                            ndsTopLayoutTopP = defaultTop[1]
+                            ndsTopLayoutRightP = defaultTop[2]
+                                            ndsTopLayoutBottomP = defaultTop[3]
+                            ndsBottomLayoutLeftP = defaultBottom[0]
+                                            ndsBottomLayoutTopP = defaultBottom[1]
+                            ndsBottomLayoutRightP = defaultBottom[2]
+                                            ndsBottomLayoutBottomP = defaultBottom[3]
+                        }
+                    } else {
+                        padLayout.copy {
+                            ndsTopLayoutLeft = defaultTop[0]
+                                            ndsTopLayoutTop = defaultTop[1]
+                            ndsTopLayoutRight = defaultTop[2]
+                                            ndsTopLayoutBottom = defaultTop[3]
+                            ndsBottomLayoutLeft = defaultBottom[0]
+                                            ndsBottomLayoutTop = defaultBottom[1]
+                            ndsBottomLayoutRight = defaultBottom[2]
+                                            ndsBottomLayoutBottom = defaultBottom[3]
                         }
                     }
                 },
@@ -1991,6 +2176,9 @@ private fun GameSurfaceView(
     modifier: Modifier = Modifier,
     // Normalized 0..1 rect [left, top, right, bottom] used when videoScale == "custom"
     customRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f),
+    // NDS 双屏自由布局：上屏/下屏各自的归一化目标矩形（videoScale == "custom" 且 NDS 时使用）
+    ndsTopRect: FloatArray = floatArrayOf(0f, 0f, 1f, 0.48f),
+    ndsBottomRect: FloatArray = floatArrayOf(0f, 0.52f, 1f, 1f),
     /**
      * 联机对战控制器。非 null 时，物理手柄 / 键盘的 pad 输入会通过它走帧同步，
      * 而不是直接 engine.setPad1。
@@ -2023,6 +2211,71 @@ private fun GameSurfaceView(
         videoScale
     }
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
+        // NDS 双屏自由布局：videoScale == "custom" 时投屏改为 NdsDualScreenView，
+        // 从 engine.frameBuffer 按布局切出上/下屏绘制到两个独立矩形；不做 native
+        // surface blit（engine 不设置 surface，cb_video 的 blit 会因 window 为空跳过）。
+        val isNdsCustom = platform == GamePlatform.NDS && isCustom
+        if (isNdsCustom) {
+            AndroidView(
+                factory = { ctx ->
+                    NdsDualScreenView(ctx).apply {
+                        uiBlocked = uiBlocked
+                        setRects(ndsTopRect, ndsBottomRect)
+                        // 设置焦点以便接收物理手柄 / 键盘按键
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        requestFocus()
+                        // NDS custom 模式仍保留实体按键路由（与 SurfaceView 分支一致）
+                        setOnKeyListener { v, keyCode, event ->
+                            if (uiBlocked) {
+                                false
+                            } else {
+                                val bits = resolveKeyBits(keyCode, platform, currentPlayer, ctx)
+                                if (bits != 0) {
+                                    when (event.action) {
+                                        KeyEvent.ACTION_DOWN -> {
+                                            gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
+                                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
+                                            true
+                                        }
+                                        KeyEvent.ACTION_UP -> {
+                                            gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
+                                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                } else if (event.action == KeyEvent.ACTION_DOWN &&
+                                           (keyCode == KeyEvent.KEYCODE_MENU ||
+                                            keyCode == KeyEvent.KEYCODE_BACK)) {
+                                    onMenuToggle()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        }
+                    }
+                },
+                update = { v ->
+                    v.engine = engine as? com.nesstation.app.core.engine.NdsEngine
+                    v.screenLayout = ndsScreenLayout
+                    v.uiBlocked = uiBlocked
+                    v.setRects(ndsTopRect, ndsBottomRect)
+                    // 与 SurfaceView 分支相同：uiBlocked 变化/重连焦点时修正按键状态
+                    if (uiBlocked && gamepadBitsHolder[0] != 0) {
+                        gamepadBitsHolder[0] = 0
+                        routePadBits(engine, currentPlayer, 0, netplayController, platform)
+                    }
+                    if (!uiBlocked) {
+                        v.isFocusable = true
+                        v.isFocusableInTouchMode = true
+                        v.requestFocus()
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
         val surfaceModifier = when (effectiveVideoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
             "2:3" -> Modifier.aspectRatio(2f / 3f)   // NDS 上下双屏 (256x384)
@@ -2208,12 +2461,13 @@ private fun GameSurfaceView(
             },
             modifier = surfaceModifier
         )
-        // GPU-accelerated filter overlay — scanline/CRT/dot/*+dot drawn by Compose
-        if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
-            FilterOverlay(
-                if (videoFilter.endsWith("_dot")) "dot" else videoFilter,
-                surfaceModifier
-            )
+            // GPU-accelerated filter overlay — scanline/CRT/dot/*+dot drawn by Compose
+            if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
+                FilterOverlay(
+                    if (videoFilter.endsWith("_dot")) "dot" else videoFilter,
+                    surfaceModifier
+                )
+            }
         }
     }
 }
@@ -6663,6 +6917,24 @@ private fun SettingsPanel(
                     listOf("disabled" to "关闭", "enabled" to "开启"),
                     padLayout.ndsRandomizeMac
                 ) { onLayoutChange(padLayout.copy {ndsRandomizeMac = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("JIT 编译器",
+                    listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
+                    padLayout.ndsJitEnable
+                ) { onLayoutChange(padLayout.copy {ndsJitEnable = it}) }
+
+                DropdownSetting("音频插值",
+                    listOf("Cosine" to "余弦(高质量)", "Linear" to "线性(中等)",
+                           "Sinc" to "Sinc(最高质量)", "None" to "无(低质量)"),
+                    padLayout.ndsAudioInterpolation
+                ) { onLayoutChange(padLayout.copy {ndsAudioInterpolation = it}) }
+
+                DropdownSetting("使用固件设置",
+                    listOf("disabled" to "关闭(推荐)", "enabled" to "开启"),
+                    padLayout.ndsUseFwSettings
+                ) { onLayoutChange(padLayout.copy {ndsUseFwSettings = it}) }
 
                 Spacer(Modifier.size(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
