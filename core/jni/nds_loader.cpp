@@ -475,6 +475,10 @@ static void initDefaultOptions() {
     setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
+    // 3D rendering resolution multiplier (1x = native 256x192, 2x = 512x384, etc.)
+    // Higher values give sharper 3D graphics at the cost of GPU/GPU performance.
+    // Only has effect with the OpenGL or Compute renderer (software renderer ignores it).
+    setIfMissing("melonds_resolution_scale",   "1");
     setIfMissing("melonds_threaded_renderer",  "enabled");
     setIfMissing("melonds_touch_mode",         "Touch");
 }

@@ -2124,6 +2124,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("melonds_boot_directly", "enabled")   // jump straight into the game, not the grey FW menu
             engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)   // "DS" | "DSi"
             engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout) // "Top/Bottom" | "Bottom/Top" | "Left/Right" | ...
+            engine.setCoreOption("melonds_resolution_scale", layout.ndsResolution) // 3D rendering resolution multiplier 1x..8x
             engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)       // "Mouse" | "Touch" | "Joystick"
             engine.setCoreOption("melonds_dsi_sdcard", layout.ndsDsiSdcard)
             engine.setCoreOption("melonds_randomize_mac_address", layout.ndsRandomizeMac)
@@ -6951,6 +6952,11 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("3D 渲染分辨率",
+                    (1..8).map { it.toString() to "${it}x (${256*it}x${192*it})" },
+                    padLayout.ndsResolution
+                ) { onLayoutChange(padLayout.copy {ndsResolution = it}) }
+
                 DropdownSetting("JIT 编译器",
                     listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
                     padLayout.ndsJitEnable

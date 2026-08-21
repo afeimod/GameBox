@@ -21,8 +21,8 @@ import com.nesstation.app.core.engine.NdsEngine
  * 从 [NdsEngine.frameBuffer] 按布局切出上屏/下屏源区域，绘制到两个目标矩形。
  *
  * - 触摸：只有底部屏幕（触屏）矩形内触摸有效，坐标按下屏源区域在合成帧中的
- *   位置映射为 0..0xFFFF（与 melonDS ScreenLayout::GetTouchCoords 语义一致：
- *   touch 只在底部屏幕容器内产生）。上屏内点击不触发触摸。
+ *   位置映射为 -0x8000..0x7FFF（libretro RETRO_DEVICE_POINTER 规范）。
+ *   上屏内点击不触发触摸。
  * - 刷新：通过 Choreographer 在 VSync 上 invalidate()，与模拟线程同步取帧。
  */
 class NdsDualScreenView @JvmOverloads constructor(

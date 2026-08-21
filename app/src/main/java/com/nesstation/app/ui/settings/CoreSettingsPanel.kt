@@ -692,6 +692,10 @@ fun CoreSettingsPanel(
                         listOf("Toggle" to "切换", "Hold" to "按住"),
                         padLayout.ndsSwapscreenMode
                     ) { updateLayout(padLayout.copy {ndsSwapscreenMode = it}) }
+                    DropdownRow("3D 渲染分辨率",
+                        (1..8).map { it.toString() to "${it}x (${256*it}x${192*it})" },
+                        padLayout.ndsResolution
+                    ) { updateLayout(padLayout.copy {ndsResolution = it}) }
                     DropdownRow("JIT 编译器",
                         listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
                         padLayout.ndsJitEnable

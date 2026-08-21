@@ -31,8 +31,10 @@ import kotlin.concurrent.thread
  *   bit8=X, bit9=Y, bit10=L, bit11=R
  *
  * Touchscreen input is supported via [setTouchInput] — pass signed
- * coordinates (0..0xFFFF) and a pressed flag. The state is stored in
- * atomics on the native side and read by the core on each frame.
+ * coordinates (-0x8000..0x7FFF) and a pressed flag. The core maps
+ * these to the bottom screen pixel coordinates (0..255, 0..191)
+ * internally. The state is stored in atomics on the native side and
+ * read by the core on each frame.
  */
 class NdsEngine private constructor() : EmulatorEngine {
 

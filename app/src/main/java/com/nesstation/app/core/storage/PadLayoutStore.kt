@@ -323,12 +323,14 @@ class PadLayout {
 
     // === NDS (melonDS) core options ===
     // Values must match the prebuilt melonDS 0.9.3 libretro core exactly.
-    // ndsUseFwBios / ndsResolution / ndsFiltering / ndsScreensaver /
+    // ndsUseFwBios / ndsFiltering / ndsScreensaver /
     // ndsMouseSpeed have NO matching option in 0.9.3 — they are kept only for
     // storage compatibility and are no longer forwarded to the core.
     var ndsUseFwBios: String = "enabled"
     var ndsConsoleMode: String = "DS"                  // DS | DSi (anything except "DSi" = DS)
     var ndsScreenLayout: String = "Top/Bottom"         // Top/Bottom | Bottom/Top | Left/Right | Right/Left | Top Only | Bottom Only
+    // 3D 渲染分辨率倍数 (melonds_resolution_scale): 1x=原生(256x192), 2x=512x384, 3x=768x576, 4x=1024x768
+    // 仅 OpenGL/Compute 渲染器生效，软件渲染器忽略此设置
     var ndsResolution: String = "1"
     var ndsFiltering: String = "nearest"
     var ndsScreensaver: String = "disabled"

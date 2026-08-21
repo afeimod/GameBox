@@ -15,6 +15,9 @@
 //   * DS touchscreen input via RETRO_DEVICE_POINTER (setTouchInput).
 //     Coordinates are 16-bit signed in [-0x8000, 0x7FFF] mapping to the
 //     composited frame buffer, matching the melonDS core Touch mode.
+//   * 3D rendering resolution scaling via melonds_resolution_scale
+//     (1x = native 256x192, up to 8x). Only affects OpenGL/Compute
+//     renderers.
 //   * Fixed 256x192 per-screen frame buffer; default layout stacks both
 //     screens vertically (256x384). melonDS's libretro port renders the
 //     two-screen layout into a single 256x384 (or 512x192 horizontal)

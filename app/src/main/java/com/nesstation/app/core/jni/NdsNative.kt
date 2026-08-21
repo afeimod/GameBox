@@ -107,8 +107,8 @@ object NdsNative {
 
     /**
      * Touchscreen input via RETRO_DEVICE_POINTER.
-     * @param x Normalized X coordinate (0..0xFFFF, maps to 0..255 by the core).
-     * @param y Normalized Y coordinate (0..0xFFFF, maps to 0..191 by the core).
+     * @param x Signed X coordinate (-0x8000..0x7FFF, maps to 0..255 by the core).
+     * @param y Signed Y coordinate (-0x8000..0x7FFF, maps to 0..191 by the core).
      * @param pressed true = touching the screen, false = released.
      */
     @JvmStatic external fun setTouchInput(x: Int, y: Int, pressed: Boolean)
