@@ -53,6 +53,11 @@ public:
     // Fourth controller (port 3).
     void setPad4(int bits);
 
+    // Touchscreen input via RETRO_DEVICE_POINTER.
+    // x, y: 0..0xFFFF (normalized — the core maps to DS screen coords).
+    // pressed: true = touching, false = released.
+    void setTouchInput(int x, int y, bool pressed);
+
     void setRegion(int region);
     void setSampleRate(int hz);
     void setFastForward(int speed);

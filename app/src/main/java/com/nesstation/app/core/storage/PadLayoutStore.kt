@@ -336,6 +336,9 @@ class PadLayout {
     var ndsMouseSpeed: String = "100"
     var ndsDsiSdcard: String = "disabled"              // disabled | enabled (DSi mode SD card)
     var ndsRandomizeMac: String = "disabled"           // disabled | enabled (randomize MAC for online play)
+    var ndsJitEnable: String = "enabled"               // enabled | disabled (JIT compiler)
+    var ndsAudioInterpolation: String = "Cosine"       // Cosine | Linear | Sinc | None
+    var ndsUseFwSettings: String = "disabled"          // enabled | disabled (use firmware settings)
 
     // === PSX (PCSX-ReARMed) core options ===
     // Keys must match PCSX-ReARMed libretro_core_options.h.
@@ -650,6 +653,9 @@ class PadLayout {
         ndsMouseSpeed = another.ndsMouseSpeed
         ndsDsiSdcard = another.ndsDsiSdcard
         ndsRandomizeMac = another.ndsRandomizeMac
+        ndsJitEnable = another.ndsJitEnable
+        ndsAudioInterpolation = another.ndsAudioInterpolation
+        ndsUseFwSettings = another.ndsUseFwSettings
         pscxBios = another.pscxBios
         pscxRegion = another.pscxRegion
         pscxFrameskipType = another.pscxFrameskipType
@@ -1155,6 +1161,9 @@ object PadLayoutStore {
             ndsMouseSpeed = p.getString("nds_mouse_speed", "100") ?: "100"
             ndsDsiSdcard = p.getString("nds_dsi_sdcard", "disabled") ?: "disabled"
             ndsRandomizeMac = p.getString("nds_randomize_mac", "disabled") ?: "disabled"
+            ndsJitEnable = p.getString("nds_jit_enable", "enabled") ?: "enabled"
+            ndsAudioInterpolation = p.getString("nds_audio_interpolation", "Cosine") ?: "Cosine"
+            ndsUseFwSettings = p.getString("nds_use_fw_settings", "disabled") ?: "disabled"
             // PSX (PCSX-ReARMed) options
             pscxBios = p.getString("psx_bios", "auto") ?: "auto"
             pscxRegion = p.getString("psx_region", "auto") ?: "auto"
@@ -1496,6 +1505,9 @@ object PadLayoutStore {
             putString("nds_mouse_speed", layout.ndsMouseSpeed)
             putString("nds_dsi_sdcard", layout.ndsDsiSdcard)
             putString("nds_randomize_mac", layout.ndsRandomizeMac)
+            putString("nds_jit_enable", layout.ndsJitEnable)
+            putString("nds_audio_interpolation", layout.ndsAudioInterpolation)
+            putString("nds_use_fw_settings", layout.ndsUseFwSettings)
             // === PSX (PCSX-ReARMed) ===
             putString("psx_bios", layout.pscxBios)
             putString("psx_region", layout.pscxRegion)

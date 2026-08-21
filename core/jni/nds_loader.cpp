@@ -196,6 +196,11 @@ static std::atomic<uint16_t> s_pad2{0};
 static std::atomic<uint16_t> s_pad3{0};
 static std::atomic<uint16_t> s_pad4{0};
 
+// Touchscreen state (RETRO_DEVICE_POINTER).
+static std::atomic<int16_t> s_touchX{0};
+static std::atomic<int16_t> s_touchY{0};
+static std::atomic<bool>    s_touchPressed{false};
+
 static std::atomic<int>  s_videoFilter{0};
 static std::atomic<bool> s_highQualityScaling{false};
 static std::atomic<bool> s_fastForward{false};
@@ -461,6 +466,13 @@ static void initDefaultOptions() {
     // console_mode value is "DSi" for DSi mode, anything else = DS.
     setIfMissing("melonds_console_mode",       "DS");
     setIfMissing("melonds_dsi_sdcard",         "disabled");
+
+    // --- JIT / Performance ---
+    setIfMissing("melonds_jit_enable",         "enabled");  // JIT compiler (enabled = much faster, disabled = interpreter)
+
+    // --- Audio ---
+    // 0.9.3: Cosine | Linear | Sinc | None (0=Cosine, 1=Linear, 2=Sinc, 3=None)
+    setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
     setIfMissing("melonds_threaded_renderer",  "enabled");
@@ -842,6 +854,14 @@ static void cb_input_poll() { /* state is read on demand */ }
 
 static int16_t cb_input_state(unsigned port, unsigned device,
                               unsigned /*index*/, unsigned id) {
+    if (device == RETRO_DEVICE_POINTER && port == 0) {
+        switch (id) {
+            case RETRO_DEVICE_ID_POINTER_X:        return s_touchX.load(std::memory_order_relaxed);
+            case RETRO_DEVICE_ID_POINTER_Y:        return s_touchY.load(std::memory_order_relaxed);
+            case RETRO_DEVICE_ID_POINTER_PRESSED:  return s_touchPressed.load(std::memory_order_relaxed) ? 1 : 0;
+            default: return 0;
+        }
+    }
     if (device != RETRO_DEVICE_JOYPAD) return 0;
     // DS supports up to 16 players via Download Play, but only pads 1-4
     // are exposed via this interface (covers all common multiplayer games).
@@ -1188,6 +1208,12 @@ void setControllerInput(int port, uint16_t bits) {
     else if (port == 1) s_pad2.store(bits, std::memory_order_relaxed);
     else if (port == 2) s_pad3.store(bits, std::memory_order_relaxed);
     else if (port == 3) s_pad4.store(bits, std::memory_order_relaxed);
+}
+
+void setTouchInput(int x, int y, bool pressed) {
+    s_touchX.store((int16_t)x, std::memory_order_relaxed);
+    s_touchY.store((int16_t)y, std::memory_order_relaxed);
+    s_touchPressed.store(pressed, std::memory_order_relaxed);
 }
 
 void setPaths(const std::string& systemDir, const std::string& saveDir) {

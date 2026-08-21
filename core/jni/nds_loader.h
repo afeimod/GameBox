@@ -73,6 +73,11 @@ int audioTargetSampleRate();
 // but only pads 1-4 are exposed here).
 void setControllerInput(int port, uint16_t bits);
 
+// Touchscreen input via RETRO_DEVICE_POINTER.
+// x, y: 0..0xFFFF (normalized to DS screen coordinates by the core).
+// pressed: 0 = released, non-zero = touched.
+void setTouchInput(int x, int y, bool pressed);
+
 // Set system (BIOS files) and save (SRAM .srm) directories.
 void setPaths(const std::string& systemDir, const std::string& saveDir);
 

@@ -25,8 +25,9 @@ import android.view.Surface
  * A right, B bottom) — similar to SNES. The libretro port maps these to
  * the standard SNES bit layout, so the same keymap used for SNES works here.
  *
- * DS also has a touchscreen (bottom screen). This bridge does NOT expose
- * touch input in the current version — only standard gamepad buttons.
+ * DS also has a touchscreen (bottom screen). Touch input is exposed via
+ * [setTouchInput] — pass normalized coordinates (0..0xFFFF) and a pressed
+ * flag. The native bridge forwards these to the core via RETRO_DEVICE_POINTER.
  *
  * ## BIOS files
  * melonDS 0.9.3 uses FreeBIOS (built-in BIOS replacement) whenever the real
@@ -103,6 +104,14 @@ object NdsNative {
     @JvmStatic external fun setPad3(bits: Int)
     /** Fourth controller (port 3). Same bit layout as setPad1. */
     @JvmStatic external fun setPad4(bits: Int)
+
+    /**
+     * Touchscreen input via RETRO_DEVICE_POINTER.
+     * @param x Normalized X coordinate (0..0xFFFF, maps to 0..255 by the core).
+     * @param y Normalized Y coordinate (0..0xFFFF, maps to 0..191 by the core).
+     * @param pressed true = touching the screen, false = released.
+     */
+    @JvmStatic external fun setTouchInput(x: Int, y: Int, pressed: Boolean)
 
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)

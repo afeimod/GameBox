@@ -30,8 +30,9 @@ import kotlin.concurrent.thread
  *   bit4=Up, bit5=Down, bit6=Left, bit7=Right,
  *   bit8=X, bit9=Y, bit10=L, bit11=R
  *
- * DS also has a touchscreen (bottom screen) — touch input is NOT exposed in
- * this version, only the standard gamepad buttons.
+ * Touchscreen input is supported via [setTouchInput] — pass normalized
+ * coordinates (0..0xFFFF) and a pressed flag. The state is stored in
+ * atomics on the native side and read by the core on each frame.
  */
 class NdsEngine private constructor() : EmulatorEngine {
 
@@ -286,6 +287,13 @@ class NdsEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = NdsNative.setPad2(bits)
     fun setPad3(bits: Int) = NdsNative.setPad3(bits)
     fun setPad4(bits: Int) = NdsNative.setPad4(bits)
+    /**
+     * Set touchscreen input state.
+     * @param x Normalized X (0..0xFFFF, maps to 0..255 by the core).
+     * @param y Normalized Y (0..0xFFFF, maps to 0..191 by the core).
+     * @param pressed true = touching, false = released.
+     */
+    fun setTouchInput(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInput(x, y, pressed)
     override fun setRegion(region: Int) = NdsNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NdsNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { NdsNative.saveState(slot, dst.absolutePath) }

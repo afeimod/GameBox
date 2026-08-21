@@ -6,6 +6,7 @@ import android.graphics.Shader
 import android.os.Environment
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -381,6 +382,32 @@ internal const val BTN_L2 = 0x1000     // bit12 — L2 (Arcade / extra)
 internal const val BTN_R2 = 0x2000     // bit13 — R2 (Arcade / extra)
 internal const val BTN_L3 = 0x4000     // bit14 — L3 (left stick click)
 internal const val BTN_R3 = 0x8000     // bit15 — R3 (right stick click)
+
+// NDS 本机 KEYINPUT 寄存器位布局（与标准 libretro 布局不同）：
+//   bit0=A, bit1=B, bit2=Select, bit3=Start,
+//   bit4=Right, bit5=Left, bit6=Up, bit7=Down,
+//   bit8=R, bit9=L, bit10=X, bit11=Y
+// 将标准 libretro 位掩码转换为 NDS 本机位掩码。
+private fun remapToNdsLayout(bits: Int): Int {
+    var r = 0
+    if (bits and BTN_A != 0)       r = r or (1 shl 0)   // A
+    if (bits and BTN_B != 0)       r = r or (1 shl 1)   // B
+    if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select
+    if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start
+    if (bits and BTN_RIGHT != 0)   r = r or (1 shl 4)   // DS Right
+    if (bits and BTN_LEFT != 0)    r = r or (1 shl 5)   // DS Left
+    if (bits and BTN_UP != 0)      r = r or (1 shl 6)   // DS Up
+    if (bits and BTN_DOWN != 0)    r = r or (1 shl 7)   // DS Down
+    if (bits and BTN_R_SNES != 0)  r = r or (1 shl 8)   // DS R
+    if (bits and BTN_L_SNES != 0)  r = r or (1 shl 9)   // DS L
+    if (bits and BTN_X != 0)       r = r or (1 shl 10)  // DS X
+    if (bits and BTN_Y != 0)       r = r or (1 shl 11)  // DS Y
+    if (bits and BTN_L2 != 0)      r = r or (1 shl 12)
+    if (bits and BTN_R2 != 0)      r = r or (1 shl 13)
+    if (bits and BTN_L3 != 0)      r = r or (1 shl 14)
+    if (bits and BTN_R3 != 0)      r = r or (1 shl 15)
+    return r
+}
 
 // ---------------------------------------------------------------------------
 // Game folder loader (DOS games and PCE-CD / Mega-CD games)
@@ -1334,6 +1361,7 @@ fun EmulatorScreen(
                 onMenuToggle = { showMenu = !showMenu },
                 customRect = customRect,
                 netplayController = netplayController,
+                ndsScreenLayout = padLayout.ndsScreenLayout,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -1445,7 +1473,7 @@ fun EmulatorScreen(
                         if (netplayController != null) {
                             netplayController.setLocalPad(bits)
                         } else {
-                            routePadBits(engine, currentPlayer, bits)
+                            routePadBits(engine, currentPlayer, bits, platform = platform)
                         }
                     }
                 )
@@ -1744,18 +1772,21 @@ private fun routePadBits(
     engine: EmulatorEngine,
     player: Int,
     bits: Int,
-    netplayController: com.nesstation.app.battle.NetplayController? = null
+    netplayController: com.nesstation.app.battle.NetplayController? = null,
+    platform: GamePlatform = GamePlatform.NES
 ) {
+    // NDS 使用本机 KEYINPUT 寄存器位布局，需要重映射
+    val ndsBits = if (platform == GamePlatform.NDS) remapToNdsLayout(bits) else bits
     if (netplayController != null) {
         // 联机对战：只接受本地 1P 输入；2P 由远端玩家控制
-        if (player == 0) netplayController.setLocalPad(bits)
+        if (player == 0) netplayController.setLocalPad(ndsBits)
         return
     }
     when (player) {
-        0 -> engine.setPad1(bits)
-        1 -> engine.setPad2(bits)
-        2 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad3(bits)
-        3 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad4(bits)
+        0 -> engine.setPad1(ndsBits)
+        1 -> engine.setPad2(ndsBits)
+        2 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad3(ndsBits)
+        3 -> (engine as? com.nesstation.app.core.engine.FbNeoEngine)?.setPad4(ndsBits)
     }
 }
 
@@ -1909,6 +1940,9 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)       // "Mouse" | "Touch" | "Joystick"
             engine.setCoreOption("melonds_dsi_sdcard", layout.ndsDsiSdcard)
             engine.setCoreOption("melonds_randomize_mac_address", layout.ndsRandomizeMac)
+            engine.setCoreOption("melonds_jit_enable", layout.ndsJitEnable)
+            engine.setCoreOption("melonds_audio_interpolation", layout.ndsAudioInterpolation)
+            engine.setCoreOption("melonds_use_fw_settings", layout.ndsUseFwSettings)
             engine.setCoreOption("melonds_threaded_renderer", "enabled")
         }
         GamePlatform.PSX -> {
@@ -1961,7 +1995,9 @@ private fun GameSurfaceView(
      * 联机对战控制器。非 null 时，物理手柄 / 键盘的 pad 输入会通过它走帧同步，
      * 而不是直接 engine.setPad1。
      */
-    netplayController: com.nesstation.app.battle.NetplayController? = null
+    netplayController: com.nesstation.app.battle.NetplayController? = null,
+    // NDS 屏幕布局，用于动态计算宽高比
+    ndsScreenLayout: String = "Top/Bottom"
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -1973,17 +2009,24 @@ private fun GameSurfaceView(
         isPortrait -> Alignment.TopCenter
         else -> Alignment.Center
     }
-    // Auto-select "2:3" aspect ratio for NDS dual-screen if the user hasn't
-    // explicitly changed the videoScale from the default "stretch".
+    // NDS 双屏动态宽高比：
+    //   Top/Bottom, Bottom/Top → 2:3  (256x384)
+    //   Left/Right, Right/Left → 8:3  (512x192)
+    //   Top Only, Bottom Only  → 4:3  (256x192)
     val effectiveVideoScale = if (videoScale == "stretch" && platform == GamePlatform.NDS) {
-        "2:3"
+        when (ndsScreenLayout) {
+            "Left/Right", "Right/Left" -> "8:3"
+            "Top Only", "Bottom Only" -> "4:3"
+            else -> "2:3" // Top/Bottom, Bottom/Top
+        }
     } else {
         videoScale
     }
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
         val surfaceModifier = when (effectiveVideoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
-            "2:3" -> Modifier.aspectRatio(2f / 3f)   // NDS 双屏 (256x384)
+            "2:3" -> Modifier.aspectRatio(2f / 3f)   // NDS 上下双屏 (256x384)
+            "8:3" -> Modifier.aspectRatio(8f / 3f)   // NDS 左右双屏 (512x192)
             "3:2" -> Modifier.aspectRatio(3f / 2f)   // GBA 原生比例 (240x160)
             "8:7" -> Modifier.aspectRatio(8f / 7f)
             "16:9" -> Modifier.aspectRatio(16f / 9f)
@@ -2018,6 +2061,29 @@ private fun GameSurfaceView(
                             engine.setSurface(null)
                         }
                     })
+                    // NDS touchscreen input: capture touch events on the
+                    // game surface and forward them to the engine via
+                    // RETRO_DEVICE_POINTER (normalized 0..0xFFFF coords).
+                    if (platform == GamePlatform.NDS) {
+                        setOnTouchListener { _, event ->
+                            val ndsEngine = (engine as? com.nesstation.app.core.engine.NdsEngine) ?: return@setOnTouchListener false
+                            when (event.actionMasked) {
+                                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                    val w = width.coerceAtLeast(1)
+                                    val h = height.coerceAtLeast(1)
+                                    val x = (event.x / w * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                    val y = (event.y / h * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                    ndsEngine.setTouchInput(x, y, true)
+                                    true
+                                }
+                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                    ndsEngine.setTouchInput(0, 0, false)
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                    }
                     // Make the SurfaceView focusable so it receives physical
                     // gamepad / D-pad key events on TV and when a Bluetooth
                     // controller is connected.
@@ -2044,12 +2110,12 @@ private fun GameSurfaceView(
                                 when (event.action) {
                                     KeyEvent.ACTION_DOWN -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
                                         true
                                     }
                                     KeyEvent.ACTION_UP -> {
                                         gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
+                                        routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
                                         true
                                     }
                                     else -> false
@@ -2078,7 +2144,7 @@ private fun GameSurfaceView(
                         // (prevents stuck buttons when menu closes).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
                         }
                         // Don't consume — let Compose UI navigate
                         false
@@ -2088,11 +2154,11 @@ private fun GameSurfaceView(
                         // menu just closed while button was held).
                         if (bits != 0 && event.action == KeyEvent.ACTION_UP) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] and bits.inv()
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
                             true
                         } else if (bits != 0 && event.action == KeyEvent.ACTION_DOWN) {
                             gamepadBitsHolder[0] = gamepadBitsHolder[0] or bits
-                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController)
+                            routePadBits(engine, currentPlayer, gamepadBitsHolder[0], netplayController, platform)
                             true
                         } else if (event.action == KeyEvent.ACTION_DOWN &&
                                    (keyCode == KeyEvent.KEYCODE_MENU ||
@@ -2108,7 +2174,7 @@ private fun GameSurfaceView(
                 // so the game doesn't think buttons are stuck down.
                 if (uiBlocked && gamepadBitsHolder[0] != 0) {
                     gamepadBitsHolder[0] = 0
-                    routePadBits(engine, currentPlayer, 0, netplayController)
+                    routePadBits(engine, currentPlayer, 0, netplayController, platform)
                 }
                 // When UI becomes unblocked (menu closed), re-request focus
                 // so the SurfaceView can receive gamepad keys again.
@@ -2116,6 +2182,28 @@ private fun GameSurfaceView(
                     sv.isFocusable = true
                     sv.isFocusableInTouchMode = true
                     sv.requestFocus()
+                }
+                // NDS touchscreen: update touch listener in case the engine
+                // instance changed (defensive — normally it's the same engine).
+                if (platform == GamePlatform.NDS) {
+                    sv.setOnTouchListener { _, event ->
+                        val ndsEngine = (engine as? com.nesstation.app.core.engine.NdsEngine) ?: return@setOnTouchListener false
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                val w = sv.width.coerceAtLeast(1)
+                                val h = sv.height.coerceAtLeast(1)
+                                val x = (event.x / w * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                val y = (event.y / h * 0xFFFF).toInt().coerceIn(0, 0xFFFF)
+                                ndsEngine.setTouchInput(x, y, true)
+                                true
+                            }
+                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                ndsEngine.setTouchInput(0, 0, false)
+                                true
+                            }
+                            else -> false
+                        }
+                    }
                 }
             },
             modifier = surfaceModifier

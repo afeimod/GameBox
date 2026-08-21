@@ -49,6 +49,10 @@ void Engine::setPad1(int bits)        { rom::setControllerInput(0, (uint16_t)bit
 void Engine::setPad2(int bits)        { rom::setControllerInput(1, (uint16_t)bits); }
 void Engine::setPad3(int bits)        { rom::setControllerInput(2, (uint16_t)bits); }
 void Engine::setPad4(int bits)        { rom::setControllerInput(3, (uint16_t)bits); }
+
+void Engine::setTouchInput(int x, int y, bool pressed) {
+    rom::setTouchInput(x, y, pressed);
+}
 void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
@@ -153,6 +157,11 @@ Java_com_nesstation_app_core_jni_NdsNative_setPad3(JNIEnv*, jclass, jint bits) {
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_NdsNative_setPad4(JNIEnv*, jclass, jint bits) {
     ndscore::Engine::instance().setPad4(bits);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_setTouchInput(JNIEnv*, jclass, jint x, jint y, jboolean pressed) {
+    ndscore::Engine::instance().setTouchInput(x, y, pressed == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL

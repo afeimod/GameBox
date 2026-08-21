@@ -683,6 +683,19 @@ fun CoreSettingsPanel(
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.ndsRandomizeMac
                     ) { updateLayout(padLayout.copy {ndsRandomizeMac = it}) }
+                    DropdownRow("JIT 编译器",
+                        listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
+                        padLayout.ndsJitEnable
+                    ) { updateLayout(padLayout.copy {ndsJitEnable = it}) }
+                    DropdownRow("音频插值",
+                        listOf("Cosine" to "余弦(高质量)", "Linear" to "线性(中等)",
+                               "Sinc" to "Sinc(最高质量)", "None" to "无(低质量)"),
+                        padLayout.ndsAudioInterpolation
+                    ) { updateLayout(padLayout.copy {ndsAudioInterpolation = it}) }
+                    DropdownRow("使用固件设置",
+                        listOf("disabled" to "关闭(推荐)", "enabled" to "开启"),
+                        padLayout.ndsUseFwSettings
+                    ) { updateLayout(padLayout.copy {ndsUseFwSettings = it}) }
                 }
             }
             GamePlatform.PSX -> item {
