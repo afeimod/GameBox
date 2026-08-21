@@ -29,19 +29,19 @@ import android.view.Surface
  * touch input in the current version — only standard gamepad buttons.
  *
  * ## BIOS files
- * melonDS requires BIOS files in the system directory (set via [setPaths]):
- *   bios7.bin      — ARM7 BIOS (required for NDS)
- *   bios9.bin      — ARM9 BIOS (required for NDS)
- *   firmware.bin   — DS firmware (required for NDS, enables boot animation
- *                    and Wi-fi connection)
+ * melonDS 0.9.3 uses FreeBIOS (built-in BIOS replacement) whenever the real
+ * files are absent from the system directory (set via [setPaths]):
+ *   bios7.bin      — ARM7 BIOS (loaded if present)
+ *   bios9.bin      — ARM9 BIOS (loaded if present)
+ *   firmware.bin   — DS firmware (loaded if present)
  *   dsi_arm7.bin   — (DSi only) ARM7 binary
  *   dsi_bios7.bin  — (DSi only) ARM7 BIOS
  *   dsi_bios9.bin  — (DSi only) ARM9 BIOS
  *   dsi_firmware.bin — (DSi only) DSi firmware
  *   dsi_nand.bin   — (DSi only) DSi NAND image
  *
- * The core option "melonds_console_mode" = "ds" (default) uses the NDS
- * BIOS set; "dsi" uses the DSi set.
+ * The core option "melonds_console_mode" = "DS" (default) uses the NDS
+ * BIOS set; "DSi" requires the DSi files.
  * These BIOS files have copyright and cannot be bundled with the app.
  *
  * ## ROM files
@@ -123,18 +123,21 @@ object NdsNative {
 
     /**
      * Set a core option by key and value.
-     * Common melonDS libretro keys:
-     *   "melonds_screen_layout"         -> "top_bottom" | "bottom_top" | "left_right" | "right_left" | "top_only" | "bottom_only" | "turnscreen"
-     *   "melonds_opengl_resolution"     -> "1" | "2" | "3" | "4" | "5"  (software renderer upscale)
-     *   "melonds_opengl_better_polygons" -> "disabled" | "enabled"
-     *   "melonds_opengl_filtering"      -> "nearest" | "linear"
-     *   "melonds_console_mode"          -> "ds" | "dsi"
-     *   "melonds_dsi_sdcard"           -> "disabled" | "enabled"
-     *   "melonds_sysfile_directory"    -> "" (set to systemDir by loader)
-     *   "melonds_screensaver"          -> "disabled" | "enabled"
-     *   "melonds_mouse_speed"          -> "100" | "50".."200"
-     *   "melonds_touch_mode"           -> "mouse" | "touch" | "disabled"
+     * Keys/values MUST match the prebuilt melonDS 0.9.3 libretro core.
+     * Valid options (verified against the .so):
+     *   "melonds_boot_directly"         -> "enabled" | "disabled"  (enabled = jump straight into the game; disabled = boot into the grey FW menu)
+     *   "melonds_screen_layout"         -> "Top/Bottom" | "Bottom/Top" | "Left/Right" | "Right/Left" | "Top Only" | "Bottom Only"
+     *   "melonds_console_mode"          -> "DS" | "DSi"  (anything except "DSi" = DS)
+     *   "melonds_use_fw_settings"       -> "enabled" | "disabled"
+     *   "melonds_touch_mode"            -> "Mouse" | "Touch" | "Joystick"
+     *   "melonds_threaded_renderer"     -> "enabled" | "disabled"
+     *   "melonds_dsi_sdcard"            -> "disabled" | "enabled"
      *   "melonds_randomize_mac_address" -> "disabled" | "enabled"
+     *   "melonds_jit_enable"            -> "enabled" | "disabled"
+     *   "melonds_audio_interpolation"   -> (0.9.3: Cosine | Linear | Sinc | ...)
+     * NOTE: "melonds_use_fw_bios" / "melonds_opengl_*" / "melonds_screensaver" /
+     * "melonds_mouse_speed" / "melonds_sysfile_directory" do NOT exist in 0.9.3
+     * and are silently ignored by the core.
      */
     @JvmStatic external fun setCoreOption(key: String, value: String)
 

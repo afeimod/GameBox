@@ -657,41 +657,24 @@ fun CoreSettingsPanel(
             }
             GamePlatform.NDS -> item {
                 SettingsSection("NDS / DSi (melonDS)") {
-                    DropdownRow("内置 BIOS (免 BIOS)",
-                        listOf("enabled" to "开启(无需 BIOS 文件)", "disabled" to "关闭(需导入 BIOS)"),
-                        padLayout.ndsUseFwBios
-                    ) { updateLayout(padLayout.copy {ndsUseFwBios = it}) }
+                    // 注意:本核心是预编译的 melonDS 0.9.3,仅支持以下选项;
+                    // "内置 BIOS / 渲染分辨率 / OpenGL 过滤 / 屏保 / 鼠标速度"
+                    // 等选项在该版本核心中不存在,已移除。
+                    // 游戏始终以 melonds_boot_directly=enabled 直接启动。
                     DropdownRow("主机模式",
-                        listOf("ds" to "DS", "dsi" to "DSi"),
+                        listOf("DS" to "DS", "DSi" to "DSi"),
                         padLayout.ndsConsoleMode
                     ) { updateLayout(padLayout.copy {ndsConsoleMode = it}) }
                     DropdownRow("屏幕布局",
-                        listOf("top_bottom" to "上下排列", "bottom_top" to "下上排列",
-                               "left_right" to "左右排列", "right_left" to "右左排列",
-                               "top_only" to "仅上方屏", "bottom_only" to "仅下方屏",
-                               "turnscreen" to "旋转屏"),
+                        listOf("Top/Bottom" to "上下排列", "Bottom/Top" to "下上排列",
+                               "Left/Right" to "左右排列", "Right/Left" to "右左排列",
+                               "Top Only" to "仅上方屏", "Bottom Only" to "仅下方屏"),
                         padLayout.ndsScreenLayout
                     ) { updateLayout(padLayout.copy {ndsScreenLayout = it}) }
-                    DropdownRow("渲染分辨率",
-                        listOf("1" to "1x (原生)", "2" to "2x", "3" to "3x", "4" to "4x", "5" to "5x"),
-                        padLayout.ndsResolution
-                    ) { updateLayout(padLayout.copy {ndsResolution = it}) }
-                    DropdownRow("OpenGL 过滤",
-                        listOf("nearest" to "最近邻(锐利)", "linear" to "线性(平滑)"),
-                        padLayout.ndsFiltering
-                    ) { updateLayout(padLayout.copy {ndsFiltering = it}) }
-                    DropdownRow("屏保",
-                        listOf("disabled" to "关闭", "enabled" to "开启"),
-                        padLayout.ndsScreensaver
-                    ) { updateLayout(padLayout.copy {ndsScreensaver = it}) }
                     DropdownRow("触摸模式",
-                        listOf("mouse" to "鼠标", "touch" to "触摸", "disabled" to "关闭"),
+                        listOf("Mouse" to "鼠标", "Touch" to "触摸", "Joystick" to "摇杆"),
                         padLayout.ndsTouchMode
                     ) { updateLayout(padLayout.copy {ndsTouchMode = it}) }
-                    DropdownRow("鼠标速度",
-                        listOf("50" to "50%", "75" to "75%", "100" to "100%", "125" to "125%", "150" to "150%", "175" to "175%", "200" to "200%"),
-                        padLayout.ndsMouseSpeed
-                    ) { updateLayout(padLayout.copy {ndsMouseSpeed = it}) }
                     DropdownRow("DSi SD 卡",
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.ndsDsiSdcard

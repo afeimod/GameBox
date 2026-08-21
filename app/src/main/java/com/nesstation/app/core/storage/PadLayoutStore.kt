@@ -322,15 +322,18 @@ class PadLayout {
     var pceAllowUpDown: String = "Disabled"            // Disabled | Enabled
 
     // === NDS (melonDS) core options ===
-    // Keys must match melonDS libretro frontend's option declarations.
-    var ndsUseFwBios: String = "enabled"               // enabled | disabled (use built-in FreeBIOS, no BIOS files needed)
-    var ndsConsoleMode: String = "ds"                  // ds | dsi
-    var ndsScreenLayout: String = "top_bottom"          // top_bottom | bottom_top | left_right | right_left | top_only | bottom_only | turnscreen
-    var ndsResolution: String = "1"                    // 1 | 2 | 3 | 4 | 5 (software renderer upscale factor)
-    var ndsFiltering: String = "nearest"               // nearest | linear
-    var ndsScreensaver: String = "disabled"            // disabled | enabled
-    var ndsTouchMode: String = "mouse"                 // mouse | touch | disabled
-    var ndsMouseSpeed: String = "100"                  // 50 | 75 | 100 | 125 | 150 | 175 | 200
+    // Values must match the prebuilt melonDS 0.9.3 libretro core exactly.
+    // ndsUseFwBios / ndsResolution / ndsFiltering / ndsScreensaver /
+    // ndsMouseSpeed have NO matching option in 0.9.3 — they are kept only for
+    // storage compatibility and are no longer forwarded to the core.
+    var ndsUseFwBios: String = "enabled"
+    var ndsConsoleMode: String = "DS"                  // DS | DSi (anything except "DSi" = DS)
+    var ndsScreenLayout: String = "Top/Bottom"         // Top/Bottom | Bottom/Top | Left/Right | Right/Left | Top Only | Bottom Only
+    var ndsResolution: String = "1"
+    var ndsFiltering: String = "nearest"
+    var ndsScreensaver: String = "disabled"
+    var ndsTouchMode: String = "Mouse"                 // Mouse | Touch | Joystick
+    var ndsMouseSpeed: String = "100"
     var ndsDsiSdcard: String = "disabled"              // disabled | enabled (DSi mode SD card)
     var ndsRandomizeMac: String = "disabled"           // disabled | enabled (randomize MAC for online play)
 
@@ -1126,13 +1129,29 @@ object PadLayoutStore {
             mdSmsFm = p.getString("md_sms_fm", "auto") ?: "auto"
             mdGgStretch = p.getString("md_gg_stretch", "disabled") ?: "disabled"
             // NDS (melonDS) options
+            // Values must match the 0.9.3 core; migrate legacy stored values.
             ndsUseFwBios = p.getString("nds_use_fw_bios", "enabled") ?: "enabled"
-            ndsConsoleMode = p.getString("nds_console_mode", "ds") ?: "ds"
-            ndsScreenLayout = p.getString("nds_screen_layout", "top_bottom") ?: "top_bottom"
+            ndsConsoleMode = when (p.getString("nds_console_mode", "DS") ?: "DS") {
+                "ds" -> "DS"
+                else -> (p.getString("nds_console_mode", "DS") ?: "DS")
+            }
+            ndsTouchMode = when (p.getString("nds_touch_mode", "Mouse") ?: "Mouse") {
+                "mouse" -> "Mouse"
+                "touch" -> "Touch"
+                else -> (p.getString("nds_touch_mode", "Mouse") ?: "Mouse")
+            }
+            ndsScreenLayout = when (p.getString("nds_screen_layout", "Top/Bottom") ?: "Top/Bottom") {
+                "top_bottom" -> "Top/Bottom"
+                "bottom_top" -> "Bottom/Top"
+                "left_right" -> "Left/Right"
+                "right_left" -> "Right/Left"
+                "top_only" -> "Top Only"
+                "bottom_only" -> "Bottom Only"
+                else -> (p.getString("nds_screen_layout", "Top/Bottom") ?: "Top/Bottom")
+            }
             ndsResolution = p.getString("nds_resolution", "1") ?: "1"
             ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"
             ndsScreensaver = p.getString("nds_screensaver", "disabled") ?: "disabled"
-            ndsTouchMode = p.getString("nds_touch_mode", "mouse") ?: "mouse"
             ndsMouseSpeed = p.getString("nds_mouse_speed", "100") ?: "100"
             ndsDsiSdcard = p.getString("nds_dsi_sdcard", "disabled") ?: "disabled"
             ndsRandomizeMac = p.getString("nds_randomize_mac", "disabled") ?: "disabled"

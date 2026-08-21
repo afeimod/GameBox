@@ -16,15 +16,16 @@
 //   retro_set_controller_port_device, retro_serialize_size, retro_serialize,
 //   retro_unserialize, retro_get_memory_size, retro_get_memory_data
 //
-// Video resolution is fixed at 256x192 per screen. melonDS's libretro port
-// composites the two screens into a single framebuffer based on the
-// melonds_screen_layout core option:
-//   top_bottom (default): 256x384 (top screen above bottom screen)
-//   bottom_top:            256x384 (bottom above top)
-//   left_right:            512x192 (top left, bottom right)
-//   right_left:            512x192 (bottom left, top right)
-//   top_only / bottom_only: 256x192 (single screen)
-//   turnscreen:            dynamic, rotated layout
+// Video resolution is fixed at 256x192 per screen. melonDS 0.9.3' libretro
+// port composites the two screens into a single framebuffer based on the
+// melonds_screen_layout core option (values use mixed case + '/'):
+//   Top/Bottom (default): 256x384 (top screen above bottom screen)
+//   Bottom/Top:           256x384 (bottom above top)
+//   Left/Right:           512x192 (top left, bottom right)
+//   Right/Left:           512x192 (bottom left, top right)
+//   Top Only / Bottom Only: 256x192 (single screen)
+// This .so is the software-render build (no OpenGL strings inside), so no
+// EGL context is actually needed — the EGL code below is kept inert.
 // The frame buffer uses a std::vector that resizes to the largest seen
 // resolution. Filter buffers are sized to 256x384 max — this covers every
 // melonDS screen layout.
@@ -38,14 +39,15 @@
 // Touchscreen / microphone / lid-close are NOT exposed via this 12-bit
 // field (would require RETRO_DEVICE_POINTER + RETRO_DEVICE_MIC).
 //
-// BIOS files: melonDS requires the following files in <systemDir>/:
+// BIOS files: melonDS 0.9.3 looks for the following files in <systemDir>/:
 //   NDS mode:  bios7.bin (16 KB ARM7 BIOS), bios9.bin (4 KB ARM9 BIOS),
 //             firmware.bin (256 KB NDS firmware — provides settings
 //             like username / language / boot slot)
 //   DSi mode:  dsi_arm7.bin, dsi_bios7.bin, dsi_bios9.bin, dsi_firmware.bin,
 //             dsi_nand.bin (DSi NAND image with launcher app)
-// The loader does NOT pre-check for these files — if they're missing the
-// core will fail with a clear error message during retro_load_game.
+// If any are missing the core silently falls back to the built-in FreeBIOS
+// (see "Bios ARM7 not found. Proceeding with FreeBIOS." in the core logs),
+// so the game still boots without external BIOS files.
 //
 // All retro_* calls happen on a single emulation thread (see NdsEngine in
 // Kotlin), so no extra internal locking is needed around the core itself.
@@ -93,10 +95,10 @@ namespace ndscore::rom {
 
 // ---------------------------------------------------------------------------
 // Maximum video resolution supported by melonDS.
-// DS screens are each 256x192. With the default "top_bottom" layout this
+// DS screens are each 256x192. With the default "Top/Bottom" layout this
 // gives a 256x384 composite framebuffer; horizontal layouts give 512x192.
 // 256x384 covers the default vertical layout (most common); horizontal
-// layouts (left_right / right_left) would exceed this — but melonDS's
+// layouts ("Left/Right" / "Right/Left") would exceed this — but melonDS's
 // libretro port caps the maximum composite framebuffer at 256x384 by
 // default (it never actually emits 512x192 unless explicitly configured).
 // 256x384 is sufficient for all built-in screen layouts.
@@ -423,50 +425,46 @@ static retro_proc_address_t hw_get_proc_address(const char* sym) {
 // repository). If any key is wrong, the melonDS core silently ignores it
 // and uses its built-in default — no crash, just the option has no effect.
 //
-// The melonds_sysfile_directory option is intentionally left empty here
-// and is set dynamically in loadFromFile() to s_systemDir, so that melonDS
-// looks for BIOS files in the frontend-supplied system directory rather
-// than a hardcoded path.
+// The bundled core is a prebuilt melonDS 0.9.3 libretro build (verified by
+// string-scanning libmelonds_libretro_android.so). BIOS/system path is
+// provided to the core via RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, not an
+// option key (melonds_sysfile_directory does NOT exist in 0.9.3).
 // ---------------------------------------------------------------------------
 static void initDefaultOptions() {
     // Only set defaults for options that haven't been set yet.
     // applyCoreOptions() from Kotlin may have already set these options
     // BEFORE loadRom() is called. Overwriting them here would cause:
-    //   - Gray screen: if melonds_screen_layout was set to a non-default
-    //     value by the user, it would be reset to "top_bottom"
-    //   - Single screen: if the user selected a specific layout, it would
-    //     be lost
-    //   - Wrong console mode: ds/dsi would be reset to "ds"
+    //   - Layout / mode / touch choices being reset to the defaults below
     auto setIfMissing = [](const std::string& key, const std::string& val) {
         if (s_options.find(key) == s_options.end()) {
             s_options[key] = val;
         }
     };
 
-    // --- BIOS / Boot ---
-    // Enable built-in FreeBIOS so games boot without requiring external
-    // bios7.bin / bios9.bin / firmware.bin files. The user can disable
-    // this in Settings → NDS to use real BIOS files for better accuracy.
-    setIfMissing("melonds_use_fw_bios",            "enabled");
+    // --- Boot ---
+    // CRITICAL: Without "melonds_boot_directly"="enabled" the core leaves
+    // Config::DirectBoot = 0 and boots into the (grey) DS firmware menu
+    // instead of launching the cart directly — this is the classic "NDS
+    // loads but the screen stays grey" symptom.
+    // FreeBIOS is built into the 0.9.3 core and used automatically when no
+    // external bios7.bin/bios9.bin/firmware.bin are present.
+    setIfMissing("melonds_boot_directly",      "enabled");
+    setIfMissing("melonds_use_fw_settings",    "disabled"); // don't need a firmware to supply username/lang
 
     // --- Display / Layout ---
-    setIfMissing("melonds_screen_layout",          "top_bottom");
-    setIfMissing("melonds_screensaver",            "disabled");
-    setIfMissing("melonds_opengl_resolution",      "1");
-    setIfMissing("melonds_opengl_better_polygons", "disabled");
-    setIfMissing("melonds_opengl_filtering",       "nearest");
-    setIfMissing("melonds_opengl_factor_3d",       "0");
+    // 0.9.3 option values use mixed case with '/': "Top/Bottom",
+    // "Bottom/Top", "Left/Right", "Right/Left", "Top Only",
+    // "Bottom Only", "Hybrid Top", "Hybrid Bottom".
+    setIfMissing("melonds_screen_layout",      "Top/Bottom");
 
     // --- System / Console ---
-    setIfMissing("melonds_console_mode",           "ds");
-    setIfMissing("melonds_dsi_sdcard",             "disabled");
-    setIfMissing("melonds_sysfile_directory",      "");
-    setIfMissing("melonds_randomize_mac_address",  "disabled");
+    // console_mode value is "DSi" for DSi mode, anything else = DS.
+    setIfMissing("melonds_console_mode",       "DS");
+    setIfMissing("melonds_dsi_sdcard",         "disabled");
 
-    // --- Input / Touch ---
-    setIfMissing("melonds_touch_mode",             "mouse");
-    setIfMissing("melonds_mouse_speed",             "100");
-    setIfMissing("melonds_left_shift",              "disabled");
+    // --- Renderer / Input / Touch ---
+    setIfMissing("melonds_threaded_renderer",  "enabled");
+    setIfMissing("melonds_touch_mode",         "Mouse");
 }
 
 // ---------------------------------------------------------------------------
@@ -911,15 +909,10 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_resampler.reset();
 
-    // melonDS looks for BIOS files in the directory specified by the
-    // melonds_sysfile_directory core option (which can also be queried via
-    // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY as a fallback). We set the
-    // option to s_systemDir on every load so that the frontend-supplied
-    // system directory is always used.
-    {
-        std::lock_guard<std::mutex> lk(s_optMtx);
-        s_options["melonds_sysfile_directory"] = s_systemDir;
-    }
+    // BIOS directory is handed to the core via RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+    // (cb_environment) — melonDS 0.9.3 has no melonds_sysfile_directory option.
+    // Notify the core that options changed so it re-reads melonds_boot_directly
+    // (+ anything set by applyCoreOptions) before launching the game.
     s_optionsChanged.store(true, std::memory_order_release);
 
     // DS ROMs are small (<512 MB max for the largest commercial carts), so
@@ -1289,10 +1282,9 @@ int videoHeight() { return (int)s_videoH; }
 void videoAspectRatio(int& num, int& den) {
     // Return aspect ratio based on the active melonds_screen_layout option.
     // melonDS composites both DS screens into a single framebuffer:
-    //   top_bottom / bottom_top: 256x384  -> 2:3  (two 4:3 screens stacked)
-    //   left_right / right_left:  512x192 -> 8:3  (two 4:3 screens side by side)
-    //   top_only / bottom_only:   256x192 -> 4:3  (single screen)
-    //   turnscreen:               dynamic   -> 4:3 (rotated, treat as 4:3)
+    //   "Top/Bottom"/"Bottom/Top": 256x384 -> 2:3 (two 4:3 screens stacked)
+    //   "Left/Right"/"Right/Left": 512x192 -> 8:3 (two 4:3 screens side by side)
+    //   "Top Only"/"Bottom Only":  256x192 -> 4:3 (single screen)
     std::string layout;
     {
         std::lock_guard<std::mutex> lk(s_optMtx);
@@ -1300,12 +1292,12 @@ void videoAspectRatio(int& num, int& den) {
         if (it != s_options.end()) layout = it->second;
     }
 
-    if (layout == "left_right" || layout == "right_left") {
+    if (layout == "Left/Right" || layout == "Right/Left") {
         num = 8; den = 3;
-    } else if (layout == "top_only" || layout == "bottom_only") {
+    } else if (layout == "Top Only" || layout == "Bottom Only") {
         num = 4; den = 3;
     } else {
-        // Default: top_bottom (256x384) -> 2:3
+        // Default: "Top/Bottom" (256x384) -> 2:3
         num = 2; den = 3;
     }
 }

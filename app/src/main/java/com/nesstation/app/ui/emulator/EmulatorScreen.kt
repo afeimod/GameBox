@@ -1901,17 +1901,15 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("geargrafx_up_down_allowed", layout.pceAllowUpDown)
         }
         GamePlatform.NDS -> {
-            // melonDS core options — keys match melonDS libretro frontend.
-            engine.setCoreOption("melonds_use_fw_bios", layout.ndsUseFwBios)
-            engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)
-            engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout)
-            engine.setCoreOption("melonds_opengl_resolution", layout.ndsResolution)
-            engine.setCoreOption("melonds_opengl_filtering", layout.ndsFiltering)
-            engine.setCoreOption("melonds_screensaver", layout.ndsScreensaver)
-            engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)
-            engine.setCoreOption("melonds_mouse_speed", layout.ndsMouseSpeed)
+            // melonDS core options — keys/values must match the prebuilt
+            // melonDS 0.9.3 libretro core (verified against the .so).
+            engine.setCoreOption("melonds_boot_directly", "enabled")   // jump straight into the game, not the grey FW menu
+            engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)   // "DS" | "DSi"
+            engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout) // "Top/Bottom" | "Bottom/Top" | "Left/Right" | ...
+            engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)       // "Mouse" | "Touch" | "Joystick"
             engine.setCoreOption("melonds_dsi_sdcard", layout.ndsDsiSdcard)
             engine.setCoreOption("melonds_randomize_mac_address", layout.ndsRandomizeMac)
+            engine.setCoreOption("melonds_threaded_renderer", "enabled")
         }
         GamePlatform.PSX -> {
             // PCSX-ReARMed core options — keys match libretro_core_options.h.
@@ -6535,63 +6533,36 @@ private fun SettingsPanel(
                 Text("NDS / DSi (melonDS) 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(6.dp))
-                Text("melonDS 内置 FreeBIOS，默认无需 BIOS 文件即可运行 NDS 游戏。",
+                Text("melonDS 0.9.3 内置 FreeBIOS，无需 BIOS 文件即可直接运行游戏。",
                     color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
-                Text("如使用真实 BIOS 可获得更好的兼容性，请在下方关闭「内置 BIOS」并导入 BIOS 文件。",
+                Text("如需使用真实 BIOS，请将其放入系统目录（下方「NDS BIOS 管理」）。",
                     color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
 
                 Spacer(Modifier.size(6.dp))
                 Text("系统", color = Color(0xFF8899AA), fontSize = 11.sp)
-                DropdownSetting("内置 BIOS (免 BIOS)",
-                    listOf("enabled" to "开启(无需 BIOS 文件)", "disabled" to "关闭(需导入 BIOS)"),
-                    padLayout.ndsUseFwBios
-                ) { onLayoutChange(padLayout.copy {ndsUseFwBios = it}) }
-
                 DropdownSetting("主机模式",
-                    listOf("ds" to "DS", "dsi" to "DSi"),
+                    listOf("DS" to "DS", "DSi" to "DSi"),
                     padLayout.ndsConsoleMode
                 ) { onLayoutChange(padLayout.copy {ndsConsoleMode = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("屏幕布局", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("屏幕排列",
-                    listOf("top_bottom" to "上下排列(上屏在上)",
-                           "bottom_top" to "下上排列(下屏在上)",
-                           "left_right" to "左右排列(左屏在上)",
-                           "right_left" to "右左排列(右屏在上)",
-                           "top_only" to "仅上方屏",
-                           "bottom_only" to "仅下方屏",
-                           "turnscreen" to "旋转屏"),
+                    listOf("Top/Bottom" to "上下排列(上屏在上)",
+                           "Bottom/Top" to "下上排列(下屏在上)",
+                           "Left/Right" to "左右排列(上屏在左)",
+                           "Right/Left" to "右左排列(上屏在右)",
+                           "Top Only" to "仅上方屏",
+                           "Bottom Only" to "仅下方屏"),
                     padLayout.ndsScreenLayout
                 ) { onLayoutChange(padLayout.copy {ndsScreenLayout = it}) }
-
-                DropdownSetting("渲染分辨率",
-                    listOf("1" to "1x (原生)", "2" to "2x", "3" to "3x", "4" to "4x", "5" to "5x"),
-                    padLayout.ndsResolution
-                ) { onLayoutChange(padLayout.copy {ndsResolution = it}) }
-
-                DropdownSetting("OpenGL 过滤",
-                    listOf("nearest" to "最近邻(锐利)", "linear" to "线性(平滑)"),
-                    padLayout.ndsFiltering
-                ) { onLayoutChange(padLayout.copy {ndsFiltering = it}) }
-
-                DropdownSetting("屏保",
-                    listOf("disabled" to "关闭", "enabled" to "开启"),
-                    padLayout.ndsScreensaver
-                ) { onLayoutChange(padLayout.copy {ndsScreensaver = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("触摸/输入", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("触摸模式",
-                    listOf("mouse" to "鼠标", "touch" to "触摸", "disabled" to "关闭"),
+                    listOf("Mouse" to "鼠标", "Touch" to "触摸", "Joystick" to "摇杆"),
                     padLayout.ndsTouchMode
                 ) { onLayoutChange(padLayout.copy {ndsTouchMode = it}) }
-
-                DropdownSetting("鼠标速度",
-                    listOf("50" to "50%", "75" to "75%", "100" to "100%",
-                           "125" to "125%", "150" to "150%", "175" to "175%", "200" to "200%"),
-                    padLayout.ndsMouseSpeed
-                ) { onLayoutChange(padLayout.copy {ndsMouseSpeed = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("DSi 模式", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -7304,9 +7275,12 @@ private fun PceBiosImportSection() {
 /**
  * NDS / DSi BIOS import section for the melonDS core.
  *
- * melonDS can use either:
- *   1. Built-in FreeBIOS (no file needed) — enabled via "melonds_use_fw_bios"="enabled"
- *   2. Real BIOS files in <filesDir>/nds/:
+ * The prebuilt core is melonDS 0.9.3. It uses FreeBIOS (built-in ARM7/ARM9
+ * BIOS replacement + generated firmware) whenever no real BIOS files are
+ * found — there is NO "melonds_use_fw_bios" option in this version.
+ *
+ * If real BIOS files exist in <filesDir>/nds/ (the system directory), the
+ * core loads them instead of FreeBIOS for better accuracy:
  *      bios7.bin      — ARM7 BIOS (required for NDS)
  *      bios9.bin      — ARM9 BIOS (required for NDS)
  *      firmware.bin   — DS firmware (required for NDS)
@@ -7316,14 +7290,8 @@ private fun PceBiosImportSection() {
  *      dsi_firmware.bin — (DSi only) DSi firmware
  *      dsi_nand.bin   — (DSi only) DSi NAND image
  *
- * The "melonds_use_fw_bios" core option (default: enabled) controls whether
- * to use the built-in FreeBIOS or require external BIOS files. When set to
- * "enabled", the built-in ARM7/ARM9 BIOS replacement and generated firmware
- * are used — no BIOS files needed. Set to "disabled" to use real BIOS files
- * for better accuracy.
- *
  * These BIOS files have copyright and cannot be bundled with the app.
- * Users provide them via this import UI when FreeBIOS is disabled.
+ * Users provide them via this import UI.
  */
 @Composable
 private fun NdsBiosImportSection() {
