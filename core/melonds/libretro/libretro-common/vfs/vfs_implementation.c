@@ -180,7 +180,9 @@
 
 #include <vfs/vfs_implementation.h>
 #include <libretro.h>
+#ifdef HAVE_MMAP
 #include <memmap.h>
+#endif
 #include <encodings/utf.h>
 #include <compat/fopen_utf8.h>
 #include <file/file_path.h>
