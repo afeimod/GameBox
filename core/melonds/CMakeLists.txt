@@ -249,6 +249,7 @@ target_compile_definitions(melonds-core PRIVATE
     __LIBRETRO__                    # libretro API mode
     OGLRENDERER_ENABLED             # Enable OpenGL 3D renderer
     HAVE_OPENGL                     # libretro OpenGL support
+    HAVE_EGL                        # EGL support (Android GL context)
     HAVE_THREADS                    # Threading support
     HAVE_WIFI                       # WiFi emulation
     ARCHITECTURE_ARM64              # ARM64 JIT architecture
