@@ -116,7 +116,7 @@ static void m3gDestroyLargeImage(Image *img)
     M3G_VALIDATE_MEMBLOCK(lrg);
 
     m3gDeleteGLTextures(M3G_INTERFACE(img),
-                        lrg->tilesX * lrg->tilesY, lrg->tileNames);
+                        lrg->tilesX * lrg->tilesY, (M3Gpointer*)lrg->tileNames);
     m3gFree(M3G_INTERFACE(img), img->large);
     
     img->large = NULL;

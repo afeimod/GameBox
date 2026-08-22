@@ -52,9 +52,10 @@ static inline uint32_t rgb_to_yuv(uint32_t c)
 
 /* Test if there is difference in color */
 static inline int yuv_diff(uint32_t yuv1, uint32_t yuv2) {
-    return (( abs((yuv1 & Ymask) - (yuv2 & Ymask)) > trY ) ||
-            ( abs((yuv1 & Umask) - (yuv2 & Umask)) > trU ) ||
-            ( abs((yuv1 & Vmask) - (yuv2 & Vmask)) > trV ) );
+    uint32_t dy = (yuv1 & Ymask) > (yuv2 & Ymask) ? (yuv1 & Ymask) - (yuv2 & Ymask) : (yuv2 & Ymask) - (yuv1 & Ymask);
+    uint32_t du = (yuv1 & Umask) > (yuv2 & Umask) ? (yuv1 & Umask) - (yuv2 & Umask) : (yuv2 & Umask) - (yuv1 & Umask);
+    uint32_t dv = (yuv1 & Vmask) > (yuv2 & Vmask) ? (yuv1 & Vmask) - (yuv2 & Vmask) : (yuv2 & Vmask) - (yuv1 & Vmask);
+    return (dy > trY) || (du > trU) || (dv > trV);
 }
 
 static inline int Diff(uint32_t c1, uint32_t c2)

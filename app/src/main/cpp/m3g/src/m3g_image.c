@@ -75,7 +75,7 @@ static void m3gDestroyImage(Object *obj)
 
 #   if !defined(M3G_NGL_TEXTURE_API)
     if (image->texObject) {
-        m3gDeleteGLTextures(m3g, 1, &image->texObject);
+        m3gDeleteGLTextures(m3g, 1, (M3Gpointer*)&image->texObject);
     }
     if (image->large != NULL) {
         m3gDestroyLargeImage(image);

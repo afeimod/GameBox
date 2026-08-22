@@ -1224,6 +1224,8 @@ void GBARetroLog(struct mLogger* logger, int category, enum mLogLevel level, con
 	case mLOG_DEBUG:
 		retroLevel = RETRO_LOG_DEBUG;
 		break;
+	default:
+		break;
 	}
 #ifdef NDEBUG
 	static int biosCat = -1;

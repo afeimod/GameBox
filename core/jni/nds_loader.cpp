@@ -795,7 +795,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 
     if (s_gameLoaded) {
         // Persist SRAM BEFORE unloading the previous game.
-        if (!s_lastRomPath.empty() && retro_get_memory_data && retro_get_memory_size) {
+        if (!s_lastRomPath.empty()) {
             void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
             size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
             coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
@@ -920,7 +920,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     }
 
     // Load SRAM from disk into the core's SAVE_RAM region.
-    if (retro_get_memory_data && retro_get_memory_size) {
+    {
         void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
         size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
         coreshared::loadSramFromDisk(nvram, nvramSize, s_saveDir, path, s_saveName);
@@ -972,7 +972,7 @@ void unload() {
     if (s_loaded) {
         if (s_gameLoaded) {
             // Persist SRAM BEFORE unloading.
-            if (!s_lastRomPath.empty() && retro_get_memory_data && retro_get_memory_size) {
+            if (!s_lastRomPath.empty()) {
                 void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
                 size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
                 coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
@@ -1112,7 +1112,7 @@ void applySpeed(float multiplier) {
 }
 
 void saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded || !retro_serialize) return;
+    if (!s_loaded || !s_gameLoaded) return;
     size_t sz = retro_serialize_size();
     if (sz == 0) return;
     std::vector<uint8_t> buf(sz);
@@ -1124,7 +1124,7 @@ void saveStateToPath(int /*slot*/, const std::string& path) {
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded || !retro_unserialize) return false;
+    if (!s_loaded || !s_gameLoaded) return false;
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     std::fseek(f, 0, SEEK_END);

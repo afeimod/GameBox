@@ -338,6 +338,7 @@ if(EXISTS "${MGBA_DIR}/CMakeLists.txt")
         -Wno-unused-variable
         -Wno-sign-compare
         -Wno-deprecated-declarations
+        -Wno-cpp
     )
 
     target_link_libraries(gbacore mgba log android)

@@ -901,7 +901,7 @@ static M3Gint m3gMorphingMeshDoGetReferences(Object *self, M3Gulong *references)
     MorphingMesh *mmesh = (MorphingMesh *)self;
     M3Gint i, num = m3gMeshDoGetReferences(self, references);
     for (i = 0; i < mmesh->numTargets; i++) {
-        if (mmesh->targets[i] != NULL) {
+        if (mmesh->targets[i] != 0) {
             if (references != NULL)
                 references[num] = (M3Gulong)mmesh->targets[i];
             num++;
@@ -921,7 +921,7 @@ static Object *m3gMorphingMeshFindID(Object *self, M3Gint userID)
     Object *found = m3gMeshFindID(self, userID);
     
     for (i = 0; !found && i < mmesh->numTargets; ++i) {
-        if (mmesh->targets[i] != NULL) {
+        if (mmesh->targets[i] != 0) {
             found = m3gFindID((Object*) mmesh->targets[i], userID);
         }
     }
@@ -1034,7 +1034,7 @@ static M3Gbool m3gInitMorphingMesh( Interface *m3g,
 
     /* Check target validities */
     for (i = 0; i < targetCount; i++) {
-        if (hTargets[i] == NULL) {
+        if (hTargets[i] == 0) {
             m3gRaiseError(m3g, M3G_NULL_POINTER);
             return M3G_FALSE;
         }

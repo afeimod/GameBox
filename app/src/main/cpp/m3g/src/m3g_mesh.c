@@ -257,8 +257,8 @@ static M3Gbool m3gMeshRayIntersectInternal(	Mesh *mesh,
     /* Go through all submeshes */
     for (i = 0; i < mesh->trianglePatchCount; i++) {
         /* Do not pick submeshes with null appearance */
-        if (mesh->appearances[i] == NULL ||
-            mesh->indexBuffers[i] == NULL) continue;
+        if (mesh->appearances[i] == 0 ||
+            mesh->indexBuffers[i] == 0) continue;
 
         /* Validate indices versus vertex buffer */
         if (m3gGetMaxIndex((const IndexBuffer *) mesh->indexBuffers[i]) >= m3gGetNumVertices(vertices)) {
@@ -427,7 +427,7 @@ static M3Gbool m3gInitMesh(Interface *m3g,
     }
 
 	for (i = 0; i < trianglePatchCount; i++) {
-		if (hTriangles[i] == NULL) {
+		if (hTriangles[i] == 0) {
 			m3gRaiseError(m3g, M3G_NULL_POINTER);
             return M3G_FALSE;
 		}
@@ -488,12 +488,12 @@ static M3Gint m3gMeshDoGetReferences(Object *self, M3Gulong *references)
         references[num] = (M3Gulong)mesh->vertexBuffer;
     num++;
     for (i = 0; i < mesh->trianglePatchCount; i++) {
-        if (mesh->indexBuffers[i] != NULL) {
+        if (mesh->indexBuffers[i] != 0) {
             if (references != NULL)
                 references[num] = (M3Gulong)mesh->indexBuffers[i];
             num++;
         }
-        if (mesh->appearances[i] != NULL) {
+        if (mesh->appearances[i] != 0) {
             if (references != NULL)
                 references[num] = (M3Gulong)mesh->appearances[i];
             num++;
@@ -516,10 +516,10 @@ static Object *m3gMeshFindID(Object *self, M3Gint userID)
         found = m3gFindID((Object*) mesh->vertexBuffer, userID);
     }    
     for (i = 0; !found && i < mesh->trianglePatchCount; ++i) {
-        if (mesh->indexBuffers[i] != NULL) {
+        if (mesh->indexBuffers[i] != 0) {
             found = m3gFindID((Object*) mesh->indexBuffers[i], userID);
         }
-        if (!found && mesh->appearances[i] != NULL) {
+        if (!found && mesh->appearances[i] != 0) {
             found = m3gFindID((Object*) mesh->appearances[i], userID);
         }
     }
