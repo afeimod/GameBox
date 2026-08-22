@@ -248,7 +248,8 @@ target_include_directories(melonds-core PUBLIC
 target_compile_definitions(melonds-core PRIVATE
     __LIBRETRO__                    # libretro API mode
     OGLRENDERER_ENABLED             # Enable OpenGL 3D renderer
-    HAVE_OPENGL                     # libretro OpenGL support
+    HAVE_OPENGL                     # libretro OpenGL support (enables symbol table in glsym_gl.h)
+    HAVE_OPENGLES                   # Android uses GLES; guards out desktop-only GL calls in glsm.c
     HAVE_EGL                        # EGL support (Android GL context)
     HAVE_THREADS                    # Threading support
     HAVE_WIFI                       # WiFi emulation

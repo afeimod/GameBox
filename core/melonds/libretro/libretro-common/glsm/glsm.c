@@ -225,7 +225,7 @@ GLenum rglGetError(void)
 
 void rglProvokingVertex(	GLenum provokeMode)
 {
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glProvokingVertex(provokeMode);
 #endif
 }
@@ -342,7 +342,7 @@ void rglGetBufferSubData(	GLenum target,
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glGetBufferSubData.\n");
 #endif
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glGetBufferSubData(target, offset, size, data);
 #endif
 }
@@ -1045,7 +1045,7 @@ void rglBindFragDataLocation(GLuint program, GLuint colorNumber,
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glBindFragDataLocation.\n");
 #endif
-#if !defined(HAVE_OPENGLES2)
+#if !defined(HAVE_OPENGLES)
    glBindFragDataLocation(program, colorNumber, name);
 #endif
 }
@@ -1591,7 +1591,7 @@ void rglVertexAttribLPointer(
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glVertexAttribLPointer.\n");
 #endif
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glVertexAttribLPointer(index, size, type, stride, pointer);
 #endif
 }
@@ -2458,7 +2458,7 @@ void rglBufferStorage(GLenum target, GLsizeiptr size, const GLvoid *data, GLbitf
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glBufferStorage.\n");
 #endif
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glBufferStorage(target, size, data, flags);
 #endif
 }
@@ -2517,7 +2517,7 @@ void rglTextureView(	GLuint texture,
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glTextureView.\n");
 #endif
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glTextureView(texture, target, origtexture, internalformat, minlevel, numlevels, minlayer, numlayers);
 #endif
 }
@@ -2572,7 +2572,7 @@ void rglDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type,
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glDrawElementsBaseVertex.\n");
 #endif
-#if defined(HAVE_OPENGL)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
 #endif
 }
@@ -2629,7 +2629,7 @@ void rglDrawBuffer(GLenum buf)
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glDrawBuffer.\n");
 #endif
-#if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES3)
+#if defined(HAVE_OPENGL) && !defined(HAVE_OPENGLES)
    glDrawBuffer(buf);
 #endif
 }
