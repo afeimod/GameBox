@@ -2248,7 +2248,7 @@ void * rglMapBuffer(	GLenum target, GLenum access)
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glMapBuffer.\n");
 #endif
-#if defined(HAVE_OPENGLES)
+#if defined(HAVE_OPENGLES) && !defined(HAVE_OPENGL)
    return glMapBufferOES(target, access);
 #else
    return glMapBuffer(target, access);
@@ -2265,7 +2265,7 @@ GLboolean rglUnmapBuffer( 	GLenum target)
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glUnmapBuffer.\n");
 #endif
-#if defined(HAVE_OPENGLES)
+#if defined(HAVE_OPENGLES) && !defined(HAVE_OPENGL)
    return glUnmapBufferOES(target);
 #else
    return glUnmapBuffer(target);
