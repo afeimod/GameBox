@@ -36,6 +36,14 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 /* Disk Status Bits (DSTATUS) */
 
 #define STA_NOINIT		0x01	/* Drive not initialized */
+
+/* C-compatible callback types for melonDS disk I/O integration.
+   FATIO.h defines these as std::function wrappers in C++; this
+   allows diskio.c (compiled as C) to use the same type names. */
+#ifndef __cplusplus
+typedef UINT (*ff_disk_read_cb)(BYTE*, LBA_t, UINT);
+typedef UINT (*ff_disk_write_cb)(const BYTE*, LBA_t, UINT);
+#endif
 #define STA_NODISK		0x02	/* No medium in the drive */
 #define STA_PROTECT		0x04	/* Write protected */
 
