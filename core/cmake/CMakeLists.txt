@@ -586,11 +586,14 @@ target_compile_options(psxcore PRIVATE
 target_link_libraries(psxcore log android dl)
 
 # ---------------------------------------------------------------------------
-# melonDS (Nintendo DS / DSi) — built as libndscore.so, which dlopen()s the
-# prebuilt libmelonds_libretro_android.so from app/src/main/jniLibs/<abi>/.
-# Same dlopen pattern as the other cores.
+# melonDS (Nintendo DS / DSi) — built as libndscore.so, which links the
+# melonDS core + libretro wrapper as a static library (melonds-core),
+# compiled directly from source via core/melonds/CMakeLists.txt.
 #
-# The prebuilt .so comes from the libretro buildbot.
+# The melonDS core is built as a static library (melonds-core) and linked
+# directly into the ndscore JNI shared library, replacing the previous
+# dlopen approach. This allows full control over compilation flags, JIT
+# recompiler settings, and OpenGL ES integration.
 #
 # Our JNI bridge (nds_bridge.cpp) + libretro frontend (nds_loader.cpp) drive
 # the core through the standard retro_* API. melonDS BIOS files (bios7.bin,
@@ -598,10 +601,15 @@ target_link_libraries(psxcore log android dl)
 # DSi mode additionally requires dsi_arm7.bin / dsi_bios7.bin / dsi_bios9.bin
 # / dsi_firmware.bin / dsi_nand.bin.
 # ---------------------------------------------------------------------------
+
+# Build melonDS core + libretro wrapper as a static library.
+# The melonds-core target exposes all necessary include directories
+# and compile definitions through its PUBLIC interface.
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../melonds" "${CMAKE_BINARY_DIR}/melonds-build")
+
 set(NDS_JNI_SOURCES
     "${APP_JNI_DIR}/nds_bridge.cpp"
     "${APP_JNI_DIR}/nds_loader.cpp"
-    ${HQX_SOURCES}
 )
 
 add_library(ndscore SHARED ${NDS_JNI_SOURCES})
@@ -609,9 +617,10 @@ add_library(ndscore SHARED ${NDS_JNI_SOURCES})
 target_include_directories(ndscore PRIVATE
     "${APP_JNI_DIR}"
     "${APP_JNI_DIR}/shared"
-    "${HQX_DIR}"
 )
 
+# melonds-core provides compile definitions via its PUBLIC interface,
+# but we also set minimal definitions needed by the JNI bridge.
 target_compile_definitions(ndscore PRIVATE
     __LIBRETRO__
     ANDROID
@@ -631,10 +640,14 @@ target_compile_options(ndscore PRIVATE
     -Wno-deprecated-declarations
 )
 
-# `dl` is required for dlopen() / dlsym() on the prebuilt melonDS .so.
-# `EGL` and `GLESv2` are required for the EGL context (OpenGL ES 2.0)
-# that melonDS's libretro core needs for its 3D hardware renderer.
-target_link_libraries(ndscore log android dl EGL GLESv2)
+# Link the melonDS static library. The melonds-core target brings in
+# EGL + GLESv2 + log + android transitively through its PUBLIC link
+# dependencies. `dl` is no longer needed since we no longer dlopen.
+target_link_libraries(ndscore
+    melonds-core
+    log
+    android
+)
 
 # ---------------------------------------------------------------------------
 # J2ME native libraries (libjavam3g.so + libmicro3d.so)

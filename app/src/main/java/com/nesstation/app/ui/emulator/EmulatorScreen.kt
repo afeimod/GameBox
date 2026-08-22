@@ -2329,7 +2329,18 @@ private fun GameSurfaceView(
                     })
                     // NDS touchscreen input: capture touch events on the
                     // game surface and forward them to the engine via
-                    // RETRO_DEVICE_POINTER (normalized 0..0xFFFF coords).
+                    // RETRO_DEVICE_POINTER.
+                    //
+                    // libretro POINTER 规范:
+                    //   - 坐标范围 [-0x8000, 0x7FFF]
+                    //   - (0, 0) = 左上角, (0x7FFF, 0x7FFF) = 右下角
+                    //   - 坐标覆盖整个复合帧缓冲（如 256x384）
+                    //   - melonDS libretro core 内部会将 POINTER 坐标映射到
+                    //     DS 下屏(触屏)像素坐标，并自动判断触摸是否在下屏区域内
+                    //
+                    // SurfaceView 已通过 Modifier.aspectRatio 确保宽高比与
+                    // 复合帧缓冲一致（如 2:3 = 256:384），因此触摸坐标可以直接
+                    // 映射到 [-0x8000, 0x7FFF] 范围。
                     if (platform == GamePlatform.NDS) {
                         setOnTouchListener { _, event ->
                             val ndsEngine = (engine as? com.nesstation.app.core.engine.NdsEngine) ?: return@setOnTouchListener false
@@ -2344,6 +2355,7 @@ private fun GameSurfaceView(
                                     true
                                 }
                                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                    // 释放触摸：PRESSED=0 即可，libretro core 会处理
                                     ndsEngine.setTouchInput(0, 0, false)
                                     true
                                 }
@@ -2459,7 +2471,6 @@ private fun GameSurfaceView(
                             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                                 val w = sv.width.coerceAtLeast(1)
                                 val h = sv.height.coerceAtLeast(1)
-                                // libretro POINTER 规范：[-0x8000, 0x7FFF] 对应屏幕左上到右下
                                 val x = ((event.x / w) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
                                 val y = ((event.y / h) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
                                 ndsEngine.setTouchInput(x, y, true)

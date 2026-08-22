@@ -308,11 +308,4 @@ Java_com_nesstation_app_core_jni_NdsNative_isCoreLibLoaded(JNIEnv*, jclass) {
     return ndscore::rom::isCoreLoaded() ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL
-Java_com_nesstation_app_core_jni_NdsNative_setCoreLibPath(JNIEnv* env, jclass, jstring path) {
-    const char* cpath = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
-    ndscore::rom::setCoreLibPath(cpath ? cpath : "");
-    if (cpath) env->ReleaseStringUTFChars(path, cpath);
-}
-
 } // extern "C"

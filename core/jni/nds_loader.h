@@ -3,12 +3,12 @@
 //
 // nds_loader wraps the standard libretro API (retro_init /
 // retro_load_game / retro_run ...) behind a small, stable C++ interface
-// that the JNI bridge in nds_bridge.cpp calls. The prebuilt
-// libmelonds_libretro_android.so is dlopen()'d at runtime and the
-// retro_* symbols resolved via dlsym() — same pattern as fbneo_loader.cpp.
+// that the JNI bridge in nds_bridge.cpp calls. The melonDS libretro
+// wrapper (core/melonds/libretro/libretro.cpp) is compiled directly into
+// the binary via CMake — no dlopen/dlsym needed.
 //
 // Features:
-//   * Runtime loading of prebuilt libmelonds_libretro_android.so
+//   * Directly linked to melonDS libretro wrapper (no dlopen)
 //   * 12-button DS gamepad (RETRO_DEVICE_JOYPAD) on ports 0-3 with the
 //     standard DS layout: D-pad + A/B/X/Y + L/R + Start/Select. DS has
 //     the same 12-button layout as SNES.
@@ -87,10 +87,6 @@ void setPaths(const std::string& systemDir, const std::string& saveDir);
 // Set an explicit .srm basename for the next ROM load.
 void setSaveName(const std::string& name);
 
-// Set the absolute path to libmelonds_libretro_android.so for dlopen.
-// Pass an empty string to revert to bare-name dlopen.
-void setCoreLibPath(const std::string& path);
-
 void applyRegion(int region);
 void applySampleRate(int hz);
 void applySpeed(float multiplier);
@@ -113,7 +109,8 @@ void videoAspectRatio(int& num, int& den);
 void setVideoFilter(int filter);
 void setHighQualityScaling(bool enabled);
 
-// Check whether libmelonds_libretro_android.so was successfully dlopen()'d.
+// Check whether the melonDS libretro wrapper is available.
+// Always returns true because the core is statically linked.
 bool isCoreLoaded();
 
 } // namespace ndscore::rom

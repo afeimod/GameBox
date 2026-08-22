@@ -6,8 +6,8 @@ import android.view.Surface
  * JNI surface to libndscore.so (melonDS — Nintendo DS / DSi core).
  *
  * Pull-model interface — Kotlin owns the emulation loop and pulls frames /
- * audio on demand. The native side dlopen()s the prebuilt
- * libmelonds_libretro_android.so at runtime and forwards retro_* calls.
+ * audio on demand. The melonDS libretro wrapper is compiled directly into
+ * the binary via CMake — no dlopen/dlsym needed.
  *
  * DS uses the standard 12-button libretro gamepad layout (same bit layout
  * as SNES):
@@ -58,10 +58,6 @@ object NdsNative {
         if (loaded) return true
         loaded = try {
             System.loadLibrary("ndscore")
-            try {
-                val coreLibPath = findCoreLibPath()
-                if (coreLibPath != null) setCoreLibPath(coreLibPath)
-            } catch (_: Throwable) { /* best-effort */ }
             true
         } catch (e: UnsatisfiedLinkError) {
             android.util.Log.e("NdsNative", "Failed to load libndscore.so", e)
@@ -71,22 +67,6 @@ object NdsNative {
         }
         return loaded
     }
-
-    /**
-     * Find the absolute path to `libmelonds_libretro_android.so` in the
-     * app's native library directory. Returns null if not found.
-     */
-    private fun findCoreLibPath(): String? {
-        return try {
-            val ctx = appContext ?: return null
-            val nativeDir = ctx.applicationInfo.nativeLibraryDir
-            val libFile = java.io.File(nativeDir, "libmelonds_libretro_android.so")
-            if (libFile.exists()) libFile.absolutePath else null
-        } catch (_: Throwable) { null }
-    }
-
-    /** Set the absolute path to libmelonds_libretro_android.so for dlopen. */
-    @JvmStatic external fun setCoreLibPath(path: String)
 
     /** App context — set by NesApp.onCreate so NdsNative can locate the lib. */
     @Volatile var appContext: android.content.Context? = null
@@ -159,6 +139,6 @@ object NdsNative {
     /** Control native surface buffer geometry. false=fast, true=sharp. */
     @JvmStatic external fun setHighQualityScaling(enabled: Boolean)
 
-    /** Check whether libmelonds_libretro_android.so was successfully dlopen()'d. */
+    /** Check whether the melonDS libretro wrapper is available (always true when statically linked). */
     @JvmStatic external fun isCoreLibLoaded(): Boolean
 }

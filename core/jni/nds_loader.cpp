@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT
-// libretro frontend that drives the prebuilt melonDS (Nintendo DS) core.
+// libretro frontend that drives the melonDS (Nintendo DS) core.
 //
-// This loader follows the same dlopen() pattern as fbneo_loader.cpp:
-// instead of statically linking the melonDS source tree (which is large
-// and uses OpenGL for the software/OpenGL renderer paths), we dlopen()
-// the prebuilt libmelonds_libretro_android.so at runtime and resolve the
-// retro_* symbols via dlsym(). The .so file ships in
-// app/src/main/jniLibs/<abi>/.
+// This loader is compiled directly against the melonDS libretro wrapper
+// source (core/melonds/libretro/libretro.cpp) — no dlopen/dlsym needed.
+// The retro_* functions are regular C-linkage functions defined in the
+// melonDS libretro wrapper and linked statically via CMake.
 //
-// The libretro API surface we resolve is identical to fbneo_loader.cpp:
+// The libretro API surface we use:
 //   retro_init, retro_deinit, retro_load_game, retro_unload_game, retro_run,
 //   retro_reset, retro_get_system_info, retro_get_system_av_info,
 //   retro_set_environment, retro_set_video_refresh, retro_set_audio_sample,
@@ -24,8 +22,6 @@
 //   Left/Right:           512x192 (top left, bottom right)
 //   Right/Left:           512x192 (bottom left, top right)
 //   Top Only / Bottom Only: 256x192 (single screen)
-// This .so is the software-render build (no OpenGL strings inside), so no
-// EGL context is actually needed — the EGL code below is kept inert.
 // The frame buffer uses a std::vector that resizes to the largest seen
 // resolution. Filter buffers are sized to 256x384 max — this covers every
 // melonDS screen layout.
@@ -61,7 +57,6 @@
 #include <android/log.h>
 #include <android/native_window.h>
 
-#include <dlfcn.h>
 #include <atomic>
 #include <algorithm>
 #include <cctype>
@@ -109,57 +104,8 @@ static constexpr int kMaxH = 384;
 static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
 // ---------------------------------------------------------------------------
-// libretro function pointer types
+// State — directly linked to melonDS libretro wrapper
 // ---------------------------------------------------------------------------
-typedef void   (*retro_init_t)(void);
-typedef void   (*retro_deinit_t)(void);
-typedef unsigned (*retro_api_version_t)(void);
-typedef void   (*retro_get_system_info_t)(struct retro_system_info* info);
-typedef void   (*retro_get_system_av_info_t)(struct retro_system_av_info* info);
-typedef void   (*retro_set_controller_port_device_t)(unsigned port, unsigned device);
-typedef void   (*retro_reset_t)(void);
-typedef void   (*retro_run_t)(void);
-typedef size_t (*retro_serialize_size_t)(void);
-typedef bool   (*retro_serialize_t)(void* data, size_t size);
-typedef bool   (*retro_unserialize_t)(const void* data, size_t size);
-typedef void*  (*retro_get_memory_data_t)(unsigned id);
-typedef size_t (*retro_get_memory_size_t)(unsigned id);
-typedef bool   (*retro_load_game_t)(const struct retro_game_info* game);
-typedef void   (*retro_unload_game_t)(void);
-typedef void   (*retro_set_environment_t)(retro_environment_t);
-typedef void   (*retro_set_video_refresh_t)(retro_video_refresh_t);
-typedef void   (*retro_set_audio_sample_t)(retro_audio_sample_t);
-typedef void   (*retro_set_audio_sample_batch_t)(retro_audio_sample_batch_t);
-typedef void   (*retro_set_input_poll_t)(retro_input_poll_t);
-typedef void   (*retro_set_input_state_t)(retro_input_state_t);
-
-// ---------------------------------------------------------------------------
-// State — dlopen handle and resolved symbols
-// ---------------------------------------------------------------------------
-static void* s_coreLib = nullptr;
-
-static retro_init_t                      s_retro_init = nullptr;
-static retro_deinit_t                    s_retro_deinit = nullptr;
-static retro_api_version_t               s_retro_api_version = nullptr;
-static retro_get_system_info_t           s_retro_get_system_info = nullptr;
-static retro_get_system_av_info_t        s_retro_get_system_av_info = nullptr;
-static retro_set_controller_port_device_t s_retro_set_controller_port_device = nullptr;
-static retro_reset_t                     s_retro_reset = nullptr;
-static retro_run_t                       s_retro_run = nullptr;
-static retro_serialize_size_t            s_retro_serialize_size = nullptr;
-static retro_serialize_t                 s_retro_serialize = nullptr;
-static retro_unserialize_t               s_retro_unserialize = nullptr;
-static retro_get_memory_data_t           s_retro_get_memory_data = nullptr;
-static retro_get_memory_size_t           s_retro_get_memory_size = nullptr;
-static retro_load_game_t                 s_retro_load_game = nullptr;
-static retro_unload_game_t               s_retro_unload_game = nullptr;
-static retro_set_environment_t           s_retro_set_environment = nullptr;
-static retro_set_video_refresh_t         s_retro_set_video_refresh = nullptr;
-static retro_set_audio_sample_t          s_retro_set_audio_sample = nullptr;
-static retro_set_audio_sample_batch_t    s_retro_set_audio_sample_batch = nullptr;
-static retro_set_input_poll_t            s_retro_set_input_poll = nullptr;
-static retro_set_input_state_t           s_retro_set_input_state = nullptr;
-
 static bool s_loaded = false;
 static bool s_gameLoaded = false;
 static int  s_sampleRate = 0;
@@ -170,7 +116,6 @@ static std::string s_saveName;
 static std::string s_lastRomPath;
 static std::string s_coreMessage;
 static std::string s_coreError;
-static std::string s_coreLibPath;
 
 // Persistent copy of the currently-loaded ROM path.
 // melonDS may read retro_game_info.path asynchronously (e.g. for save-state
@@ -484,78 +429,11 @@ static void initDefaultOptions() {
 }
 
 // ---------------------------------------------------------------------------
-// dlopen the core .so and resolve all retro_* symbols.
+// Core library check — always succeeds because the melonDS libretro
+// wrapper is compiled directly into the binary (no dlopen).
 // ---------------------------------------------------------------------------
 static bool loadCoreLib() {
-    if (s_coreLib) return true;
-
-    std::vector<std::string> candidates;
-    if (!s_coreLibPath.empty()) candidates.push_back(s_coreLibPath);
-    candidates.push_back("libmelonds_libretro_android.so");
-
-    const char* lastDlError = nullptr;
-    for (const auto& name : candidates) {
-        s_coreLib = dlopen(name.c_str(), RTLD_NOW);
-        if (s_coreLib) {
-            LOGI("dlopen(%s) OK", name.c_str());
-            break;
-        } else {
-            lastDlError = dlerror();
-            LOGW("dlopen(%s) failed: %s", name.c_str(),
-                 lastDlError ? lastDlError : "(unknown)");
-        }
-    }
-
-    if (!s_coreLib) {
-        s_coreError = "dlopen(libmelonds_libretro_android.so) failed: ";
-        s_coreError += (lastDlError ? lastDlError : "(unknown)");
-        LOGE("%s", s_coreError.c_str());
-        return false;
-    }
-
-    LOGI("dlopen(libmelonds_libretro_android.so) OK");
-
-    #define RESOLVE(name) \
-        s_##name = reinterpret_cast<name##_t>(dlsym(s_coreLib, #name)); \
-        if (!s_##name) { \
-            const char* _dlerr = dlerror(); \
-            s_coreError = "dlsym(" #name ") failed: "; \
-            s_coreError += (_dlerr ? _dlerr : "(unknown)"); \
-            LOGE("%s", s_coreError.c_str()); \
-            dlclose(s_coreLib); s_coreLib = nullptr; \
-            return false; \
-        }
-
-    RESOLVE(retro_init);
-    RESOLVE(retro_deinit);
-    RESOLVE(retro_api_version);
-    RESOLVE(retro_get_system_info);
-    RESOLVE(retro_get_system_av_info);
-    RESOLVE(retro_set_controller_port_device);
-    RESOLVE(retro_reset);
-    RESOLVE(retro_run);
-    RESOLVE(retro_serialize_size);
-    RESOLVE(retro_serialize);
-    RESOLVE(retro_unserialize);
-    RESOLVE(retro_load_game);
-    RESOLVE(retro_unload_game);
-    RESOLVE(retro_set_environment);
-    RESOLVE(retro_set_video_refresh);
-    RESOLVE(retro_set_audio_sample);
-    RESOLVE(retro_set_audio_sample_batch);
-    RESOLVE(retro_set_input_poll);
-    RESOLVE(retro_set_input_state);
-
-    // Optional — melonDS exposes these for SRAM (.sav) persistence via
-    // RETRO_MEMORY_SAVE_RAM.
-    s_retro_get_memory_data = reinterpret_cast<retro_get_memory_data_t>(
-        dlsym(s_coreLib, "retro_get_memory_data"));
-    s_retro_get_memory_size = reinterpret_cast<retro_get_memory_size_t>(
-        dlsym(s_coreLib, "retro_get_memory_size"));
-
-    #undef RESOLVE
-
-    LOGI("All retro_* symbols resolved");
+    LOGI("melonDS core is statically linked (no dlopen needed)");
     return true;
 }
 
@@ -687,10 +565,6 @@ static bool cb_environment(unsigned cmd, void* data) {
         // Handle both old (13) and new (14) values of SET_HW_RENDER.
         // Some prebuilt melonDS cores were compiled with an older libretro.h
         // where the value was 13, while our libretro.h uses 14.
-        case 13:
-            LOGI("HW render requested (old API, value=13) — falling back to software rendering");
-            return false;
-
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
             // melonDS libretro core requests an OpenGL ES context for
             // hardware-accelerated 3D rendering. We must accept this
@@ -906,27 +780,27 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     if (!s_loaded) {
         initDefaultOptions();
 
-        s_retro_set_environment(cb_environment);
-        s_retro_set_video_refresh(cb_video);
-        s_retro_set_audio_sample(cb_audio_sample);
-        s_retro_set_audio_sample_batch(cb_audio_batch);
-        s_retro_set_input_poll(cb_input_poll);
-        s_retro_set_input_state(cb_input_state);
+        retro_set_environment(cb_environment);
+        retro_set_video_refresh(cb_video);
+        retro_set_audio_sample(cb_audio_sample);
+        retro_set_audio_sample_batch(cb_audio_batch);
+        retro_set_input_poll(cb_input_poll);
+        retro_set_input_state(cb_input_state);
 
-        s_retro_init();
+        retro_init();
         s_loaded = true;
         LOGI("melonDS core initialized (API version %u)",
-             s_retro_api_version());
+             retro_api_version());
     }
 
     if (s_gameLoaded) {
         // Persist SRAM BEFORE unloading the previous game.
-        if (!s_lastRomPath.empty() && s_retro_get_memory_data && s_retro_get_memory_size) {
-            void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-            size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+        if (!s_lastRomPath.empty() && retro_get_memory_data && retro_get_memory_size) {
+            void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+            size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
             coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
         }
-        s_retro_unload_game();
+        retro_unload_game();
         s_gameLoaded = false;
     }
 
@@ -988,7 +862,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     gameInfo.size = sz;
     gameInfo.meta = nullptr;
 
-    bool ok = s_retro_load_game(&gameInfo);
+    bool ok = retro_load_game(&gameInfo);
 
     if (!ok) {
         s_coreError = "retro_load_game() failed for: " + path;
@@ -1046,24 +920,21 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     }
 
     // Load SRAM from disk into the core's SAVE_RAM region.
-    if (s_retro_get_memory_data && s_retro_get_memory_size) {
-        void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-        size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (retro_get_memory_data && retro_get_memory_size) {
+        void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+        size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
         coreshared::loadSramFromDisk(nvram, nvramSize, s_saveDir, path, s_saveName);
     }
 
-    // Set up 4 controller ports with standard JOYPAD device.
-    // DS only really uses port 0 (single-cart), but local multiplayer via
-    // Download Play can use up to 16 — we expose 4 here.
-    if (s_retro_set_controller_port_device) {
-        s_retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-        s_retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
-        s_retro_set_controller_port_device(2, RETRO_DEVICE_JOYPAD);
-        s_retro_set_controller_port_device(3, RETRO_DEVICE_JOYPAD);
-    }
+    // NOTE: Do NOT call retro_set_controller_port_device here.
+    // The melonDS libretro core manages device types internally.
+    // When melonds_touch_mode = "Touch" (the default), the core sets
+    // port 0 to RETRO_DEVICE_POINTER so cb_input_state can return
+    // touch coordinates. Overriding to JOYPAD here would prevent the
+    // core from receiving POINTER input, breaking the touch screen.
 
     retro_system_av_info av{};
-    s_retro_get_system_av_info(&av);
+    retro_get_system_av_info(&av);
     s_sampleRate = (int)av.timing.sample_rate;
     // DS has no region concept (region-free hardware). We always report 0.
     s_region = 0;
@@ -1101,9 +972,9 @@ void unload() {
     if (s_loaded) {
         if (s_gameLoaded) {
             // Persist SRAM BEFORE unloading.
-            if (!s_lastRomPath.empty() && s_retro_get_memory_data && s_retro_get_memory_size) {
-                void* nvram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-                size_t nvramSize = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            if (!s_lastRomPath.empty() && retro_get_memory_data && retro_get_memory_size) {
+                void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+                size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
                 coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
             }
 
@@ -1120,11 +991,11 @@ void unload() {
                 }
             }
 
-            s_retro_unload_game();
+            retro_unload_game();
             s_gameLoaded = false;
         }
 
-        s_retro_deinit();
+        retro_deinit();
         s_loaded = false;
 
         // Destroy EGL context AFTER retro_deinit() so the core can
@@ -1156,7 +1027,7 @@ void unload() {
 }
 
 void resetEmulation(bool /*hard*/) {
-    if (s_loaded && s_gameLoaded) s_retro_reset();
+    if (s_loaded && s_gameLoaded) retro_reset();
 }
 
 void stepFrame() {
@@ -1169,17 +1040,19 @@ void stepFrame() {
     // before calling retro_run(). The melonDS core's 3D renderer
     // needs a valid GL context to render 3D content. Without this,
     // the 3D layer renders as grey.
+    //
+    // NOTE: If the EGL context can't be made current, we log a
+    // warning but still proceed with the frame. The core's 3D
+    // renderer may produce a grey screen, but the 2D layers and
+    // audio will still work. This is better than skipping the
+    // frame entirely, which would freeze both screens.
     if (s_eglInitialized) {
         if (!ensureEglContextCurrent()) {
-            // EGL context re-bind failed — skip this frame to avoid
-            // the core's 3D renderer operating on a non-current GL
-            // context, which would produce a grey screen.
-            LOGE("ensureEglContextCurrent failed, skipping frame");
-            return;
+            LOGW("ensureEglContextCurrent failed, 3D may be grey but continuing");
         }
     }
 
-    s_retro_run();
+    retro_run();
 }
 
 bool copyFramebufferARGB(uint32_t* out, int w, int h) {
@@ -1230,11 +1103,6 @@ void setSaveName(const std::string& name) {
     LOGI("SRAM save name set: '%s'", name.c_str());
 }
 
-void setCoreLibPath(const std::string& path) {
-    s_coreLibPath = path;
-    LOGI("Core lib path set: %s", s_coreLibPath.c_str());
-}
-
 void applyRegion(int /*region*/) { /* DS is region-free — ignored */ }
 void applySampleRate(int /*hz*/) { /* fixed by the core */ }
 void applySpeed(float multiplier) {
@@ -1244,11 +1112,11 @@ void applySpeed(float multiplier) {
 }
 
 void saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded || !s_retro_serialize) return;
-    size_t sz = s_retro_serialize_size();
+    if (!s_loaded || !s_gameLoaded || !retro_serialize) return;
+    size_t sz = retro_serialize_size();
     if (sz == 0) return;
     std::vector<uint8_t> buf(sz);
-    if (!s_retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
+    if (!retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
     FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
     std::fwrite(buf.data(), 1, sz, f);
@@ -1256,7 +1124,7 @@ void saveStateToPath(int /*slot*/, const std::string& path) {
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded || !s_retro_unserialize) return false;
+    if (!s_loaded || !s_gameLoaded || !retro_unserialize) return false;
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     std::fseek(f, 0, SEEK_END);
@@ -1267,7 +1135,7 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    if (!s_retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
+    if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
     return true;
 }
 
@@ -1338,7 +1206,8 @@ void setVideoFilter(int filter) {
 }
 
 bool isCoreLoaded() {
-    return s_coreLib != nullptr;
+    // Always true — melonDS libretro wrapper is statically linked
+    return true;
 }
 
 } // namespace ndscore::rom
