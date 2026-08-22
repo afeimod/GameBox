@@ -129,9 +129,6 @@ set(MELONDS_CXX_CORE_SOURCES
 if(EXISTS "${MELON_DIR}/DSiCrypto.cpp")
     list(APPEND MELONDS_CXX_CORE_SOURCES "${MELON_DIR}/DSiCrypto.cpp")
 endif()
-if(EXISTS "${MELON_DIR}/NDSCart_SRAMManager.cpp")
-    list(APPEND MELONDS_CXX_CORE_SOURCES "${MELON_DIR}/NDSCart_SRAMManager.cpp")
-endif()
 if(EXISTS "${MELON_DIR}/frontend/Util_ROM.cpp")
     list(APPEND MELONDS_CXX_CORE_SOURCES "${MELON_DIR}/frontend/Util_ROM.cpp")
 endif()
@@ -255,7 +252,7 @@ target_compile_definitions(melonds-core PRIVATE
     HAVE_WIFI                       # WiFi emulation
     ARCHITECTURE_ARM64              # ARM64 JIT architecture
     JIT_ENABLED                     # Enable JIT recompiler
-    MELONDS_VERSION="\"0.9.3\""     # melonDS version string
+    MELONDS_VERSION="\"1.1\""       # melonDS version string
     NDEBUG                          # Release build (assertions off)
     ANDROID                         # Android platform
 )
