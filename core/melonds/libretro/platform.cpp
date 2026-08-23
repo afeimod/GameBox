@@ -9,6 +9,10 @@
 #include <cstdarg>
 #include <ctime>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 #if defined(_WIN32) && !defined(_XBOX)
 #include <winsock2.h>
 #include <windows.h>
@@ -267,12 +271,52 @@ u64 FileLength(FileHandle* file)
 
 // ========== Logging ==========
 
+#ifdef __LIBRETRO__
+#include "libretro_state.h"
+#endif
+
 void Log(LogLevel level, const char* fmt, ...)
 {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
+    // Format first so every output path below just sends a C string
+    // (log_cb is a variadic C function, so mailing it a va_list would be UB).
+    char buf[1024];
+    {
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+    }
+
+#ifdef __LIBRETRO__
+    if (log_cb)
+    {
+        retro_log_level rl = RETRO_LOG_INFO;
+        switch (level)
+        {
+            case LogLevel::Error:   rl = RETRO_LOG_ERROR; break;
+            case LogLevel::Warn:    rl = RETRO_LOG_WARN;  break;
+            case LogLevel::Info:    rl = RETRO_LOG_INFO;  break;
+            case LogLevel::Debug:   rl = RETRO_LOG_DEBUG; break;
+            default: break;
+        }
+        log_cb(rl, "%s", buf);
+        return;
+    }
+#endif
+
+#if defined(__ANDROID__)
+    int prio = ANDROID_LOG_INFO;
+    switch (level)
+    {
+        case LogLevel::Error:   prio = ANDROID_LOG_ERROR; break;
+        case LogLevel::Warn:    prio = ANDROID_LOG_WARN;  break;
+        case LogLevel::Debug:   prio = ANDROID_LOG_DEBUG; break;
+        default: break;
+    }
+    __android_log_print(prio, "melonds", "%s", buf);
+#else
+    fprintf(stderr, "%s", buf);
+#endif
 }
 
 // ========== Signal/Stop ==========
