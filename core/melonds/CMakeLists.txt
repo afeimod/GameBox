@@ -90,8 +90,9 @@ set(MELONDS_THREAD_C_SOURCES
 # ---------------------------------------------------------------------------
 set(MELONDS_CXX_CORE_SOURCES
     "${MELON_DIR}/NDS.cpp"
-    "${MELON_DIR}/AREngine.cpp"
     "${MELON_DIR}/ARCodeFile.cpp"
+    "${MELON_DIR}/ARDatabaseDAT.cpp"
+    "${MELON_DIR}/AREngine.cpp"
     "${MELON_DIR}/ARM.cpp"
     "${MELON_DIR}/ARMInterpreter.cpp"
     "${MELON_DIR}/ARMInterpreter_ALU.cpp"
@@ -100,27 +101,39 @@ set(MELONDS_CXX_CORE_SOURCES
     "${MELON_DIR}/CP15.cpp"
     "${MELON_DIR}/CRC32.cpp"
     "${MELON_DIR}/DMA.cpp"
+    "${MELON_DIR}/DMA_Timings.cpp"
     "${MELON_DIR}/DSi.cpp"
     "${MELON_DIR}/DSi_AES.cpp"
     "${MELON_DIR}/DSi_Camera.cpp"
     "${MELON_DIR}/DSi_DSP.cpp"
     "${MELON_DIR}/DSi_I2C.cpp"
+    "${MELON_DIR}/DSi_I2S.cpp"
     "${MELON_DIR}/DSi_NAND.cpp"
     "${MELON_DIR}/DSi_NDMA.cpp"
     "${MELON_DIR}/DSi_NWifi.cpp"
     "${MELON_DIR}/DSi_SD.cpp"
     "${MELON_DIR}/DSi_SPI_TSC.cpp"
+    "${MELON_DIR}/FATIO.cpp"
+    "${MELON_DIR}/FATStorage.cpp"
+    "${MELON_DIR}/FreeBIOS.cpp"
     "${MELON_DIR}/GBACart.cpp"
+    "${MELON_DIR}/GBACartMotionPak.cpp"
     "${MELON_DIR}/GPU.cpp"
     "${MELON_DIR}/GPU2D.cpp"
     "${MELON_DIR}/GPU2D_Soft.cpp"
     "${MELON_DIR}/GPU3D.cpp"
     "${MELON_DIR}/GPU3D_Soft.cpp"
+    "${MELON_DIR}/GPU3D_Texcache.cpp"
+    "${MELON_DIR}/Mic.cpp"
     "${MELON_DIR}/NDSCart.cpp"
+    "${MELON_DIR}/NDSCartR4.cpp"
+    "${MELON_DIR}/ROMList.cpp"
     "${MELON_DIR}/RTC.cpp"
     "${MELON_DIR}/Savestate.cpp"
     "${MELON_DIR}/SPI.cpp"
+    "${MELON_DIR}/SPI_Firmware.cpp"
     "${MELON_DIR}/SPU.cpp"
+    "${MELON_DIR}/Utils.cpp"
     "${MELON_DIR}/Wifi.cpp"
     "${MELON_DIR}/WifiAP.cpp"
 )
@@ -198,6 +211,16 @@ set(MELONDS_TEAKRA_CXX_SOURCES
 )
 
 # ---------------------------------------------------------------------------
+# DSP_HLE (DS emulation of the DSP coprocessor via host CPU) C++ sources
+# ---------------------------------------------------------------------------
+set(MELONDS_DSP_HLE_CXX_SOURCES
+    "${MELON_DIR}/DSP_HLE/UcodeBase.cpp"
+    "${MELON_DIR}/DSP_HLE/AACUcode.cpp"
+    "${MELON_DIR}/DSP_HLE/G711Ucode.cpp"
+    "${MELON_DIR}/DSP_HLE/GraphicsUcode.cpp"
+)
+
+# ---------------------------------------------------------------------------
 # Aggregate all sources
 # ---------------------------------------------------------------------------
 add_library(melonds-core STATIC
@@ -210,6 +233,7 @@ add_library(melonds-core STATIC
     ${MELONDS_JIT_ASM_SOURCES}
     ${MELONDS_LIBRETRO_CXX_SOURCES}
     ${MELONDS_TEAKRA_CXX_SOURCES}
+    ${MELONDS_DSP_HLE_CXX_SOURCES}
 )
 
 # ---------------------------------------------------------------------------
