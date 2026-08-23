@@ -78,6 +78,10 @@ bool mic_noise_held = false;
 // NDS instance
 static melonDS::NDS* nds = nullptr;
 
+// Game name (without extension) — stored for retro_reset() which needs
+// to pass it to SetupDirectBoot(const std::string&).
+static std::string s_retro_game_name;
+
 enum CurrentRenderer
 {
    None,
@@ -310,7 +314,17 @@ void retro_reset(void)
    // on the loader thread's stack and is freed once it returns (the ROM
    // buffer itself is a local vector). NDS::Reset() keeps the inserted
    // cart, so we only need to re-run the DirectBoot setup.
-   nds->SetupDirectBoot();
+   //
+   // CRITICAL: Call SetupDirectBoot(const std::string&) (the overload with
+   // a rom name). The parameterless SetupDirectBoot() loads the game code
+   // into RAM and configures the MMU, but it does NOT set the ARM9/ARM7
+   // entry-point registers and does NOT call JumpTo(). Without JumpTo(),
+   // the ARM9 stays in the FreeBIOS boot_handler which is a dead loop
+   // (b 0b), causing a permanent white screen. The overload with a rom
+   // name additionally sets R[12]/R[13]/R[14]/R_IRQ/R_SVC and calls
+   // ARM9.JumpTo(entry) / ARM7.JumpTo(entry) to redirect execution to
+   // the game's entry point.
+   nds->SetupDirectBoot(s_retro_game_name);
 }
 
 static void check_variables(bool init)
@@ -970,6 +984,7 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    else
       strlcpy(game_name, info->path, sizeof(game_name));
    path_remove_extension(game_name);
+   s_retro_game_name = game_name;
 
    retro_save_path = std::string(retro_saves_directory) + "/" + std::string(game_name) + ".sav";
 
@@ -1004,9 +1019,18 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       fclose(save_fp);
    }
 
-   // Setup direct boot and start emulation
+   // Setup direct boot and start emulation.
+   // CRITICAL: Call SetupDirectBoot(const std::string&) (the overload with
+   // a rom name). The parameterless SetupDirectBoot() loads the game code
+   // into RAM and configures the MMU, but it does NOT set the ARM9/ARM7
+   // entry-point registers and does NOT call JumpTo(). Without JumpTo(),
+   // the ARM9 stays in the FreeBIOS boot_handler which is a dead loop
+   // (b 0b), causing a permanent white screen. The overload with a rom
+   // name additionally sets R[12]/R[13]/R[14]/R_IRQ/R_SVC and calls
+   // ARM9.JumpTo(entry) / ARM7.JumpTo(entry) to redirect execution to
+   // the game's entry point.
    if (Config::DirectBoot)
-      nds->SetupDirectBoot();
+      nds->SetupDirectBoot(s_retro_game_name);
 
    nds->Start();
 
