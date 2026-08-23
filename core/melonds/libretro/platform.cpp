@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <time.h>
+#include <dlfcn.h>
 #define socket_t    int
 #define sockaddr_t  struct sockaddr
 #define closesocket close
@@ -704,21 +705,78 @@ float Addon_MotionQuery(MotionQueryType type, void* userdata)
 
 // ========== Dynamic Library ==========
 
+struct DynamicLibrary
+{
+#if defined(_WIN32) && !defined(_XBOX)
+    HMODULE handle;
+#else
+    void* handle;
+#endif
+};
+
 DynamicLibrary* DynamicLibrary_Load(const char* lib)
 {
-    (void)lib;
-    return nullptr;
+    DynamicLibrary* libHandle = new DynamicLibrary();
+    if (!libHandle)
+        return nullptr;
+
+#if defined(_WIN32) && !defined(_XBOX)
+    libHandle->handle = LoadLibraryA(lib);
+#else
+    libHandle->handle = dlopen(lib, RTLD_LAZY);
+#endif
+
+    if (!libHandle->handle)
+    {
+        delete libHandle;
+        return nullptr;
+    }
+
+    return libHandle;
 }
 
 void DynamicLibrary_Unload(DynamicLibrary* lib)
 {
-    (void)lib;
+    if (!lib)
+        return;
+
+#if defined(_WIN32) && !defined(_XBOX)
+    if (lib->handle)
+        FreeLibrary(lib->handle);
+#else
+    if (lib->handle)
+        dlclose(lib->handle);
+#endif
+
+    delete lib;
 }
 
 void* DynamicLibrary_LoadFunction(DynamicLibrary* lib, const char* name)
 {
-    (void)lib; (void)name;
+#if defined(_WIN32) && !defined(_XBOX)
+    if (lib && lib->handle)
+    {
+        void* fun = (void*)GetProcAddress(lib->handle, name);
+        if (fun)
+            return fun;
+    }
+#endif
+
+#if !defined(_WIN32) || defined(_XBOX)
+    if (lib && lib->handle)
+    {
+        void* fun = dlsym(lib->handle, name);
+        if (fun)
+            return fun;
+    }
+    // Fallback: some Android devices restrict dlopen() of system libs via
+    // linker namespaces, but libandroid.so is already linked into the APK
+    // (-landroid), so its exported symbols are resolvable in the global
+    // scope. This keeps melonDS JIT FastMem working everywhere.
+    return dlsym(RTLD_DEFAULT, name);
+#else
     return nullptr;
+#endif
 }
 
 // ========== Legacy LAN (pcap/socket) ==========
