@@ -724,8 +724,12 @@ void retro_run(void)
    // Mic state is now handled by Platform::Mic_ReadInput callback
    mic_noise_held = input_state.holding_noise_btn;
 
-   if (current_renderer != CurrentRenderer::None)
-      nds->RunFrame();
+   // Always run the emulation frame regardless of renderer state.
+   // The old check (current_renderer != CurrentRenderer::None) skipped
+   // RunFrame() on the very first frame, which meant render_frame() read
+   // an uninitialized (blank/white) framebuffer and the screen never
+   // updated to show the actual game content.
+   nds->RunFrame();
 
    render_frame();
 
