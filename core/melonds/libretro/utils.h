@@ -18,7 +18,7 @@ void copy_hybrid_screen(ScreenLayoutData *data, uint32_t* src, ScreenId screen_i
 void draw_cursor(ScreenLayoutData *data, int32_t x, int32_t y);
 namespace AREngine
 {
-    extern void RunCheat(ARCode& arcode);
+    extern void RunCheat(melonDS::ARCode& arcode);
 }
 #endif
 

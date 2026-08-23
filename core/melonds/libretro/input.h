@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+using namespace melonDS;
+
 enum TouchMode
 {
    Disabled,

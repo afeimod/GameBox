@@ -68,6 +68,8 @@
 
 #include "frontend/mic_blow.h"
 
+using namespace melonDS;
+
 extern char retro_base_directory[4096];
 
 #ifndef INVALID_SOCKET
@@ -841,4 +843,4 @@ void MP_DeInit()
 #ifdef _WIN32
     WSACleanup();
 #endif
-}}
+}

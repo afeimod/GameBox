@@ -21,6 +21,8 @@
 
 #include "types.h"
 
+using namespace melonDS;
+
 #include <vector>
 
 namespace Frontend

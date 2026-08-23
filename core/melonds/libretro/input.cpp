@@ -46,12 +46,14 @@ void update_input(InputState *state)
    ADD_KEY_TO_MASK(RETRO_DEVICE_ID_JOYPAD_X,      10, joypad_bits);
    ADD_KEY_TO_MASK(RETRO_DEVICE_ID_JOYPAD_Y,      11, joypad_bits);
 
-   NDS::SetKeyMask(input_mask);
+   melonDS::NDS* nds = melonDS::NDS::Current;
+   if (nds)
+      nds->SetKeyMask(input_mask);
 
    bool lid_closed_btn = !!input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3);
    if(lid_closed_btn != state->lid_closed)
    {
-      NDS::SetLidClosed(lid_closed_btn);
+      if (nds) nds->SetLidClosed(lid_closed_btn);
       state->lid_closed = lid_closed_btn;
    }
 
@@ -122,12 +124,12 @@ void update_input(InputState *state)
 
    if(state->touching)
    {
-      NDS::TouchScreen(state->touch_x, state->touch_y);
+      if (melonDS::NDS::Current) melonDS::NDS::Current->TouchScreen(state->touch_x, state->touch_y);
       has_touched = true;
    }
    else if(has_touched)
    {
-      NDS::ReleaseScreen();
+      if (melonDS::NDS::Current) melonDS::NDS::Current->ReleaseScreen();
       has_touched = false;
    }
 }

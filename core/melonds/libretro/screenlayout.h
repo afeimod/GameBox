@@ -5,11 +5,18 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "NDS.h"
-#include "GPU.h"
-
 #define VIDEO_WIDTH 256
 #define VIDEO_HEIGHT 192
+
+// Engine's GPU::RenderSettings no longer exists in melonDS 2025.
+// Keep the option state here so the libretro wrapper can compile/run
+// without the OpenGL renderer (which is stubbed out).
+struct VideoSettings
+{
+   int   GL_ScaleFactor    = 1;
+   bool  GL_BetterPolygons = false;
+   bool  Soft_Threaded     = false;
+};
 
 enum ScreenLayout
 {
@@ -71,7 +78,7 @@ struct ScreenLayoutData
 
 extern ScreenLayout current_screen_layout;
 extern ScreenLayoutData screen_layout_data;
-extern GPU::RenderSettings video_settings;
+extern VideoSettings video_settings;
 
 void initialize_screnlayout_data(ScreenLayoutData *data);
 void update_screenlayout(ScreenLayout layout, ScreenLayoutData *data, bool opengl, bool swap_screens);

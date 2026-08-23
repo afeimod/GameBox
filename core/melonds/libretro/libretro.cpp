@@ -30,6 +30,8 @@
 #include "screenlayout.h"
 #include "utils.h"
 
+using namespace melonDS;
+
 char retro_base_directory[4096];
 static char retro_saves_directory[4096];
 
@@ -47,7 +49,7 @@ std::string retro_gba_save_path;
 
 retro_game_info* cached_info;
 
-GPU::RenderSettings video_settings;
+VideoSettings video_settings;
 
 bool libretro_supports_bitmasks = false;
 bool enable_opengl = false;
@@ -648,7 +650,7 @@ static void render_frame(void)
       if (current_renderer == CurrentRenderer::Software) render_opengl_frame(true);
       else render_opengl_frame(false);
    }
-   else if(!enable_opengl)
+   else
    {
    #endif
       int frontbuf = nds->GPU.FrontBuffer;
@@ -657,18 +659,18 @@ static void render_frame(void)
       {
          unsigned primary = screen_layout_data.displayed_layout == ScreenLayout::HybridTop ? 0 : 1;
 
-         copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][primary], ScreenId::Primary);
+         copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][primary].get(), ScreenId::Primary);
 
          switch(screen_layout_data.hybrid_small_screen) {
             case SmallScreenLayout::SmallScreenTop:
-               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0], ScreenId::Bottom);
+               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0].get(), ScreenId::Bottom);
                break;
             case SmallScreenLayout::SmallScreenBottom:
-               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1], ScreenId::Bottom);
+               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1].get(), ScreenId::Bottom);
                break;
             case SmallScreenLayout::SmallScreenDuplicate:
-               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0], ScreenId::Top);
-               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1], ScreenId::Bottom);
+               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0].get(), ScreenId::Top);
+               copy_hybrid_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1].get(), ScreenId::Bottom);
                break;
          }
 
@@ -680,9 +682,9 @@ static void render_frame(void)
       else
       {
          if(screen_layout_data.enable_top_screen)
-            copy_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0], screen_layout_data.top_screen_offset);
+            copy_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][0].get(), screen_layout_data.top_screen_offset);
          if(screen_layout_data.enable_bottom_screen)
-            copy_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1], screen_layout_data.bottom_screen_offset);
+            copy_screen(&screen_layout_data, nds->GPU.Framebuffer[frontbuf][1].get(), screen_layout_data.bottom_screen_offset);
 
          if(cursor_enabled(&input_state) && current_screen_layout != ScreenLayout::TopOnly)
             draw_cursor(&screen_layout_data, input_state.touch_x, input_state.touch_y);
@@ -1058,7 +1060,7 @@ size_t retro_serialize_size(void)
       if (!data) return 0;
       Savestate* savestate = new Savestate(data, MAX_SERIALIZE_TEST_SIZE, true);
       nds->DoSavestate(savestate);
-      size_t size = savestate->GetOffset();
+      size_t size = savestate->Length();
       delete savestate;
       free(data);
       return size;
@@ -1127,27 +1129,31 @@ size_t retro_get_memory_size(unsigned type)
 }
 
 void retro_cheat_reset(void)
-{}
+{
+   if (nds)
+      nds->AREngine.Cheats.clear();
+}
 
 void retro_cheat_set(unsigned index, bool enabled, const char *code)
 {
    if (!nds) return;
 
-   if (!enabled)
-      return;
-   ARCode curcode;
+   ARCode curcode {};
    std::string str(code);
    char * pch =  &*str.begin();
-   memcpy(curcode.Name, code, 128);
-   curcode.Enabled=enabled;
-   curcode.CodeLen=0;
+   curcode.Name = std::string(code);
+   curcode.Enabled = enabled;
+   curcode.Parent = nullptr;
    pch = strtok(pch, " +");
    while (pch != NULL)
    {
-    curcode.Code[curcode.CodeLen]=(u32)strtol(pch, NULL, 16);
-    log_cb(RETRO_LOG_INFO, "Adding Code %s (%d) \n",pch, curcode.Code[curcode.CodeLen]);
-    curcode.CodeLen++;
+    curcode.Code.push_back((u32)strtol(pch, NULL, 16));
+    log_cb(RETRO_LOG_INFO, "Adding Code %s (%d) \n",pch, curcode.Code.back());
     pch = strtok(NULL, " +");
    }
-   nds->AREngine.RunCheat(curcode);
+
+   if (index < nds->AREngine.Cheats.size())
+      nds->AREngine.Cheats[index] = curcode;
+   else
+      nds->AREngine.Cheats.push_back(curcode);
 }
