@@ -19,10 +19,6 @@ void Teakra_Reset(TeakraContext* context) {
     context->teakra.Reset();
 }
 
-uint8_t* Teakra_GetDspMemory(TeakraContext* context) {
-    return context->teakra.GetDspMemory().data();
-}
-
 int Teakra_SendDataIsEmpty(const TeakraContext* context, uint8_t index) {
     return context->teakra.SendDataIsEmpty(index);
 }

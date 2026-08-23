@@ -25,7 +25,6 @@ typedef void (*Teakra_AHBMWriteCallback32)(void* userdata, uint32_t address, uin
 TeakraContext* Teakra_Create();
 void Teakra_Destroy(TeakraContext* context);
 void Teakra_Reset(TeakraContext* context);
-uint8_t* Teakra_GetDspMemory(TeakraContext* context);
 
 int Teakra_SendDataIsEmpty(const TeakraContext* context, uint8_t index);
 void Teakra_SendData(TeakraContext* context, uint8_t index, uint16_t value);
