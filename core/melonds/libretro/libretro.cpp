@@ -758,7 +758,7 @@ void retro_run(void)
          log_cb(RETRO_LOG_INFO,
             "[melonds-diag] #%llu slines=%u run=%d stop=%08X pow=%04X front=%d pc9=%08X pc7=%08X wt=%u/%u wb=%u/%u content=%d",
             (unsigned long long)s_diagFrame,
-            nds->GPU.TotalScanlines, (int)nds->Running, nds->CPUStop,
+            nds->GPU.TotalScanlines, (int)nds->IsRunning(), nds->CPUStop,
             (unsigned)nds->PowerControl9, fbuf,
             nds->ARM9.R[15], nds->ARM7.R[15],
             wt, (256 * 192u), wb, (256 * 192u), (int)s_diagContent);
