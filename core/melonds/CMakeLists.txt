@@ -34,6 +34,19 @@ set(LIBRETRO_COMM "${CORE_DIR}/libretro-common")
 message(STATUS "melonDS core source dir: ${MELON_DIR}")
 message(STATUS "melonDS libretro dir:   ${CORE_DIR}")
 
+# ---------------------------------------------------------------------------
+# JIT: the melonDS recompiler only has x86_64 and aarch64 backends.
+# On Android it is enabled only for arm64-v8a; for every other ABI
+# (armeabi-v7a, x86, x86_64) we build without JIT_ENABLED and melonDS
+# falls back to its interpreter. Mirrors Makefile.common's JIT_ARCH gate.
+# ---------------------------------------------------------------------------
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(MELONDS_JIT_ENABLED ON)
+else()
+    set(MELONDS_JIT_ENABLED OFF)
+endif()
+message(STATUS "melonDS JIT recompiler enabled: ${MELONDS_JIT_ENABLED}")
+
 if(NOT EXISTS "${MELON_DIR}/NDS.cpp")
     message(FATAL_ERROR "melonDS core sources not found at ${MELON_DIR}.\n"
         "Ensure the melonDS-android-lib-master zip is extracted to:\n"
@@ -158,25 +171,30 @@ set(MELONDS_OPENGL_CXX_SOURCES
 )
 
 # ---------------------------------------------------------------------------
-# JIT sources (ARM64) — from Makefile.common JIT_ARCH=aarch64 section
+# JIT sources (ARM64) — from Makefile.common JIT_ARCH=aarch64 section.
+# Only added when building for arm64-v8a (see MELONDS_JIT_ENABLED above).
 # ---------------------------------------------------------------------------
-set(MELONDS_JIT_CXX_SOURCES
-    "${MELON_DIR}/ARMJIT.cpp"
-    "${MELON_DIR}/ARMJIT_Memory.cpp"
-    "${MELON_DIR}/ARM_InstrInfo.cpp"
-    "${MELON_DIR}/ARMJIT_Global.cpp"
-    "${MELON_DIR}/dolphin/CommonFuncs.cpp"
-    "${MELON_DIR}/dolphin/Arm64Emitter.cpp"
-    "${MELON_DIR}/dolphin/MathUtil.cpp"
-    "${MELON_DIR}/ARMJIT_A64/ARMJIT_Compiler.cpp"
-    "${MELON_DIR}/ARMJIT_A64/ARMJIT_ALU.cpp"
-    "${MELON_DIR}/ARMJIT_A64/ARMJIT_LoadStore.cpp"
-    "${MELON_DIR}/ARMJIT_A64/ARMJIT_Branch.cpp"
-)
+set(MELONDS_JIT_CXX_SOURCES "")
+set(MELONDS_JIT_ASM_SOURCES "")
+if(MELONDS_JIT_ENABLED)
+    set(MELONDS_JIT_CXX_SOURCES
+        "${MELON_DIR}/ARMJIT.cpp"
+        "${MELON_DIR}/ARMJIT_Memory.cpp"
+        "${MELON_DIR}/ARM_InstrInfo.cpp"
+        "${MELON_DIR}/ARMJIT_Global.cpp"
+        "${MELON_DIR}/dolphin/CommonFuncs.cpp"
+        "${MELON_DIR}/dolphin/Arm64Emitter.cpp"
+        "${MELON_DIR}/dolphin/MathUtil.cpp"
+        "${MELON_DIR}/ARMJIT_A64/ARMJIT_Compiler.cpp"
+        "${MELON_DIR}/ARMJIT_A64/ARMJIT_ALU.cpp"
+        "${MELON_DIR}/ARMJIT_A64/ARMJIT_LoadStore.cpp"
+        "${MELON_DIR}/ARMJIT_A64/ARMJIT_Branch.cpp"
+    )
 
-set(MELONDS_JIT_ASM_SOURCES
-    "${MELON_DIR}/ARMJIT_A64/ARMJIT_Linkage.S"
-)
+    set(MELONDS_JIT_ASM_SOURCES
+        "${MELON_DIR}/ARMJIT_A64/ARMJIT_Linkage.S"
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Libretro wrapper C++ sources
@@ -274,12 +292,18 @@ target_compile_definitions(melonds-core PRIVATE
     HAVE_EGL                        # EGL support (Android GL context)
     HAVE_THREADS                    # Threading support
     HAVE_WIFI                       # WiFi emulation
-    ARCHITECTURE_ARM64              # ARM64 JIT architecture
-    JIT_ENABLED                     # Enable JIT recompiler
     MELONDS_VERSION="1.1"           # melonDS version string
     NDEBUG                          # Release build (assertions off)
     ANDROID                         # Android platform
 )
+
+# The ARM64 JIT backend is only supported on aarch64 (see ARMJIT_Compiler.h).
+if(MELONDS_JIT_ENABLED)
+    target_compile_definitions(melonds-core PRIVATE
+        ARCHITECTURE_ARM64          # ARM64 JIT architecture
+        JIT_ENABLED                 # Enable JIT recompiler
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Compile options
