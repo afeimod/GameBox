@@ -252,7 +252,7 @@ target_compile_definitions(melonds-core PRIVATE
     HAVE_WIFI                       # WiFi emulation
     ARCHITECTURE_ARM64              # ARM64 JIT architecture
     JIT_ENABLED                     # Enable JIT recompiler
-    MELONDS_VERSION="\"1.1\""       # melonDS version string
+    MELONDS_VERSION="1.1"           # melonDS version string
     NDEBUG                          # Release build (assertions off)
     ANDROID                         # Android platform
 )
