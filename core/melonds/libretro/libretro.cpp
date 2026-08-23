@@ -125,6 +125,9 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "melonDS";
+#ifndef MELONDS_VERSION
+#define MELONDS_VERSION "1.1"
+#endif
 #ifndef GIT_VERSION
 #define GIT_VERSION ""
 #endif
