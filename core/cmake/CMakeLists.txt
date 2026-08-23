@@ -611,6 +611,7 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../melonds" "${CMAKE_BINARY_DIR}/m
 set(NDS_JNI_SOURCES
     "${APP_JNI_DIR}/nds_bridge.cpp"
     "${APP_JNI_DIR}/nds_loader.cpp"
+    ${HQX_SOURCES}
 )
 
 add_library(ndscore SHARED ${NDS_JNI_SOURCES})
@@ -618,6 +619,7 @@ add_library(ndscore SHARED ${NDS_JNI_SOURCES})
 target_include_directories(ndscore PRIVATE
     "${APP_JNI_DIR}"
     "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
 )
 
 # melonds-core provides compile definitions via its PUBLIC interface,
