@@ -788,9 +788,7 @@ static bool load_bios_files()
    else
       log_cb(RETRO_LOG_INFO, "BIOS7 not found, using FreeBIOS.\n");
 
-   log_cb(RETRO_LOG_INFO, "BIOS files set, calling nds->LoadBIOS()/Reset()...\n");
    nds->LoadBIOS();
-   log_cb(RETRO_LOG_INFO, "nds->LoadBIOS() returned\n");
 
    return true;
 }
@@ -817,8 +815,6 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       std::string msg = "Missing bios/firmware in system directory. Using FreeBIOS.\n";
       log_cb(RETRO_LOG_ERROR, msg.c_str());
    }
-
-   log_cb(RETRO_LOG_INFO, "NDS load step 1/8: paths configured, DirectBoot=%d ConsoleType=%d\n", Config::DirectBoot, Config::ConsoleType);
 
    strcpy(Config::BIOS7Path, "bios7.bin");
    strcpy(Config::BIOS9Path, "bios9.bin");
@@ -866,7 +862,6 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    }
 
    check_variables(true);
-   log_cb(RETRO_LOG_INFO, "NDS load step 1b/8: core options applied\n");
 
    // Build NDSArgs
    melonDS::NDSArgs args;
@@ -902,12 +897,8 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
 #endif
 
    // Create the NDS instance
-   log_cb(RETRO_LOG_INFO, "NDS load step 2/8: creating NDS instance (JIT=%s fastmem=%s)...\n",
-          args.JIT.has_value() ? "yes" : "no",
-          (args.JIT.has_value() && args.JIT->FastMemory) ? "yes" : "no");
    nds = new melonDS::NDS(std::move(args), nullptr);
    melonDS::NDS::Current = nds;
-   log_cb(RETRO_LOG_INFO, "NDS load step 3/8: NDS instance created (JIT=%d ConsoleType=%d)\n", Config::JIT_Enable, Config::ConsoleType);
 
    // Initialize renderer
    // The default SoftRenderer is already set by NDSArgs
@@ -919,9 +910,7 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
 #endif
 
    // Load BIOS files
-   log_cb(RETRO_LOG_INFO, "NDS load step 3b/8: loading BIOS...\n");
    load_bios_files();
-   log_cb(RETRO_LOG_INFO, "NDS load step 4/8: BIOS files loaded\n");
 
    // Set console type
    nds->ConsoleType = Config::ConsoleType;
@@ -947,7 +936,6 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    retro_save_path = std::string(retro_saves_directory) + "/" + std::string(game_name) + ".sav";
 
    // Load the ROM
-   log_cb(RETRO_LOG_INFO, "NDS load step 5/8: parsing ROM (%u bytes)...\n", (u32)info->size);
    auto cart = melonDS::NDSCart::ParseROM(
       (u8*)info->data, info->size);
    if (!cart)
@@ -957,13 +945,10 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       nds = nullptr;
       return false;
    }
-   log_cb(RETRO_LOG_INFO, "NDS load step 5b/8: ROM parsed OK\n");
 
    nds->SetNDSCart(std::move(cart));
-   log_cb(RETRO_LOG_INFO, "NDS load step 6/8: cart inserted\n");
 
    // Load existing save data if present
-   log_cb(RETRO_LOG_INFO, "NDS load step 7/8: loading save from '%s'\n", retro_save_path.c_str());
    FILE* save_fp = fopen(retro_save_path.c_str(), "rb");
    if (save_fp)
    {
@@ -982,13 +967,10 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    }
 
    // Setup direct boot and start emulation
-   log_cb(RETRO_LOG_INFO, "NDS load step 8/8: DirectBoot=%d, calling SetupDirectBoot...\n", Config::DirectBoot);
    if (Config::DirectBoot)
       nds->SetupDirectBoot();
-   log_cb(RETRO_LOG_INFO, "NDS load step 8b/8: SetupDirectBoot done, calling Start...\n");
 
    nds->Start();
-   log_cb(RETRO_LOG_INFO, "NDS load step 8c/8: Start done\n");
 
    if (type == SLOT_1_2_BOOT)
    {
