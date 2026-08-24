@@ -321,6 +321,61 @@ void render_opengl_frame(bool sw)
         screen_layout_data.touch_offset_y = (192 * scale) + (2 * scale);
     }
 
+    // --- DIAGNOSTIC: readback content statistics (temporary, helps diagnose
+    // "black screen with sound" when the OpenGL renderer is enabled). ---
+    {
+        static uint64_t s_diagFrame = 0;
+        static bool s_diagFirst = true;
+        s_diagFrame++;
+
+        // Report on the very first frame (cheap anyway), then every 120 frames.
+        bool report = s_diagFirst || ((s_diagFrame % 120) == 0);
+        s_diagFirst = false;
+
+        if (report)
+        {
+            const int screenPx = 256 * 192 * scale * scale; // pixels per screen
+            const int gapPx    = 2 * scale * w;              // pixels in the 2*scale gap row
+
+            uint64_t nonBlackAll = 0, nonBlackTop = 0, nonBlackBottom = 0;
+            uint64_t sumR = 0, sumG = 0, sumB = 0;
+            for (int y = 0; y < h; y++)
+            {
+                const bool inTop    = (y < 192 * scale);
+                const bool inBottom = (y >= (192 * scale) + (2 * scale));
+                const uint32_t* row = out + (size_t)y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    uint32_t px = row[x];
+                    uint32_t rgb = px & 0x00FFFFFFu;
+                    if (rgb != 0)
+                    {
+                        nonBlackAll++;
+                        if (inTop) nonBlackTop++;
+                        else if (inBottom) nonBlackBottom++;
+                        sumR += (px >> 16) & 0xFF;
+                        sumG += (px >> 8) & 0xFF;
+                        sumB += px & 0xFF;
+                    }
+                }
+            }
+
+            const double allPx = (double)(size_t)w * h;
+            const double topPx = (double)screenPx;
+            const double botPx = (double)screenPx;
+
+            LOGI("[gldiag] #%llu %dx%d fbo=%u nonBlack=%.2f%% top=%.2f%% bottom=%.2f%% avgRGB=%u,%u,%u gle=%u",
+                 (unsigned long long)s_diagFrame, w, h, fbo,
+                 100.0 * (double)nonBlackAll / allPx,
+                 100.0 * (double)nonBlackTop / topPx,
+                 100.0 * (double)nonBlackBottom / botPx,
+                 nonBlackAll ? (unsigned)(sumR / nonBlackAll) : 0u,
+                 nonBlackAll ? (unsigned)(sumG / nonBlackAll) : 0u,
+                 nonBlackAll ? (unsigned)(sumB / nonBlackAll) : 0u,
+                 (unsigned)glGetError());
+        }
+    }
+
     // Draw cursor overlay (if the stylus is active).
     // draw_cursor writes to screen_layout_data.buffer_ptr as uint32_t*,
     // so we temporarily point it at our readback buffer.
