@@ -275,6 +275,19 @@ void render_opengl_frame(bool sw)
     GLint prevReadFB = 0;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFB);
 
+    // The melonDS GL renderer keeps a pixel-pack PBO bound at all times
+    // (GLRenderer::PixelbufferID, sized for a 256x192 3D capture — see
+    // GPU3D_OpenGL.cpp SetRenderSettings/PrepareCaptureFrame/GetLine; it
+    // is never bound back to 0).  Our scaled readback (512x772 at 2x)
+    // would overflow that small buffer, and glReadPixels would then fail
+    // with GL_INVALID_OPERATION (0x502), leaving the presented frame
+    // completely black.  Temporarily unbind the PBO so the pixels are
+    // written straight into our CPU buffer, then restore the binding.
+    GLint prevPackBuffer = 0;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackBuffer);
+    if (prevPackBuffer != 0)
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
@@ -285,6 +298,8 @@ void render_opengl_frame(bool sw)
         LOGE("glReadPixels failed: 0x%x (fbo=%u, %dx%d)", glerr, fbo, w, h);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
+    if (prevPackBuffer != 0)
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)prevPackBuffer);
 
     // Convert RGBA → XRGB8888 (0x00RRGGBB with alpha=0xFF).
     // glReadPixels returns R,G,B,A byte-order.  video_cb expects
