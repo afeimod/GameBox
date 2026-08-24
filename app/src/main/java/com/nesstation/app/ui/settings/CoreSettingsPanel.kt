@@ -692,10 +692,34 @@ fun CoreSettingsPanel(
                         listOf("Toggle" to "切换", "Hold" to "按住"),
                         padLayout.ndsSwapscreenMode
                     ) { updateLayout(padLayout.copy {ndsSwapscreenMode = it}) }
-                    DropdownRow("3D 渲染分辨率",
-                        (1..8).map { it.toString() to "${it}x (${256*it}x${192*it})" },
-                        padLayout.ndsResolution
-                    ) { updateLayout(padLayout.copy {ndsResolution = it}) }
+                    DropdownRow("OpenGL 渲染器",
+                        listOf("enabled" to "开启(硬件加速,推荐)", "disabled" to "关闭(软件渲染)"),
+                        padLayout.ndsOpenGlRenderer
+                    ) { updateLayout(padLayout.copy {ndsOpenGlRenderer = it}) }
+                    // 仅当 OpenGL 渲染器启用时显示分辨率选项
+                    if (padLayout.ndsOpenGlRenderer == "enabled") {
+                        DropdownRow("3D 渲染分辨率",
+                            listOf(
+                                "1x native (256x192)" to "1x (256x192, 原生)",
+                                "2x native (512x384)" to "2x (512x384)",
+                                "3x native (768x576)" to "3x (768x576)",
+                                "4x native (1024x768)" to "4x (1024x768)",
+                                "5x native (1280x960)" to "5x (1280x960)",
+                                "6x native (1536x1152)" to "6x (1536x1152)",
+                                "7x native (1792x1344)" to "7x (1792x1344)",
+                                "8x native (2048x1536)" to "8x (2048x1536)"
+                            ),
+                            padLayout.ndsResolution
+                        ) { updateLayout(padLayout.copy {ndsResolution = it}) }
+                        DropdownRow("OpenGL 多边形优化",
+                            listOf("disabled" to "关闭", "enabled" to "开启(减少图形错误)"),
+                            padLayout.ndsOpenGlBetterPolygons
+                        ) { updateLayout(padLayout.copy {ndsOpenGlBetterPolygons = it}) }
+                        DropdownRow("OpenGL 纹理过滤",
+                            listOf("nearest" to "最近邻(锐利)", "linear" to "线性(平滑)"),
+                            padLayout.ndsOpenGlFiltering
+                        ) { updateLayout(padLayout.copy {ndsOpenGlFiltering = it}) }
+                    }
                     DropdownRow("JIT 编译器",
                         listOf("enabled" to "开启(加速)", "disabled" to "关闭(解释器)"),
                         padLayout.ndsJitEnable
@@ -718,7 +742,7 @@ fun CoreSettingsPanel(
                     ) { updateLayout(padLayout.copy {ndsJitLiteralOptimisations = it}) }
                     DropdownRow("音频插值",
                         listOf("Cosine" to "余弦(高质量)", "Linear" to "线性(中等)",
-                               "Sinc" to "Sinc(最高质量)", "None" to "无(低质量)"),
+                               "Cubic" to "三次(最高质量)", "None" to "无(低质量)"),
                         padLayout.ndsAudioInterpolation
                     ) { updateLayout(padLayout.copy {ndsAudioInterpolation = it}) }
                     DropdownRow("音频比特率",

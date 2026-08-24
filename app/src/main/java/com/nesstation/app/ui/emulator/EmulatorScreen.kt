@@ -2120,18 +2120,26 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
         }
         GamePlatform.NDS -> {
             // melonDS core options — keys/values must match the prebuilt
-            // melonDS 0.9.3 libretro core (verified against the .so).
+            // melonDS libretro core (v1.1, libretro_core_options.h).
             engine.setCoreOption("melonds_boot_directly", "enabled")   // jump straight into the game, not the grey FW menu
             engine.setCoreOption("melonds_console_mode", layout.ndsConsoleMode)   // "DS" | "DSi"
             engine.setCoreOption("melonds_screen_layout", layout.ndsScreenLayout) // "Top/Bottom" | "Bottom/Top" | "Left/Right" | ...
-            engine.setCoreOption("melonds_resolution_scale", layout.ndsResolution) // 3D rendering resolution multiplier 1x..8x
+            // OpenGL 渲染器：启用后分辨率缩放生效，3D 渲染使用硬件加速
+            engine.setCoreOption("melonds_opengl_renderer", layout.ndsOpenGlRenderer) // "enabled" | "disabled"
+            // OpenGL 内部分辨率：仅 OpenGL 渲染器生效，值格式 "1x native (256x192)" .. "8x native (2048x1536)"
+            engine.setCoreOption("melonds_opengl_resolution", layout.ndsResolution)
+            // OpenGL 多边形优化：改善多边形分割，减少图形错误
+            engine.setCoreOption("melonds_opengl_better_polygons", layout.ndsOpenGlBetterPolygons)
+            // OpenGL 纹理过滤：nearest(锐利) | linear(平滑)
+            engine.setCoreOption("melonds_opengl_filtering", layout.ndsOpenGlFiltering)
+            // 当 OpenGL 渲染器启用时，核心会自动禁用软件线程渲染器，所以这里不再设置
+            // melonds_threaded_renderer
             engine.setCoreOption("melonds_touch_mode", layout.ndsTouchMode)       // "Mouse" | "Touch" | "Joystick"
             engine.setCoreOption("melonds_dsi_sdcard", layout.ndsDsiSdcard)
             engine.setCoreOption("melonds_randomize_mac_address", layout.ndsRandomizeMac)
             engine.setCoreOption("melonds_jit_enable", layout.ndsJitEnable)
             engine.setCoreOption("melonds_audio_interpolation", layout.ndsAudioInterpolation)
             engine.setCoreOption("melonds_use_fw_settings", layout.ndsUseFwSettings)
-            engine.setCoreOption("melonds_threaded_renderer", "enabled")
             engine.setCoreOption("melonds_screen_gap", layout.ndsScreenGap)
             engine.setCoreOption("melonds_swapscreen_mode", layout.ndsSwapscreenMode)
             engine.setCoreOption("melonds_mic_input", layout.ndsMicInput)

@@ -416,16 +416,26 @@ static void initDefaultOptions() {
     setIfMissing("melonds_jit_enable",         "enabled");  // JIT compiler (enabled = much faster, disabled = interpreter)
 
     // --- Audio ---
-    // 0.9.3: Cosine | Linear | Sinc | None (0=Cosine, 1=Linear, 2=Sinc, 3=None)
+    // Valid values: None | Linear | Cosine | Cubic
     setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
-    // 3D rendering resolution multiplier (1x = native 256x192, 2x = 512x384, etc.)
-    // Higher values give sharper 3D graphics at the cost of GPU/GPU performance.
-    // Only has effect with the OpenGL or Compute renderer (software renderer ignores it).
-    setIfMissing("melonds_resolution_scale",   "1");
-    setIfMissing("melonds_threaded_renderer",  "enabled");
-    setIfMissing("melonds_touch_mode",         "Touch");
+    // OpenGL renderer — enables hardware-accelerated 3D rendering.
+    // When enabled, 3D rendering resolution scaling (melonds_opengl_resolution)
+    // becomes effective. The threaded software renderer is automatically
+    // disabled by the core when OpenGL is active.
+    setIfMissing("melonds_opengl_renderer",        "enabled");
+    // OpenGL 3D rendering resolution (1x = native 256x192, etc.).
+    // The value format MUST match libretro_core_options.h exactly:
+    // "1x native (256x192)" .. "8x native (2048x1536)".
+    setIfMissing("melonds_opengl_resolution",      "1x native (256x192)");
+    // OpenGL improved polygon splitting — reduces graphical artifacts.
+    setIfMissing("melonds_opengl_better_polygons", "disabled");
+    // OpenGL texture filtering: nearest (sharp) | linear (smooth).
+    setIfMissing("melonds_opengl_filtering",       "nearest");
+    // Threaded software renderer — fallback when OpenGL is disabled.
+    setIfMissing("melonds_threaded_renderer",      "enabled");
+    setIfMissing("melonds_touch_mode",             "Touch");
 }
 
 // ---------------------------------------------------------------------------

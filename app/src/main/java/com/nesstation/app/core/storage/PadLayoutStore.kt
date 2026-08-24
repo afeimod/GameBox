@@ -322,16 +322,22 @@ class PadLayout {
     var pceAllowUpDown: String = "Disabled"            // Disabled | Enabled
 
     // === NDS (melonDS) core options ===
-    // Values must match the prebuilt melonDS 0.9.3 libretro core exactly.
+    // Values must match the prebuilt melonDS libretro core (v1.1) exactly.
     // ndsUseFwBios / ndsFiltering / ndsScreensaver /
-    // ndsMouseSpeed have NO matching option in 0.9.3 — they are kept only for
+    // ndsMouseSpeed have NO matching option in the core — they are kept only for
     // storage compatibility and are no longer forwarded to the core.
     var ndsUseFwBios: String = "enabled"
     var ndsConsoleMode: String = "DS"                  // DS | DSi (anything except "DSi" = DS)
-    var ndsScreenLayout: String = "Top/Bottom"         // Top/Bottom | Bottom/Top | Left/Right | Right/Left | Top Only | Bottom Only
-    // 3D 渲染分辨率倍数 (melonds_resolution_scale): 1x=原生(256x192), 2x=512x384, 3x=768x576, 4x=1024x768
-    // 仅 OpenGL/Compute 渲染器生效，软件渲染器忽略此设置
-    var ndsResolution: String = "1"
+    var ndsScreenLayout: String = "Top/Bottom"         // Top/Bottom | Bottom/Top | Left/Right | Right/Left | Top Only | Bottom Only | Hybrid Top | Hybrid Bottom
+    // 3D 渲染分辨率倍数 (melonds_opengl_resolution): 值格式必须匹配核心 libretro_core_options.h
+    // 仅 OpenGL 渲染器生效，软件渲染器忽略此设置
+    var ndsResolution: String = "1x native (256x192)"
+    // OpenGL 渲染器：启用后使用硬件加速 3D 渲染，分辨率缩放仅在此模式下生效
+    var ndsOpenGlRenderer: String = "enabled"          // enabled | disabled
+    // OpenGL 多边形优化：改善多边形分割，减少图形错误
+    var ndsOpenGlBetterPolygons: String = "disabled"   // enabled | disabled
+    // OpenGL 纹理过滤：nearest(最近邻/锐利) | linear(线性/平滑)
+    var ndsOpenGlFiltering: String = "nearest"         // nearest | linear
     var ndsFiltering: String = "nearest"
     var ndsScreensaver: String = "disabled"
     var ndsTouchMode: String = "Touch"                  // Touch | Mouse | Joystick
@@ -678,6 +684,9 @@ class PadLayout {
         ndsConsoleMode = another.ndsConsoleMode
         ndsScreenLayout = another.ndsScreenLayout
         ndsResolution = another.ndsResolution
+        ndsOpenGlRenderer = another.ndsOpenGlRenderer
+        ndsOpenGlBetterPolygons = another.ndsOpenGlBetterPolygons
+        ndsOpenGlFiltering = another.ndsOpenGlFiltering
         ndsFiltering = another.ndsFiltering
         ndsScreensaver = another.ndsScreensaver
         ndsTouchMode = another.ndsTouchMode
@@ -1206,10 +1215,10 @@ object PadLayoutStore {
                 "ds" -> "DS"
                 else -> (p.getString("nds_console_mode", "DS") ?: "DS")
             }
-            ndsTouchMode = when (p.getString("nds_touch_mode", "Mouse") ?: "Mouse") {
+            ndsTouchMode = when (p.getString("nds_touch_mode", "Touch") ?: "Touch") {
                 "mouse" -> "Mouse"
                 "touch" -> "Touch"
-                else -> (p.getString("nds_touch_mode", "Mouse") ?: "Mouse")
+                else -> (p.getString("nds_touch_mode", "Touch") ?: "Touch")
             }
             ndsScreenLayout = when (p.getString("nds_screen_layout", "Top/Bottom") ?: "Top/Bottom") {
                 "top_bottom" -> "Top/Bottom"
@@ -1220,7 +1229,20 @@ object PadLayoutStore {
                 "bottom_only" -> "Bottom Only"
                 else -> (p.getString("nds_screen_layout", "Top/Bottom") ?: "Top/Bottom")
             }
-            ndsResolution = p.getString("nds_resolution", "1") ?: "1"
+            ndsResolution = when (val v = p.getString("nds_resolution", "1x native (256x192)") ?: "1x native (256x192)") {
+                "1" -> "1x native (256x192)"
+                "2" -> "2x native (512x384)"
+                "3" -> "3x native (768x576)"
+                "4" -> "4x native (1024x768)"
+                "5" -> "5x native (1280x960)"
+                "6" -> "6x native (1536x1152)"
+                "7" -> "7x native (1792x1344)"
+                "8" -> "8x native (2048x1536)"
+                else -> v
+            }
+            ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "enabled") ?: "enabled"
+            ndsOpenGlBetterPolygons = p.getString("nds_opengl_better_polygons", "disabled") ?: "disabled"
+            ndsOpenGlFiltering = p.getString("nds_opengl_filtering", "nearest") ?: "nearest"
             ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"
             ndsScreensaver = p.getString("nds_screensaver", "disabled") ?: "disabled"
             ndsMouseSpeed = p.getString("nds_mouse_speed", "100") ?: "100"
@@ -1580,6 +1602,9 @@ object PadLayoutStore {
             putString("nds_console_mode", layout.ndsConsoleMode)
             putString("nds_screen_layout", layout.ndsScreenLayout)
             putString("nds_resolution", layout.ndsResolution)
+            putString("nds_opengl_renderer", layout.ndsOpenGlRenderer)
+            putString("nds_opengl_better_polygons", layout.ndsOpenGlBetterPolygons)
+            putString("nds_opengl_filtering", layout.ndsOpenGlFiltering)
             putString("nds_filtering", layout.ndsFiltering)
             putString("nds_screensaver", layout.ndsScreensaver)
             putString("nds_touch_mode", layout.ndsTouchMode)

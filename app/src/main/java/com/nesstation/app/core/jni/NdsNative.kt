@@ -30,7 +30,7 @@ import android.view.Surface
  * flag. The native bridge forwards these to the core via RETRO_DEVICE_POINTER.
  *
  * ## BIOS files
- * melonDS 0.9.3 uses FreeBIOS (built-in BIOS replacement) whenever the real
+ * melonDS uses FreeBIOS (built-in BIOS replacement) whenever the real
  * files are absent from the system directory (set via [setPaths]):
  *   bios7.bin      — ARM7 BIOS (loaded if present)
  *   bios9.bin      — ARM9 BIOS (loaded if present)
@@ -112,21 +112,25 @@ object NdsNative {
 
     /**
      * Set a core option by key and value.
-     * Keys/values MUST match the prebuilt melonDS 0.9.3 libretro core.
-     * Valid options (verified against the .so):
-     *   "melonds_boot_directly"         -> "enabled" | "disabled"  (enabled = jump straight into the game; disabled = boot into the grey FW menu)
-     *   "melonds_screen_layout"         -> "Top/Bottom" | "Bottom/Top" | "Left/Right" | "Right/Left" | "Top Only" | "Bottom Only"
-     *   "melonds_console_mode"          -> "DS" | "DSi"  (anything except "DSi" = DS)
-     *   "melonds_use_fw_settings"       -> "enabled" | "disabled"
-     *   "melonds_touch_mode"            -> "Mouse" | "Touch" | "Joystick"
-     *   "melonds_threaded_renderer"     -> "enabled" | "disabled"
-     *   "melonds_dsi_sdcard"            -> "disabled" | "enabled"
-     *   "melonds_randomize_mac_address" -> "disabled" | "enabled"
-     *   "melonds_jit_enable"            -> "enabled" | "disabled"
-     *   "melonds_audio_interpolation"   -> (0.9.3: Cosine | Linear | Sinc | ...)
-     * NOTE: "melonds_use_fw_bios" / "melonds_opengl_*" / "melonds_screensaver" /
-     * "melonds_mouse_speed" / "melonds_sysfile_directory" do NOT exist in 0.9.3
-     * and are silently ignored by the core.
+     * Keys/values MUST match the prebuilt melonDS libretro core (v1.1).
+     * Valid options (from libretro_core_options.h):
+     *   "melonds_boot_directly"          -> "enabled" | "disabled"
+     *   "melonds_console_mode"           -> "DS" | "DSi"
+     *   "melonds_screen_layout"          -> "Top/Bottom" | "Bottom/Top" | "Left/Right" | "Right/Left" | "Top Only" | "Bottom Only" | "Hybrid Top" | "Hybrid Bottom"
+     *   "melonds_use_fw_settings"        -> "enabled" | "disabled"
+     *   "melonds_touch_mode"             -> "Mouse" | "Touch" | "Joystick" | "disabled"
+     *   "melonds_opengl_renderer"        -> "enabled" | "disabled" (OpenGL 3D renderer, requires HW context)
+     *   "melonds_opengl_resolution"      -> "1x native (256x192)" .. "8x native (2048x1536)"
+     *   "melonds_opengl_better_polygons" -> "enabled" | "disabled"
+     *   "melonds_opengl_filtering"       -> "nearest" | "linear"
+     *   "melonds_threaded_renderer"      -> "enabled" | "disabled"
+     *   "melonds_dsi_sdcard"             -> "disabled" | "enabled"
+     *   "melonds_randomize_mac_address"  -> "disabled" | "enabled"
+     *   "melonds_jit_enable"             -> "enabled" | "disabled"
+     *   "melonds_audio_interpolation"    -> "None" | "Linear" | "Cosine" | "Cubic"
+     * NOTE: "melonds_use_fw_bios" / "melonds_screensaver" /
+     * "melonds_mouse_speed" / "melonds_sysfile_directory" do NOT exist in the core
+     * and are silently ignored.
      */
     @JvmStatic external fun setCoreOption(key: String, value: String)
 
