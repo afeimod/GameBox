@@ -299,13 +299,55 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     }
 
     // Create OpenGL ES context with the appropriate client version.
-    const EGLint ctxAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, clientVersion,
-        EGL_NONE
-    };
-    s_eglContext = eglCreateContext(s_eglDisplay, config, EGL_NO_CONTEXT, ctxAttribs);
+    // Try ES 3.2 (EGL_CONTEXT_MINOR_VERSION_KHR = 0x30FB); fall back to
+    // ES 3.0, then ES 2.0. Some drivers accept CLIENT_VERSION=3 but
+    // default to 3.0 even when 3.2 is available; we explicitly request 3.2.
+    //
+    // EGL_CONTEXT_MINOR_VERSION_KHR = 0x30FB (EGL 1.4 KHR_create_context)
+    // EGL_CONTEXT_MINOR_VERSION     = 0x30FB (EGL 1.5)
+    #ifndef EGL_CONTEXT_MINOR_VERSION
+    #ifdef EGL_CONTEXT_MINOR_VERSION_KHR
+    #define EGL_CONTEXT_MINOR_VERSION EGL_CONTEXT_MINOR_VERSION_KHR
+    #else
+    #define EGL_CONTEXT_MINOR_VERSION 0x30FB
+    #endif
+    #endif
+    {
+        int tryCtx[][3] = {
+            {3, 2},  // ES 3.2 (required for #version 320 es shaders)
+            {3, 0},  // ES 3.0 fallback
+            {2, 0},  // ES 2.0 fallback
+        };
+        int numTries = sizeof(tryCtx) / sizeof(tryCtx[0]);
+        int startTry = 0;
+        // If the core explicitly requested a version, start from that.
+        if (clientVersion == 2) startTry = 2; // ES 2.0 only
+        else if (versionMajor == 3 && versionMinor == 0) startTry = 1; // ES 3.0
+        // else start at 0 (try 3.2 first)
+
+        for (int i = startTry; i < numTries; i++) {
+            int maj = tryCtx[i][0];
+            int min = tryCtx[i][1];
+            EGLint ctxAttribs[6];
+            int idx = 0;
+            ctxAttribs[idx++] = EGL_CONTEXT_CLIENT_VERSION;
+            ctxAttribs[idx++] = maj;
+            if (min > 0) {
+                ctxAttribs[idx++] = EGL_CONTEXT_MINOR_VERSION;
+                ctxAttribs[idx++] = min;
+            }
+            ctxAttribs[idx++] = EGL_NONE;
+
+            s_eglContext = eglCreateContext(s_eglDisplay, config, EGL_NO_CONTEXT, ctxAttribs);
+            if (s_eglContext != EGL_NO_CONTEXT) {
+                LOGI("EGL context created: ES %d.%d, Pbuffer 1x1, depth=24, stencil=8", maj, min);
+                break;
+            }
+            LOGW("eglCreateContext ES %d.%d failed (0x%x), trying next", maj, min, eglGetError());
+        }
+    }
     if (s_eglContext == EGL_NO_CONTEXT) {
-        LOGE("eglCreateContext failed: 0x%x", eglGetError());
+        LOGE("eglCreateContext failed for all ES versions");
         eglDestroySurface(s_eglDisplay, s_eglSurface);
         s_eglSurface = EGL_NO_SURFACE;
         eglTerminate(s_eglDisplay);
@@ -326,8 +368,6 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     }
 
     s_eglInitialized = true;
-    LOGI("EGL context created: ES %d.0, Pbuffer 1x1, depth=24, stencil=8",
-         clientVersion);
 
     // Initialize glad OpenGL function pointers using eglGetProcAddress.
     // This must happen after the EGL context is made current, because

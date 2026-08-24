@@ -50,6 +50,7 @@ public:
 
     void SetOutputTexture(int buffer, u32 texture) override;
     void BindOutputTexture(int buffer) override;
+    [[nodiscard]] GLuint GetCompositorOutputFBO(int buffer) const { return CurGLCompositor.GetOutputFBO(buffer); }
 
     static std::unique_ptr<GLRenderer> New() noexcept;
 private:

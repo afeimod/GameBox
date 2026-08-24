@@ -614,6 +614,9 @@ static void check_variables(bool init)
 
    input_state.current_touch_mode = new_touch_mode;
 
+#ifdef HAVE_OPENGL
+   if (!using_opengl)
+#endif
    update_screenlayout(layout, &screen_layout_data, enable_opengl, swapped_screens);
 
    update_option_visibility();
@@ -640,13 +643,13 @@ static void render_frame(void)
    if (current_renderer == CurrentRenderer::None)
    {
  #ifdef HAVE_OPENGL
-         if (enable_opengl && using_opengl)
+         if (enable_opengl)
          {
             if (initialize_opengl()) current_renderer = CurrentRenderer::OpenGLRenderer;
             else
             {
                using_opengl = false;
-               return;
+               current_renderer = CurrentRenderer::Software;
             }
          }
          else
@@ -723,7 +726,12 @@ void retro_run(void)
          if (swapped_screens == false)
          {
             swap_screen_toggled = !swap_screen_toggled;
-            update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swap_screen_toggled);
+#ifdef HAVE_OPENGL
+            if (using_opengl)
+               update_gl_screenlayout(swap_screen_toggled);
+            else
+#endif
+               update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swap_screen_toggled);
             refresh_opengl = true;
          }
          swapped_screens = input_state.swap_screens_btn;
@@ -731,7 +739,12 @@ void retro_run(void)
       else
       {
          swapped_screens = input_state.swap_screens_btn;
-         update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
+#ifdef HAVE_OPENGL
+         if (using_opengl)
+            update_gl_screenlayout(swapped_screens);
+         else
+#endif
+            update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
          refresh_opengl = true;
       }
    }
@@ -962,14 +975,18 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       initialize_opengl();
 #endif
 
-   // initialize_opengl() is a stub that forces software rendering and
-   // sets enable_opengl = false. The earlier check_variables(true) call
-   // already ran update_screenlayout() with opengl=true, which allocated
-   // the buffer at 4x scale.  Recalculate the screen layout now so that
-   // the software renderer uses the correct 1x scale — otherwise memcpy
-   // in copy_screen() would read way past the native 256x192 framebuffer
-   // and crash with SIGSEGV in __memcpy_aarch64_simd.
-   update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
+   // If the GL renderer was successfully initialized, the screen layout
+   // geometry has already been set up inside initialize_opengl() to match
+   // the GL compositor output (256*scale × 386*scale, top/bottom stack).
+   // Skip the update_screenlayout call below to avoid overwriting it.
+   //
+   // If the GL renderer failed to initialize (or was disabled), we must
+   // recalculate the screen layout now.  The earlier check_variables(true)
+   // call already ran update_screenlayout() with opengl=true, which
+   // allocated the buffer at 4x scale — but the software renderer only
+   // produces a native 256x192 framebuffer, so we need 1x scale.
+   if (!using_opengl)
+      update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
 
    // Load BIOS files
    load_bios_files();
@@ -1109,6 +1126,9 @@ bool retro_load_game(const struct retro_game_info *info)
 
 void retro_unload_game(void)
 {
+#ifdef HAVE_OPENGL
+   deinitialize_opengl_renderer();
+#endif
    if (nds)
    {
       // Flush saves before destroying

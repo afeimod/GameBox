@@ -959,6 +959,12 @@ static void load_GL_VERSION_2_0(GLADloadproc load) {
 	if(!GLAD_GL_VERSION_2_0) return;
 	glad_glBlendEquationSeparate = (PFNGLBLENDEQUATIONSEPARATEPROC)load("glBlendEquationSeparate");
 	glad_glDrawBuffers = (PFNGLDRAWBUFFERSPROC)load("glDrawBuffers");
+	// glDepthRangef and glClearDepthf are core in OpenGL ES 2.0+, but
+	// the glad generator placed them under GL_VERSION_4_1 (desktop GL).
+	// On GLES 3.2, GLAD_GL_VERSION_4_1 is false, so they'd be NULL.
+	// Load them here unconditionally (safe: on desktop load returns NULL).
+	glad_glDepthRangef = (PFNGLDEPTHRANGEFPROC)load("glDepthRangef");
+	glad_glClearDepthf = (PFNGLCLEARDEPTHFPROC)load("glClearDepthf");
 	glad_glStencilOpSeparate = (PFNGLSTENCILOPSEPARATEPROC)load("glStencilOpSeparate");
 	glad_glStencilFuncSeparate = (PFNGLSTENCILFUNCSEPARATEPROC)load("glStencilFuncSeparate");
 	glad_glStencilMaskSeparate = (PFNGLSTENCILMASKSEPARATEPROC)load("glStencilMaskSeparate");
@@ -1302,8 +1308,6 @@ static void load_GL_VERSION_4_1(GLADloadproc load) {
 	glad_glReleaseShaderCompiler = (PFNGLRELEASESHADERCOMPILERPROC)load("glReleaseShaderCompiler");
 	glad_glShaderBinary = (PFNGLSHADERBINARYPROC)load("glShaderBinary");
 	glad_glGetShaderPrecisionFormat = (PFNGLGETSHADERPRECISIONFORMATPROC)load("glGetShaderPrecisionFormat");
-	glad_glDepthRangef = (PFNGLDEPTHRANGEFPROC)load("glDepthRangef");
-	glad_glClearDepthf = (PFNGLCLEARDEPTHFPROC)load("glClearDepthf");
 	glad_glGetProgramBinary = (PFNGLGETPROGRAMBINARYPROC)load("glGetProgramBinary");
 	glad_glProgramBinary = (PFNGLPROGRAMBINARYPROC)load("glProgramBinary");
 	glad_glProgramParameteri = (PFNGLPROGRAMPARAMETERIPROC)load("glProgramParameteri");

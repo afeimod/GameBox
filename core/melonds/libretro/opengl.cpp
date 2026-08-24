@@ -1,90 +1,217 @@
 // SPDX-License-Identifier: MIT
-// OpenGL renderer handling for the melonDS libretro wrapper.
+// OpenGL renderer initialization + CPU readback presentation
+// for the melonDS libretro wrapper.
 //
-// The OpenGL 3D renderer (GPU3D_OpenGL / GLRenderer) requires:
-//   - an EGL context created on the emulation thread, and
-//   - the glad_glXxx function-pointer table initialized via
-//     gladLoadGLLoader() (the core resolves every GL call through it).
+// Strategy:
+//   1. Send SET_HW_RENDER → frontend (nds_loader.cpp) creates EGL/GLES 3.2
+//      context and initializes glad (via createEglContext).
+//   2. GLRenderer::New() + SetRenderer3D for hardware-accelerated 3D.
+//   3. Each frame, after nds->RunFrame(), the GL compositor
+//      (GLCompositor::RenderFrame) blends 2D + 3D into an offscreen FBO
+//      at the user-selected resolution scale.
+//   4. render_opengl_frame() glReadPixels that FBO back to a CPU buffer
+//      and calls video_cb() for software presentation.
 //
-// Neither exists on this build: the wrapper never sends
-// RETRO_ENVIRONMENT_SET_HW_RENDER, so nds_loader.cpp's createEglContext()
-// is never triggered and glad is never initialized. Calling
-// GLRenderer::New() in that state jumps through NULL GL pointers and
-// SIGSEGVs at pc=0 (that was the loadRom crash).
+// The GL compositor always produces a fixed Top/Bottom stacked output:
+//   top screen: rows 0 … 192*scale-1
+//   gap:        2*scale pixels
+//   bottom screen: rows 193*scale … (384+2)*scale-1
 //
-// Therefore initialize_opengl() here forces the software 3D renderer
-// (GPU3D_Soft), which is the known-good path on Android. This mirrors
-// the stable behavior from the cc98d3b fix.
+// Only Top/Bottom and Bottom/Top layouts are supported with the GL renderer.
+// Other layouts (Left/Right, single-screen, hybrid) force software fallback.
 
 #include "opengl.h"
 #include "screenlayout.h"
+#include "input.h"
+#include "utils.h"
 
 #include "NDS.h"
 #include "GPU.h"
 #include "GPU3D_OpenGL.h"
+#include "PlatformOGL.h"
 
 #include <android/log.h>
+#include <cstring>
+#include <memory>
+#include <vector>
+#include <cstdlib>
 
 #define TAG "melonds-gl"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// The NDS instance is created in libretro.cpp's retro_load_game().
-// We access it here to set the OpenGL renderer on the GPU.
-// Declared as non-static in libretro.cpp.
+// ---------------------------------------------------------------------------
+// Externs from libretro.cpp
+// ---------------------------------------------------------------------------
 extern melonDS::NDS* nds;
+extern retro_video_refresh_t video_cb;
+extern retro_environment_t environ_cb;
+extern retro_log_printf_t log_cb;
+extern InputState input_state;
+extern ScreenLayout current_screen_layout;
+extern ScreenLayoutData screen_layout_data;
 
-// Keep a reference to the GLRenderer so we can update its scale factor
-// at runtime when the user changes the resolution option.
+// ---------------------------------------------------------------------------
+// Local state
+// ---------------------------------------------------------------------------
 static melonDS::GLRenderer* s_glRenderer = nullptr;
+static bool s_hw_render_sent = false;
+
+// CPU readback buffer for GL → video_cb presentation
+static std::vector<uint32_t> s_readback;
+static int s_glW = 256;   // 256 × scale
+static int s_glH = 386;   // (384+2) × scale
+
+// ---------------------------------------------------------------------------
+// HW render callbacks – called by the frontend (nds_loader.cpp) after
+// EGL context creation / before destruction.
+// ---------------------------------------------------------------------------
+static void context_reset(void)
+{
+    LOGI("GL context reset (GLRenderer created in initialize_opengl)");
+}
+
+static void context_destroy(void)
+{
+    LOGI("GL context destroy");
+    // GLRenderer resources are freed when deinitialize_opengl_renderer()
+    // replaces the renderer with a SoftRenderer (called from unload/retro_run).
+}
+
+extern bool swapped_screens; // from libretro.cpp
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+void update_gl_screenlayout(bool swap)
+{
+    if (!s_glRenderer) return;
+    int scale = s_glRenderer->GetScaleFactor();
+    if (scale < 1) scale = 1;
+
+    screen_layout_data.screen_width     = 256 * scale;
+    screen_layout_data.screen_height    = 192 * scale;
+    screen_layout_data.screen_gap       = 2 * scale;
+    screen_layout_data.buffer_width     = 256 * scale;
+    screen_layout_data.buffer_height    = 386 * scale;
+    screen_layout_data.buffer_stride    = 256 * scale * 4;
+    screen_layout_data.pixel_size       = 4;
+    screen_layout_data.enable_top_screen    = true;
+    screen_layout_data.enable_bottom_screen = true;
+    screen_layout_data.direct_copy      = false;
+    screen_layout_data.hybrid           = false;
+    screen_layout_data.top_screen_offset    = 0;
+    screen_layout_data.bottom_screen_offset = 0;
+
+    if (swap)
+    {
+        // Bottom/Top: bottom screen rendered at the top of the image.
+        screen_layout_data.displayed_layout = ScreenLayout::BottomTop;
+        screen_layout_data.touch_offset_x   = 0;
+        screen_layout_data.touch_offset_y   = 0; // bottom screen is at y=0
+    }
+    else
+    {
+        // Top/Bottom: default.
+        screen_layout_data.displayed_layout = ScreenLayout::TopBottom;
+        screen_layout_data.touch_offset_x   = 0;
+        screen_layout_data.touch_offset_y   = (192 * scale) + (2 * scale); // bottom screen starts here
+    }
+}
 
 bool initialize_opengl()
 {
     if (using_opengl)
-    {
-        // Already initialized — this is the normal case when
-        // render_frame() calls initialize_opengl() again.
         return true;
-    }
 
     if (!nds)
     {
-        LOGE("initialize_opengl: nds is null, cannot set renderer");
+        LOGE("initialize_opengl: nds is null");
         enable_opengl = false;
         return false;
     }
 
-    // OpenGL renderer is NOT available on this Android build.
-    //
-    // The melonDS core resolves every GL call through the glad_glXxx
-    // function-pointer table (PlatformOGL.h → frontend/glad/glad.h).
-    // Those pointers are only populated by gladLoadGLLoader(), which runs
-    // inside createEglContext() in nds_loader.cpp — and that handler is
-    // only triggered when the core sends RETRO_ENVIRONMENT_SET_HW_RENDER.
-    // This wrapper never sends SET_HW_RENDER and never creates an EGL
-    // context, so every glad_glXxx pointer stays NULL.
-    //
-    // GLRenderer::New() immediately calls glEnable/glDepthRangef/... through
-    // those pointers; with NDEBUG the built-in assert(glEnable != nullptr)
-    // is compiled out, so execution jumps to address 0 — SIGSEGV at
-    // pc=0x0 inside retro_load_game() (observed under loadRom).
-    //
-    // The bundled glad is also generated for *desktop* OpenGL 4.3
-    // (APIs: gl=4.3); entry points used by the core such as
-    // glBindFragDataLocation / glFramebufferTexture do not exist in an
-    // OpenGL ES context anyway, so the GL path cannot work here as-is.
-    //
-    // Fall back to the known-good software 3D renderer (GPU3D_Soft).
-    // check_variables(true) has already updated the screen layout with
-    // opengl=true (4x) — libretro.cpp's _handle_load_game re-runs
-    // update_screenlayout() with the new enable_opengl=false (1x) right
-    // after this function returns.
-    LOGE("initialize_opengl: OpenGL renderer unavailable on Android "
-         "(no EGL context / glad not initialized) — "
-         "forcing software 3D renderer");
-    enable_opengl = false;
-    using_opengl = false;
-    return false;
+    // Screen layouts other than vertical stacking cannot be produced by the
+    // GL compositor (which always stacks top-over-bottom).  Fall back to
+    // software renderer for non-standard layouts.
+    if (current_screen_layout != ScreenLayout::TopBottom &&
+        current_screen_layout != ScreenLayout::BottomTop)
+    {
+        LOGI("initialize_opengl: non-stacked layout, software fallback");
+        enable_opengl = false;
+        return false;
+    }
+
+    // --- Send HW render request -------------------------------------------
+    if (!s_hw_render_sent)
+    {
+        retro_hw_render_callback cb;
+        std::memset(&cb, 0, sizeof(cb));
+        cb.context_type       = RETRO_HW_CONTEXT_OPENGLES_VERSION;
+        cb.version_major      = 3;
+        cb.version_minor      = 2;
+        cb.depth              = true;
+        cb.stencil            = true;
+        cb.bottom_left_origin = false;
+        cb.context_reset      = context_reset;
+        cb.context_destroy    = context_destroy;
+        if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &cb))
+        {
+            LOGE("SET_HW_RENDER rejected, forcing software");
+            enable_opengl = false;
+            return false;
+        }
+        s_hw_render_sent = true;
+        LOGI("SET_HW_RENDER accepted (ES 3.2)");
+    }
+
+    // Verify glad is wired up. glEnable is a GL 1.0 function that is always
+    // loaded on a valid ES 3.2 context.  If it's still null, the EGL context
+    // creation must have failed (or glad was never called).
+    if (glad_glEnable == nullptr)
+    {
+        LOGE("glad_glEnable is NULL – EGL context creation likely failed");
+        enable_opengl = false;
+        return false;
+    }
+
+    // --- Create the OpenGL 3D renderer ------------------------------------
+    LOGI("initialize_opengl: creating GLRenderer...");
+    auto renderer = melonDS::GLRenderer::New();
+    if (!renderer)
+    {
+        LOGE("GLRenderer::New() failed (shader compile / GL caps)");
+        enable_opengl = false;
+        return false;
+    }
+
+    int scale = video_settings.GL_ScaleFactor;
+    if (scale < 1) scale = 1;
+    renderer->SetScaleFactor(scale);
+    LOGI("GLRenderer scale factor = %d", scale);
+
+    s_glRenderer = renderer.get();
+    nds->GPU.SetRenderer3D(std::move(renderer));
+
+    // --- Set up presentation geometry ------------------------------------
+    // Allocate readback buffer for GL → video_cb presentation.
+    s_glW = 256 * scale;
+    s_glH = 386 * scale;  // 384 + 2-screen gap
+    s_readback.resize((size_t)s_glW * s_glH);
+
+    // Sync screen layout geometry for touch mapping.
+    update_gl_screenlayout(swapped_screens);
+
+    // We do NOT allocate screen_layout_data.buffer_ptr here — the GL
+    // readback path uses s_readback for the actual frame.  buffer_ptr
+    // will be set to point at s_readback.data() in render_opengl_frame()
+    // just before draw_cursor is called (if applicable).
+    screen_layout_data.buffer_ptr = nullptr;
+
+    using_opengl  = true;
+    refresh_opengl = false;
+    LOGI("GL renderer ready: %dx%d", s_glW, s_glH);
+    return true;
 }
 
 void deinitialize_opengl_renderer(void)
@@ -93,46 +220,116 @@ void deinitialize_opengl_renderer(void)
         return;
 
     LOGI("deinitialize_opengl_renderer: resetting to software renderer");
-
     if (nds)
-    {
-        // Reset to the default SoftRenderer.
-        // SetRenderer3D with nullptr creates a new SoftRenderer internally.
         nds->GPU.SetRenderer3D(nullptr);
-    }
 
     s_glRenderer = nullptr;
     using_opengl = false;
+    s_hw_render_sent = false;
 }
 
-void render_opengl_frame(bool /*sw*/)
+void render_opengl_frame(bool sw)
 {
-    // Handle dynamic resolution scale changes at runtime.
-    // When the user changes the melonds_opengl_resolution option,
-    // check_variables(false) sets video_settings.GL_ScaleFactor and
-    // refresh_opengl = true. We apply the new scale factor here.
+    (void)sw;
+
+    if (!nds || !s_glRenderer)
+        return;
+
+    // --- Dynamic scale update ---------------------------------------------
     if (refresh_opengl)
     {
         refresh_opengl = false;
-
-        if (s_glRenderer)
+        int newScale = video_settings.GL_ScaleFactor;
+        if (newScale < 1) newScale = 1;
+        if (s_glRenderer->GetScaleFactor() != newScale)
         {
-            int newScale = video_settings.GL_ScaleFactor;
-            if (s_glRenderer->GetScaleFactor() != newScale)
-            {
-                s_glRenderer->SetScaleFactor(newScale);
-                LOGI("render_opengl_frame: updated scale factor to %d", newScale);
-            }
+            s_glRenderer->SetScaleFactor(newScale);
+            LOGI("scale factor updated to %d", newScale);
         }
     }
 
-    // This function is called from libretro.cpp's render_frame() when
-    // using_opengl is true. The melonDS core's GLRenderer handles all
-    // rendering internally via NDS::Run(), so we don't need to do
-    // anything else here — the renderer's RenderFrame() is called by
-    // the emulation loop.
-    //
-    // The `sw` parameter: if true, the core requests a software fallback
-    // frame from the OpenGL renderer (read-back mode). The GLRenderer
-    // handles this internally.
+    // --- Read back the GL compositor output --------------------------------
+    // After NDS::RunFrame → GPU VBlank → GPU3D.Blit() → GLCompositor::RenderFrame,
+    // the composited frame is in CompScreenOutputFB[nds->GPU.FrontBuffer].
+    // (GPU::FinishFrame flips FrontBuffer after the compositor renders.)
+    int scale = s_glRenderer->GetScaleFactor();
+    if (scale < 1) scale = 1;
+    int w = 256 * scale;
+    int h = 386 * scale;
+
+    if (w != s_glW || h != s_glH)
+    {
+        s_glW = w;
+        s_glH = h;
+        s_readback.resize((size_t)w * h);
+    }
+
+    // Get the compositor's output FBO where the freshly-composited frame lives.
+    GLuint fbo = s_glRenderer->GetCompositorOutputFBO(nds->GPU.FrontBuffer);
+    if (fbo == 0)
+        return;
+
+    // Save current read framebuffer binding, then bind ours.
+    GLint prevReadFB = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFB);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, s_readback.data());
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
+
+    // Convert RGBA → XRGB8888 (0x00RRGGBB with alpha=0xFF).
+    // glReadPixels returns R,G,B,A byte-order.  video_cb expects
+    // 0xFF__RRGGBB__ in host-endian (i.e. 0x00RRGGBB in big-endian).
+    // The pitch is width*4 bytes.
+    uint32_t* out = s_readback.data();
+    size_t npixels = (size_t)w * h;
+    for (size_t i = npixels; i > 0; )
+    {
+        i--;
+        uint32_t rgba = out[i];
+        out[i] = 0xFF000000u
+               | ((rgba & 0x000000FFu) << 16)  // R
+               | (rgba & 0x0000FF00u)           // G
+               | ((rgba & 0x00FF0000u) >> 16);  // B
+    }
+
+    // Handle screen swap: if the screens are swapped, swap the two screen
+    // halves in the CPU buffer so the presented order matches the user's
+    // preference (the GL compositor always produces top-over-bottom).
+    if (swapped_screens)
+    {
+        int screenPixels = 256 * 192 * scale * scale; // pixels per screen
+        int gapPixels    = 2 * scale * w;              // one gap row's pixels
+        const size_t offset = (size_t)screenPixels + gapPixels;
+        for (int i = 0; i < screenPixels; i++)
+        {
+            uint32_t tmp = out[i];
+            out[i] = out[offset + i];
+            out[offset + i] = tmp;
+        }
+        // After swap, the bottom screen is rendered at the top of the
+        // output buffer.  Update the touch offset to match.
+        screen_layout_data.touch_offset_y = 0;
+    }
+    else
+    {
+        screen_layout_data.touch_offset_y = (192 * scale) + (2 * scale);
+    }
+
+    // Draw cursor overlay (if the stylus is active).
+    // draw_cursor writes to screen_layout_data.buffer_ptr as uint32_t*,
+    // so we temporarily point it at our readback buffer.
+    if (cursor_enabled(&input_state))
+    {
+        uint16_t* saved_ptr = screen_layout_data.buffer_ptr;
+        screen_layout_data.buffer_ptr = (uint16_t*)s_readback.data();
+        draw_cursor(&screen_layout_data, input_state.touch_x, input_state.touch_y);
+        screen_layout_data.buffer_ptr = saved_ptr;
+    }
+
+    // Present via the standard video_cb callback.
+    video_cb((uint8_t*)s_readback.data(), (unsigned)w, (unsigned)h, (size_t)w * 4);
 }
