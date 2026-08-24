@@ -78,6 +78,27 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+// ---------------------------------------------------------------------------
+// glad: OpenGL function pointer loader used by the melonDS core.
+// glad.h is included by the melonDS core source files (via PlatformOGL.h) and
+// defines macros like glFoo → glad_glFoo. The function pointer variables
+// (glad_glFoo) are declared in glad.h and defined in glad.c (compiled as part
+// of the melonds-core static library). They must be initialized with the
+// actual GL function addresses before any melonDS core code that uses the
+// GL renderer is called.
+//
+// We forward-declare gladLoadGLLoader here (without including glad.h, which
+// would conflict with our GLES2/gl2.h includes) and call it right after the
+// EGL context is created, using eglGetProcAddress as the loader callback.
+// ---------------------------------------------------------------------------
+typedef void* (*GLADloadproc)(const char* name);
+extern "C" int gladLoadGLLoader(GLADloadproc);
+
+// Wrapper that adapts EGL's eglGetProcAddress to glad's loader signature.
+static void* glad_egl_loader(const char* name) {
+    return (void*)eglGetProcAddress(name);
+}
+
 #define TAG "ndscore-rom"
 #undef LOGI
 #undef LOGW
@@ -307,6 +328,18 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     s_eglInitialized = true;
     LOGI("EGL context created: ES %d.0, Pbuffer 1x1, depth=24, stencil=8",
          clientVersion);
+
+    // Initialize glad OpenGL function pointers using eglGetProcAddress.
+    // This must happen after the EGL context is made current, because
+    // eglGetProcAddress returns valid function pointers only when a
+    // current EGL context exists.
+    if (!gladLoadGLLoader(&glad_egl_loader)) {
+        LOGE("gladLoadGLLoader failed — OpenGL function pointers not initialized");
+        // This is non-fatal: the core will fall back to the software
+        // renderer if GLRenderer::New() fails later.
+    } else {
+        LOGI("glad initialized successfully");
+    }
     return true;
 }
 

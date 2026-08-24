@@ -88,6 +88,7 @@ set(MELONDS_OPENGL_C_SOURCES
     "${LIBRETRO_COMM}/glsm/glsm.c"
     "${LIBRETRO_COMM}/glsym/rglgen.c"
     "${LIBRETRO_COMM}/glsym/glsym_gl.c"
+    "${MELON_DIR}/frontend/glad/glad.c"
 )
 
 # ---------------------------------------------------------------------------
@@ -273,6 +274,7 @@ target_include_directories(melonds-core PUBLIC
 
     # Frontend (Util_ROM, ScreenLayout, etc.)
     "${MELON_DIR}/frontend"
+    "${MELON_DIR}/frontend/glad"    # glad OpenGL loader headers
 
     # ARMJIT A64 headers (for JIT compiler)
     "${MELON_DIR}/ARMJIT_A64"
