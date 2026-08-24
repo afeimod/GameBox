@@ -6972,7 +6972,7 @@ private fun SettingsPanel(
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("3D 渲染分辨率",
-                    (1..8).map { it.toString() to "${it}x (${256*it}x${192*it})" },
+                    (1..8).map { it.toString() to "${it}x native (${256*it}x${192*it})" },
                     padLayout.ndsResolution
                 ) { onLayoutChange(padLayout.copy {ndsResolution = it}) }
 

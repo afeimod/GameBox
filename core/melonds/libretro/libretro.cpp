@@ -75,8 +75,9 @@ static bool jit_options = true;
 int mic_noise_type = 0;
 bool mic_noise_held = false;
 
-// NDS instance
-static melonDS::NDS* nds = nullptr;
+// NDS instance — non-static so opengl.cpp can access it for
+// GLRenderer initialization via GPU::SetRenderer3D().
+melonDS::NDS* nds = nullptr;
 
 // Game name (without extension) — stored for retro_reset() which needs
 // to pass it to SetupDirectBoot(const std::string&).

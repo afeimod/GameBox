@@ -1238,6 +1238,15 @@ object PadLayoutStore {
                 "6" -> "6x native (1536x1152)"
                 "7" -> "7x native (1792x1344)"
                 "8" -> "8x native (2048x1536)"
+                // 迁移旧格式（不含 "native" 关键字）
+                "1x (256x192)" -> "1x native (256x192)"
+                "2x (512x384)" -> "2x native (512x384)"
+                "3x (768x576)" -> "3x native (768x576)"
+                "4x (1024x768)" -> "4x native (1024x768)"
+                "5x (1280x960)" -> "5x native (1280x960)"
+                "6x (1536x1152)" -> "6x native (1536x1152)"
+                "7x (1792x1344)" -> "7x native (1792x1344)"
+                "8x (2048x1536)" -> "8x native (2048x1536)"
                 else -> v
             }
             ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "enabled") ?: "enabled"
