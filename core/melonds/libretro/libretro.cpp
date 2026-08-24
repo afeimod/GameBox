@@ -452,15 +452,21 @@ static void check_variables(bool init)
    if(input_state.current_touch_mode != new_touch_mode)
       gl_update = true;
 
-   if (init)
+   var.key = "melonds_opengl_renderer";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      var.key = "melonds_opengl_renderer";
-      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      bool use_opengl = !strcmp(var.value, "enabled");
+      if (use_opengl != enable_opengl)
       {
-         bool use_opengl = !strcmp(var.value, "enabled");
-         if(!init && using_opengl) current_renderer = use_opengl ? CurrentRenderer::OpenGLRenderer : CurrentRenderer::Software;
-         enable_opengl = use_opengl;
+         // OpenGL enabled state changed - reset renderer state
+         // so render_frame() will re-initialize the GL renderer
+         // (or fall back to software) on the next frame.
+         if (using_opengl && !use_opengl)
+            deinitialize_opengl_renderer();
+         current_renderer = CurrentRenderer::None;
+         gl_update = true;
       }
+      enable_opengl = use_opengl;
    }
 
    if(enable_opengl) video_settings.Soft_Threaded = false;
@@ -615,9 +621,19 @@ static void check_variables(bool init)
    input_state.current_touch_mode = new_touch_mode;
 
 #ifdef HAVE_OPENGL
+   // When the GL renderer is active, the screen layout is managed by
+   // update_gl_screenlayout() in opengl.cpp.  Don't call update_screenlayout
+   // here — it would overwrite the GL-specific layout dimensions.
+   //
+   // When GL is not yet active (first frame before initialize_opengl()),
+   // call update_screenlayout with opengl=false so the buffer is allocated
+   // at 1x scale for the software renderer's first frame.  The GL renderer
+   // will set up its own layout when it's initialized.
    if (!using_opengl)
+      update_screenlayout(layout, &screen_layout_data, false, swapped_screens);
+#else
+   update_screenlayout(layout, &screen_layout_data, false, swapped_screens);
 #endif
-   update_screenlayout(layout, &screen_layout_data, enable_opengl, swapped_screens);
 
    update_option_visibility();
 }
@@ -731,7 +747,7 @@ void retro_run(void)
                update_gl_screenlayout(swap_screen_toggled);
             else
 #endif
-               update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swap_screen_toggled);
+               update_screenlayout(current_screen_layout, &screen_layout_data, false, swap_screen_toggled);
             refresh_opengl = true;
          }
          swapped_screens = input_state.swap_screens_btn;
@@ -744,7 +760,7 @@ void retro_run(void)
             update_gl_screenlayout(swapped_screens);
          else
 #endif
-            update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
+            update_screenlayout(current_screen_layout, &screen_layout_data, false, swapped_screens);
          refresh_opengl = true;
       }
    }
@@ -981,12 +997,9 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    // Skip the update_screenlayout call below to avoid overwriting it.
    //
    // If the GL renderer failed to initialize (or was disabled), we must
-   // recalculate the screen layout now.  The earlier check_variables(true)
-   // call already ran update_screenlayout() with opengl=true, which
-   // allocated the buffer at 4x scale — but the software renderer only
-   // produces a native 256x192 framebuffer, so we need 1x scale.
+   // recalculate the screen layout now for the software renderer.
    if (!using_opengl)
-      update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
+      update_screenlayout(current_screen_layout, &screen_layout_data, false, swapped_screens);
 
    // Load BIOS files
    load_bios_files();

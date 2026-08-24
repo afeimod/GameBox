@@ -21,11 +21,14 @@ void update_screenlayout(ScreenLayout layout, ScreenLayoutData *data, bool openg
 
     if(opengl)
     {
-        // To avoid some issues the size should be at least 4x the native res
-        if(video_settings.GL_ScaleFactor > 4)
-            scale = video_settings.GL_ScaleFactor;
-        else
-            scale = 4;
+        // Use the actual GL_ScaleFactor from the renderer settings.
+        // update_gl_screenlayout() in opengl.cpp manages the GL-specific
+        // layout dimensions. Forcing scale >= 4 here causes the AV info
+        // (reported via retro_get_system_av_info) to be 1024x1544 while
+        // the actual GL output is 256x386, which confuses the frontend
+        // and leads to a black screen.
+        scale = video_settings.GL_ScaleFactor;
+        if (scale < 1) scale = 1;
     }
 
     data->scale = scale;

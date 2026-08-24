@@ -280,6 +280,10 @@ void render_opengl_frame(bool sw)
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, s_readback.data());
 
+    GLenum glerr = glGetError();
+    if (glerr != GL_NO_ERROR)
+        LOGE("glReadPixels failed: 0x%x (fbo=%u, %dx%d)", glerr, fbo, w, h);
+
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
 
     // Convert RGBA → XRGB8888 (0x00RRGGBB with alpha=0xFF).
