@@ -333,7 +333,9 @@ class PadLayout {
     // 仅 OpenGL 渲染器生效，软件渲染器忽略此设置
     var ndsResolution: String = "1x native (256x192)"
     // OpenGL 渲染器：启用后使用硬件加速 3D 渲染，分辨率缩放仅在此模式下生效
-    var ndsOpenGlRenderer: String = "enabled"          // enabled | disabled
+    // 注意：当前 Android 构建无可用的 GL 路径（无 EGL 上下文/glad 未初始化，
+    // 启用会触发 loadRom 崩溃），默认设为 disabled 走软件 3D 渲染
+    var ndsOpenGlRenderer: String = "disabled"          // enabled | disabled
     // OpenGL 多边形优化：改善多边形分割，减少图形错误
     var ndsOpenGlBetterPolygons: String = "disabled"   // enabled | disabled
     // OpenGL 纹理过滤：nearest(最近邻/锐利) | linear(线性/平滑)
@@ -1249,7 +1251,7 @@ object PadLayoutStore {
                 "8x (2048x1536)" -> "8x native (2048x1536)"
                 else -> v
             }
-            ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "enabled") ?: "enabled"
+            ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "disabled") ?: "disabled"
             ndsOpenGlBetterPolygons = p.getString("nds_opengl_better_polygons", "disabled") ?: "disabled"
             ndsOpenGlFiltering = p.getString("nds_opengl_filtering", "nearest") ?: "nearest"
             ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"

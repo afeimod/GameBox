@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: MIT
-// OpenGL renderer initialization for the melonDS libretro wrapper.
+// OpenGL renderer handling for the melonDS libretro wrapper.
 //
-// Creates a GLRenderer instance (GPU3D_OpenGL) and sets it on the NDS
-// GPU, enabling hardware-accelerated 3D rendering and resolution scaling.
+// The OpenGL 3D renderer (GPU3D_OpenGL / GLRenderer) requires:
+//   - an EGL context created on the emulation thread, and
+//   - the glad_glXxx function-pointer table initialized via
+//     gladLoadGLLoader() (the core resolves every GL call through it).
 //
-// The melonDS core provides:
-//   - GLCompositor::New()   — creates a compositor for screen blending
-//   - GLRenderer::New()     — creates the OpenGL 3D renderer
-//   - GPU::SetRenderer3D()  — sets the renderer on the NDS GPU
+// Neither exists on this build: the wrapper never sends
+// RETRO_ENVIRONMENT_SET_HW_RENDER, so nds_loader.cpp's createEglContext()
+// is never triggered and glad is never initialized. Calling
+// GLRenderer::New() in that state jumps through NULL GL pointers and
+// SIGSEGVs at pc=0 (that was the loadRom crash).
 //
-// These are available in the melonDS 1.1 source under
-// core/melonds_temp/melonDS-android-lib-master/src/.
-//
-// NOTE: The EGL/GLES context must be current on the calling thread
-// before any of these functions are called. The EGL context is created
-// in nds_loader.cpp's cb_environment handler (SET_HW_RENDER) and is
-// re-bound in stepFrame() via ensureEglContextCurrent().
+// Therefore initialize_opengl() here forces the software 3D renderer
+// (GPU3D_Soft), which is the known-good path on Android. This mirrors
+// the stable behavior from the cc98d3b fix.
 
 #include "opengl.h"
 #include "screenlayout.h"
@@ -55,33 +54,37 @@ bool initialize_opengl()
         return false;
     }
 
-    LOGI("initialize_opengl: creating GLRenderer...");
-
-    auto renderer = melonDS::GLRenderer::New();
-    if (!renderer)
-    {
-        LOGE("initialize_opengl: GLRenderer::New() failed — "
-             "GLSL shaders may not be supported on this device");
-        enable_opengl = false;
-        return false;
-    }
-
-    // Apply the resolution scale from the current VideoSettings.
-    // video_settings.GL_ScaleFactor was set by check_variables(true)
-    // during retro_load_game() based on the melonds_opengl_resolution
-    // core option.
-    renderer->SetScaleFactor(video_settings.GL_ScaleFactor);
-    LOGI("initialize_opengl: scale factor = %d", video_settings.GL_ScaleFactor);
-
-    // Store the raw pointer for later runtime updates.
-    s_glRenderer = renderer.get();
-
-    nds->GPU.SetRenderer3D(std::move(renderer));
-
-    using_opengl = true;
-    refresh_opengl = false;
-    LOGI("initialize_opengl: GLRenderer created and set successfully");
-    return true;
+    // OpenGL renderer is NOT available on this Android build.
+    //
+    // The melonDS core resolves every GL call through the glad_glXxx
+    // function-pointer table (PlatformOGL.h → frontend/glad/glad.h).
+    // Those pointers are only populated by gladLoadGLLoader(), which runs
+    // inside createEglContext() in nds_loader.cpp — and that handler is
+    // only triggered when the core sends RETRO_ENVIRONMENT_SET_HW_RENDER.
+    // This wrapper never sends SET_HW_RENDER and never creates an EGL
+    // context, so every glad_glXxx pointer stays NULL.
+    //
+    // GLRenderer::New() immediately calls glEnable/glDepthRangef/... through
+    // those pointers; with NDEBUG the built-in assert(glEnable != nullptr)
+    // is compiled out, so execution jumps to address 0 — SIGSEGV at
+    // pc=0x0 inside retro_load_game() (observed under loadRom).
+    //
+    // The bundled glad is also generated for *desktop* OpenGL 4.3
+    // (APIs: gl=4.3); entry points used by the core such as
+    // glBindFragDataLocation / glFramebufferTexture do not exist in an
+    // OpenGL ES context anyway, so the GL path cannot work here as-is.
+    //
+    // Fall back to the known-good software 3D renderer (GPU3D_Soft).
+    // check_variables(true) has already updated the screen layout with
+    // opengl=true (4x) — libretro.cpp's _handle_load_game re-runs
+    // update_screenlayout() with the new enable_opengl=false (1x) right
+    // after this function returns.
+    LOGE("initialize_opengl: OpenGL renderer unavailable on Android "
+         "(no EGL context / glad not initialized) — "
+         "forcing software 3D renderer");
+    enable_opengl = false;
+    using_opengl = false;
+    return false;
 }
 
 void deinitialize_opengl_renderer(void)
