@@ -25,6 +25,8 @@
 #include "input.h"
 #include "utils.h"
 
+#include <libretro.h>
+
 #include "NDS.h"
 #include "GPU.h"
 #include "GPU3D_OpenGL.h"
