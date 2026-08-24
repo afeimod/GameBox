@@ -961,6 +961,15 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       initialize_opengl();
 #endif
 
+   // initialize_opengl() is a stub that forces software rendering and
+   // sets enable_opengl = false. The earlier check_variables(true) call
+   // already ran update_screenlayout() with opengl=true, which allocated
+   // the buffer at 4x scale.  Recalculate the screen layout now so that
+   // the software renderer uses the correct 1x scale — otherwise memcpy
+   // in copy_screen() would read way past the native 256x192 framebuffer
+   // and crash with SIGSEGV in __memcpy_aarch64_simd.
+   update_screenlayout(current_screen_layout, &screen_layout_data, enable_opengl, swapped_screens);
+
    // Load BIOS files
    load_bios_files();
 
