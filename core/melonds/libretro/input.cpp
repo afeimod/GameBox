@@ -84,6 +84,35 @@ void update_input(InputState *state)
 
    if(current_screen_layout != ScreenLayout::TopOnly)
    {
+      // ---------------------------------------------------------------------
+      // Direct-pixel touchscreen path — checked BEFORE the touch-mode switch
+      // so it works regardless of the melonds_touch_mode core option value.
+      // The core option DEFAULTS to "Mouse" (libretro_core_options.h); if the
+      // frontend ever fails to override it to "Touch", the old code silently
+      // disabled the touchscreen entirely (TouchMode::Mouse reads
+      // RETRO_DEVICE_MOUSE, which this frontend never provides). The frontend
+      // always injects bottom-screen pixels via setTouchInputDirect(), so this
+      // path takes priority whenever direct mode is armed. The legacy POINTER
+      // path (used by Hybrid layouts via setTouchInput) still works below
+      // whenever direct mode is disarmed (setTouchInput clears it).
+      // ---------------------------------------------------------------------
+      bool handled = false;
+      if (touch_direct_mode.load(std::memory_order_relaxed))
+      {
+         handled = true;
+         if (touch_direct_pressed.load(std::memory_order_relaxed))
+         {
+            state->touching = true;
+            state->touch_x = Clamp(touch_direct_x.load(std::memory_order_relaxed), 0, VIDEO_WIDTH - 1);
+            state->touch_y = Clamp(touch_direct_y.load(std::memory_order_relaxed), 0, VIDEO_HEIGHT - 1);
+         }
+         else if (state->touching)
+         {
+            state->touching = false;
+         }
+      }
+
+      if (!handled)
       switch(state->current_touch_mode)
       {
          case TouchMode::Disabled:
@@ -102,24 +131,10 @@ void update_input(InputState *state)
 
             break;
          case TouchMode::Touch:
-            // Direct-pixel path: the frontend already resolved the touch to
-            // bottom-screen pixel coordinates. Highest priority — used by the
-            // custom dual-screen layout view and the standard layouts
-            // (Top/Bottom, Bottom/Top, Left/Right, Right/Left, Bottom Only).
-            if (touch_direct_mode.load(std::memory_order_relaxed))
-            {
-               if (touch_direct_pressed.load(std::memory_order_relaxed))
-               {
-                  state->touching = true;
-                  state->touch_x = Clamp(touch_direct_x.load(std::memory_order_relaxed), 0, VIDEO_WIDTH - 1);
-                  state->touch_y = Clamp(touch_direct_y.load(std::memory_order_relaxed), 0, VIDEO_HEIGHT - 1);
-               }
-               else if(state->touching)
-               {
-                  state->touching = false;
-               }
-            }
-            else if(input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
+            // Legacy POINTER path — the frontend maps the touch to normalized
+            // coordinates over the whole composite framebuffer (used by the
+            // Hybrid layouts, whose small-screen geometry only the core knows).
+            if(input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
             {
                int16_t pointer_x = input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
                int16_t pointer_y = input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);

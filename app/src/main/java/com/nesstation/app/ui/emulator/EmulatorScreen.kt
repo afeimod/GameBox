@@ -93,6 +93,7 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -358,7 +359,14 @@ private fun actionToBits(action: KeyActionInternal, platform: GamePlatform): Int
 // ---------------------------------------------------------------------------
 // Button types for multi-touch tracking
 // ---------------------------------------------------------------------------
-private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, COMBO }
+// GAME_AREA: pointer landed on no pad button — forwarded to the game view
+// (NDS bottom-screen touchscreen) via OnScreenController.onUnhandledTouch.
+// This is REQUIRED because Compose hit-testing stops at the topmost hit
+// sibling that doesn't share pointer input (shareWithSiblings=false default):
+// this pad overlay's fillMaxSize pointerInput Box sits ABOVE the game view
+// (AndroidView sibling), so without forwarding the game view would NEVER
+// receive any touch event while the pad is visible.
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, COMBO, GAME_AREA }
 
 // Bit masks for NES/SNES/GBA controller
 // NES/GB/GBC: A B SEL STA U D L R (8 buttons)
@@ -696,6 +704,20 @@ fun EmulatorScreen(
     // On TV, auto-hide the on-screen pad regardless of the user's setting —
     // the touch overlay is useless without a touchscreen and only wastes GPU.
     val effectiveShowPad = padLayout.showPad && !isTv
+
+    // === NDS 触摸屏：游戏视图在窗口中的几何 ===
+    // 虚拟手柄覆盖层（fillMaxSize + pointerInput）是游戏视图的高 z 兄弟节点，
+    // Compose 命中测试会在它命中后停止（pointerInput 默认不与兄弟共享事件），
+    // 因此手柄可见时 AndroidView（SurfaceView / NdsDualScreenView）收不到任何
+    // 触摸事件。修复：由手柄的 pointerInput 把“未命中任何按键”的触摸转发给
+    // NDS 触摸屏（见 OnScreenController.onUnhandledTouch）。转发时需要把
+    // 根坐标换成游戏视图局部坐标 —— 这里追踪游戏视图的位置和尺寸。
+    var gameViewPosInRoot by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var gameViewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val gameViewTracker = Modifier.onGloballyPositioned { coords ->
+        gameViewPosInRoot = coords.positionInRoot()
+        gameViewSize = coords.size
+    }
 
     // Apply high-quality scaling flag to the engine whenever it changes.
     // This controls whether the native surface buffer uses source resolution
@@ -1495,6 +1517,73 @@ fun EmulatorScreen(
                     surfaceSize = surfaceSize,
                     platform = platform,
                     isPortrait = isPortrait,
+                    // NDS 触摸屏转发：手柄覆盖层可见时，Compose 命中测试不会
+                    // 继续到下层的 AndroidView（游戏视图），所以未命中任何
+                    // 按键的触摸从这里转发给 NDS 下屏。rootPos 为根坐标，
+                    // 换算成游戏视图局部坐标后走与 onTouch 相同的映射。
+                    onUnhandledTouch = if (platform == GamePlatform.NDS) {
+                        { rootPos, action ->
+                            val ndsEngine = engine as? com.nesstation.app.core.engine.NdsEngine
+                            if (ndsEngine != null) {
+                                if (action == android.view.MotionEvent.ACTION_UP ||
+                                    action == android.view.MotionEvent.ACTION_CANCEL) {
+                                    // 释放（两条路径都清，与 handleNdsTouch 一致）
+                                    ndsEngine.setTouchInput(0, 0, false)
+                                    ndsEngine.setTouchInputDirect(0, 0, false)
+                                } else {
+                                    if (padLayout.videoScale == "custom") {
+                                        // 自由布局：NdsDualScreenView 是 fillMaxSize，
+                                        // 根坐标减去视图位置即视图局部坐标。
+                                        val vw = gameViewSize.width.coerceAtLeast(1)
+                                        val vh = gameViewSize.height.coerceAtLeast(1)
+                                        val lx = rootPos.x - gameViewPosInRoot.x
+                                        val ly = rootPos.y - gameViewPosInRoot.y
+                                        if (lx >= 0 && ly >= 0 && lx < vw && ly < vh) {
+                                            // 触点在视图内 → 判断是否落在下屏矩形
+                                            val bottomDst = androidx.compose.ui.geometry.Rect(
+                                                gameViewPosInRoot.x + ndsBottomRect[0] * vw,
+                                                gameViewPosInRoot.y + ndsBottomRect[1] * vh,
+                                                gameViewPosInRoot.x + ndsBottomRect[2] * vw,
+                                                gameViewPosInRoot.y + ndsBottomRect[3] * vh
+                                            )
+                                            if (bottomDst.contains(rootPos)) {
+                                                val t = ((rootPos.x - bottomDst.left) / bottomDst.width).coerceIn(0f, 1f)
+                                                val s = ((rootPos.y - bottomDst.top) / bottomDst.height).coerceIn(0f, 1f)
+                                                val px = (t * 255.5f).toInt().coerceIn(0, 255)
+                                                val py = (s * 191.5f).toInt().coerceIn(0, 191)
+                                                ndsEngine.setTouchInputDirect(px, py, true)
+                                            } else {
+                                                // 触在上屏/视图空白区 → 释放
+                                                ndsEngine.setTouchInputDirect(0, 0, false)
+                                            }
+                                        } else {
+                                            ndsEngine.setTouchInputDirect(0, 0, false)
+                                        }
+                                    } else {
+                                        // 标准布局：SurfaceView 可能被 aspectRatio
+                                        // 裁剪（信箱式留边），换算成视图局部归一化坐标
+                                        val vw = gameViewSize.width.coerceAtLeast(1)
+                                        val vh = gameViewSize.height.coerceAtLeast(1)
+                                        val lx = rootPos.x - gameViewPosInRoot.x
+                                        val ly = rootPos.y - gameViewPosInRoot.y
+                                        if (lx >= 0 && ly >= 0 && lx < vw && ly < vh) {
+                                            mapNormalizedToDsTouch(
+                                                ndsEngine,
+                                                lx / vw,
+                                                ly / vh,
+                                                padLayout.ndsScreenLayout,
+                                                padLayout.ndsScreenGap.toIntOrNull()?.coerceIn(0, 20) ?: 0,
+                                                padLayout.ndsOpenGlRenderer == "enabled"
+                                            )
+                                        } else {
+                                            // 触点在游戏视图之外（留边区域）→ 释放
+                                            ndsEngine.setTouchInputDirect(0, 0, false)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else null,
                     onPadBits = { bits ->
                         // 联机对战：把本地输入送给 NetplayController，由它打包
                         // 发给对方；引擎线程在 beforeFrame 里会把 (local, remote)
@@ -2302,7 +2391,7 @@ private fun GameSurfaceView(
                         v.requestFocus()
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize().then(gameViewTracker)
             )
         } else {
         val surfaceModifier = when (effectiveVideoScale) {
@@ -2465,7 +2554,7 @@ private fun GameSurfaceView(
                     }
                 }
             },
-            modifier = surfaceModifier
+            modifier = surfaceModifier.then(gameViewTracker)
         )
             // GPU-accelerated filter overlay — scanline/CRT/dot/*+dot drawn by Compose
             if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
@@ -2478,15 +2567,14 @@ private fun GameSurfaceView(
     }
 }
 
-// ---------------------------------------------------------------------------
 // NDS 触摸 —— 官方 melonDS 架构的直接像素映射
 // ---------------------------------------------------------------------------
-// 把 SurfaceView 上的触点按当前屏幕布局换算成 DS 下屏像素坐标
+// 把游戏视图上的触点按当前屏幕布局换算成 DS 下屏像素坐标
 // (x: 0..255, y: 0..191) 并经 setTouchInputDirect 注入。与旧的
 // "复合帧归一化坐标" 路径相比，这条链路不依赖复合帧几何 —— 布局切换、
 // 屏幕间距 (melonds_screen_gap)、GL 渲染器的 2px gap 都不会破坏映射。
 //
-// 下屏在 SurfaceView（与复合帧等比）中的归一化区域：
+// 下屏在游戏视图（与复合帧等比）中的归一化区域：
 //   Top/Bottom  : y ∈ [(192+gap)/(384+gap), 1]，GL 固定 [194/386, 1]
 //   Bottom/Top  : y ∈ [0, 192/(384+gap)]，GL 固定 [0, 192/386]
 //   Left/Right  : x ∈ [0.5, 1]（水平布局无间距）
@@ -2494,7 +2582,62 @@ private fun GameSurfaceView(
 //   Bottom Only : 全屏
 //   Hybrid *    : 小屏几何只有核心知道 → 走旧 POINTER 路径
 // 触点落在上屏区域时释放触摸（与核心旧行为一致）。
+//
+// mapNormalizedToDsTouch 是共享映射内核：
+//   - SurfaceView 的 onTouch（手柄隐藏时事件直达视图）
+//   - 虚拟手柄覆盖层的转发（手柄可见时 Compose 命中测试拦截了视图的
+//     事件，见 OnScreenController.onUnhandledTouch）
 // ---------------------------------------------------------------------------
+private fun mapNormalizedToDsTouch(
+    ndsEngine: com.nesstation.app.core.engine.NdsEngine,
+    nx: Float,
+    ny: Float,
+    screenLayout: String,
+    screenGapPx: Int,
+    openGl: Boolean
+) {
+    // 计算下屏在 view 中的归一化矩形 (left, top, right, bottom)
+    val bottomRect: FloatArray? = when (screenLayout) {
+        "Top/Bottom" -> {
+            // 软件路径复合帧 256x(384+gap)；GL 固定 256x386 (gap=2)
+            val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
+            val gap = if (openGl) 2 else screenGapPx.coerceIn(0, 20)
+            floatArrayOf(0f, (192f + gap) / bufH, 1f, 1f)
+        }
+        "Bottom/Top" -> {
+            val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
+            floatArrayOf(0f, 0f, 1f, 192f / bufH)
+        }
+        "Left/Right" -> floatArrayOf(0.5f, 0f, 1f, 1f)
+        "Right/Left" -> floatArrayOf(0f, 0f, 0.5f, 1f)
+        "Bottom Only" -> floatArrayOf(0f, 0f, 1f, 1f)
+        else -> null // "Top Only"（核心忽略触摸）与 Hybrid（走旧路径）
+    }
+
+    if (bottomRect != null) {
+        if (nx >= bottomRect[0] && nx < bottomRect[2] &&
+            ny >= bottomRect[1] && ny < bottomRect[3]) {
+            // 触点在下屏内 → 直接线性映射为下屏像素坐标
+            val t = (nx - bottomRect[0]) / (bottomRect[2] - bottomRect[0])
+            val s = (ny - bottomRect[1]) / (bottomRect[3] - bottomRect[1])
+            val px = (t * 255.5f).toInt().coerceIn(0, 255)
+            val py = (s * 191.5f).toInt().coerceIn(0, 191)
+            ndsEngine.setTouchInputDirect(px, py, true)
+        } else {
+            // 触在上屏 / gap 区域 → 释放触摸
+            ndsEngine.setTouchInputDirect(0, 0, false)
+        }
+    } else if (screenLayout == "Hybrid Top" || screenLayout == "Hybrid Bottom") {
+        // Hybrid 布局：小屏位置只有核心知道 —— 走旧 POINTER 归一化路径
+        val x = (nx * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+        val y = (ny * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+        ndsEngine.setTouchInput(x, y, true)
+    } else {
+        // "Top Only" —— 无下屏，释放
+        ndsEngine.setTouchInputDirect(0, 0, false)
+    }
+}
+
 private fun handleNdsTouch(
     ndsEngine: com.nesstation.app.core.engine.NdsEngine,
     event: MotionEvent,
@@ -2510,47 +2653,7 @@ private fun handleNdsTouch(
             val h = viewH.coerceAtLeast(1)
             val nx = event.x / w   // 0..1 within the (aspect-matched) view
             val ny = event.y / h
-
-            // 计算下屏在 view 中的归一化矩形 (left, top, right, bottom)
-            val bottomRect: FloatArray? = when (screenLayout) {
-                "Top/Bottom" -> {
-                    // 软件路径复合帧 256x(384+gap)；GL 固定 256x386 (gap=2)
-                    val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
-                    val gap = if (openGl) 2 else screenGapPx.coerceIn(0, 20)
-                    floatArrayOf(0f, (192f + gap) / bufH, 1f, 1f)
-                }
-                "Bottom/Top" -> {
-                    val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
-                    floatArrayOf(0f, 0f, 1f, 192f / bufH)
-                }
-                "Left/Right" -> floatArrayOf(0.5f, 0f, 1f, 1f)
-                "Right/Left" -> floatArrayOf(0f, 0f, 0.5f, 1f)
-                "Bottom Only" -> floatArrayOf(0f, 0f, 1f, 1f)
-                else -> null // "Top Only"（核心忽略触摸）与 Hybrid（走旧路径）
-            }
-
-            if (bottomRect != null) {
-                if (nx >= bottomRect[0] && nx < bottomRect[2] &&
-                    ny >= bottomRect[1] && ny < bottomRect[3]) {
-                    // 触点在下屏内 → 直接线性映射为下屏像素坐标
-                    val t = (nx - bottomRect[0]) / (bottomRect[2] - bottomRect[0])
-                    val s = (ny - bottomRect[1]) / (bottomRect[3] - bottomRect[1])
-                    val px = (t * 255.5f).toInt().coerceIn(0, 255)
-                    val py = (s * 191.5f).toInt().coerceIn(0, 191)
-                    ndsEngine.setTouchInputDirect(px, py, true)
-                } else {
-                    // 触在上屏 / gap 区域 → 释放触摸
-                    ndsEngine.setTouchInputDirect(0, 0, false)
-                }
-            } else if (screenLayout == "Hybrid Top" || screenLayout == "Hybrid Bottom") {
-                // Hybrid 布局：小屏位置只有核心知道 —— 走旧 POINTER 归一化路径
-                val x = (nx * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                val y = (ny * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                ndsEngine.setTouchInput(x, y, true)
-            } else {
-                // "Top Only" —— 无下屏，释放
-                ndsEngine.setTouchInputDirect(0, 0, false)
-            }
+            mapNormalizedToDsTouch(ndsEngine, nx, ny, screenLayout, screenGapPx, openGl)
             return true
         }
         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -2736,7 +2839,21 @@ fun OnScreenController(
     surfaceSize: IntSize,
     onPadBits: (Int) -> Unit,
     platform: GamePlatform = GamePlatform.NES,
-    isPortrait: Boolean = false
+    isPortrait: Boolean = false,
+    /**
+     * Forwarder for touches that land on NO pad button (i.e. on the game
+     * screen area). Receives the pointer position in ROOT coordinates plus
+     * the action (MotionEvent.ACTION_DOWN / ACTION_MOVE / ACTION_UP).
+     *
+     * Needed for the NDS touchscreen: the pad overlay's full-screen
+     * pointerInput Box is a higher-z sibling of the game view and Compose
+     * hit-testing does NOT continue to lower siblings unless
+     * shareWithSiblings is set (no public API in Compose 1.6), so the
+     * AndroidView (SurfaceView / NdsDualScreenView) never sees touches
+     * while the pad is visible. The pad is the ONLY place that reliably
+     * sees every touch, so unhandled ones are forwarded from here.
+     */
+    onUnhandledTouch: ((rootPos: androidx.compose.ui.geometry.Offset, action: Int) -> Unit)? = null
 ) {
     val density = LocalDensity.current
     val opacity = padLayout.opacity
@@ -2841,6 +2958,16 @@ fun OnScreenController(
     var visualState by remember { mutableStateOf(0) } // bits for drawing pressed state
     var turboState by remember { mutableStateOf(0) }  // turbo hold bits
 
+    // Keep the latest forwarder lambda without restarting the pointerInput
+    // gesture coroutine (which would interrupt any in-progress drag).
+    val currentOnUnhandledTouch by rememberUpdatedState(onUnhandledTouch)
+
+    // The pad overlay's position in root coordinates — used to convert
+    // pad-local touch positions to root coordinates for the forwarder.
+    // (PointerInputScope has no positionInRoot(); tracked via
+    // onGloballyPositioned instead.)
+    var padPosInRoot by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+
     // Send button state to engine immediately on change (zero-latency input).
     // The LaunchedEffect loop below maintains state at 60fps for turbo and
     // held buttons, but this ensures D-pad moves and button presses feel
@@ -2885,6 +3012,10 @@ fun OnScreenController(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // Track the pad overlay's root position so pad-local touch
+            // positions can be converted to root coordinates for the NDS
+            // touchscreen forwarder (onUnhandledTouch).
+            .onGloballyPositioned { coords -> padPosInRoot = coords.positionInRoot() }
             .pointerInput(padLayout, surfaceSize, isPortrait, useAnalogStick) {
                 // Compute hit areas once (recomputed when key changes)
                 // For analog stick mode, expand the hit area to a square around
@@ -3007,6 +3138,20 @@ fun OnScreenController(
                         r2Rect?.contains(pos) == true -> BtnType.R2
                         else -> null
                     }
+                    if (btnType == null) {
+                        // Touch landed on no pad button — it's a game-area touch
+                        // (NDS touchscreen). Forward it so the game view (which
+                        // Compose hit-testing never reaches under this overlay)
+                        // can still receive touch input.
+                        if (currentOnUnhandledTouch != null) {
+                            activePointers[pid] = BtnType.GAME_AREA to 0
+                            currentOnUnhandledTouch?.invoke(
+                                pos + padPosInRoot,
+                                android.view.MotionEvent.ACTION_DOWN
+                            )
+                        }
+                        return
+                    }
                     if (btnType != null) {
                         var bits = 0
                         var turboBits = 0
@@ -3072,6 +3217,14 @@ fun OnScreenController(
                                     if (entry != null) {
                                         val (bt, heldBits) = entry
                                         when (bt) {
+                                            BtnType.GAME_AREA -> {
+                                                // Game-area touch released — forward
+                                                // as ACTION_UP (releases the NDS touch).
+                                                currentOnUnhandledTouch?.invoke(
+                                                    change.position + padPosInRoot,
+                                                    android.view.MotionEvent.ACTION_UP
+                                                )
+                                            }
                                             BtnType.DPAD, BtnType.A, BtnType.B,
                                             BtnType.START, BtnType.SELECT,
                                             BtnType.L, BtnType.R,
@@ -3105,6 +3258,13 @@ fun OnScreenController(
                                             analogThumbY = ty
                                         }
                                         sendStateNow(visualState, turboState)
+                                    } else if (entry != null && entry.first == BtnType.GAME_AREA) {
+                                        // Drag on the game area — forward as
+                                        // ACTION_MOVE (continuous NDS touch tracking).
+                                        currentOnUnhandledTouch?.invoke(
+                                            change.position + padPosInRoot,
+                                            android.view.MotionEvent.ACTION_MOVE
+                                        )
                                     }
                                 }
                             }
