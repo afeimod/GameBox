@@ -135,27 +135,36 @@ class NdsDualScreenView @JvmOverloads constructor(
      * 根据核心合成布局计算上屏/下屏在合成帧中的源矩形。
      *
      * 布局由 melonDS libretro core `melonds_screen_layout` 决定：
-     *   Top/Bottom  → 合成帧 256x384，上屏在上半、下屏在下半
-     *   Bottom/Top  → 合成帧 256x384，下屏在上半、上屏在下半
-     *   Left/Right  → 合成帧 512x192，上屏在左半、下屏在右半
-     *   Right/Left  → 合成帧 512x192，上屏在右半、下屏在左半
-     *   Top Only    → 只有上屏（256x192）
-     *   Bottom Only → 只有下屏（256x192）
+     *   Top/Bottom  → 上屏在上半、下屏在下半
+     *   Bottom/Top  → 下屏在上半、上屏在下半
+     *   Left/Right  → 上屏在左半、下屏在右半
+     *   Right/Left  → 上屏在右半、下屏在左半
+     *   Top Only    → 只有上屏
+     *   Bottom Only → 只有下屏
+     *
+     * 上下排列时，合成帧为 256x(384+GAP)：两屏各 192 行，中间夹着
+     * 黑色 gap 行（GL 合成器固定 GAP=2，软件路径按 `melonds_screen_gap`
+     * 选项可为 0）。因此不能简单 vh/2 对半切，需按 192*(vw/256) 推算
+     * 单屏高度，gap 行落在两屏之间而不被划入任何一屏。
      */
     private fun computeSrcRects(vw: Int, vh: Int): Pair<RectF?, RectF?> {
         val halfW = vw / 2
-        val halfH = vh / 2
+        // 单屏宽 256，高度 192（按合成帧宽度同比推算，适配 GL/软件两种路径）
+        val scale = vw / 256f
+        val screenH = (192 * scale).toInt().coerceIn(1, vh)
+        val gapH = (vh - 2 * screenH).coerceAtLeast(0)   // 两屏中间的黑行间隔
+        val bottomTop = screenH + gapH                    // 下屏起始行（Top/Bottom）
         return when (screenLayout) {
-            "Bottom/Top" -> RectF(0f, halfH.toFloat(), vw.toFloat(), vh.toFloat()) to
-                            RectF(0f, 0f, vw.toFloat(), halfH.toFloat())
+            "Bottom/Top" -> RectF(0f, bottomTop.toFloat(), vw.toFloat(), vh.toFloat()) to
+                            RectF(0f, 0f, vw.toFloat(), screenH.toFloat())
             "Left/Right" -> RectF(0f, 0f, halfW.toFloat(), vh.toFloat()) to
                             RectF(halfW.toFloat(), 0f, vw.toFloat(), vh.toFloat())
             "Right/Left" -> RectF(halfW.toFloat(), 0f, vw.toFloat(), vh.toFloat()) to
                             RectF(0f, 0f, halfW.toFloat(), vh.toFloat())
             "Top Only" -> RectF(0f, 0f, vw.toFloat(), vh.toFloat()) to null
             "Bottom Only" -> null to RectF(0f, 0f, vw.toFloat(), vh.toFloat())
-            else -> RectF(0f, 0f, vw.toFloat(), halfH.toFloat()) to
-                    RectF(0f, halfH.toFloat(), vw.toFloat(), vh.toFloat())
+            else -> RectF(0f, 0f, vw.toFloat(), screenH.toFloat()) to
+                    RectF(0f, bottomTop.toFloat(), vw.toFloat(), vh.toFloat())
         }
     }
 

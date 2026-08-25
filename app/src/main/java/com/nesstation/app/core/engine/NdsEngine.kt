@@ -40,9 +40,12 @@ class NdsEngine private constructor() : EmulatorEngine {
 
     /**
      * NDS frame buffer. DS screens are 256x192 each; the default top+bottom
-     * stacked layout produces 256x384. We size for that with a small margin.
+     * stacked layout produces 256x384. With the GL (OpenGL) compositor the
+     * core emits 256x386 (384 + 2-row gap between the screens), so this
+     * buffer is grown on demand to match videoWidth()*videoHeight() before
+     * each JNI getFrameBuffer call.
      */
-    override val frameBuffer = IntArray(256 * 384)
+    @Volatile override var frameBuffer: IntArray = IntArray(256 * 384)
 
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
@@ -136,6 +139,14 @@ class NdsEngine private constructor() : EmulatorEngine {
                     // (e.g. ANativeWindow_lock returns error), the screen would
                     // be gray. Pulling here ensures the frameBuffer always has
                     // the latest data for fallback rendering.
+                    // The GL compositor emits 256x386 (384 + 2-row gap) while the
+                    // software path emits 256x384, so size the buffer on demand;
+                    // JNI getFrameBuffer rejects undersized arrays (len < w*h).
+                    val needW = videoWidth()
+                    val needH = videoHeight()
+                    if (needW > 0 && needH > 0 && frameBuffer.size < needW * needH) {
+                        frameBuffer = IntArray(needW * needH)
+                    }
                     NdsNative.getFrameBuffer(frameBuffer)
 
                     onFrame()
