@@ -113,14 +113,15 @@ namespace ndscore::rom {
 // Maximum video resolution supported by melonDS.
 // DS screens are each 256x192. With the default "Top/Bottom" layout this
 // gives a 256x384 composite framebuffer; horizontal layouts give 512x192.
-// 256x384 covers the default vertical layout (most common); horizontal
-// layouts ("Left/Right" / "Right/Left") would exceed this — but melonDS's
-// libretro port caps the maximum composite framebuffer at 256x384 by
-// default (it never actually emits 512x192 unless explicitly configured).
-// 256x384 is sufficient for all built-in screen layouts.
+//
+// The GL compositor (opengl.cpp) always emits 256x386 — 384 + a fixed
+// 2-row black gap between the screens.  kMaxH must cover that so the
+// XBR/HQX upscale buffers (sized kMaxW*kMaxH*2*2 / *4*4) fit the GL
+// output and canUpscale in applyFilterAndBlit() stays true; otherwise
+// the global video filter is silently skipped for the GL renderer.
 // ---------------------------------------------------------------------------
 static constexpr int kMaxW = 256;
-static constexpr int kMaxH = 384;
+static constexpr int kMaxH = 386;
 
 static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
@@ -724,13 +725,12 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     s_videoW = width;
     s_videoH = height;
 
-    LOGI("cb_video: %ux%u pitch=%zu fmt=%u", width, height, pitch, s_pixelFormat);
-
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
 
         const size_t need = (size_t)width * height;
         if (s_frameW != width || s_frameH != height || s_frame.size() < need) {
+            LOGI("cb_video: %ux%u pitch=%zu fmt=%u (buffer resized)", width, height, pitch, s_pixelFormat);
             s_frame.resize(need);
             s_frameW = width;
             s_frameH = height;

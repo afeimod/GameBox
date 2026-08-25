@@ -301,20 +301,23 @@ void render_opengl_frame(bool sw)
     if (prevPackBuffer != 0)
         glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)prevPackBuffer);
 
-    // Convert RGBA → XRGB8888 (0x00RRGGBB with alpha=0xFF).
-    // glReadPixels returns R,G,B,A byte-order.  video_cb expects
-    // 0xFF__RRGGBB__ in host-endian (i.e. 0x00RRGGBB in big-endian).
-    // The pitch is width*4 bytes.
+    // Convert the compositor readback → ARGB (0xFFRRGGBB).
+    //
+    // The GL compositor shader (GPU_OpenGL_shaders.h kCompositorFS_Nearest)
+    // writes `oColor = vec4(vec3(pixel.bgr), 1.0)` — the desktop frontend's
+    // screen shader swaps .bgr back to rgb when displaying.  Our readback
+    // path must do the same swap.  Consequently the FBO texture holds BGR
+    // data and glReadPixels(GL_RGBA) returns bytes in [B][G][R][A] order,
+    // which as a little-endian uint32_t is already 0xFFRRGGBB — no channel
+    // shuffling is needed, only the alpha mask.
+    // (The previous code assumed RGBA byte order and swapped R/B again,
+    // producing blue↔red swapped colors.)
     uint32_t* out = s_readback.data();
     size_t npixels = (size_t)w * h;
     for (size_t i = npixels; i > 0; )
     {
         i--;
-        uint32_t rgba = out[i];
-        out[i] = 0xFF000000u
-               | ((rgba & 0x000000FFu) << 16)  // R
-               | (rgba & 0x0000FF00u)           // G
-               | ((rgba & 0x00FF0000u) >> 16);  // B
+        out[i] = 0xFF000000u | (out[i] & 0x00FFFFFFu);
     }
 
     // Handle screen swap: if the screens are swapped, swap the two screen
@@ -338,61 +341,6 @@ void render_opengl_frame(bool sw)
     else
     {
         screen_layout_data.touch_offset_y = (192 * scale) + (2 * scale);
-    }
-
-    // --- DIAGNOSTIC: readback content statistics (temporary, helps diagnose
-    // "black screen with sound" when the OpenGL renderer is enabled). ---
-    {
-        static uint64_t s_diagFrame = 0;
-        static bool s_diagFirst = true;
-        s_diagFrame++;
-
-        // Report on the very first frame (cheap anyway), then every 120 frames.
-        bool report = s_diagFirst || ((s_diagFrame % 120) == 0);
-        s_diagFirst = false;
-
-        if (report)
-        {
-            const int screenPx = 256 * 192 * scale * scale; // pixels per screen
-            const int gapPx    = 2 * scale * w;              // pixels in the 2*scale gap row
-
-            uint64_t nonBlackAll = 0, nonBlackTop = 0, nonBlackBottom = 0;
-            uint64_t sumR = 0, sumG = 0, sumB = 0;
-            for (int y = 0; y < h; y++)
-            {
-                const bool inTop    = (y < 192 * scale);
-                const bool inBottom = (y >= (192 * scale) + (2 * scale));
-                const uint32_t* row = out + (size_t)y * w;
-                for (int x = 0; x < w; x++)
-                {
-                    uint32_t px = row[x];
-                    uint32_t rgb = px & 0x00FFFFFFu;
-                    if (rgb != 0)
-                    {
-                        nonBlackAll++;
-                        if (inTop) nonBlackTop++;
-                        else if (inBottom) nonBlackBottom++;
-                        sumR += (px >> 16) & 0xFF;
-                        sumG += (px >> 8) & 0xFF;
-                        sumB += px & 0xFF;
-                    }
-                }
-            }
-
-            const double allPx = (double)(size_t)w * h;
-            const double topPx = (double)screenPx;
-            const double botPx = (double)screenPx;
-
-            LOGI("[gldiag] #%llu %dx%d fbo=%u nonBlack=%.2f%% top=%.2f%% bottom=%.2f%% avgRGB=%u,%u,%u gle=%u",
-                 (unsigned long long)s_diagFrame, w, h, fbo,
-                 100.0 * (double)nonBlackAll / allPx,
-                 100.0 * (double)nonBlackTop / topPx,
-                 100.0 * (double)nonBlackBottom / botPx,
-                 nonBlackAll ? (unsigned)(sumR / nonBlackAll) : 0u,
-                 nonBlackAll ? (unsigned)(sumG / nonBlackAll) : 0u,
-                 nonBlackAll ? (unsigned)(sumB / nonBlackAll) : 0u,
-                 (unsigned)glGetError());
-        }
     }
 
     // Draw cursor overlay (if the stylus is active).

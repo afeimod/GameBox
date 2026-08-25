@@ -775,40 +775,6 @@ void retro_run(void)
    // updated to show the actual game content.
    nds->RunFrame();
 
-   // --- NDS diagnostics: white-screen watchdog (log only, no behavior change) ---
-   // If emulation advances but the presented framebuffer stays pure white, this
-   // narrows it down to either the CPUs being stuck (PC frozen) or the GPU
-   // genuinely rendering white. Logs every 128 frames, and every 32 frames
-   // until at least one non-white frame has been seen.
-   {
-      static uint64_t s_diagFrame = 0;
-      static bool s_diagContent = false;
-      s_diagFrame++;
-
-      if ((s_diagFrame & 0x7F) == 0 || (!s_diagContent && (s_diagFrame & 0x1F) == 0))
-      {
-         const int fbuf = nds->GPU.FrontBuffer;
-         const u32* fb0 = nds->GPU.Framebuffer[fbuf][0].get();
-         const u32* fb1 = nds->GPU.Framebuffer[fbuf][1].get();
-         unsigned wt = 0, wb = 0;
-         for (unsigned i = 0; i < 256 * 192; i++)
-         {
-            if (fb0[i] == 0xFFFFFFFFu) wt++;
-            if (fb1[i] == 0xFFFFFFFFu) wb++;
-         }
-         if (wt < 256 * 192 || wb < 256 * 192)
-            s_diagContent = true;
-
-         log_cb(RETRO_LOG_INFO,
-            "[melonds-diag] #%llu slines=%u run=%d stop=%08X pow=%04X front=%d pc9=%08X pc7=%08X wt=%u/%u wb=%u/%u content=%d",
-            (unsigned long long)s_diagFrame,
-            nds->GPU.TotalScanlines, (int)nds->IsRunning(), nds->CPUStop,
-            (unsigned)nds->PowerControl9, fbuf,
-            nds->ARM9.R[15], nds->ARM7.R[15],
-            wt, (256 * 192u), wb, (256 * 192u), (int)s_diagContent);
-      }
-   }
-
    render_frame();
 
    audio_callback();
