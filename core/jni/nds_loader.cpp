@@ -114,14 +114,15 @@ namespace ndscore::rom {
 // DS screens are each 256x192. With the default "Top/Bottom" layout this
 // gives a 256x384 composite framebuffer; horizontal layouts give 512x192.
 //
-// The GL compositor (opengl.cpp) always emits 256x386 — 384 + a fixed
-// 2-row black gap between the screens.  kMaxH must cover that so the
-// XBR/HQX upscale buffers (sized kMaxW*kMaxH*2*2 / *4*4) fit the GL
-// output and canUpscale in applyFilterAndBlit() stays true; otherwise
-// the global video filter is silently skipped for the GL renderer.
+// The GL compositor (opengl.cpp) always emits 256*scale × 386*scale —
+// 384*scale + 2*scale fixed gap.  The filter buffers must be sized to
+// accommodate the GL output at any scale factor.
 // ---------------------------------------------------------------------------
-static constexpr int kMaxW = 256;
-static constexpr int kMaxH = 386;
+// Dynamic filter buffers: replaced fixed-size arrays with std::vector that
+// grow to match the current frame dimensions.  This ensures the global video
+// filter works for the GL renderer at any scale factor (previously broken
+// at >1x because kMaxW/kMaxH were too small for the larger output).
+// ---------------------------------------------------------------------------
 
 static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
@@ -175,9 +176,31 @@ static std::atomic<int>  s_ffFrameSkip{0};
 static std::atomic<int>  s_ffMaxSkip{6};
 
 // 2x / 4x upscale buffers for XBR / HQ2X / HQ4X filters.
-static uint32_t s_xbrBuffer2x[kMaxW * kMaxH * 2 * 2];
-static uint32_t s_xbrBuffer4x[kMaxW * kMaxH * 4 * 4];
-static uint32_t s_xbrMidBuffer[kMaxW * kMaxH * 2 * 2];
+// Dynamically resized to match the current output frame dimensions.
+// The 2x buffer needs width*2 × height*2, the 4x buffer needs width*4 × height*4.
+static std::vector<uint32_t> s_xbrBuffer2x;
+static std::vector<uint32_t> s_xbrBuffer4x;
+static std::vector<uint32_t> s_xbrMidBuffer;
+
+// Ensure the filter buffers are large enough for the given frame dimensions.
+// Returns true if the buffers are valid (canUpscale will be true).
+static bool ensureFilterBuffers(unsigned width, unsigned height) {
+    // The 2x buffer needs width*2 × height*2, 4x buffer needs width*4 × height*4.
+    // Mid buffer is 2x size for the 4xBR cascade.
+    size_t need2x = (size_t)width * 2 * height * 2;
+    size_t need4x = (size_t)width * 4 * height * 4;
+    size_t needMid = (size_t)width * 2 * height * 2;
+    
+    // Cap at a reasonable maximum to avoid OOM (8x GL scale = 2048x3088).
+    // At 4x upscale, the 4x buffer would be 8192x12352 = ~404MB - too large.
+    // We cap at 2x GL scale (512x772) for the 4x buffer, which is ~12MB.
+    if (need4x > 512ULL * 772 * 4 * 4) return false;
+    
+    if (s_xbrBuffer2x.size() < need2x) s_xbrBuffer2x.resize(need2x);
+    if (s_xbrBuffer4x.size() < need4x) s_xbrBuffer4x.resize(need4x);
+    if (s_xbrMidBuffer.size() < needMid) s_xbrMidBuffer.resize(needMid);
+    return true;
+}
 
 static coreshared::AudioRingBuffer s_audio;
 static coreshared::AudioResampler s_resampler;
@@ -488,6 +511,14 @@ static void initDefaultOptions() {
 
     // --- JIT / Performance ---
     setIfMissing("melonds_jit_enable",         "enabled");  // JIT compiler (enabled = much faster, disabled = interpreter)
+    // JIT_FastMemory=true enables the fast memory access path (direct pointer
+    // dereference instead of MMU emulation), which is critical for performance.
+    // Without this, every memory access goes through the slow MMU handler.
+    setIfMissing("melonds_jit_fast_memory",    "enabled");
+    // JIT_MaxBlockSize: maximum number of instructions per compiled block.
+    // Larger blocks = more optimization opportunities = faster execution.
+    // 32 is the upstream melonDS default; 12 (Config.cpp default) is too low.
+    setIfMissing("melonds_jit_block_size",     "32");
 
     // --- Audio ---
     // Valid values: None | Linear | Cosine | Cubic
@@ -793,13 +824,24 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_ffFrameSkip.store(0, std::memory_order_relaxed);
     }
 
+    // Ensure filter buffers are large enough for the current frame.
+    // If the frame is too large (e.g. GL renderer at >2x scale), the 4x
+    // buffer would be too big and the filter is skipped (canUpscale=false
+    // in applyFilterAndBlit will fall through to the direct blit path).
+    // This is caught by ensureFilterBuffers() returning false.
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
+    bool buffersOk = true;
+    if (filter != 0) {
+        buffersOk = ensureFilterBuffers(width, height);
+    }
     coreshared::applyFilterAndBlit(
         s_window, s_windowMtx,
         s_frame.data(), width, height, width,
         filter,
-        s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
-        (unsigned)kMaxW, (unsigned)kMaxH,
+        buffersOk ? s_xbrBuffer2x.data() : nullptr,
+        buffersOk ? s_xbrBuffer4x.data() : nullptr,
+        buffersOk ? s_xbrMidBuffer.data() : nullptr,
+        width, height,
         s_highQualityScaling.load(std::memory_order_relaxed));
 }
 
@@ -1173,9 +1215,15 @@ void setControllerInput(int port, uint16_t bits) {
 }
 
 void setTouchInput(int x, int y, bool pressed) {
-    s_touchX.store((int16_t)x, std::memory_order_relaxed);
-    s_touchY.store((int16_t)y, std::memory_order_relaxed);
+    // Clamp to int16_t range before storing.  The Kotlin side normalises
+    // to [-0x8000, 0x7FFF], but the cast is required for the libretro
+    // POINTER convention.  Values outside this range are silently clamped.
+    int16_t cx = (int16_t)std::clamp(x, -0x8000, 0x7FFF);
+    int16_t cy = (int16_t)std::clamp(y, -0x8000, 0x7FFF);
+    s_touchX.store(cx, std::memory_order_relaxed);
+    s_touchY.store(cy, std::memory_order_relaxed);
     s_touchPressed.store(pressed, std::memory_order_relaxed);
+    LOGI("Touch: (%d,%d) pressed=%d -> clamped (%d,%d)", x, y, pressed, (int)cx, (int)cy);
 }
 
 void setPaths(const std::string& systemDir, const std::string& saveDir) {

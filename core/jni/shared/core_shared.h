@@ -432,13 +432,16 @@ static inline void applyFilterAndBlit(
     ANativeWindow* window, std::mutex& windowMtx,
     const uint32_t* src, unsigned width, unsigned height, size_t srcStride,
     int filter,
-    uint32_t* xbrBuffer2x,    // at least width*2 * height*2
-    uint32_t* xbrBuffer4x,    // at least width*4 * height*4
-    uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade)
-    unsigned maxSrcW, unsigned maxSrcH,
+    uint32_t* xbrBuffer2x,    // at least width*2 * height*2, or nullptr to skip
+    uint32_t* xbrBuffer4x,    // at least width*4 * height*4, or nullptr to skip
+    uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade), or nullptr to skip
+    unsigned /*frameW*/, unsigned /*frameH*/,
     bool highQualityScaling = false)
 {
-    const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
+    // canUpscale is determined by the caller: if buffers are allocated and
+    // non-null, the filter can be applied.  nullptr = buffers too large or
+    // allocation failed, skip the upscale filter and fall through to direct blit.
+    const bool canUpscale = (xbrBuffer2x != nullptr);
 
     // CPU path — 2xBR v3.3a (from RetroArch) with int32 blend fixes
     if ((filter == 4 || filter == 7) && canUpscale) {

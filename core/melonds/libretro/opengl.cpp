@@ -64,6 +64,14 @@ static std::vector<uint32_t> s_readback;
 static int s_glW = 256;   // 256 × scale
 static int s_glH = 386;   // (384+2) × scale
 
+// Own PBO for async glReadPixels.  The melonDS core keeps a small PBO
+// bound (256x192 for 3D capture) which overflows on our scaled readback.
+// We create our own PBO sized to match the current readback dimensions,
+// so glReadPixels can be asynchronous (GPU → PBO → CPU via glMapBufferRange)
+// instead of the synchronous unbind → read → rebind approach.
+static GLuint s_readbackPBO = 0;
+static int s_pboSize = 0; // bytes allocated for s_readbackPBO
+
 // ---------------------------------------------------------------------------
 // HW render callbacks – called by the frontend (nds_loader.cpp) after
 // EGL context creation / before destruction.
@@ -210,6 +218,19 @@ bool initialize_opengl()
     // just before draw_cursor is called (if applicable).
     screen_layout_data.buffer_ptr = nullptr;
 
+    // Create our own PBO for async readback.
+    // The core's internal PBO (GLRenderer::PixelbufferID) is only sized
+    // for 256x192 3D capture and would overflow on our scaled readback.
+    // We create our own PBO that matches the current readback dimensions.
+    s_pboSize = s_glW * s_glH * 4;
+    if (s_readbackPBO == 0) {
+        glGenBuffers(1, &s_readbackPBO);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, s_readbackPBO);
+    glBufferData(GL_PIXEL_PACK_BUFFER, s_pboSize, nullptr, GL_STREAM_READ);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    LOGI("PBO created: %u (%d bytes)", s_readbackPBO, s_pboSize);
+
     using_opengl  = true;
     refresh_opengl = false;
     LOGI("GL renderer ready: %dx%d", s_glW, s_glH);
@@ -222,6 +243,15 @@ void deinitialize_opengl_renderer(void)
         return;
 
     LOGI("deinitialize_opengl_renderer: resetting to software renderer");
+
+    // Clean up our readback PBO.
+    if (s_readbackPBO != 0) {
+        glDeleteBuffers(1, &s_readbackPBO);
+        s_readbackPBO = 0;
+        s_pboSize = 0;
+        LOGI("PBO deleted");
+    }
+
     if (nds)
         nds->GPU.SetRenderer3D(nullptr);
 
@@ -275,31 +305,76 @@ void render_opengl_frame(bool sw)
     GLint prevReadFB = 0;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFB);
 
-    // The melonDS GL renderer keeps a pixel-pack PBO bound at all times
-    // (GLRenderer::PixelbufferID, sized for a 256x192 3D capture — see
-    // GPU3D_OpenGL.cpp SetRenderSettings/PrepareCaptureFrame/GetLine; it
-    // is never bound back to 0).  Our scaled readback (512x772 at 2x)
-    // would overflow that small buffer, and glReadPixels would then fail
-    // with GL_INVALID_OPERATION (0x502), leaving the presented frame
-    // completely black.  Temporarily unbind the PBO so the pixels are
-    // written straight into our CPU buffer, then restore the binding.
+    // Use our own PBO for async glReadPixels.  The melonDS core keeps a
+    // small PBO bound (GLRenderer::PixelbufferID, sized for 256x192 3D
+    // capture).  Our scaled readback would overflow that small buffer.
+    // We use our own PBO (s_readbackPBO, created in initialize_opengl and
+    // resized here) to perform async readback without stalling the GPU.
+    //
+    // If the PBO isn't available (GLES 2.0 fallback), fall back to the
+    // synchronous unbind → read → rebind approach.
     GLint prevPackBuffer = 0;
     glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackBuffer);
-    if (prevPackBuffer != 0)
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, s_readback.data());
+    int needSize = w * h * 4;
+    if (s_readbackPBO != 0) {
+        // Resize PBO if the readback dimensions changed.
+        if (needSize > s_pboSize) {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, s_readbackPBO);
+            glBufferData(GL_PIXEL_PACK_BUFFER, needSize, nullptr, GL_STREAM_READ);
+            s_pboSize = needSize;
+            LOGI("PBO resized to %d bytes", needSize);
+        } else {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, s_readbackPBO);
+        }
 
-    GLenum glerr = glGetError();
-    if (glerr != GL_NO_ERROR)
-        LOGE("glReadPixels failed: 0x%x (fbo=%u, %dx%d)", glerr, fbo, w, h);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
-    if (prevPackBuffer != 0)
+        GLenum glerr = glGetError();
+        if (glerr != GL_NO_ERROR) {
+            LOGE("glReadPixels (PBO) failed: 0x%x (fbo=%u, %dx%d)", glerr, fbo, w, h);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)prevPackBuffer);
+            return;
+        }
+
+        // Map the PBO to read the pixels asynchronously.
+        // glMapBufferRange with GL_MAP_READ_BIT will stall if the GPU
+        // hasn't finished writing, but this is still faster than the
+        // synchronous unbind approach because the GPU can start writing
+        // to the PBO immediately and we don't have to re-bind/unbind
+        // the core's PBO every frame.
+        void* mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, needSize, GL_MAP_READ_BIT);
+        if (mapped) {
+            memcpy(s_readback.data(), mapped, (size_t)needSize);
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        } else {
+            LOGE("glMapBufferRange failed");
+        }
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)prevPackBuffer);
+    } else {
+        // Fallback: unbind the core's PBO and read synchronously.
+        if (prevPackBuffer != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, s_readback.data());
+
+        GLenum glerr = glGetError();
+        if (glerr != GL_NO_ERROR)
+            LOGE("glReadPixels (sync) failed: 0x%x (fbo=%u, %dx%d)", glerr, fbo, w, h);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFB);
+        if (prevPackBuffer != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)prevPackBuffer);
+    }
 
     // Convert the compositor readback → ARGB (0xFFRRGGBB).
     //
