@@ -858,11 +858,11 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         uint32_t* filtered = nullptr;
 
         if (filter == 4 || filter == 7) {
-            xbr2xUpscale(s_frame.data(), width, height, width, s_xbrBuffer2x.data());
+            coreshared::xbr2xUpscale(s_frame.data(), width, height, width, s_xbrBuffer2x.data());
             outW = width * 2; outH = height * 2;
             filtered = s_xbrBuffer2x.data();
         } else if (filter == 8 || filter == 9) {
-            xbr4xUpscale(s_frame.data(), width, height, width,
+            coreshared::xbr4xUpscale(s_frame.data(), width, height, width,
                          s_xbrBuffer4x.data(), s_xbrMidBuffer.data());
             outW = width * 4; outH = height * 4;
             filtered = s_xbrBuffer4x.data();
