@@ -824,25 +824,76 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_ffFrameSkip.store(0, std::memory_order_relaxed);
     }
 
-    // Ensure filter buffers are large enough for the current frame.
-    // If the frame is too large (e.g. GL renderer at >2x scale), the 4x
-    // buffer would be too big and the filter is skipped (canUpscale=false
-    // in applyFilterAndBlit will fall through to the direct blit path).
-    // This is caught by ensureFilterBuffers() returning false.
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
-    bool buffersOk = true;
-    if (filter != 0) {
-        buffersOk = ensureFilterBuffers(width, height);
+
+    // Determine whether we have a surface to blit to (SurfaceView path vs
+    // custom-layout NdsDualScreenView path which reads via getFrameBuffer).
+    bool hasWindow;
+    {
+        std::lock_guard<std::mutex> lk(s_windowMtx);
+        hasWindow = (s_window != nullptr);
     }
-    coreshared::applyFilterAndBlit(
-        s_window, s_windowMtx,
-        s_frame.data(), width, height, width,
-        filter,
-        buffersOk ? s_xbrBuffer2x.data() : nullptr,
-        buffersOk ? s_xbrBuffer4x.data() : nullptr,
-        buffersOk ? s_xbrMidBuffer.data() : nullptr,
-        width, height,
-        s_highQualityScaling.load(std::memory_order_relaxed));
+
+    if (hasWindow) {
+        // SurfaceView path: apply filter + blit to ANativeWindow.
+        bool buffersOk = true;
+        if (filter != 0) buffersOk = ensureFilterBuffers(width, height);
+        coreshared::applyFilterAndBlit(
+            s_window, s_windowMtx,
+            s_frame.data(), width, height, width,
+            filter,
+            buffersOk ? s_xbrBuffer2x.data() : nullptr,
+            buffersOk ? s_xbrBuffer4x.data() : nullptr,
+            buffersOk ? s_xbrMidBuffer.data() : nullptr,
+            width, height,
+            s_highQualityScaling.load(std::memory_order_relaxed));
+    } else if (filter != 0) {
+        // Custom-layout path (no surface): apply the CPU upscale filter
+        // (XBR/HQ2X/HQ4X) directly into s_frame so that copyFramebufferARGB
+        // returns the filtered frame to NdsDualScreenView.  Scanline/CRT/dot
+        // overlays are GPU-side and handled by FilterOverlay in Compose.
+        if (!ensureFilterBuffers(width, height)) return;
+
+        unsigned outW = width, outH = height;
+        uint32_t* filtered = nullptr;
+
+        if (filter == 4 || filter == 7) {
+            xbr2xUpscale(s_frame.data(), width, height, width, s_xbrBuffer2x.data());
+            outW = width * 2; outH = height * 2;
+            filtered = s_xbrBuffer2x.data();
+        } else if (filter == 8 || filter == 9) {
+            xbr4xUpscale(s_frame.data(), width, height, width,
+                         s_xbrBuffer4x.data(), s_xbrMidBuffer.data());
+            outW = width * 4; outH = height * 4;
+            filtered = s_xbrBuffer4x.data();
+        } else if (filter == 5) {
+            outW = width * 2; outH = height * 2;
+            hq2x_32_rb(s_frame.data(), (uint32_t)(width * sizeof(uint32_t)),
+                       s_xbrBuffer2x.data(), (uint32_t)(outW * sizeof(uint32_t)),
+                       (int)width, (int)height);
+            filtered = s_xbrBuffer2x.data();
+        } else if (filter == 6 || filter == 10) {
+            outW = width * 4; outH = height * 4;
+            hq4x_32_rb(s_frame.data(), (uint32_t)(width * sizeof(uint32_t)),
+                       s_xbrBuffer4x.data(), (uint32_t)(outW * sizeof(uint32_t)),
+                       (int)width, (int)height);
+            filtered = s_xbrBuffer4x.data();
+        }
+        // filter values 1/2/3 (scanline/crt/dot) have no CPU upscale —
+        // s_frame stays raw and the overlay is drawn by FilterOverlay.
+
+        if (filtered) {
+            const size_t filterNeed = (size_t)outW * outH;
+            std::lock_guard<std::mutex> lk(s_frameMtx);
+            s_frame.resize(filterNeed);
+            std::memcpy(s_frame.data(), filtered, filterNeed * sizeof(uint32_t));
+            s_frameW = outW;
+            s_frameH = outH;
+            s_videoW = outW;
+            s_videoH = outH;
+        }
+    }
+    // else: no filter and no surface — s_frame has raw frame, dims unchanged.
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -1223,7 +1274,6 @@ void setTouchInput(int x, int y, bool pressed) {
     s_touchX.store(cx, std::memory_order_relaxed);
     s_touchY.store(cy, std::memory_order_relaxed);
     s_touchPressed.store(pressed, std::memory_order_relaxed);
-    LOGI("Touch: (%d,%d) pressed=%d -> clamped (%d,%d)", x, y, pressed, (int)cx, (int)cy);
 }
 
 void setPaths(const std::string& systemDir, const std::string& saveDir) {

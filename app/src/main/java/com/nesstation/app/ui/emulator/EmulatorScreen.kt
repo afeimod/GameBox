@@ -2296,6 +2296,14 @@ private fun GameSurfaceView(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+            // GPU-accelerated filter overlay — scanline/CRT/dot drawn by
+            // Compose on top of NdsDualScreenView (same as SurfaceView path).
+            if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
+                FilterOverlay(
+                    if (videoFilter.endsWith("_dot")) "dot" else videoFilter,
+                    Modifier.fillMaxSize()
+                )
+            }
         } else {
         val surfaceModifier = when (effectiveVideoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)

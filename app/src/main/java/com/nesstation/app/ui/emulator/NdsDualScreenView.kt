@@ -52,6 +52,13 @@ class NdsDualScreenView @JvmOverloads constructor(
     private var cacheW = 0
     private var cacheH = 0
 
+    // Defensive copy of the frame buffer to avoid concurrent JNI critical
+    // regions: the emulation thread writes frameBuffer via GetIntArrayElements
+    // every frame, while Bitmap.setPixels also enters a critical region on the
+    // same array.  Using System.arraycopy (a JVM intrinsic, no JNI) to copy
+    // first eliminates the race that can cause a JNI fatal error (crash).
+    private var copyBuffer: IntArray? = null
+
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (isAttachedToWindow) {
@@ -101,7 +108,15 @@ class NdsDualScreenView @JvmOverloads constructor(
             cacheH = vh
         }
         val bmp = cacheBitmap ?: return
-        bmp.setPixels(fb, 0, vw, 0, 0, vw, vh)
+        // Copy into a local buffer to avoid concurrent JNI critical-region
+        // access with the emulation thread's getFrameBuffer call.
+        val need = vw * vh
+        val copy = copyBuffer
+        if (copy == null || copy.size < need) {
+            copyBuffer = IntArray(need)
+        }
+        copyBuffer?.let { System.arraycopy(fb, 0, it, 0, need) }
+        copyBuffer?.let { bmp.setPixels(it, 0, vw, 0, 0, vw, vh) }
 
         val viewW = width.coerceAtLeast(1)
         val viewH = height.coerceAtLeast(1)
