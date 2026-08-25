@@ -25,6 +25,11 @@
 // Include HQX library for HQ2X/HQ4X filters
 #include "hqx/hqx.h"
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#define CORESHARED_HAVE_NEON 1
+#endif
+
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "core-shared", __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  "core-shared", __VA_ARGS__)
@@ -38,6 +43,38 @@ namespace coreshared {
 
 static inline uint32_t xrgbToRgba(uint32_t px) {
     return ((px & 0x00FFFFFF) << 8) | 0x000000FFu;
+}
+
+// Convert a row of ARGB (0xAARRGGBB, little-endian memory [B,G,R,A]) into
+// the window's RGBA_8888 byte order ([R,G,B,A]) and write it to dst.
+// NEON path processes 16 pixels per iteration via de-interleaving loads /
+// interleaving stores — ~4x faster than the scalar byte-by-byte loop on
+// arm64, which matters because this runs on the emulation thread for every
+// single frame (256x384 = 98k pixels for the default NDS layout).
+static inline void blitRowArgbToRgba(uint8_t* dst, const uint32_t* src, uint32_t w) {
+    uint32_t i = 0;
+#if defined(CORESHARED_HAVE_NEON)
+    // vld4q_u8 / vst4q_u8 move 64 bytes per iteration = 16 pixels.
+    for (; i + 16 <= w; i += 16) {
+        // Load 64 bytes (16 pixels), de-interleaved into 4 lanes:
+        // val[0]=B, val[1]=G, val[2]=R, val[3]=A(X)
+        uint8x16x4_t px = vld4q_u8(reinterpret_cast<const uint8_t*>(src + i));
+        // Re-interleave as R,G,B,0xFF
+        uint8x16x4_t out;
+        out.val[0] = px.val[2];            // R
+        out.val[1] = px.val[1];            // G
+        out.val[2] = px.val[0];            // B
+        out.val[3] = vdupq_n_u8(0xFF);    // A
+        vst4q_u8(dst + i * 4, out);
+    }
+#endif
+    for (; i < w; i++) {
+        uint32_t p = src[i];
+        dst[i * 4 + 0] = (p >> 16) & 0xFF;  // R
+        dst[i * 4 + 1] = (p >> 8) & 0xFF;   // G
+        dst[i * 4 + 2] = p & 0xFF;          // B
+        dst[i * 4 + 3] = 0xFF;              // A
+    }
 }
 
 // Blit a source ARGB framebuffer to the ANativeWindow with nearest-neighbor
@@ -93,8 +130,9 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
 
     // Fast path: 1:1 copy when source and destination match.
     // Source is ARGB (0xFFRRGGBB). Android's WINDOW_FORMAT_RGBA_8888 is
-    // actually stored as BGRA in memory on little-endian ARM, so we must
-    // write each channel to the correct byte position explicitly.
+    // stored as [R,G,B,A] bytes in memory, so each pixel needs a channel
+    // swizzle — done 16 pixels at a time by the NEON row helper (or the
+    // scalar fallback on non-NEON builds).
     if (dstW == w && dstH == h &&
         (buf.format == WINDOW_FORMAT_RGBA_8888 ||
          buf.format == WINDOW_FORMAT_RGBX_8888)) {
@@ -103,13 +141,7 @@ static inline void blitToSurface(ANativeWindow* window, std::mutex& windowMtx,
         for (uint32_t y = 0; y < h; ++y) {
             const uint32_t* srow = src + y * srcStride;
             uint8_t* drow = dst + y * dstStridePx * 4;
-            for (uint32_t x = 0; x < w; ++x) {
-                uint32_t px = srow[x];
-                drow[x * 4 + 0] = (px >> 16) & 0xFF;  // R
-                drow[x * 4 + 1] = (px >> 8) & 0xFF;   // G
-                drow[x * 4 + 2] = px & 0xFF;          // B
-                drow[x * 4 + 3] = 0xFF;               // A
-            }
+            blitRowArgbToRgba(drow, srow, w);
         }
         ANativeWindow_unlockAndPost(window);
         return;
@@ -432,16 +464,13 @@ static inline void applyFilterAndBlit(
     ANativeWindow* window, std::mutex& windowMtx,
     const uint32_t* src, unsigned width, unsigned height, size_t srcStride,
     int filter,
-    uint32_t* xbrBuffer2x,    // at least width*2 * height*2, or nullptr to skip
-    uint32_t* xbrBuffer4x,    // at least width*4 * height*4, or nullptr to skip
-    uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade), or nullptr to skip
-    unsigned /*frameW*/, unsigned /*frameH*/,
+    uint32_t* xbrBuffer2x,    // at least width*2 * height*2
+    uint32_t* xbrBuffer4x,    // at least width*4 * height*4
+    uint32_t* xbrMidBuffer,   // at least width*2 * height*2 (for 4xBR cascade)
+    unsigned maxSrcW, unsigned maxSrcH,
     bool highQualityScaling = false)
 {
-    // canUpscale is determined by the caller: if buffers are allocated and
-    // non-null, the filter can be applied.  nullptr = buffers too large or
-    // allocation failed, skip the upscale filter and fall through to direct blit.
-    const bool canUpscale = (xbrBuffer2x != nullptr);
+    const bool canUpscale = (width <= maxSrcW && height <= maxSrcH);
 
     // CPU path — 2xBR v3.3a (from RetroArch) with int32 blend fixes
     if ((filter == 4 || filter == 7) && canUpscale) {

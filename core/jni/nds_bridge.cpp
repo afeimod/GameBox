@@ -53,6 +53,9 @@ void Engine::setPad4(int bits)        { rom::setControllerInput(3, (uint16_t)bit
 void Engine::setTouchInput(int x, int y, bool pressed) {
     rom::setTouchInput(x, y, pressed);
 }
+void Engine::setTouchInputDirect(int x, int y, bool pressed) {
+    rom::setTouchInputDirect(x, y, pressed);
+}
 void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
@@ -68,6 +71,14 @@ bool Engine::loadState(int slot, const std::string& path) {
 bool Engine::getFrameBuffer(uint32_t* out, int w, int h) {
     return rom::copyFramebufferARGB(out, w, h);
 }
+
+bool Engine::getFilteredFrameBuffer(uint32_t* out, int w, int h) {
+    return rom::copyFilteredFramebufferARGB(out, w, h);
+}
+
+int Engine::filteredWidth()  { return rom::filteredWidth(); }
+int Engine::filteredHeight() { return rom::filteredHeight(); }
+uint64_t Engine::frameStamp() { return rom::frameStamp(); }
 
 int Engine::readAudio(int16_t* out, int maxFrames) {
     return rom::readAudio(out, maxFrames);
@@ -165,6 +176,11 @@ Java_com_nesstation_app_core_jni_NdsNative_setTouchInput(JNIEnv*, jclass, jint x
 }
 
 JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_setTouchInputDirect(JNIEnv*, jclass, jint x, jint y, jboolean pressed) {
+    ndscore::Engine::instance().setTouchInputDirect(x, y, pressed == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_NdsNative_setRegion(JNIEnv*, jclass, jint region) {
     ndscore::Engine::instance().setRegion(region);
 }
@@ -209,6 +225,39 @@ Java_com_nesstation_app_core_jni_NdsNative_getFrameBuffer(JNIEnv* env, jclass, j
         reinterpret_cast<uint32_t*>(px), vw, vh);
     env->ReleaseIntArrayElements(out, px, 0);
     return fresh ? JNI_TRUE : JNI_FALSE;
+}
+
+// Filtered frame for the custom dual-screen layout: the upscaled
+// (HQ2X/HQ4X/XBR) frame when active, the raw frame otherwise.
+JNIEXPORT jboolean JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_getFilteredFrameBuffer(JNIEnv* env, jclass, jintArray out) {
+    if (!out) return JNI_FALSE;
+    int vw = ndscore::Engine::instance().filteredWidth();
+    int vh = ndscore::Engine::instance().filteredHeight();
+    if (vw <= 0 || vh <= 0) { vw = 256; vh = 384; }
+    jsize len = env->GetArrayLength(out);
+    if (len < vw * vh) return JNI_FALSE;
+    jint* px = env->GetIntArrayElements(out, nullptr);
+    if (!px) return JNI_FALSE;
+    bool ok = ndscore::Engine::instance().getFilteredFrameBuffer(
+        reinterpret_cast<uint32_t*>(px), vw, vh);
+    env->ReleaseIntArrayElements(out, px, 0);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_filteredVideoWidth(JNIEnv*, jclass) {
+    return ndscore::Engine::instance().filteredWidth();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_filteredVideoHeight(JNIEnv*, jclass) {
+    return ndscore::Engine::instance().filteredHeight();
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nesstation_app_core_jni_NdsNative_frameStamp(JNIEnv*, jclass) {
+    return (jlong)ndscore::Engine::instance().frameStamp();
 }
 
 JNIEXPORT jint JNICALL

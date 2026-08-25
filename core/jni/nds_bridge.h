@@ -12,6 +12,9 @@
 // in [-0x8000, 0x7FFF] mapping to the full composited frame buffer
 // (libretro RETRO_DEVICE_POINTER convention). The melonDS core's Touch
 // mode handles the per-screen touch region check internally.
+// setTouchInputDirect(x, y, pressed) instead takes DIRECT bottom-screen
+// pixel coordinates (0..255 / 0..191) — the official melonDS Android
+// frontend architecture — and is preferred for all non-hybrid layouts.
 //
 // Video resolution is fixed at 256x192 per screen. The default layout
 // stacks the two screens vertically (top+bottom = 256x384), but melonDS
@@ -60,6 +63,10 @@ public:
     // pressed: true = touching, false = released.
     void setTouchInput(int x, int y, bool pressed);
 
+    // Touchscreen input with direct bottom-screen pixel coordinates
+    // (x: 0..255, y: 0..191). See nds_loader.h for details.
+    void setTouchInputDirect(int x, int y, bool pressed);
+
     void setRegion(int region);
     void setSampleRate(int hz);
     void setFastForward(int speed);
@@ -69,6 +76,18 @@ public:
 
     // Pull the latest frame into `out` (w*h uint32, 0xAARRGGBB).
     bool getFrameBuffer(uint32_t* out, int w, int h);
+
+    // Pull the frame the custom dual-screen view should present: the
+    // upscaled (HQ2X/HQ4X/XBR) frame when the filter is active and no
+    // surface is attached, the raw frame otherwise.
+    bool getFilteredFrameBuffer(uint32_t* out, int w, int h);
+
+    // Dimensions matching getFilteredFrameBuffer's output.
+    int  filteredWidth();
+    int  filteredHeight();
+
+    // Monotonic frame counter (for draw throttling on high-refresh screens).
+    uint64_t frameStamp();
 
     // Pull up to maxFrames stereo frames (2 int16 each) into `out`.
     int  readAudio(int16_t* out, int maxFrames);

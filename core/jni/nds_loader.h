@@ -15,6 +15,16 @@
 //   * DS touchscreen input via RETRO_DEVICE_POINTER (setTouchInput).
 //     Coordinates are 16-bit signed in [-0x8000, 0x7FFF] mapping to the
 //     composited frame buffer, matching the melonDS core Touch mode.
+//   * DS touchscreen input via direct bottom-screen pixel coordinates
+//     (setTouchInputDirect, 0..255 / 0..191) — the same architecture as the
+//     official melonDS Android frontend. Preferred for every layout except
+//     Hybrid, whose on-screen geometry is only known to the core.
+//   * Filtered (upscaled) frame output for the custom dual-screen layout:
+//     when no ANativeWindow is attached, cb_video runs the CPU upscale
+//     filters (HQ2X / HQ4X / XBR) into an internal buffer that Kotlin pulls
+//     via copyFilteredFramebufferARGB() / filteredWidth() / filteredHeight().
+//   * Monotonic frame stamp (frameStamp) so the Kotlin view only redraws
+//     when a new frame actually arrived.
 //   * 3D rendering resolution scaling via melonds_resolution_scale
 //     (1x = native 256x192, up to 8x). Only affects OpenGL/Compute
 //     renderers.
@@ -62,6 +72,18 @@ void stepFrame();
 bool copyFramebufferARGB(uint32_t* out, int w, int h);
 int  readAudio(int16_t* out, int maxFrames);
 
+// --- Filtered frame for the custom dual-screen layout (videoScale ==
+//     "custom", no ANativeWindow). Returns the upscaled frame when an
+//     upscale filter (HQ2X / HQ4X / XBR) is active, the raw frame
+//     otherwise. filteredWidth/Height report the matching dimensions.
+bool copyFilteredFramebufferARGB(uint32_t* out, int w, int h);
+int  filteredWidth();
+int  filteredHeight();
+
+// Monotonic counter of frames delivered through cb_video. Kotlin polls
+// this to skip redundant redraws on high-refresh displays.
+uint64_t frameStamp();
+
 int audioSampleRate();
 int audioTargetSampleRate();
 
@@ -80,6 +102,13 @@ void setControllerInput(int port, uint16_t bits);
 // x, y: 0..0xFFFF (normalized to DS screen coordinates by the core).
 // pressed: 0 = released, non-zero = touched.
 void setTouchInput(int x, int y, bool pressed);
+
+// Touchscreen input with DIRECT bottom-screen pixel coordinates
+// (x: 0..255, y: 0..191) — the official melonDS Android architecture.
+// The core applies these verbatim (clamped), bypassing the composite-frame
+// coordinate round-trip entirely. Robust against layout / screen-gap /
+// GL-gap / custom-layout geometry mismatches.
+void setTouchInputDirect(int x, int y, bool pressed);
 
 // Set system (BIOS files) and save (SRAM .srm) directories.
 void setPaths(const std::string& systemDir, const std::string& saveDir);

@@ -1387,6 +1387,8 @@ fun EmulatorScreen(
                 customRect = customRect,
                 netplayController = netplayController,
                 ndsScreenLayout = padLayout.ndsScreenLayout,
+                ndsScreenGapPx = padLayout.ndsScreenGap.toIntOrNull()?.coerceIn(0, 20) ?: 0,
+                ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
                 ndsTopRect = ndsTopRect,
                 ndsBottomRect = ndsBottomRect,
                 modifier = Modifier
@@ -2205,8 +2207,12 @@ private fun GameSurfaceView(
      * 而不是直接 engine.setPad1。
      */
     netplayController: com.nesstation.app.battle.NetplayController? = null,
-    // NDS 屏幕布局，用于动态计算宽高比
-    ndsScreenLayout: String = "Top/Bottom"
+    // NDS 屏幕布局，用于动态计算宽高比 + 下屏触摸区域
+    ndsScreenLayout: String = "Top/Bottom",
+    // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
+    ndsScreenGapPx: Int = 0,
+    // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
+    ndsOpenGl: Boolean = false
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -2241,6 +2247,7 @@ private fun GameSurfaceView(
                 factory = { ctx ->
                     NdsDualScreenView(ctx).apply {
                         this.uiBlocked = uiBlocked
+                        this.videoFilter = videoFilter
                         setRects(ndsTopRect, ndsBottomRect)
                         // 设置焦点以便接收物理手柄 / 键盘按键
                         isFocusable = true
@@ -2282,6 +2289,7 @@ private fun GameSurfaceView(
                     v.engine = engine as? com.nesstation.app.core.engine.NdsEngine
                     v.screenLayout = ndsScreenLayout
                     v.uiBlocked = uiBlocked
+                    v.videoFilter = videoFilter
                     v.setRects(ndsTopRect, ndsBottomRect)
                     // 与 SurfaceView 分支相同：uiBlocked 变化/重连焦点时修正按键状态
                     if (uiBlocked && gamepadBitsHolder[0] != 0) {
@@ -2296,14 +2304,6 @@ private fun GameSurfaceView(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-            // GPU-accelerated filter overlay — scanline/CRT/dot drawn by
-            // Compose on top of NdsDualScreenView (same as SurfaceView path).
-            if (videoFilter in listOf("scanline", "crt", "dot", "xbr_dot", "4xbr_dot", "hq4x_dot")) {
-                FilterOverlay(
-                    if (videoFilter.endsWith("_dot")) "dot" else videoFilter,
-                    Modifier.fillMaxSize()
-                )
-            }
         } else {
         val surfaceModifier = when (effectiveVideoScale) {
             "4:3" -> Modifier.aspectRatio(4f / 3f)
@@ -2344,39 +2344,17 @@ private fun GameSurfaceView(
                         }
                     })
                     // NDS touchscreen input: capture touch events on the
-                    // game surface and forward them to the engine via
-                    // RETRO_DEVICE_POINTER.
+                    // game surface and forward them to the engine.
                     //
-                    // libretro POINTER 规范:
-                    //   - 坐标范围 [-0x8000, 0x7FFF]
-                    //   - (0, 0) = 左上角, (0x7FFF, 0x7FFF) = 右下角
-                    //   - 坐标覆盖整个复合帧缓冲（如 256x384）
-                    //   - melonDS libretro core 内部会将 POINTER 坐标映射到
-                    //     DS 下屏(触屏)像素坐标，并自动判断触摸是否在下屏区域内
-                    //
-                    // SurfaceView 已通过 Modifier.aspectRatio 确保宽高比与
-                    // 复合帧缓冲一致（如 2:3 = 256:384），因此触摸坐标可以直接
-                    // 映射到 [-0x8000, 0x7FFF] 范围。
+                    // 官方 melonDS 架构：按屏幕布局把触点直接映射为 DS 下屏
+                    // 像素坐标 (0..255, 0..191)，经 setTouchInputDirect 注入，
+                    // 不再经过复合帧归一化坐标的间接层 —— 布局/间距/GL gap
+                    // 不会破坏映射。Hybrid 布局的小屏几何只有核心知道，
+                    // 保留旧的 POINTER 归一化路径。
                     if (platform == GamePlatform.NDS) {
-                        setOnTouchListener { _, event ->
+                        setOnTouchListener { v, event ->
                             val ndsEngine = (engine as? com.nesstation.app.core.engine.NdsEngine) ?: return@setOnTouchListener false
-                            when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                                    val w = width.coerceAtLeast(1)
-                                    val h = height.coerceAtLeast(1)
-                                    // libretro POINTER 规范：[-0x8000, 0x7FFF] 对应屏幕左上到右下
-                                    val x = ((event.x / w) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                                    val y = ((event.y / h) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                                    ndsEngine.setTouchInput(x, y, true)
-                                    true
-                                }
-                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                    // 释放触摸：PRESSED=0 即可，libretro core 会处理
-                                    ndsEngine.setTouchInput(0, 0, false)
-                                    true
-                                }
-                                else -> false
-                            }
+                            handleNdsTouch(ndsEngine, event, ndsScreenLayout, ndsScreenGapPx, ndsOpenGl, v.width, v.height)
                         }
                     }
                     // Make the SurfaceView focusable so it receives physical
@@ -2481,23 +2459,9 @@ private fun GameSurfaceView(
                 // NDS touchscreen: update touch listener in case the engine
                 // instance changed (defensive — normally it's the same engine).
                 if (platform == GamePlatform.NDS) {
-                    sv.setOnTouchListener { _, event ->
+                    sv.setOnTouchListener { v, event ->
                         val ndsEngine = (engine as? com.nesstation.app.core.engine.NdsEngine) ?: return@setOnTouchListener false
-                        when (event.actionMasked) {
-                            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                                val w = sv.width.coerceAtLeast(1)
-                                val h = sv.height.coerceAtLeast(1)
-                                val x = ((event.x / w) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                                val y = ((event.y / h) * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
-                                ndsEngine.setTouchInput(x, y, true)
-                                true
-                            }
-                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                ndsEngine.setTouchInput(0, 0, false)
-                                true
-                            }
-                            else -> false
-                        }
+                        handleNdsTouch(ndsEngine, event, ndsScreenLayout, ndsScreenGapPx, ndsOpenGl, v.width, v.height)
                     }
                 }
             },
@@ -2514,6 +2478,91 @@ private fun GameSurfaceView(
     }
 }
 
+// ---------------------------------------------------------------------------
+// NDS 触摸 —— 官方 melonDS 架构的直接像素映射
+// ---------------------------------------------------------------------------
+// 把 SurfaceView 上的触点按当前屏幕布局换算成 DS 下屏像素坐标
+// (x: 0..255, y: 0..191) 并经 setTouchInputDirect 注入。与旧的
+// "复合帧归一化坐标" 路径相比，这条链路不依赖复合帧几何 —— 布局切换、
+// 屏幕间距 (melonds_screen_gap)、GL 渲染器的 2px gap 都不会破坏映射。
+//
+// 下屏在 SurfaceView（与复合帧等比）中的归一化区域：
+//   Top/Bottom  : y ∈ [(192+gap)/(384+gap), 1]，GL 固定 [194/386, 1]
+//   Bottom/Top  : y ∈ [0, 192/(384+gap)]，GL 固定 [0, 192/386]
+//   Left/Right  : x ∈ [0.5, 1]（水平布局无间距）
+//   Right/Left  : x ∈ [0, 0.5]
+//   Bottom Only : 全屏
+//   Hybrid *    : 小屏几何只有核心知道 → 走旧 POINTER 路径
+// 触点落在上屏区域时释放触摸（与核心旧行为一致）。
+// ---------------------------------------------------------------------------
+private fun handleNdsTouch(
+    ndsEngine: com.nesstation.app.core.engine.NdsEngine,
+    event: MotionEvent,
+    screenLayout: String,
+    screenGapPx: Int,
+    openGl: Boolean,
+    viewW: Int,
+    viewH: Int
+): Boolean {
+    when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+            val w = viewW.coerceAtLeast(1)
+            val h = viewH.coerceAtLeast(1)
+            val nx = event.x / w   // 0..1 within the (aspect-matched) view
+            val ny = event.y / h
+
+            // 计算下屏在 view 中的归一化矩形 (left, top, right, bottom)
+            val bottomRect: FloatArray? = when (screenLayout) {
+                "Top/Bottom" -> {
+                    // 软件路径复合帧 256x(384+gap)；GL 固定 256x386 (gap=2)
+                    val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
+                    val gap = if (openGl) 2 else screenGapPx.coerceIn(0, 20)
+                    floatArrayOf(0f, (192f + gap) / bufH, 1f, 1f)
+                }
+                "Bottom/Top" -> {
+                    val bufH = if (openGl) 386f else (384f + screenGapPx.coerceIn(0, 20))
+                    floatArrayOf(0f, 0f, 1f, 192f / bufH)
+                }
+                "Left/Right" -> floatArrayOf(0.5f, 0f, 1f, 1f)
+                "Right/Left" -> floatArrayOf(0f, 0f, 0.5f, 1f)
+                "Bottom Only" -> floatArrayOf(0f, 0f, 1f, 1f)
+                else -> null // "Top Only"（核心忽略触摸）与 Hybrid（走旧路径）
+            }
+
+            if (bottomRect != null) {
+                if (nx >= bottomRect[0] && nx < bottomRect[2] &&
+                    ny >= bottomRect[1] && ny < bottomRect[3]) {
+                    // 触点在下屏内 → 直接线性映射为下屏像素坐标
+                    val t = (nx - bottomRect[0]) / (bottomRect[2] - bottomRect[0])
+                    val s = (ny - bottomRect[1]) / (bottomRect[3] - bottomRect[1])
+                    val px = (t * 255.5f).toInt().coerceIn(0, 255)
+                    val py = (s * 191.5f).toInt().coerceIn(0, 191)
+                    ndsEngine.setTouchInputDirect(px, py, true)
+                } else {
+                    // 触在上屏 / gap 区域 → 释放触摸
+                    ndsEngine.setTouchInputDirect(0, 0, false)
+                }
+            } else if (screenLayout == "Hybrid Top" || screenLayout == "Hybrid Bottom") {
+                // Hybrid 布局：小屏位置只有核心知道 —— 走旧 POINTER 归一化路径
+                val x = (nx * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+                val y = (ny * 0xFFFF - 0x8000).toInt().coerceIn(-0x8000, 0x7FFF)
+                ndsEngine.setTouchInput(x, y, true)
+            } else {
+                // "Top Only" —— 无下屏，释放
+                ndsEngine.setTouchInputDirect(0, 0, false)
+            }
+            return true
+        }
+        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            // 两条路径都释放，确保任何布局下触摸状态都被清干净
+            ndsEngine.setTouchInput(0, 0, false)
+            ndsEngine.setTouchInputDirect(0, 0, false)
+            return true
+        }
+        else -> return false
+    }
+}
+
 // GPU-accelerated filter overlay using BitmapShader — a single GPU texture
 // draw instead of hundreds of individual drawLine calls.
 // The pattern bitmap is small (1x3 or 3x3) and tiled via REPEAT mode.
@@ -2525,9 +2574,9 @@ private fun FilterOverlay(
     // Pre-create the pattern bitmap once per filter type
     val patternBitmap = remember(filterType) {
         when (filterType) {
-            "scanline" -> createScanlinePattern()
-            "crt" -> createCrtPattern()
-            "dot" -> createDotPattern()
+            "scanline" -> NdsFilterPatterns.createScanlinePattern()
+            "crt" -> NdsFilterPatterns.createCrtPattern()
+            "dot" -> NdsFilterPatterns.createDotPattern()
             else -> null
         }
     }
@@ -2563,76 +2612,9 @@ private fun FilterOverlay(
     }
 }
 
-// Scanline pattern: 2px wide, 4px tall — 3 transparent rows + 1 dark row.
-// The 4px height matches roughly 1 NES scanline on a 1080p display, giving
-// authentic CRT scanline spacing. 55% black is clearly visible.
-private fun createScanlinePattern(): Bitmap {
-    val bmp = Bitmap.createBitmap(2, 4, Bitmap.Config.ARGB_8888)
-    for (x in 0..1) {
-        bmp.setPixel(x, 0, 0x00000000)
-        bmp.setPixel(x, 1, 0x00000000)
-        bmp.setPixel(x, 2, 0x00000000)
-        bmp.setPixel(x, 3, 0x8C000000L.toInt()) // 55% black
-    }
-    return bmp
-}
-
-// CRT pattern: 3px wide (RGB subpixel triads), 6px tall — 5 clear rows + 1
-// scanline row. Each column has a colour tint simulating phosphor separation
-// (RGB shadow mask), and the scanline row is 50% black.
-// Based on RetroArch's crt-geom shader concept — visible phosphor tints and
-// scanlines that mimic a real CRT monitor.
-private fun createCrtPattern(): Bitmap {
-    val bmp = Bitmap.createBitmap(3, 6, Bitmap.Config.ARGB_8888)
-    for (y in 0..4) {
-        // Phosphor tint: R column red, G column green, B column blue
-        // 15% opacity — clearly visible colour separation
-        bmp.setPixel(0, y, 0x26FF0000) // red phosphor
-        bmp.setPixel(1, y, 0x2600FF00) // green phosphor
-        bmp.setPixel(2, y, 0x260000FF) // blue phosphor
-    }
-    // Scanline row — darker across all subpixels
-    for (x in 0..2) {
-        bmp.setPixel(x, 5, 0x80000000L.toInt()) // 50% black scanline
-    }
-    return bmp
-}
-
-// Dot pattern: LCD dot matrix using smoothstep distance field.
-// Based on RetroArch's dot.glsl shader by Themaister. Each 4x4 cell has a
-// circular transparent dot in the centre with a smooth alpha gradient toward
-// the edges, simulating a real LCD panel (like GameBoy DMG or NES-style LCD).
-//
-// Key differences from the previous broken version:
-//   1. Uses smoothstep() for continuous alpha — no visible banding/squares
-//   2. Larger dot radius (1.0 vs 0.7) — dots are clearly visible
-//   3. Lower max darkness (50% vs 80%) — screen stays bright and readable
-//   4. 4x4 cell — better dot separation than 5x5
-private fun createDotPattern(): Bitmap {
-    val size = 4
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val center = (size - 1) / 2.0f  // 1.5
-    val dotRadius = 1.0f             // radius of the transparent dot centre
-    val maxDist = kotlin.math.sqrt(center * center + center * center) // ~2.12
-
-    for (y in 0 until size) {
-        for (x in 0 until size) {
-            val dx = x - center
-            val dy = y - center
-            val dist = kotlin.math.sqrt(dx * dx + dy * dy)
-
-            // Smoothstep alpha: 0 (transparent) at dot centre → 128 (50% dark) at corners
-            // This produces smooth circular dots, NOT a square grid.
-            val t = ((dist - dotRadius) / (maxDist - dotRadius)).coerceIn(0f, 1f)
-            val smoothT = t * t * (3 - 2 * t)  // smoothstep
-            val alpha = (smoothT * 128f).toInt().coerceIn(0, 255)
-
-            // ARGB: alpha + black (0xRRGGBB = 0x000000)
-            bmp.setPixel(x, y, (alpha shl 24))
-        }
-    }
-    return bmp
-}
+// Scanline / CRT / Dot 图案生成函数已迁移到 NdsFilterPatterns 共享对象
+// （NdsDualScreenView.kt），SurfaceView 分支 (FilterOverlay) 与 NDS 自由布局
+// 分支 (NdsDualScreenView) 使用完全相同的图案，保证各缩放模式下滤镜观感一致。
 
 // ---------------------------------------------------------------------------
 // Combo buttons — single on-screen button that activates multiple pad bits

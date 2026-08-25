@@ -2,11 +2,33 @@
 #include "libretro_state.h"
 #include "utils.h"
 
+#include <atomic>
+
 #include "NDS.h"
 
 InputState input_state;
 u32 input_mask = 0xFFF;
 static bool has_touched = false;
+
+// ---------------------------------------------------------------------------
+// Direct-pixel touchscreen state (official melonDS Android architecture).
+// ---------------------------------------------------------------------------
+// The frontend maps a touch on the bottom-screen rectangle DIRECTLY to DS
+// touchscreen pixel coordinates (0..255, 0..191) and stores them here —
+// exactly like the standalone melonDS Android app (MelonEmulator.onScreenTouch
+// -> NDS::TouchScreen). This bypasses the composite-frame coordinate
+// round-trip below, which is fragile: it silently breaks whenever the
+// frontend's view geometry disagrees with the core's screen layout (custom
+// free-form layout, GL gap rows, screen-gap option, hybrid layouts, ...).
+//
+// When touch_direct_mode is true, update_input() takes these values as raw
+// bottom-screen pixels; the legacy RETRO_DEVICE_POINTER path (normalized
+// over the whole composite framebuffer) is used otherwise (hybrid layouts).
+// ---------------------------------------------------------------------------
+std::atomic<bool>    touch_direct_mode{false};
+std::atomic<int16_t> touch_direct_x{0};
+std::atomic<int16_t> touch_direct_y{0};
+std::atomic<bool>    touch_direct_pressed{false};
 
 #define ADD_KEY_TO_MASK(key, i, bits) if (bits & (1 << key)) input_mask &= ~(1 << i); else input_mask |= (1 << i);
 
@@ -80,7 +102,24 @@ void update_input(InputState *state)
 
             break;
          case TouchMode::Touch:
-            if(input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
+            // Direct-pixel path: the frontend already resolved the touch to
+            // bottom-screen pixel coordinates. Highest priority — used by the
+            // custom dual-screen layout view and the standard layouts
+            // (Top/Bottom, Bottom/Top, Left/Right, Right/Left, Bottom Only).
+            if (touch_direct_mode.load(std::memory_order_relaxed))
+            {
+               if (touch_direct_pressed.load(std::memory_order_relaxed))
+               {
+                  state->touching = true;
+                  state->touch_x = Clamp(touch_direct_x.load(std::memory_order_relaxed), 0, VIDEO_WIDTH - 1);
+                  state->touch_y = Clamp(touch_direct_y.load(std::memory_order_relaxed), 0, VIDEO_HEIGHT - 1);
+               }
+               else if(state->touching)
+               {
+                  state->touching = false;
+               }
+            }
+            else if(input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
             {
                int16_t pointer_x = input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
                int16_t pointer_y = input_state_cb(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);

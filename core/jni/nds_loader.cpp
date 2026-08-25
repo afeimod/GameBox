@@ -52,6 +52,7 @@
 
 #include "nds_loader.h"
 #include "shared/core_shared.h"
+#include "input.h"   // touch_direct_* state (direct-pixel touchscreen path)
 
 #include <libretro.h>
 #include <android/log.h>
@@ -114,15 +115,14 @@ namespace ndscore::rom {
 // DS screens are each 256x192. With the default "Top/Bottom" layout this
 // gives a 256x384 composite framebuffer; horizontal layouts give 512x192.
 //
-// The GL compositor (opengl.cpp) always emits 256*scale × 386*scale —
-// 384*scale + 2*scale fixed gap.  The filter buffers must be sized to
-// accommodate the GL output at any scale factor.
+// The GL compositor (opengl.cpp) always emits 256x386 — 384 + a fixed
+// 2-row black gap between the screens.  kMaxH must cover that so the
+// XBR/HQX upscale buffers (sized kMaxW*kMaxH*2*2 / *4*4) fit the GL
+// output and canUpscale in applyFilterAndBlit() stays true; otherwise
+// the global video filter is silently skipped for the GL renderer.
 // ---------------------------------------------------------------------------
-// Dynamic filter buffers: replaced fixed-size arrays with std::vector that
-// grow to match the current frame dimensions.  This ensures the global video
-// filter works for the GL renderer at any scale factor (previously broken
-// at >1x because kMaxW/kMaxH were too small for the larger output).
-// ---------------------------------------------------------------------------
+static constexpr int kMaxW = 256;
+static constexpr int kMaxH = 386;
 
 static constexpr int TARGET_SAMPLE_RATE = coreshared::TARGET_SAMPLE_RATE;
 
@@ -154,6 +154,23 @@ static unsigned s_frameW = 0;
 static unsigned s_frameH = 0;
 static std::atomic<bool> s_newFrame{false};
 
+// Monotonic frame counter — incremented on every frame pushed through
+// cb_video(). The Kotlin NdsDualScreenView polls it from its Choreographer
+// callback and only calls invalidate() when a NEW frame is actually
+// available, eliminating redundant redraws on 90/120 Hz displays.
+static std::atomic<uint64_t> s_frameStamp{0};
+
+// Filtered (upscaled) frame for the custom dual-screen layout mode.
+// When no ANativeWindow is attached (videoScale == "custom"), the CPU
+// upscale filters (HQ2X / HQ4X / XBR) cannot go through the usual
+// applyFilterAndBlit() surface path — so cb_video() runs the SAME filter
+// pipeline into this buffer instead, and the Kotlin side pulls it via
+// getFilteredFrameBuffer(). When no upscale filter is active these stay 0
+// and callers fall back to the raw frame.
+static std::vector<uint32_t> s_filteredFrame;
+static unsigned s_filteredW = 0;
+static unsigned s_filteredH = 0;
+
 static unsigned s_videoW = 256;
 static unsigned s_videoH = 384;
 static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
@@ -176,31 +193,9 @@ static std::atomic<int>  s_ffFrameSkip{0};
 static std::atomic<int>  s_ffMaxSkip{6};
 
 // 2x / 4x upscale buffers for XBR / HQ2X / HQ4X filters.
-// Dynamically resized to match the current output frame dimensions.
-// The 2x buffer needs width*2 × height*2, the 4x buffer needs width*4 × height*4.
-static std::vector<uint32_t> s_xbrBuffer2x;
-static std::vector<uint32_t> s_xbrBuffer4x;
-static std::vector<uint32_t> s_xbrMidBuffer;
-
-// Ensure the filter buffers are large enough for the given frame dimensions.
-// Returns true if the buffers are valid (canUpscale will be true).
-static bool ensureFilterBuffers(unsigned width, unsigned height) {
-    // The 2x buffer needs width*2 × height*2, 4x buffer needs width*4 × height*4.
-    // Mid buffer is 2x size for the 4xBR cascade.
-    size_t need2x = (size_t)width * 2 * height * 2;
-    size_t need4x = (size_t)width * 4 * height * 4;
-    size_t needMid = (size_t)width * 2 * height * 2;
-    
-    // Cap at a reasonable maximum to avoid OOM (8x GL scale = 2048x3088).
-    // At 4x upscale, the 4x buffer would be 8192x12352 = ~404MB - too large.
-    // We cap at 2x GL scale (512x772) for the 4x buffer, which is ~12MB.
-    if (need4x > 512ULL * 772 * 4 * 4) return false;
-    
-    if (s_xbrBuffer2x.size() < need2x) s_xbrBuffer2x.resize(need2x);
-    if (s_xbrBuffer4x.size() < need4x) s_xbrBuffer4x.resize(need4x);
-    if (s_xbrMidBuffer.size() < needMid) s_xbrMidBuffer.resize(needMid);
-    return true;
-}
+static uint32_t s_xbrBuffer2x[kMaxW * kMaxH * 2 * 2];
+static uint32_t s_xbrBuffer4x[kMaxW * kMaxH * 4 * 4];
+static uint32_t s_xbrMidBuffer[kMaxW * kMaxH * 2 * 2];
 
 static coreshared::AudioRingBuffer s_audio;
 static coreshared::AudioResampler s_resampler;
@@ -511,14 +506,6 @@ static void initDefaultOptions() {
 
     // --- JIT / Performance ---
     setIfMissing("melonds_jit_enable",         "enabled");  // JIT compiler (enabled = much faster, disabled = interpreter)
-    // JIT_FastMemory=true enables the fast memory access path (direct pointer
-    // dereference instead of MMU emulation), which is critical for performance.
-    // Without this, every memory access goes through the slow MMU handler.
-    setIfMissing("melonds_jit_fast_memory",    "enabled");
-    // JIT_MaxBlockSize: maximum number of instructions per compiled block.
-    // Larger blocks = more optimization opportunities = faster execution.
-    // 32 is the upstream melonDS default; 12 (Config.cpp default) is too low.
-    setIfMissing("melonds_jit_block_size",     "32");
 
     // --- Audio ---
     // Valid values: None | Linear | Cosine | Cubic
@@ -572,7 +559,11 @@ static void libretroLog(retro_log_level level, const char* fmt, ...) {
 }
 
 static bool cb_environment(unsigned cmd, void* data) {
-    LOGI("cb_environment cmd=%u", cmd);
+    // NOTE: no per-call logging here. cb_environment is invoked for
+    // GET_VARIABLE (dozens of times per option re-read) and — critically —
+    // for GET_VARIABLE_UPDATE on EVERY retro_run() (60+ times per second).
+    // The old unconditional LOGI flooded logcat and cost measurable time
+    // (each __android_log_print performs a socket write to logd).
     switch (cmd) {
         case RETRO_ENVIRONMENT_GET_CAN_DUPE:
             if (data) *static_cast<bool*>(data) = true;
@@ -647,10 +638,19 @@ static bool cb_environment(unsigned cmd, void* data) {
             if (!data) return false;
             auto* var = static_cast<retro_variable*>(data);
             if (!var->key) return false;
+            // Copy the value into a stable buffer while holding the lock.
+            // Returning it->second.c_str() directly was a dangling-pointer
+            // race: setCoreOption() on the UI thread can reallocate the
+            // std::string between this return and the core's strcmp().
+            // s_optValueBuf is only ever written under s_optMtx, and the
+            // core consumes var->value synchronously before its next
+            // GET_VARIABLE call, so a single shared buffer is safe.
             std::lock_guard<std::mutex> lk(s_optMtx);
             auto it = s_options.find(var->key);
             if (it != s_options.end()) {
-                var->value = it->second.c_str();
+                static thread_local std::string s_optValueBuf;
+                s_optValueBuf = it->second;
+                var->value = s_optValueBuf.c_str();
                 return true;
             }
             return false;
@@ -813,6 +813,9 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
             }
         }
         s_newFrame.store(true, std::memory_order_release);
+        // Monotonic frame stamp for the Kotlin-side draw throttling
+        // (NdsDualScreenView only invalidates when this changes).
+        s_frameStamp.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Fast-forward frame skip — same pattern as fbneo_loader.
@@ -825,75 +828,60 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     }
 
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
+    coreshared::applyFilterAndBlit(
+        s_window, s_windowMtx,
+        s_frame.data(), width, height, width,
+        filter,
+        s_xbrBuffer2x, s_xbrBuffer4x, s_xbrMidBuffer,
+        (unsigned)kMaxW, (unsigned)kMaxH,
+        s_highQualityScaling.load(std::memory_order_relaxed));
 
-    // Determine whether we have a surface to blit to (SurfaceView path vs
-    // custom-layout NdsDualScreenView path which reads via getFrameBuffer).
-    bool hasWindow;
+    // ------------------------------------------------------------------
+    // Custom dual-screen layout mode (no ANativeWindow attached): the
+    // applyFilterAndBlit() call above is a no-op, so the upscale filters
+    // (HQ2X / HQ4X / XBR) would be silently lost — the "自由布局下滤镜失效"
+    // bug. Run the SAME filter pipeline into s_filteredFrame here on the
+    // emulation thread (identical cost/threading to the surface path) and
+    // let the Kotlin NdsDualScreenView pull it via getFilteredFrameBuffer().
+    // Overlay filters (scanline/crt/dot, filter 1/2/3) are drawn by the
+    // view itself and need no CPU work here.
+    // ------------------------------------------------------------------
     {
         std::lock_guard<std::mutex> lk(s_windowMtx);
-        hasWindow = (s_window != nullptr);
-    }
-
-    if (hasWindow) {
-        // SurfaceView path: apply filter + blit to ANativeWindow.
-        bool buffersOk = true;
-        if (filter != 0) buffersOk = ensureFilterBuffers(width, height);
-        coreshared::applyFilterAndBlit(
-            s_window, s_windowMtx,
-            s_frame.data(), width, height, width,
-            filter,
-            buffersOk ? s_xbrBuffer2x.data() : nullptr,
-            buffersOk ? s_xbrBuffer4x.data() : nullptr,
-            buffersOk ? s_xbrMidBuffer.data() : nullptr,
-            width, height,
-            s_highQualityScaling.load(std::memory_order_relaxed));
-    } else if (filter != 0) {
-        // Custom-layout path (no surface): apply the CPU upscale filter
-        // (XBR/HQ2X/HQ4X) directly into s_frame so that copyFramebufferARGB
-        // returns the filtered frame to NdsDualScreenView.  Scanline/CRT/dot
-        // overlays are GPU-side and handled by FilterOverlay in Compose.
-        if (!ensureFilterBuffers(width, height)) return;
-
-        unsigned outW = width, outH = height;
-        uint32_t* filtered = nullptr;
-
-        if (filter == 4 || filter == 7) {
-            coreshared::xbr2xUpscale(s_frame.data(), width, height, width, s_xbrBuffer2x.data());
-            outW = width * 2; outH = height * 2;
-            filtered = s_xbrBuffer2x.data();
-        } else if (filter == 8 || filter == 9) {
-            coreshared::xbr4xUpscale(s_frame.data(), width, height, width,
-                         s_xbrBuffer4x.data(), s_xbrMidBuffer.data());
-            outW = width * 4; outH = height * 4;
-            filtered = s_xbrBuffer4x.data();
-        } else if (filter == 5) {
-            outW = width * 2; outH = height * 2;
-            hq2x_32_rb(s_frame.data(), (uint32_t)(width * sizeof(uint32_t)),
-                       s_xbrBuffer2x.data(), (uint32_t)(outW * sizeof(uint32_t)),
-                       (int)width, (int)height);
-            filtered = s_xbrBuffer2x.data();
-        } else if (filter == 6 || filter == 10) {
-            outW = width * 4; outH = height * 4;
-            hq4x_32_rb(s_frame.data(), (uint32_t)(width * sizeof(uint32_t)),
-                       s_xbrBuffer4x.data(), (uint32_t)(outW * sizeof(uint32_t)),
-                       (int)width, (int)height);
-            filtered = s_xbrBuffer4x.data();
+        const bool hasWindow = (s_window != nullptr);
+        if (!hasWindow) {
+            const bool canUpscale = (width <= (unsigned)kMaxW && height <= (unsigned)kMaxH);
+            if ((filter == 4 || filter == 5 || filter == 7) && canUpscale) {
+                // 2x filters: XBR(4) / HQ2X(5) / XBR+dot(7)
+                s_filteredFrame.assign(s_xbrBuffer2x, s_xbrBuffer2x + (size_t)width * 2 * height * 2);
+                s_filteredW = width * 2;
+                s_filteredH = height * 2;
+            } else if ((filter == 6 || filter == 8 || filter == 9 || filter == 10) && canUpscale) {
+                // 4x filters: HQ4X(6) / 4XBR(8) / 4XBR+dot(9) / HQ4X+dot(10)
+                s_filteredFrame.assign(s_xbrBuffer4x, s_xbrBuffer4x + (size_t)width * 4 * height * 4);
+                s_filteredW = width * 4;
+                s_filteredH = height * 4;
+            } else {
+                s_filteredFrame.clear();
+                s_filteredW = 0;
+                s_filteredH = 0;
+            }
         }
-        // filter values 1/2/3 (scanline/crt/dot) have no CPU upscale —
-        // s_frame stays raw and the overlay is drawn by FilterOverlay.
-
-        if (filtered) {
-            const size_t filterNeed = (size_t)outW * outH;
-            std::lock_guard<std::mutex> lk(s_frameMtx);
-            s_frame.resize(filterNeed);
-            std::memcpy(s_frame.data(), filtered, filterNeed * sizeof(uint32_t));
-            s_frameW = outW;
-            s_frameH = outH;
-            s_videoW = outW;
-            s_videoH = outH;
-        }
+        // Note: when a window IS attached, the surface path already applied
+        // the filter and presented it — s_filteredFrame is not needed (the
+        // Kotlin side never reads it in surface mode). We don't clear it
+        // eagerly to avoid churn; filteredWidth()/Height() return the raw
+        // dims whenever a window is attached.
     }
-    // else: no filter and no surface — s_frame has raw frame, dims unchanged.
+}
+
+// Frame stamp — monotonic counter of frames pushed through cb_video().
+// The Kotlin NdsDualScreenView polls this from its Choreographer callback
+// so it only invalidates when a new frame actually arrived (no redundant
+// redraws on 90/120 Hz screens). Defined here but incremented inside the
+// frame-copy lock above via s_frameStamp.
+uint64_t frameStamp() {
+    return s_frameStamp.load(std::memory_order_relaxed);
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
@@ -1250,6 +1238,44 @@ bool copyFramebufferARGB(uint32_t* out, int w, int h) {
     return s_newFrame.exchange(false, std::memory_order_acq_rel);
 }
 
+int filteredWidth() {
+    // In custom-layout mode (no window) with an active upscale filter this
+    // returns the upscaled width; otherwise the raw frame width.
+    {
+        std::lock_guard<std::mutex> lk(s_windowMtx);
+        if (s_window == nullptr && s_filteredW > 0) return (int)s_filteredW;
+    }
+    return (int)s_videoW;
+}
+
+int filteredHeight() {
+    {
+        std::lock_guard<std::mutex> lk(s_windowMtx);
+        if (s_window == nullptr && s_filteredH > 0) return (int)s_filteredH;
+    }
+    return (int)s_videoH;
+}
+
+bool copyFilteredFramebufferARGB(uint32_t* out, int w, int h) {
+    // Returns the frame the dual-screen view should draw: the upscaled
+    // filtered frame when active (custom layout + HQ2X/HQ4X/XBR), the raw
+    // frame otherwise. Same calling convention as copyFramebufferARGB.
+    // NOTE: called from the emulation thread right after stepFrame(), the
+    // same thread that runs cb_video() — no data race on s_filteredFrame.
+    if (!out) return false;
+    {
+        std::lock_guard<std::mutex> lk(s_windowMtx);
+        if (s_window == nullptr && s_filteredW > 0 && s_filteredH > 0) {
+            if (w < (int)s_filteredW || h < (int)s_filteredH) return false;
+            size_t n = (size_t)s_filteredW * s_filteredH;
+            if (s_filteredFrame.size() < n) return false;
+            std::memcpy(out, s_filteredFrame.data(), n * sizeof(uint32_t));
+            return true;
+        }
+    }
+    return copyFramebufferARGB(out, w, h);
+}
+
 int readAudio(int16_t* out, int maxFrames) {
     if (!s_loaded || !s_gameLoaded) return 0;
     return s_resampler.readResampled(s_audio, out, maxFrames);
@@ -1266,14 +1292,23 @@ void setControllerInput(int port, uint16_t bits) {
 }
 
 void setTouchInput(int x, int y, bool pressed) {
-    // Clamp to int16_t range before storing.  The Kotlin side normalises
-    // to [-0x8000, 0x7FFF], but the cast is required for the libretro
-    // POINTER convention.  Values outside this range are silently clamped.
-    int16_t cx = (int16_t)std::clamp(x, -0x8000, 0x7FFF);
-    int16_t cy = (int16_t)std::clamp(y, -0x8000, 0x7FFF);
-    s_touchX.store(cx, std::memory_order_relaxed);
-    s_touchY.store(cy, std::memory_order_relaxed);
+    s_touchX.store((int16_t)x, std::memory_order_relaxed);
+    s_touchY.store((int16_t)y, std::memory_order_relaxed);
     s_touchPressed.store(pressed, std::memory_order_relaxed);
+    // Legacy composite-frame path — clear the direct-pixel override so the
+    // core's Touch branch reads the POINTER device state above.
+    touch_direct_mode.store(false, std::memory_order_relaxed);
+}
+
+void setTouchInputDirect(int x, int y, bool pressed) {
+    // Direct bottom-screen pixel coordinates (0..255 / 0..191), matching the
+    // official melonDS Android frontend (onScreenTouch -> NDS::TouchScreen).
+    // The core clamps and applies them verbatim — no composite-frame
+    // geometry involved, so custom layouts / gaps / GL rows can't break it.
+    touch_direct_x.store((int16_t)x, std::memory_order_relaxed);
+    touch_direct_y.store((int16_t)y, std::memory_order_relaxed);
+    touch_direct_pressed.store(pressed, std::memory_order_relaxed);
+    touch_direct_mode.store(true, std::memory_order_relaxed);
 }
 
 void setPaths(const std::string& systemDir, const std::string& saveDir) {

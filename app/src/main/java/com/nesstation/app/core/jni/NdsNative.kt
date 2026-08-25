@@ -29,6 +29,14 @@ import android.view.Surface
  * [setTouchInput] — pass signed coordinates (-0x8000..0x7FFF) and a pressed
  * flag. The native bridge forwards these to the core via RETRO_DEVICE_POINTER.
  *
+ * [setTouchInputDirect] is the PREFERRED input path: it takes bottom-screen
+ * PIXEL coordinates (x: 0..255, y: 0..191) exactly like the official melonDS
+ * Android frontend. The core applies them verbatim, bypassing the fragile
+ * composite-frame coordinate round-trip — so touch keeps working with the
+ * custom free-form layout, screen gaps, the GL renderer's 2-pixel gap rows
+ * and every non-hybrid screen layout. Use [setTouchInput] only for Hybrid
+ * layouts, whose on-screen geometry is only known to the core.
+ *
  * ## BIOS files
  * melonDS uses FreeBIOS (built-in BIOS replacement) whenever the real
  * files are absent from the system directory (set via [setPaths]):
@@ -93,6 +101,15 @@ object NdsNative {
      */
     @JvmStatic external fun setTouchInput(x: Int, y: Int, pressed: Boolean)
 
+    /**
+     * Touchscreen input with DIRECT bottom-screen pixel coordinates
+     * (official melonDS Android frontend architecture).
+     * @param x Bottom-screen pixel X (0..255).
+     * @param y Bottom-screen pixel Y (0..191).
+     * @param pressed true = touching the screen, false = released.
+     */
+    @JvmStatic external fun setTouchInputDirect(x: Int, y: Int, pressed: Boolean)
+
     @JvmStatic external fun setRegion(region: Int)
     @JvmStatic external fun setSampleRate(rate: Int)
     @JvmStatic external fun setFastForward(speed: Int)
@@ -101,6 +118,27 @@ object NdsNative {
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean
 
     @JvmStatic external fun getFrameBuffer(out: IntArray): Boolean
+
+    /**
+     * Frame the custom dual-screen view should present: the upscaled
+     * (HQ2X/HQ4X/XBR) composite frame when an upscale filter is active and
+     * no surface is attached (videoScale == "custom"), the raw frame
+     * otherwise. Pair with [filteredVideoWidth] / [filteredVideoHeight].
+     */
+    @JvmStatic external fun getFilteredFrameBuffer(out: IntArray): Boolean
+
+    /** Width of the frame returned by [getFilteredFrameBuffer]. */
+    @JvmStatic external fun filteredVideoWidth(): Int
+
+    /** Height of the frame returned by [getFilteredFrameBuffer]. */
+    @JvmStatic external fun filteredVideoHeight(): Int
+
+    /**
+     * Monotonic counter of frames delivered by the core. The dual-screen view
+     * polls this from its Choreographer callback and only redraws when it
+     * changes — eliminates redundant draws on 90/120 Hz displays.
+     */
+    @JvmStatic external fun frameStamp(): Long
     @JvmStatic external fun readAudio(out: ShortArray): Int
     @JvmStatic external fun audioSampleRate(): Int
     @JvmStatic external fun audioTargetSampleRate(): Int

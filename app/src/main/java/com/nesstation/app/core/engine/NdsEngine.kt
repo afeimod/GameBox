@@ -39,11 +39,15 @@ import kotlin.concurrent.thread
 class NdsEngine private constructor() : EmulatorEngine {
 
     /**
-     * NDS frame buffer. DS screens are 256x192 each; the default top+bottom
+     * NDS frame buffer as presented to the dual-screen custom-layout view.
+     * In custom-layout mode (no surface) this holds the FILTERED composite
+     * frame (HQ2X/HQ4X/XBR upscaled when such a filter is active — sized to
+     * [filteredVideoWidth] x [filteredVideoHeight]); in surface mode it keeps
+     * the raw frame (pulled only when no surface is attached, see the loop
+     * in [loadRom]). DS screens are 256x192 each; the default top+bottom
      * stacked layout produces 256x384. With the GL (OpenGL) compositor the
      * core emits 256x386 (384 + 2-row gap between the screens), so this
-     * buffer is grown on demand to match videoWidth()*videoHeight() before
-     * each JNI getFrameBuffer call.
+     * buffer is grown on demand before each JNI frame pull.
      */
     @Volatile override var frameBuffer: IntArray = IntArray(256 * 384)
 
@@ -133,21 +137,24 @@ class NdsEngine private constructor() : EmulatorEngine {
 
                     if (!running.get()) break
 
-                    // Always pull the latest frame — even when hasSurface is true.
-                    // The native code blits to ANativeWindow via applyFilterAndBlit(),
-                    // but if the surface is not yet attached or the blit fails
-                    // (e.g. ANativeWindow_lock returns error), the screen would
-                    // be gray. Pulling here ensures the frameBuffer always has
-                    // the latest data for fallback rendering.
-                    // The GL compositor emits 256x386 (384 + 2-row gap) while the
-                    // software path emits 256x384, so size the buffer on demand;
-                    // JNI getFrameBuffer rejects undersized arrays (len < w*h).
-                    val needW = videoWidth()
-                    val needH = videoHeight()
-                    if (needW > 0 && needH > 0 && frameBuffer.size < needW * needH) {
-                        frameBuffer = IntArray(needW * needH)
+                    // Frame pull strategy:
+                    //  - Custom dual-screen mode (no surface attached): pull
+                    //    the (possibly filter-upscaled) frame so
+                    //    NdsDualScreenView can slice the two screens out of
+                    //    it. This is the ONLY consumer of frameBuffer.
+                    //  - Surface mode: the native cb_video already applied
+                    //    the filter and blitted straight to the ANativeWindow
+                    //    inside runFrame(). Pulling the frame again here
+                    //    would copy ~400 KB through JNI per frame for nothing
+                    //    (screenshots pull on demand via captureFrame()).
+                    if (!hasSurface) {
+                        val fw = NdsNative.filteredVideoWidth().coerceAtLeast(1)
+                        val fh = NdsNative.filteredVideoHeight().coerceAtLeast(1)
+                        if (fw > 0 && fh > 0 && frameBuffer.size < fw * fh) {
+                            frameBuffer = IntArray(fw * fh)
+                        }
+                        NdsNative.getFilteredFrameBuffer(frameBuffer)
                     }
-                    NdsNative.getFrameBuffer(frameBuffer)
 
                     onFrame()
 
@@ -185,6 +192,18 @@ class NdsEngine private constructor() : EmulatorEngine {
 
     override fun videoWidth(): Int = if (isLoaded) NdsNative.videoWidth() else 256
     override fun videoHeight(): Int = if (isLoaded) NdsNative.videoHeight() else 384
+
+    /** Width of the frame stored in [frameBuffer] (custom-layout mode: the
+     *  filter-upscaled width when an upscale filter is active). */
+    fun filteredVideoWidth(): Int = if (isLoaded) NdsNative.filteredVideoWidth() else 256
+
+    /** Height of the frame stored in [frameBuffer] (custom-layout mode: the
+     *  filter-upscaled height when an upscale filter is active). */
+    fun filteredVideoHeight(): Int = if (isLoaded) NdsNative.filteredVideoHeight() else 384
+
+    /** Monotonic core frame counter — NdsDualScreenView uses it to skip
+     *  redundant redraws on high-refresh displays. */
+    fun frameStamp(): Long = if (isLoaded) NdsNative.frameStamp() else 0L
 
     override fun setVideoFilter(filter: Int) = NdsNative.setVideoFilter(filter)
     override fun setHighQualityScaling(enabled: Boolean) = NdsNative.setHighQualityScaling(enabled)
@@ -301,12 +320,23 @@ class NdsEngine private constructor() : EmulatorEngine {
     fun setPad3(bits: Int) = NdsNative.setPad3(bits)
     fun setPad4(bits: Int) = NdsNative.setPad4(bits)
     /**
-     * Set touchscreen input state.
+     * Set touchscreen input state (legacy composite-frame path, Hybrid
+     * layouts only — see NdsNative.setTouchInput).
      * @param x Normalized X (0..0xFFFF, maps to 0..255 by the core).
      * @param y Normalized Y (0..0xFFFF, maps to 0..191 by the core).
      * @param pressed true = touching, false = released.
      */
     fun setTouchInput(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInput(x, y, pressed)
+
+    /**
+     * Set touchscreen input with DIRECT bottom-screen pixel coordinates —
+     * the official melonDS Android frontend architecture. Preferred for
+     * every non-hybrid layout including the custom free-form layout.
+     * @param x Bottom-screen pixel X (0..255).
+     * @param y Bottom-screen pixel Y (0..191).
+     * @param pressed true = touching, false = released.
+     */
+    fun setTouchInputDirect(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInputDirect(x, y, pressed)
     override fun setRegion(region: Int) = NdsNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NdsNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File) { NdsNative.saveState(slot, dst.absolutePath) }
