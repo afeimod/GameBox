@@ -1170,27 +1170,32 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 }
 
 
-#define MAX_SERIALIZE_TEST_SIZE 16 * 1024 * 1024
-
 size_t retro_serialize_size(void)
 {
    if (!nds) return 0;
 
    if (nds->ConsoleType == 0)
    {
-      void* data = malloc(MAX_SERIALIZE_TEST_SIZE);
-      if (!data) return 0;
-      Savestate* savestate = new Savestate(data, MAX_SERIALIZE_TEST_SIZE, true);
+      // melonDS >= 1.0 always saves the FULL 16MB MainRAM (MainRAMMaxSize,
+      // shared between DS and DSi), so a savestate is ~17-18 MB in total —
+      // a fixed 16 MB test buffer is TOO SMALL. Writing MainRAM into it
+      // overflows at offset 0x14, Savestate::VarArray sets Error and skips
+      // the block, and the returned "size" is a bogus ~2-3 MB value. The
+      // subsequent retro_serialize(buf, bogus_size) then fails the same
+      // overflow check and returns false — "core failed to generate
+      // savestate", 100% reproducible.
+      //
+      // Fix: use the owned-buffer Savestate constructor (Savestate.h
+      // DEFAULT_SIZE = 32 MB, auto-resizes if the state is even larger,
+      // e.g. big cart SRAM). This mirrors what upstream melonDS itself
+      // does when saving states.
+      Savestate* savestate = new Savestate();
       nds->DoSavestate(savestate);
-      // Call Finish() so the header length field is populated (matches
-      // what retro_serialize writes). The returned size is unaffected
-      // (Length() returns buffer_offset regardless), but the buffer is
-      // now byte-identical to a real savestate — useful if this buffer
-      // is ever inspected.
       savestate->Finish();
-      size_t size = savestate->Length();
-      delete savestate;
-      free(data);
+      size_t size = savestate->Error ? 0 : (size_t)savestate->Length();
+      if (savestate->Error)
+         log_cb(RETRO_LOG_ERROR, "retro_serialize_size: savestate generation failed\n");
+      delete savestate; // owned buffer is freed by the destructor
       return size;
    }
    else

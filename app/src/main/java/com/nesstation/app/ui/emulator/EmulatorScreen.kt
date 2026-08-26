@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -647,6 +648,19 @@ fun EmulatorScreen(
         else -> 2
     }
 
+    // === 全局 FPS 显示（所有平台通用） ===
+    // 模拟线程每跑完一帧回调 onFrame → counter+1（原子操作，线程安全）；
+    // 采样协程每秒读取并清零，刷新显示值。显示的是"模拟帧率"（核心实际
+    // 跑了多少帧），不是屏幕刷新率 —— 可用于诊断 NDS 卡顿。
+    val fpsFrameCounter = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    var fpsDisplay by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            fpsDisplay = fpsFrameCounter.getAndSet(0)
+        }
+    }
+
     var padLayout by remember { mutableStateOf(PadLayoutStore.load(context)) }
 
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -932,20 +946,37 @@ fun EmulatorScreen(
             else                -> context.filesDir.absolutePath
         }
         val filesDir = systemDir  // pass the platform-specific system dir to the core
-        val savesDirPath = savesDir.absolutePath
+
+        // === NDS 存档方式解析 ===
+        // "nesstation"  : .sav 放在 NesStation 统一存档目录，文件名 = game.id
+        // "core_builtin": .sav 放在 ROM 同目录、与 ROM 同名（官方 melonDS APK
+        //                 完全一致）。ROM 经 content:// 选择时尝试从 URI 推导出
+        //                 真实父目录；推导不出或目录不可写时回退到应用内部目录
+        //                 （仍按 ROM 文件名命名，避免多游戏共用 temp_rom.sav）。
+        var ndsSaveDirPath: String? = null
+        var ndsSaveNameOverride: String? = null
+        var ndsSaveNotice: String? = null
+        if (platform == GamePlatform.NDS && padLayout.ndsSaveMode == "core_builtin") {
+            val resolved = resolveNdsRomAdjacentSave(context, romPath, savesDir)
+            ndsSaveDirPath = resolved.dir
+            ndsSaveNameOverride = resolved.basename
+            ndsSaveNotice = resolved.notice
+        }
+        val savesDirPath = ndsSaveDirPath ?: savesDir.absolutePath
 
         // Tell the native core to use this stable name for the .srm file.
         // Must be called BEFORE loadRom() so the name is in effect when
         // retro_load_game() returns and we read the .srm into SAVE_RAM.
         // For NDS, this name is also propagated to the melonDS libretro
         // core via melonds_set_save_basename_override() so the .sav file
-        // is named after game.id (NesStation mode) instead of the cacheDir
-        // temp_rom.<ext> filename (which would clobber across games).
-        // NDS 存档方式切换：
-        //   - "nesstation"  : 用 game.id 作为 .sav basename
-        //   - "core_builtin" : 传空字符串让 melonDS 用 ROM basename（兼容官方 APK）
-        val ndsSaveName = if (platform == GamePlatform.NDS && padLayout.ndsSaveMode == "core_builtin") {
-            ""  // empty override → melonDS uses info->path basename
+        // is named after game.id (NesStation mode) or the ROM basename
+        // (core_builtin mode — same-directory save, compatible with the
+        // official melonDS APK). Never pass "" for NDS: an empty override
+        // would make melonDS derive the name from info->path, which is
+        // "temp_rom" for cached content:// URIs (all games would share
+        // one temp_rom.sav and clobber each other).
+        val ndsSaveName = if (platform == GamePlatform.NDS) {
+            ndsSaveNameOverride ?: saveName
         } else {
             saveName
         }
@@ -1067,7 +1098,7 @@ fun EmulatorScreen(
             if (result == null) {
                 errorMsg = "DOS 游戏加载失败：无法读取文件夹内容"
             } else {
-                val ok = engine.loadRom(result, filesDir, savesDirPath) { }
+                val ok = engine.loadRom(result, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                 if (!ok) {
                     val err = engine.lastError()
                     errorMsg = err.ifEmpty { "DOS 游戏加载失败" }
@@ -1094,7 +1125,7 @@ fun EmulatorScreen(
                     android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
                 }
             }
-            val ok = engine.loadRom(romFile, filesDir, savesDirPath) { }
+            val ok = engine.loadRom(romFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
             if (!ok) {
                 val err = engine.lastError()
                 errorMsg = err.ifEmpty { "ROM 加载失败" }
@@ -1117,7 +1148,7 @@ fun EmulatorScreen(
             if (cdFile == null) {
                 errorMsg = "Mega-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
-                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                 if (!ok) {
                     val err = engine.lastError()
                     errorMsg = err.ifEmpty { "Mega-CD 加载失败" }
@@ -1140,7 +1171,7 @@ fun EmulatorScreen(
             if (cdFile == null) {
                 errorMsg = "PCE-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
-                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                 if (!ok) {
                     val err = engine.lastError()
                     errorMsg = err.ifEmpty { "PCE-CD 加载失败" }
@@ -1168,7 +1199,7 @@ fun EmulatorScreen(
             if (cdFile == null) {
                 errorMsg = "PS1 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
-                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { }
+                val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                 if (!ok) {
                     val err = engine.lastError()
                     errorMsg = err.ifEmpty { "PS1 加载失败" }
@@ -1381,7 +1412,7 @@ fun EmulatorScreen(
                             android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
                         }
                     }
-                    val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { }
+                    val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                     if (!ok) {
                         val err = engine.lastError()
                         errorMsg = err.ifEmpty { "ROM 加载失败" }
@@ -1393,6 +1424,13 @@ fun EmulatorScreen(
                 }
             } catch (e: Exception) {
                 errorMsg = "ROM 加载失败: ${e.message}"
+            }
+        }
+
+        // NDS 同目录存档回退提示（core_builtin 模式且 ROM 目录不可访问时）
+        if (loaded) {
+            ndsSaveNotice?.let {
+                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -1622,16 +1660,51 @@ fun EmulatorScreen(
                     }
                 )
             }
-            // Player switch button — top-right corner, only when 2+ players supported.
-            // 联机对战时禁用：2P 由远端玩家控制，本地只能操作 1P。
-            if (maxPlayers > 1 && netplayController == null) {
-                PlayerSwitchButton(
-                    currentPlayer = currentPlayer,
-                    onSwitch = {
-                        currentPlayer = (currentPlayer + 1) % maxPlayers
+        }
+
+        // 玩家切换悬浮球 —— 独立于虚拟手柄的显示开关（手柄隐藏时仍可切换玩家）。
+        // 小圆形、可拖动（松手后位置持久化）、可在设置里隐藏。
+        // 联机对战时不显示：2P 由远端玩家控制，本地只能操作 1P。
+        if (loaded && maxPlayers > 1 && netplayController == null &&
+            padLayout.showPlayerSwitch && !showMenu && !showLayoutEditor && !showSettings &&
+            !showCustomLayoutEditor && !showNdsCustomLayoutEditor &&
+            surfaceSize != IntSize.Zero) {
+            PlayerSwitchButton(
+                currentPlayer = currentPlayer,
+                surfaceSize = surfaceSize,
+                initialX = padLayout.playerSwitchX,
+                initialY = padLayout.playerSwitchY,
+                onSwitch = {
+                    currentPlayer = (currentPlayer + 1) % maxPlayers
+                },
+                onMove = { nx, ny ->
+                    // 位置变化写回 padLayout，由防抖 LaunchedEffect 持久化
+                    if (padLayout.playerSwitchX != nx || padLayout.playerSwitchY != ny) {
+                        padLayout = padLayout.copy {
+                            playerSwitchX = nx
+                            playerSwitchY = ny
+                        }
                     }
-                )
-            }
+                }
+            )
+        }
+
+        // 全局 FPS 悬浮显示 —— 左上角小字，实时显示模拟帧率
+        if (loaded && padLayout.showFps && !showMenu && !showLayoutEditor && !showSettings &&
+            !showCustomLayoutEditor && !showNdsCustomLayoutEditor) {
+            Text(
+                text = "FPS $fpsDisplay",
+                color = if (fpsDisplay >= 55) Color(0xFF00E676)
+                        else if (fpsDisplay >= 40) Color(0xFFFFD54F)
+                        else Color(0xFFFF5252),
+                fontSize = 11.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .background(Color(0x66000000), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
         }
 
         if (loaded && showMenu && !showLayoutEditor && !showSettings) {
@@ -2082,6 +2155,157 @@ fun EmulatorScreen(
  *   由它的 frame hook 在 [NetplayHook.beforeFrame] 里和远端输入一起推回给核心；
  *   其它 player 槽位在联机下被忽略（2P 由远端控制，3P/4P 不参与）。
  */
+// ---------------------------------------------------------------------------
+// NDS "ROM 同目录同名 .sav" 解析（core_builtin 存档方式，兼容官方 melonDS APK）
+// ---------------------------------------------------------------------------
+/**
+ * 解析 NDS 游戏的 .sav 目标位置。
+ *
+ * 返回三元组：
+ *  - [NdsSaveResolution.dir]      —— .sav 所在目录（传给引擎作为 saveDir）
+ *  - [NdsSaveResolution.basename] —— .sav 基名（不含扩展名；null = 解析失败，
+ *                                     调用方回退到 game.id / 内部目录）
+ *  - [NdsSaveResolution.notice]   —— 需要向用户提示的回退说明（null = 正常）
+ *
+ * 解析优先级：
+ *  1. romPath 是真实文件路径 → 取其父目录（可写时直接使用）
+ *  2. romPath 是 content:// → SAF 查询原始文件名；再从 URI 末段推导真实
+ *     父目录（外部存储文档 URI 形如 primary:ROMs/xxx.nds →
+ *     /storage/emulated/0/ROMs），可写时使用
+ *  3. 都失败 → 应用内部 saves 目录 + ROM 原始文件名（保证多游戏不共用
+ *     temp_rom.sav），并给出提示
+ */
+private data class NdsSaveResolution(
+    val dir: String,
+    val basename: String?,
+    val notice: String?
+)
+
+private fun resolveNdsRomAdjacentSave(
+    context: android.content.Context,
+    romPath: String,
+    internalSavesDir: java.io.File
+): NdsSaveResolution {
+    // 1) 真实文件路径（直接文件访问）
+    if (!romPath.startsWith("content://")) {
+        val f = java.io.File(romPath)
+        if (f.exists()) {
+            val dir = f.parentFile
+            if (dir != null && isDirWritable(dir)) {
+                return NdsSaveResolution(dir.absolutePath, f.nameWithoutExtension, null)
+            }
+            return NdsSaveResolution(internalSavesDir.absolutePath, f.nameWithoutExtension,
+                "ROM 所在目录不可写，.sav 将保存在应用内部存档目录")
+        }
+    }
+
+    // 2) content:// URI —— 查询原始文件名
+    var origName = ""
+    try {
+        val uri = android.net.Uri.parse(romPath)
+        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME
+            )
+            if (idx >= 0 && c.moveToFirst()) {
+                val n = c.getString(idx)
+                if (!n.isNullOrBlank()) origName = n
+            }
+        }
+    } catch (_: Exception) { }
+    if (origName.isBlank()) {
+        try {
+            val lastSeg = android.net.Uri.parse(romPath).lastPathSegment
+            if (!lastSeg.isNullOrBlank()) {
+                origName = android.net.Uri.decode(lastSeg).substringAfterLast('/')
+            }
+        } catch (_: Exception) { }
+    }
+    if (origName.isBlank()) {
+        // 连原始文件名都拿不到 —— 让调用方保持默认（game.id / 内部目录）
+        return NdsSaveResolution(internalSavesDir.absolutePath, null, null)
+    }
+    val base = origName.substringBeforeLast('.').ifBlank { null }
+
+    // 尝试从 URI 推导真实父目录（外部存储 document/tree URI）
+    val realDir = deriveRealDirFromSafUri(romPath)
+    if (realDir != null && isDirWritable(realDir)) {
+        return NdsSaveResolution(realDir.absolutePath, base, null)
+    }
+    // 3) 回退：内部目录 + ROM 原始文件名
+    return NdsSaveResolution(internalSavesDir.absolutePath, base,
+        "无法访问 ROM 所在目录，.sav 将保存在应用内部存档目录")
+}
+
+/**
+ * 从 SAF document/tree URI 推导 ROM 的真实父目录。
+ * 形如 content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fnds/document/primary%3AROMs%2Fnds%2Fgame.nds
+ * 的 URI 末段解码后为 "primary:ROMs/nds/game.nds" → /storage/emulated/0/ROMs/nds。
+ * 仅支持外部存储主卷/第二卷；其它 provider（下载、云盘等）返回 null。
+ */
+private fun deriveRealDirFromSafUri(romPath: String): java.io.File? {
+    return try {
+        val uri = android.net.Uri.parse(romPath)
+        val lastSeg = android.net.Uri.decode(uri.lastPathSegment ?: return null)
+        // "primary:ROMs/nds/game.nds" 或 "17FB-1E12:ROMs/game.nds"
+        val volume = lastSeg.substringBefore(':', "")
+        val pathPart = if (lastSeg.contains(':')) lastSeg.substringAfter(':') else lastSeg
+        val parent = pathPart.substringBeforeLast('/', "")
+        if (parent.isBlank()) return null
+        val storageRoot = when {
+            volume.equals("primary", ignoreCase = true) -> "/storage/emulated/0"
+            volume.contains('-') -> "/storage/$volume"
+            else -> "/storage/emulated/0"
+        }
+        val dir = java.io.File(storageRoot, parent)
+        if (dir.isDirectory) dir else null
+    } catch (_: Exception) { null }
+}
+
+/** 通过实际创建/删除探测文件判断目录是否可写（canWrite() 在作用域存储下不可靠）。 */
+private fun isDirWritable(dir: java.io.File): Boolean {
+    return try {
+        val probe = java.io.File(dir, ".nesstation_probe_${System.currentTimeMillis()}")
+        val ok = probe.createNewFile()
+        if (ok) probe.delete()
+        ok
+    } catch (_: Exception) { false }
+}
+
+// ---------------------------------------------------------------------------
+// 连发 A/B（小 AB）默认位置避让
+// ---------------------------------------------------------------------------
+/**
+ * 6 键平台（SFC/MD/NDS/街机等有 X/Y 键）上连发键的默认位置避让。
+ *
+ * 连发 A/B 的存储字段（btnTurboA/B）与 NES/GB 共用，历史默认位置
+ * （横屏 0.87/0.60、0.72/0.66）与 X/Y 键（0.88/0.54、0.73/0.60）重叠。
+ * 当平台显示 X/Y 且连发键仍处于历史默认位置（说明用户从未拖动过，
+ * NES/GB 用户拖动后位置不再匹配默认值）时，返回挪到 A/B 附近、
+ * 与所有按键都不重叠的默认位置；否则原样返回用户自定义位置。
+ */
+private fun shiftTurboDefault(
+    turbo: ButtonLayout,
+    showXY: Boolean,
+    isPortrait: Boolean,
+    isA: Boolean
+): ButtonLayout {
+    if (!showXY) return turbo
+    return if (isPortrait) {
+        if (isA) {
+            if (turbo.x == 0.82f && turbo.y == 0.56f) turbo.copy(x = 0.94f, y = 0.62f) else turbo
+        } else {
+            if (turbo.x == 0.68f && turbo.y == 0.62f) turbo.copy(x = 0.93f, y = 0.88f) else turbo
+        }
+    } else {
+        if (isA) {
+            if (turbo.x == 0.87f && turbo.y == 0.60f) turbo.copy(x = 0.96f, y = 0.72f) else turbo
+        } else {
+            if (turbo.x == 0.72f && turbo.y == 0.66f) turbo.copy(x = 0.95f, y = 0.90f) else turbo
+        }
+    }
+}
+
 private fun routePadBits(
     engine: EmulatorEngine,
     player: Int,
@@ -2837,12 +3061,27 @@ private fun serializeComboButtons(list: List<ComboButtonEntry>): String {
 }
 
 // ---------------------------------------------------------------------------
-// PlayerSwitchButton — floating button to cycle between players
+// PlayerSwitchButton — 小圆形可拖动悬浮球，点击切换 1P/2P/3P/4P
 // ---------------------------------------------------------------------------
+/**
+ * 玩家切换悬浮球。
+ *
+ * - 小圆形（32dp），不再占用大块屏幕
+ * - 拖动 = 移动位置（松手后经 [onMove] 持久化到 PadLayout，横竖屏共用）
+ * - 点击 = 切换到下一个玩家
+ * - 显示/隐藏由设置里的"玩家切换按钮"开关控制（padLayout.showPlayerSwitch）
+ *
+ * 位置以归一化坐标（0..1）存储，渲染时换算为相对游戏区域容器的像素偏移；
+ * 拖动期间读取当前指针位移增量，兼容任意起始位置。
+ */
 @Composable
 private fun BoxScope.PlayerSwitchButton(
     currentPlayer: Int,
-    onSwitch: () -> Unit
+    surfaceSize: IntSize,
+    initialX: Float,
+    initialY: Float,
+    onSwitch: () -> Unit,
+    onMove: (Float, Float) -> Unit
 ) {
     val label = "${currentPlayer + 1}P"
     val color = when (currentPlayer) {
@@ -2852,19 +3091,64 @@ private fun BoxScope.PlayerSwitchButton(
         3 -> Color(0xFFF39C12)  // orange for P4
         else -> Color(0xFF4A90D9)
     }
+
+    // 本地归一化位置（0..1）。key 在 initialX/Y 上：外部位置重置（如换设备/
+    // 恢复默认）时重新初始化；本地拖动只改 px/py，不触发重建。
+    var px by remember(initialX) { mutableStateOf(initialX) }
+    var py by remember(initialY) { mutableStateOf(initialY) }
+    // 拖动期间禁用点击（避免松手时误触发切换）
+    var dragging by remember { mutableStateOf(false) }
+
+    val buttonSize = 32.dp
+    val sizePx = with(LocalDensity.current) { buttonSize.toPx() }
+
     Box(
         modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(top = 12.dp, end = 12.dp)
-            .size(44.dp)
-            .background(color.copy(alpha = 0.85f), RoundedCornerShape(12.dp))
-            .clickable { onSwitch() },
+            .align(Alignment.TopStart)
+            .offset {
+                androidx.compose.ui.unit.IntOffset(
+                    x = ((px * surfaceSize.width - sizePx / 2f)
+                        .coerceIn(0f, (surfaceSize.width - sizePx).coerceAtLeast(0f))).toInt(),
+                    y = ((py * surfaceSize.height - sizePx / 2f)
+                        .coerceIn(0f, (surfaceSize.height - sizePx).coerceAtLeast(0f))).toInt()
+                )
+            }
+            .size(buttonSize)
+            .background(color.copy(alpha = 0.85f), androidx.compose.foundation.shape.CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    if (!dragging) onSwitch()
+                }
+            }
+            .pointerInput(surfaceSize) {
+                detectDragGestures(
+                    onDragStart = { dragging = true },
+                    onDragEnd = {
+                        dragging = false
+                        // 松手时持久化（clamp 到安全范围，保证球心不出屏）
+                        val nx = px.coerceIn(0.03f, 0.97f)
+                        val ny = py.coerceIn(0.03f, 0.97f)
+                        px = nx; py = ny
+                        onMove(nx, ny)
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        onMove(px.coerceIn(0.03f, 0.97f), py.coerceIn(0.03f, 0.97f))
+                    }
+                ) { change, dragAmount ->
+                    change.consume()
+                    if (surfaceSize.width > 0 && surfaceSize.height > 0) {
+                        px = (px + dragAmount.x / surfaceSize.width).coerceIn(0.03f, 0.97f)
+                        py = (py + dragAmount.y / surfaceSize.height).coerceIn(0.03f, 0.97f)
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             color = Color.White,
-            fontSize = 14.sp,
+            fontSize = 11.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
         )
     }
@@ -2942,8 +3226,14 @@ fun OnScreenController(
     val showYBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "y")
     val showL2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l2")
     val showR2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r2")
-    val showTurboABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
-    val showTurboBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
+    // 连发 A/B 仅在支持的平台提供（NES/GB/GBA/SFC/MD/NDS/街机）。
+    // PCE 已有专用 TURBO I/II 切换键（L2/R2），PSX 不提供连发 —— 都不渲染。
+    val supportsTurboAB = platform == GamePlatform.NES || platform == GamePlatform.GB ||
+                          platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
+                          platform == GamePlatform.MD || platform == GamePlatform.NDS ||
+                          platform == GamePlatform.ARCADE
+    val showTurboABtn = supportsTurboAB && !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
+    val showTurboBBtn = supportsTurboAB && !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
 
     // === Input mode: D-Pad vs Analog Stick (all platforms) ===
     // When inputMode == "analog", we render a circular analog stick
@@ -2968,8 +3258,15 @@ fun OnScreenController(
     val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
     val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
     val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
-    val btnTurboA = if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA
-    val btnTurboB = if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB
+    // 连发 A/B（小 AB）：所有平台可见（可在"显示/隐藏按键"里按需隐藏）。
+    // 6 键平台（有 X/Y）且用户从未拖动过时，用避让后的默认位置，
+    // 防止与 X/Y 键重叠（见 shiftTurboDefault）。
+    val btnTurboA = shiftTurboDefault(
+        if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA,
+        showXY, isPortrait, isA = true)
+    val btnTurboB = shiftTurboDefault(
+        if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB,
+        showXY, isPortrait, isA = false)
     val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
     val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
     val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
@@ -3073,9 +3370,10 @@ fun OnScreenController(
                 } else null
                 val aRect = if (showABtn) btnRect(btnA) else null
                 val bRect = if (showBBtn) btnRect(btnB) else null
-                // Turbo A/B hit areas only for non-SNES platforms
-                val taRect = if (!showXY && showTurboABtn) btnRect(btnTurboA) else null
-                val tbRect = if (!showXY && showTurboBBtn) btnRect(btnTurboB) else null
+                // Turbo A/B hit areas — 所有平台都生效（显隐由
+                // KeyVisibilityDialog 的 ta/tb 开关控制）
+                val taRect = if (showTurboABtn) btnRect(btnTurboA) else null
+                val tbRect = if (showTurboBBtn) btnRect(btnTurboB) else null
                 val startRect = if (showStartBtn) btnRect(btnStart, 2.2f, 0.7f) else null
                 val selectRect = if (showSelectBtn) btnRect(btnSelect, 2.2f, 0.7f) else null
                 val lRect = if (showLR && showLBtn) btnRect(btnL, 1.6f, 0.7f) else null
@@ -3398,12 +3696,13 @@ fun OnScreenController(
             }
             ActionButtonCanvas(labelB, bColor, btnB, surfaceSize, opacity, visualState and BTN_B != 0)
         }
-        // Turbo A/B — hidden on SNES/PCE/ARCADE/MD (X/Y buttons take their place)
-        // Also hidden if the user has explicitly toggled them off via "显隐按键".
-        if (!showXY && showTurboABtn) {
+        // Turbo A/B（小 AB 连发键）— 所有平台按需渲染：显隐由
+        // "显示/隐藏按键"里的连射A/连射B开关控制；6 键平台用避让后的
+        // 默认位置（见 shiftTurboDefault），不会与 X/Y 重叠。
+        if (showTurboABtn) {
             TurboButtonCanvas(labelA, Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0)
         }
-        if (!showXY && showTurboBBtn) {
+        if (showTurboBBtn) {
             TurboButtonCanvas(labelB, Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0)
         }
         // Start
@@ -5194,8 +5493,14 @@ private fun PadLayoutEditor(
     val showYBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "y")
     val showL2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "l2")
     val showR2Btn = !PadLayoutStore.isButtonHidden(padLayout, platform, "r2")
-    val showTurboABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
-    val showTurboBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
+    // 连发 A/B 仅在支持的平台提供（NES/GB/GBA/SFC/MD/NDS/街机）。
+    // PCE 已有专用 TURBO I/II 切换键（L2/R2），PSX 不提供连发 —— 都不渲染。
+    val supportsTurboAB = platform == GamePlatform.NES || platform == GamePlatform.GB ||
+                          platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
+                          platform == GamePlatform.MD || platform == GamePlatform.NDS ||
+                          platform == GamePlatform.ARCADE
+    val showTurboABtn = supportsTurboAB && !PadLayoutStore.isButtonHidden(padLayout, platform, "ta")
+    val showTurboBBtn = supportsTurboAB && !PadLayoutStore.isButtonHidden(padLayout, platform, "tb")
 
     // "显示/隐藏按键" dialog — available for ALL engines (not just PCE).
     // Lets the user toggle each button's visibility so the on-screen overlay
@@ -5208,8 +5513,14 @@ private fun PadLayoutEditor(
     val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
     val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
     val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
-    val btnTurboA = if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA
-    val btnTurboB = if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB
+    // 连发 A/B 编辑器位置：6 键平台且未拖动过时用避让后的默认位置，
+    // 保证编辑器里看到的与游戏中渲染的一致。
+    val btnTurboA = shiftTurboDefault(
+        if (isPortrait) padLayout.btnTurboAP else padLayout.btnTurboA,
+        showXY, isPortrait, isA = true)
+    val btnTurboB = shiftTurboDefault(
+        if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB,
+        showXY, isPortrait, isA = false)
     val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
     val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
     val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
@@ -5275,7 +5586,7 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.B }
                 )
             }
-            if (!showXY && showTurboABtn) {
+            if (showTurboABtn) {
                 EditableRoundBtn("TA", Color(0xFFE74C3C), btnTurboA, surfaceSize, selectedBtn == BtnType.TURBO_A,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -5285,7 +5596,7 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.TURBO_A }
                 )
             }
-            if (!showXY && showTurboBBtn) {
+            if (showTurboBBtn) {
                 EditableRoundBtn("TB", Color(0xFFE67E22), btnTurboB, surfaceSize, selectedBtn == BtnType.TURBO_B,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -6254,6 +6565,21 @@ private fun SettingsPanel(
             checked = padLayout.highQualityScaling
         ) { onLayoutChange(padLayout.copy {highQualityScaling = it}) }
 
+        // 全局 FPS 显示 —— 所有平台通用，实时显示模拟帧率
+        //（可用来诊断 NDS 等核心是否满速运行）
+        SwitchSetting(
+            label = "显示帧数",
+            description = "游戏画面左上角实时显示模拟 FPS",
+            checked = padLayout.showFps
+        ) { onLayoutChange(padLayout.copy {showFps = it}) }
+
+        // 玩家切换悬浮球 —— 1P/2P/3P/4P 小圆形按钮（可拖动）
+        SwitchSetting(
+            label = "玩家切换按钮",
+            description = "小圆形悬浮球 · 点击切换玩家 · 可拖动",
+            checked = padLayout.showPlayerSwitch
+        ) { onLayoutChange(padLayout.copy {showPlayerSwitch = it}) }
+
         Spacer(Modifier.size(8.dp))
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
         Spacer(Modifier.size(8.dp))
@@ -7170,21 +7496,23 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("存档", color = Color(0xFF8899AA), fontSize = 11.sp)
-                // NDS 存档方式切换（曾被误删，现恢复）：
-                //   nesstation   → NesStation 自带统一存档目录：每个游戏独立 .sav
-                //                  文件名为 game.id，content:// URI 复制到 temp_rom.<ext>
-                //                  也不会被覆盖。所有 NDS 游戏的 .sav 集中在
-                //                  <filesDir>/saves/<gameId>.sav。
-                //   core_builtin → 用 melonDS 默认命名：<saveDir>/<ROM basename>.sav。
-                //                  适合从官方 melonDS APK 迁移存档的用户（与官方 APK
-                //                  的 .sav 路径完全兼容）。
+                // NDS 存档方式切换：
+                //   nesstation   → NesStation 统一存档目录：<filesDir>/saves/<gameId>.sav
+                //                  每游戏独立文件，content:// URI 复制到 temp_rom.<ext>
+                //                  也不会被覆盖。
+                //   core_builtin → ROM 同目录同名 .sav（与官方 melonDS APK 行为一致）：
+                //                  直接读取并回写 ROM 旁边的 <ROM文件名>.sav。
+                //                  ROM 目录不可写时自动回退到应用内部目录。
+                //                  注意：切换后需重进游戏生效。
                 DropdownSetting("存档方式",
                     listOf(
-                        "nesstation" to "NesStation (推荐·每游戏独立)",
-                        "core_builtin" to "核心内置 (兼容官方 melonDS APK)"
+                        "nesstation" to "NesStation (统一存档目录)",
+                        "core_builtin" to "ROM 同目录同名 .sav (兼容官方 melonDS)"
                     ),
                     padLayout.ndsSaveMode
                 ) { onLayoutChange(padLayout.copy {ndsSaveMode = it}) }
+                Text("「ROM 同目录」模式直接读写 ROM 旁边的同名 .sav 文件（如 game.nds → game.sav），与官方 melonDS APK 完全兼容；切换存档方式后需重进游戏。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)

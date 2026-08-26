@@ -106,6 +106,15 @@ class PadLayout {
     // === 全局设置（横竖屏共享） ===
     var opacity: Float = 0.7f     // 0.3 – 1.0
     var showPad: Boolean = true
+    // 全局 FPS 显示（所有平台通用）：开启后游戏画面左上角叠加实时帧率。
+    // 帧率来自各引擎模拟线程的 onFrame 回调（每模拟帧 +1），
+    // 可用于诊断 NDS 等核心的性能表现。
+    var showFps: Boolean = false
+    // 1P/2P/3P/4P 玩家切换悬浮球：可拖动、可隐藏的小圆形按钮。
+    // 位置为归一化坐标（相对游戏区域容器），横竖屏共用。
+    var showPlayerSwitch: Boolean = true
+    var playerSwitchX: Float = 0.94f
+    var playerSwitchY: Float = 0.07f
     // Core options — values MUST match FCEUmm's libretro_core_options.h
     var ntscFilter: String = "disabled"  // disabled | composite | svideo | rgb | monochrome
     var aspectRatio: String = "4:3"  // SNES9x: "4:3" | "uncorrected" | "auto" | "ntsc" | "pal"
@@ -356,8 +365,10 @@ class PadLayout {
     //   "nesstation"  → 用 NesStation 自带统一存档目录 (<filesDir>/saves/<gameId>.sav)
     //                    saveName = game.id，每个游戏独立 .sav 文件，content:// URI
     //                    复制到 temp_rom.<ext> 也不会被覆盖。
-    //   "core_builtin" → 用 melonDS 默认命名 (<saveDir>/<ROM basename>.sav)。
-    //                    适合从其他 melonDS 前端（如官方 APK）迁移存档的用户。
+    //   "core_builtin" → ROM 同目录同名 .sav（<ROM 所在目录>/<ROM 文件名>.sav），
+    //                    与官方 melonDS APK 的存档行为完全一致——直接读取并回写
+    //                    ROM 旁边的同名 .sav。若 ROM 目录不可写（未授权所有文件
+    //                    访问），自动回退到应用内部目录，仍按 ROM 文件名命名。
     var ndsSaveMode: String = "nesstation"             // nesstation | core_builtin
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
@@ -524,6 +535,10 @@ class PadLayout {
         btnYP = another.btnYP
         opacity = another.opacity
         showPad = another.showPad
+        showFps = another.showFps
+        showPlayerSwitch = another.showPlayerSwitch
+        playerSwitchX = another.playerSwitchX
+        playerSwitchY = another.playerSwitchY
         ntscFilter = another.ntscFilter
         aspectRatio = another.aspectRatio
         palette = another.palette
@@ -870,7 +885,15 @@ object PadLayoutStore {
     // Global keys
     private const val KEY_OPACITY = "opacity"
     private const val KEY_SHOW_PAD = "show_pad"
+    private const val KEY_SHOW_FPS = "show_fps"
+    private const val KEY_SHOW_PLAYER_SWITCH = "show_player_switch"
+    private const val KEY_PLAYER_SWITCH_X = "player_switch_x"
+    private const val KEY_PLAYER_SWITCH_Y = "player_switch_y"
     private const val KEY_HIGH_QUALITY_SCALING = "high_quality_scaling"
+    // NDS GL 硬件加速默认值迁移标记（一次性）：旧版本默认 disabled 并已
+    // 持久化到用户数据里，升级后需要迁移为 enabled（参考官方 melonDS APK
+    // 默认开启硬件加速，软渲染是 NDS 卡顿的主因）。
+    private const val KEY_NDS_GL_MIGRATION_V2 = "nds_gl_migration_v2"
 
     // Core option keys
     private const val KEY_NTSC_FILTER = "ntsc_filter"
@@ -1049,6 +1072,10 @@ object PadLayoutStore {
             // === 全局设置 ===
             opacity = p.getFloat(KEY_OPACITY, 0.7f)
             showPad = p.getBoolean(KEY_SHOW_PAD, true)
+            showFps = p.getBoolean(KEY_SHOW_FPS, false)
+            showPlayerSwitch = p.getBoolean(KEY_SHOW_PLAYER_SWITCH, true)
+            playerSwitchX = p.getFloat(KEY_PLAYER_SWITCH_X, 0.94f)
+            playerSwitchY = p.getFloat(KEY_PLAYER_SWITCH_Y, 0.07f)
             highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false)
             ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled"
             aspectRatio = p.getString(KEY_ASPECT_RATIO, "4:3") ?: "4:3"
@@ -1264,6 +1291,15 @@ object PadLayoutStore {
             // 默认 "enabled"：NDS 硬件加速 GL 渲染（参考官方 melonDS APK 已默认开启）。
             // 注意必须与类字段默认值一致，否则 load() 会把内存默认值覆盖回 disabled。
             ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "enabled") ?: "enabled"
+            // === 一次性迁移：旧版本默认 disabled 且已写入用户数据 ===
+            // 升级安装的用户（保留应用数据）会带着旧默认值 "disabled" 进来，
+            // 导致 GL 硬件加速修复实际不生效（NDS 仍然卡顿）。这里把旧默认值
+            // 迁移为 "enabled"；迁移标记确保只做一次——之后用户若手动关闭
+            // 会被尊重（UI 里有 "3D 渲染器" 开关）。
+            if (ndsOpenGlRenderer == "disabled" &&
+                !p.getBoolean(KEY_NDS_GL_MIGRATION_V2, false)) {
+                ndsOpenGlRenderer = "enabled"
+            }
             ndsOpenGlBetterPolygons = p.getString("nds_opengl_better_polygons", "disabled") ?: "disabled"
             ndsOpenGlFiltering = p.getString("nds_opengl_filtering", "nearest") ?: "nearest"
             ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"
@@ -1449,6 +1485,13 @@ object PadLayoutStore {
             // === 全局设置 ===
             putFloat(KEY_OPACITY, layout.opacity)
             putBoolean(KEY_SHOW_PAD, layout.showPad)
+            putBoolean(KEY_SHOW_FPS, layout.showFps)
+            putBoolean(KEY_SHOW_PLAYER_SWITCH, layout.showPlayerSwitch)
+            putFloat(KEY_PLAYER_SWITCH_X, layout.playerSwitchX)
+            putFloat(KEY_PLAYER_SWITCH_Y, layout.playerSwitchY)
+            // 迁移标记（与 load() 里的迁移逻辑配合：标记写入后，load() 不再把
+            // 用户数据中的旧默认值 disabled 迁移为 enabled；用户手动关闭会被尊重）
+            putBoolean(KEY_NDS_GL_MIGRATION_V2, true)
             putBoolean(KEY_HIGH_QUALITY_SCALING, layout.highQualityScaling)
 
             putString(KEY_NTSC_FILTER, layout.ntscFilter)
@@ -1835,6 +1878,9 @@ object PadLayoutStore {
      */
     fun getAvailableButtons(platform: GamePlatform): List<Pair<String, String>> {
         // Each pair: (key, displayLabel)
+        // 连射 A/B（小 AB 连发键）在所有平台都提供显隐开关——包括有
+        // X/Y 键的 6 键平台（SFC/MD/NDS/街机）。渲染层不再因为平台有
+        // X/Y 就强制隐藏连发键，改由用户按需控制。
         return when (platform) {
             GamePlatform.NES, GamePlatform.GB -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
@@ -1843,18 +1889,21 @@ object PadLayoutStore {
             )
             GamePlatform.GBA -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
+                "ta" to "连射A", "tb" to "连射B",
                 "l" to "L键", "r" to "R键",
                 "start" to "START", "select" to "SELECT"
             )
             GamePlatform.SFC, GamePlatform.NDS -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
                 "x" to "X键", "y" to "Y键",
+                "ta" to "连射A", "tb" to "连射B",
                 "l" to "L键", "r" to "R键",
                 "start" to "START", "select" to "SELECT"
             )
             GamePlatform.ARCADE -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
                 "x" to "X键", "y" to "Y键",
+                "ta" to "连射A", "tb" to "连射B",
                 "l" to "L键", "r" to "R键",
                 "l2" to "L2键", "r2" to "R2键",
                 "start" to "START", "select" to "SELECT"
@@ -1862,6 +1911,7 @@ object PadLayoutStore {
             GamePlatform.MD -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
                 "x" to "X键", "y" to "Y键",
+                "ta" to "连射A", "tb" to "连射B",
                 "l" to "L键", "r" to "R键",
                 "start" to "START", "select" to "SELECT"
             )
