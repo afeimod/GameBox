@@ -129,14 +129,29 @@ class PsxEngine private constructor() : EmulatorEngine {
 
                     onFrame()
 
-                    val targetNs = 1_000_000_000L / 60
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                        } catch (_: InterruptedException) {
-                            break
+                    if (_ffSpeed > 0) {
+                        // Fast-forward: pace to target speed (same pattern as
+                        // NesEngine / SnesEngine — without this branch the
+                        // loop keeps sleeping to a fixed 60fps and
+                        // fast-forward has no effect).
+                        val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                            catch (_: InterruptedException) { break }
+                        }
+                    } else {
+                        // Normal: pace to ~60fps (NTSC)
+                        val targetNs = 1_000_000_000L / 60
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
                         }
                     }
                 }
@@ -279,8 +294,8 @@ class PsxEngine private constructor() : EmulatorEngine {
     fun setPad4(bits: Int) = PsxNative.setPad4(bits)
     override fun setRegion(region: Int) = PsxNative.setRegion(region)
     override fun setSampleRate(rate: Int) = PsxNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = PsxNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = PsxNative.loadState(slot, src.absolutePath)
+    override fun saveState(slot: Int, dst: File) { PsxNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { PsxNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

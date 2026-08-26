@@ -60,8 +60,8 @@ void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
 
-bool Engine::saveState(int slot, const std::string& path) {
-    return rom::saveStateToPath(slot, path);
+void Engine::saveState(int slot, const std::string& path) {
+    rom::saveStateToPath(slot, path);
 }
 
 bool Engine::loadState(int slot, const std::string& path) {
@@ -198,9 +198,9 @@ Java_com_nesstation_app_core_jni_NdsNative_setFastForward(JNIEnv*, jclass, jint 
 JNIEXPORT jboolean JNICALL
 Java_com_nesstation_app_core_jni_NdsNative_saveState(JNIEnv* env, jclass, jint slot, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = ndscore::Engine::instance().saveState(slot, cpath ? cpath : "");
+    ndscore::Engine::instance().saveState(slot, cpath ? cpath : "");
     if (cpath) env->ReleaseStringUTFChars(path, cpath);
-    return ok ? JNI_TRUE : JNI_FALSE;
+    return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL

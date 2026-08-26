@@ -296,17 +296,6 @@ fun SettingsScreen(
                                     }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                                 }
                             )
-                            // 全局 FPS 显示 —— 游戏画面左上角实时显示模拟帧率
-                            SettingsRow(
-                                "显示帧数",
-                                if (padLayout.showFps) "开启" else "关闭",
-                                showSubtitle = true,
-                                trailing = {
-                                    Switch(checked = padLayout.showFps, onCheckedChange = {
-                                        updateLayout(padLayout.copy {showFps = it})
-                                    }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
-                                }
-                            )
                         }
                     }
 
@@ -322,15 +311,6 @@ fun SettingsScreen(
                                     trailing = {
                                         Switch(checked = padLayout.showPad, onCheckedChange = {
                                             updateLayout(padLayout.copy {showPad = it})
-                                        }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
-                                    }
-                                )
-                                // 1P/2P/3P/4P 玩家切换悬浮球（小圆形、可拖动）
-                                SettingsRow("玩家切换按钮", if (padLayout.showPlayerSwitch) "显示" else "隐藏",
-                                    showSubtitle = false,
-                                    trailing = {
-                                        Switch(checked = padLayout.showPlayerSwitch, onCheckedChange = {
-                                            updateLayout(padLayout.copy {showPlayerSwitch = it})
                                         }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE74C3C)))
                                     }
                                 )

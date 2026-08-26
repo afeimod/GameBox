@@ -156,17 +156,31 @@ class DosEngine private constructor() : EmulatorEngine {
 
                     onFrame()
 
-                    // DOSBox-Pure typically runs at 60-70 fps; pace to 60 fps.
-                    // The core's `dosbox_pure_force60fps` option (default on)
-                    // already normalizes output to 60 fps.
-                    val targetNs = 1_000_000_000L / 60
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                        } catch (_: InterruptedException) {
-                            break
+                    if (_ffSpeed > 0) {
+                        // Fast-forward: pace to target speed (same pattern as
+                        // NesEngine / SnesEngine — without this branch the
+                        // loop keeps sleeping to a fixed 60fps and
+                        // fast-forward has no effect).
+                        val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                            catch (_: InterruptedException) { break }
+                        }
+                    } else {
+                        // DOSBox-Pure typically runs at 60-70 fps; pace to 60 fps.
+                        // The core's `dosbox_pure_force60fps` option (default on)
+                        // already normalizes output to 60 fps.
+                        val targetNs = 1_000_000_000L / 60
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
                         }
                     }
                 }
@@ -382,8 +396,8 @@ class DosEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) { /* DOS is single-player only */ }
     override fun setRegion(region: Int) = DosNative.setRegion(region)
     override fun setSampleRate(rate: Int) = DosNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = DosNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = DosNative.loadState(slot, src.absolutePath)
+    override fun saveState(slot: Int, dst: File) { DosNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { DosNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

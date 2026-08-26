@@ -108,6 +108,9 @@ class NdsEngine private constructor() : EmulatorEngine {
                 android.os.Process.setThreadPriority(
                     android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
                 )
+                // Pull-phase counter for the fast-forward frame-pull throttle
+                // below (thread-confined — only touched from this thread).
+                var ffPullCnt = 0
                 while (running.get()) {
                     if (_paused) {
                         try { Thread.sleep(16) } catch (_: InterruptedException) { break }
@@ -148,25 +151,55 @@ class NdsEngine private constructor() : EmulatorEngine {
                     //    would copy ~400 KB through JNI per frame for nothing
                     //    (screenshots pull on demand via captureFrame()).
                     if (!hasSurface) {
-                        val fw = NdsNative.filteredVideoWidth().coerceAtLeast(1)
-                        val fh = NdsNative.filteredVideoHeight().coerceAtLeast(1)
-                        if (fw > 0 && fh > 0 && frameBuffer.size < fw * fh) {
-                            frameBuffer = IntArray(fw * fh)
+                        // Fast-forward pull throttle: while fast-forwarding the
+                        // native cb_video only refreshes s_filteredFrame every
+                        // _ffSpeed-th frame (its frame-skip early-returns BEFORE
+                        // the CPU filter pipeline), so pulling every loop
+                        // iteration would copy up to ~6 MB/frame (HQ4X upscale)
+                        // through JNI for stale data and throttle the
+                        // fast-forward. Pull at the same 1/speed rate.
+                        if (_ffSpeed <= 0 || ffPullCnt % _ffSpeed == 0) {
+                            val fw = NdsNative.filteredVideoWidth().coerceAtLeast(1)
+                            val fh = NdsNative.filteredVideoHeight().coerceAtLeast(1)
+                            if (fw > 0 && fh > 0 && frameBuffer.size < fw * fh) {
+                                frameBuffer = IntArray(fw * fh)
+                            }
+                            NdsNative.getFilteredFrameBuffer(frameBuffer)
                         }
-                        NdsNative.getFilteredFrameBuffer(frameBuffer)
+                        ffPullCnt++
                     }
 
                     onFrame()
 
-                    // DS runs at ~60fps (59.83 for NDS, but 60 is close enough)
-                    val targetNs = 1_000_000_000L / 60
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                        } catch (_: InterruptedException) {
-                            break
+                    if (_ffSpeed > 0) {
+                        // Fast-forward: pace to the target speed (same pattern
+                        // as NesEngine / SnesEngine / GbaEngine / etc.).
+                        // The native loader already skips most surface blits
+                        // while fast-forward is active (nds_loader.cpp
+                        // cb_video frame-skip), and the audio ring buffer
+                        // drops overflow instead of blocking, so the emulation
+                        // thread is free to run at full speed. Without this
+                        // branch the loop would keep sleeping to a fixed
+                        // 60fps and fast-forward would have NO effect.
+                        val targetNs = 1_000_000_000L / (60 * _ffSpeed)
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
+                            catch (_: InterruptedException) { break }
+                        }
+                    } else {
+                        // Normal speed: DS runs at ~60fps (59.83 for NDS, but
+                        // 60 is close enough)
+                        val targetNs = 1_000_000_000L / 60
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
                         }
                     }
                 }
@@ -339,8 +372,8 @@ class NdsEngine private constructor() : EmulatorEngine {
     fun setTouchInputDirect(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInputDirect(x, y, pressed)
     override fun setRegion(region: Int) = NdsNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NdsNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = NdsNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = NdsNative.loadState(slot, src.absolutePath)
+    override fun saveState(slot: Int, dst: File) { NdsNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { NdsNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

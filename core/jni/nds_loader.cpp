@@ -150,28 +150,6 @@ static std::string s_lastRomPath;
 static std::string s_coreMessage;
 static std::string s_coreError;
 
-// ---------------------------------------------------------------------------
-// Core-wide mutex — serializes every retro_* call that touches the melonDS
-// NDS instance.
-//
-// The Kotlin side owns the emulation thread (ndscore-loop → stepFrame →
-// retro_run), but saveState / loadState / reset are invoked from the UI
-// thread (Compose dialogs). Without this mutex, retro_serialize /
-// retro_unserialize (NDS::DoSavestate walks the ENTIRE emulator state) can
-// run CONCURRENTLY with retro_run (NDS::RunFrame mutating the exact same
-// structures) — a data race that corrupts savestates and can crash the
-// process. This replaces the old "all retro_* calls happen on a single
-// thread" assumption, which was never true for the save/load/reset path.
-//
-// recursive: harmless safety against accidental nested locking (e.g. if a
-// future code path calls resetEmulation from inside stepFrame).
-//
-// Frame/audio buffers keep their own dedicated mutexes (s_frameMtx /
-// audio ring) and are NOT covered by this lock — those are designed for
-// cross-thread concurrent access.
-// ---------------------------------------------------------------------------
-static std::recursive_mutex s_coreMtx;
-
 // Persistent copy of the currently-loaded ROM path.
 // melonDS may read retro_game_info.path asynchronously (e.g. for save-state
 // naming), so the pointer must outlive the JNI GetStringUTFChars /
@@ -969,11 +947,6 @@ static std::string getExtensionLower(const std::string& path) {
 std::string loadFromFile(const std::string& path, int& regionOut) {
     regionOut = 0;
 
-    // Serialize against the emulation thread (stepFrame / save / load
-    // state). The Kotlin side joins the previous emulation thread before
-    // calling this, but the lock makes the invariant explicit and safe.
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
-
     if (!loadCoreLib()) {
         return s_coreError.empty()
             ? "Failed to load libmelonds_libretro_android.so"
@@ -1172,10 +1145,6 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 }
 
 void unload() {
-    // Hold the core mutex while the core is torn down — retro_unload_game
-    // flushes the .sav and destroys the NDS instance; it must not race a
-    // pending stepFrame / saveState call.
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
     if (s_loaded) {
         if (s_gameLoaded) {
             // NOTE: melonDS persists its SRAM to .sav inside retro_unload_game()
@@ -1231,9 +1200,6 @@ void unload() {
 }
 
 void resetEmulation(bool /*hard*/) {
-    // Hold the core mutex: resetEmulation is called from the UI thread
-    // while the emulation thread may be inside retro_run.
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
     if (s_loaded && s_gameLoaded) retro_reset();
 }
 
@@ -1242,11 +1208,6 @@ void stepFrame() {
         LOGW("stepFrame: not loaded (s_loaded=%d s_gameLoaded=%d)", s_loaded, s_gameLoaded);
         return;
     }
-
-    // Serialize retro_run against save/load-state and reset, which run on
-    // the UI thread. Without this, DoSavestate can walk emulator state
-    // while NDS::RunFrame is mutating it (corrupt savestates / crashes).
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
 
     // Ensure the EGL context is current on the emulation thread
     // before calling retro_run(). The melonDS core's 3D renderer
@@ -1380,18 +1341,12 @@ void applySpeed(float multiplier) {
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 
-bool saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded) return false;
-    // Hold the core mutex across BOTH retro_serialize_size and
-    // retro_serialize so the state cannot change between the two passes
-    // (a size change mid-way would make the second pass overflow the
-    // buffer allocated from the first pass) and so DoSavestate never runs
-    // concurrently with retro_run on the emulation thread.
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
+void saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded) return;
     size_t sz = retro_serialize_size();
     if (sz == 0) {
         LOGE("retro_serialize_size returned 0 — cannot save state (DSi mode or no game)");
-        return false;
+        return;
     }
     std::vector<uint8_t> buf(sz);
     // Zero-initialise so a partial write (savestate->Error) doesn't leave
@@ -1399,18 +1354,13 @@ bool saveStateToPath(int /*slot*/, const std::string& path) {
     std::memset(buf.data(), 0, sz);
     if (!retro_serialize(buf.data(), sz)) {
         LOGE("retro_serialize failed — not writing save state file to %s", path.c_str());
-        return false;
+        return;
     }
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return false; }
-    size_t wr = std::fwrite(buf.data(), 1, sz, f);
+    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
+    std::fwrite(buf.data(), 1, sz, f);
     std::fclose(f);
-    if (wr != sz) {
-        LOGE("Short write on save state %s (%zu/%zu bytes)", path.c_str(), wr, sz);
-        return false;
-    }
     LOGI("NDS save state written: %zu bytes to %s", sz, path.c_str());
-    return true;
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
@@ -1425,10 +1375,6 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    // Hold the core mutex while the state is restored into the NDS
-    // instance — retro_unserialize rewrites the entire emulator state and
-    // must not race retro_run on the emulation thread.
-    std::lock_guard<std::recursive_mutex> lk(s_coreMtx);
     if (!retro_unserialize(buf.data(), sz)) {
         LOGE("retro_unserialize failed for %s (size=%ld) — save state may be from a different version",
              path.c_str(), sz);

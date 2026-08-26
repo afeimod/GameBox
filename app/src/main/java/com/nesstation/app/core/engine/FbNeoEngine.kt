@@ -307,8 +307,8 @@ class FbNeoEngine private constructor() : EmulatorEngine {
     fun setPad4(bits: Int) = FbNeoNative.setPad4(bits)
     override fun setRegion(region: Int) = FbNeoNative.setRegion(region)
     override fun setSampleRate(rate: Int) = FbNeoNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = FbNeoNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = FbNeoNative.loadState(slot, src.absolutePath)
+    override fun saveState(slot: Int, dst: File) { FbNeoNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { FbNeoNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

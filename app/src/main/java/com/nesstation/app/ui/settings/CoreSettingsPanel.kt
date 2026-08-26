@@ -692,16 +692,6 @@ fun CoreSettingsPanel(
                         listOf("Toggle" to "切换", "Hold" to "按住"),
                         padLayout.ndsSwapscreenMode
                     ) { updateLayout(padLayout.copy {ndsSwapscreenMode = it}) }
-                    // NDS 存档方式：
-                    //   nesstation  → 统一存档目录 <filesDir>/saves/<gameId>.sav
-                    //   core_builtin → ROM 同目录同名 .sav（官方 melonDS APK 兼容）
-                    DropdownRow("存档方式",
-                        listOf(
-                            "nesstation" to "NesStation (统一存档目录)",
-                            "core_builtin" to "ROM 同目录同名 .sav (兼容官方 melonDS)"
-                        ),
-                        padLayout.ndsSaveMode
-                    ) { updateLayout(padLayout.copy {ndsSaveMode = it}) }
                     DropdownRow("OpenGL 渲染器",
                         listOf("enabled" to "开启(硬件加速,推荐)", "disabled" to "关闭(软件渲染)"),
                         padLayout.ndsOpenGlRenderer
