@@ -120,36 +120,8 @@ void applyRegion(int region);
 void applySampleRate(int hz);
 void applySpeed(float multiplier);
 
-// Save the full machine state (retro_serialize) to `path`. The file is
-// written fully before returning — partial / corrupt writes return false
-// and leave any existing file at `path` untouched.
-// Returns true on success, false on:
-//   * no ROM loaded
-//   * retro_serialize_size() returns 0 (DSi mode or null NDS object)
-//   * retro_serialize() fails
-//   * fopen / fwrite / fflush / fclose fails
-// The caller (Engine::saveState) acquires s_stateMtx before calling, so
-// retro_run() can't race and produce a torn savestate.
-bool saveStateToPath(int slot, const std::string& path);
-// Load a previously-saved machine state (retro_unserialize) from `path`.
-// Returns true on success, false on:
-//   * no ROM loaded
-//   * file open / read / size-check failure
-//   * retro_unserialize() fails (corrupt or incompatible savestate)
-// The caller (Engine::loadState) acquires s_stateMtx so retro_run() can't
-// overwrite the just-restored state on the very next frame.
+void saveStateToPath(int slot, const std::string& path);
 bool loadStateFromPath(int slot, const std::string& path);
-
-// --- Manual in-game .sav (battery save) control ---
-// Flush the core's current SAVE_RAM buffer to the per-game .srm file using
-// an atomic temp-file + rename — safe to call mid-emulation (the caller
-// MUST hold the state mutex via the Engine layer).
-// Returns true on success, false on any I/O error or no-SAVE_RAM case.
-bool flushSaveRamToDisk();
-// Reload the per-game .srm file into the core's SAVE_RAM buffer, replacing
-// any in-core progress. Safe to call mid-emulation (caller holds state mutex).
-// Returns true on success, false on any I/O error or no-SAVE_RAM case.
-bool reloadSaveRamFromDisk();
 
 // --- Hardware-accelerated rendering ---
 void setSurface(void* nativeWindow);

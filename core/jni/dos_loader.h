@@ -68,16 +68,8 @@ void applyRegion(int region);
 void applySampleRate(int hz);
 void applySpeed(float multiplier);
 
-bool saveStateToPath(int slot, const std::string& path);
+void saveStateToPath(int slot, const std::string& path);
 bool loadStateFromPath(int slot, const std::string& path);
-
-// --- Manual in-game .sav (battery save) control ---
-// NOTE: DOSBox-Pure manages its own saves via an internal filesystem
-// image (NOT RETRO_MEMORY_SAVE_RAM), so these are no-ops that return
-// false. They are kept in the API for uniformity with the other cores.
-// Returns true on success, false on any I/O error or no-SAVE_RAM case.
-bool flushSaveRamToDisk();
-bool reloadSaveRamFromDisk();
 
 void setSurface(void* nativeWindow);
 

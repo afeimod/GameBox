@@ -137,21 +137,6 @@ static coreshared::AudioResampler s_resampler;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
-// Mutex serializing save/load-state and SRAM-flush operations against the
-// running emulation thread. Snes9x's savestate code does NOT internally
-// lock against retro_run(), so without this mutex, calling
-// retro_serialize() / retro_unserialize() from the UI thread while the
-// emulation thread is mid-retro_run() corrupts the SNES's internal state —
-// and the corrupted .state file then either fails to load on next attempt,
-// or loads but produces a broken game state. stepFrame() acquires this lock
-// around retro_run(); saveStateToPath/loadStateFromPath/flushSaveRamToDisk/
-// reloadSaveRamFromDisk acquire it around their retro_serialize /
-// retro_unserialize / SAVE_RAM I/O.
-//
-// The lock is non-recursive; only one operation holds it at a time. The
-// emulation loop must NOT call any save/load state function from itself.
-static std::mutex s_stateMtx;
-
 // Fast-forward: when true, skip most surface blits to prevent
 // ANativeWindow_lock from blocking the emulation thread.
 static std::atomic<bool> s_fastForward{false};
@@ -703,11 +688,6 @@ void resetEmulation(bool /*hard*/) {
 
 void stepFrame() {
     if (!s_loaded) return;
-    // Hold s_stateMtx across retro_run() so a concurrent save/load-state
-    // call (from the UI thread via saveStateToPath / loadStateFromPath /
-    // flushSaveRamToDisk / reloadSaveRamFromDisk) cannot race against
-    // Snes9x's frame update and corrupt internal state.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
     retro_run();
 }
 
@@ -769,25 +749,16 @@ void applySpeed(float multiplier) {
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 
-bool saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded) return false;
-    // Hold the state mutex so stepFrame()'s retro_run() can't corrupt
-    // the savestate mid-serialize.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
+void saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded) return;
     size_t sz = retro_serialize_size();
-    if (sz == 0) { LOGE("saveStateToPath: retro_serialize_size()=0"); return false; }
+    if (sz == 0) return;
     std::vector<uint8_t> buf(sz);
-    if (!retro_serialize(buf.data(), sz)) { LOGE("saveStateToPath: retro_serialize failed"); return false; }
+    if (!retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) { LOGE("saveStateToPath: cannot open for write: %s", path.c_str()); return false; }
-    size_t wr = std::fwrite(buf.data(), 1, sz, f);
-    int flushErr = std::fflush(f);
+    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
+    std::fwrite(buf.data(), 1, sz, f);
     std::fclose(f);
-    if (wr != sz || flushErr != 0) {
-        LOGE("saveStateToPath: short write (wr=%zu, sz=%zu) — file may be corrupt", wr, sz);
-        return false;
-    }
-    return true;
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
@@ -802,34 +773,7 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    // Hold the state mutex while retro_unserialize() restores SNES state.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    if (!retro_unserialize(buf.data(), sz)) { LOGE("loadStateFromPath: retro_unserialize failed (sz=%ld)", sz); return false; }
-    return true;
-}
-
-bool flushSaveRamToDisk() {
-    if (!s_loaded || s_lastRomPath.empty()) return false;
-    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-    if (!sram || sramSize == 0) {
-        LOGI("flushSaveRam: no SAVE_RAM region — this game has no battery save");
-        return false;
-    }
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    return coreshared::saveSramToDiskAtomic(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
-}
-
-bool reloadSaveRamFromDisk() {
-    if (!s_loaded || s_lastRomPath.empty()) return false;
-    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-    if (!sram || sramSize == 0) {
-        LOGI("reloadSaveRam: no SAVE_RAM region — this game has no battery save");
-        return false;
-    }
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
+    if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
     return true;
 }
 

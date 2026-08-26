@@ -320,11 +320,8 @@ class SnesEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = SnesNative.setPad2(bits)
     override fun setRegion(region: Int) = SnesNative.setRegion(region)
     override fun setSampleRate(rate: Int) = SnesNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = SnesNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = SnesNative.loadState(slot, src.absolutePath)
-
-    override fun flushSaveRam(): Boolean = SnesNative.flushSaveRam()
-    override fun reloadSaveRam(): Boolean = SnesNative.reloadSaveRam()
+    override fun saveState(slot: Int, dst: File) { SnesNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { SnesNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

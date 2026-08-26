@@ -70,7 +70,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -95,7 +94,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -636,20 +634,6 @@ fun EmulatorScreen(
     var saveLoadSlot by remember { mutableStateOf(0) } // 0-9 state slots
     var showSlotPicker by remember { mutableStateOf<String?>(null) } // "save" | "load" | null
     var showFFSpeedPicker by remember { mutableStateOf(false) }
-
-    // === Save mechanism setting (核心sav vs NesStation存档) ===
-    // Mirrors the global setting in SettingsRepository.saveMechanism. The
-    // in-game menu's save/load buttons branch on this:
-    //   "nesstation" (default) — opens the 10-slot picker
-    //   "core_sav"             — calls engine.flushSaveRam() / reloadSaveRam()
-    //     directly (atomic .srm write / discard-progress reload)
-    // The flow is collected once per EmulatorScreen so the value stays
-    // current even if the user changes the setting from the Settings panel
-    // (which is reachable from the in-game menu) and then re-opens the
-    // save/load button.
-    val saveMechanism by com.nesstation.app.core.storage.SettingsRepository
-        .saveMechanism
-        .collectAsState(initial = "nesstation")
 
     // Current active player for on-screen controller input (0-indexed).
     // 0 = player 1, 1 = player 2, etc.
@@ -1429,7 +1413,6 @@ fun EmulatorScreen(
                 ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
                 ndsTopRect = ndsTopRect,
                 ndsBottomRect = ndsBottomRect,
-                gameViewTracker = gameViewTracker,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -1661,40 +1644,8 @@ fun EmulatorScreen(
                         Toast.makeText(context, "截图失败：无画面数据", Toast.LENGTH_SHORT).show()
                     }
                 },
-                onSaveState = {
-                    // Branch on the global "存档机制" setting:
-                    //   "core_sav"     → flush the core's battery save (.srm)
-                    //                   immediately via the native atomic
-                    //                   write path (flushSaveRam → temp +
-                    //                   rename). The user gets a toast with
-                    //                   the actual success/failure result —
-                    //                   previous code hardcoded JNI_TRUE so
-                    //                   the user always saw "存档已保存" even
-                    //                   on silent failure.
-                    //   "nesstation"   → open the 10-slot picker (default).
-                    if (saveMechanism == "core_sav") {
-                        val ok = engine.flushSaveRam()
-                        val msg = if (ok) "sav 存档已写入 (.srm)"
-                                  else "sav 存档失败 (核心无电池存档或写入错误)"
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    } else {
-                        showSlotPicker = "save"
-                    }
-                },
-                onLoadState = {
-                    if (saveMechanism == "core_sav") {
-                        // Discard current in-game progress and reload the
-                        // last-persisted .srm from disk. The user is warned
-                        // via toast that progress is lost — this is the
-                        // expected behaviour for "load save" semantics.
-                        val ok = engine.reloadSaveRam()
-                        val msg = if (ok) "sav 存档已读取 (.srm)"
-                                  else "sav 读档失败 (无 .srm 或核心无电池存档)"
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    } else {
-                        showSlotPicker = "load"
-                    }
-                },
+                onSaveState = { showSlotPicker = "save" },
+                onLoadState = { showSlotPicker = "load" },
                 onReset = {
                     engine.reset(hard = false)
                     Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
@@ -1706,7 +1657,7 @@ fun EmulatorScreen(
             )
         }
 
-        // State slot picker dialog (only shown when saveMechanism == "nesstation")
+        // State slot picker dialog
         if (showSlotPicker != null) {
             val savesDir = java.io.File(context.filesDir, "saves").apply { mkdirs() }
             SlotPickerDialog(
@@ -1718,34 +1669,20 @@ fun EmulatorScreen(
                 onSlotSelected = { slot ->
                     val stateFile = java.io.File(savesDir, "${game.id}_slot${slot}.state")
                     if (showSlotPicker == "save") {
-                        // CRITICAL FIX: check the native return value.
-                        // The previous code only caught Java exceptions —
-                        // native code returns a Boolean (now correctly
-                        // propagated after the JNI fix), so without this
-                        // check the toast always said "存档已保存" even when
-                        // retro_serialize() had failed (race condition,
-                        // DSi mode, no game loaded, file I/O error).
-                        val ok = try { engine.saveState(slot, stateFile) }
-                                  catch (e: Exception) { false }
-                        val msg = if (ok) "存档已保存 [槽位 $slot]"
-                                  else "存档失败 (核心返回 false — 见 logcat)"
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        try {
+                            engine.saveState(slot, stateFile)
+                            Toast.makeText(context, "存档已保存 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "存档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     } else {
                         if (stateFile.exists()) {
-                            // Same fix for load: inspect the actual return
-                            // value. The previous toast always said
-                            // "存档已读取" even when retro_unserialize() had
-                            // silently failed (the JNI hardcodes JNI_TRUE
-                            // for saveState; loadState already returned
-                            // the real value but the engine wrapper
-                            // discarded it — now propagated via the
-                            // EmulatorEngine.saveState/loadState → Boolean
-                            // interface change).
-                            val ok = try { engine.loadState(slot, stateFile) }
-                                      catch (e: Exception) { false }
-                            val msg = if (ok) "存档已读取 [槽位 $slot]"
-                                      else "读档失败 (核心返回 false — 文件可能已损坏)"
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            try {
+                                engine.loadState(slot, stateFile)
+                                Toast.makeText(context, "存档已读取 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "读档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
                         } else {
                             Toast.makeText(context, "槽位 $slot 无存档", Toast.LENGTH_SHORT).show()
                         }
@@ -2364,11 +2301,7 @@ private fun GameSurfaceView(
     // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
     ndsScreenGapPx: Int = 0,
     // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
-    ndsOpenGl: Boolean = false,
-    // 游戏视图根坐标追踪 Modifier（由调用方 EmulatorScreen 通过
-    // onGloballyPositioned 维护 gameViewPosInRoot/gameViewSize）。
-    // NDS 触摸转发需要把根坐标换算为游戏视图局部坐标。
-    gameViewTracker: Modifier = Modifier
+    ndsOpenGl: Boolean = false
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -3244,11 +3177,6 @@ fun OnScreenController(
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
-                            BtnType.GAME_AREA -> {
-                                // 不应该到达这里：GAME_AREA 在 processDown 早段处理并
-                                // return（activePointers 已写入并转发到 onUnhandledTouch）。
-                                // 添加分支仅为满足 Kotlin when 表达式穷尽性。
-                            }
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -5265,7 +5193,6 @@ private fun PadLayoutEditor(
             BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
             BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
-            BtnType.GAME_AREA -> padLayout  // 不是布局可编辑的按钮，仅占位以满足穷尽性
         }
         onLayoutChange(updated)
     }
@@ -5572,7 +5499,6 @@ private fun PadLayoutEditor(
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
-                    BtnType.GAME_AREA -> { currentSize = 0; minSize = 0; maxSize = 0; label = "" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5600,7 +5526,6 @@ private fun PadLayoutEditor(
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
-                            BtnType.GAME_AREA -> ButtonLayout(0f, 0f, 0)  // unreachable in editor
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },

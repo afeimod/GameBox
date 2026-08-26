@@ -309,11 +309,8 @@ class GenesisEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = GenesisNative.setPad2(bits)
     override fun setRegion(region: Int) = GenesisNative.setRegion(region)
     override fun setSampleRate(rate: Int) = GenesisNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = GenesisNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = GenesisNative.loadState(slot, src.absolutePath)
-
-    override fun flushSaveRam(): Boolean = GenesisNative.flushSaveRam()
-    override fun reloadSaveRam(): Boolean = GenesisNative.reloadSaveRam()
+    override fun saveState(slot: Int, dst: File) { GenesisNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { GenesisNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

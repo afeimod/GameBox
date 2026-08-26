@@ -200,26 +200,6 @@ static coreshared::AudioResampler s_resampler;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
-// Mutex serializing save/load-state operations against the running
-// emulation thread. DOSBox-Pure's savestate code does NOT internally
-// lock against retro_run(), so without this mutex, calling
-// retro_serialize() / retro_unserialize() from the UI thread while the
-// emulation thread is mid-retro_run() corrupts DOSBox-Pure's internal
-// state — and the corrupted .state file then either fails to load on
-// next attempt, or loads but produces a broken game state. stepFrame()
-// acquires this lock around s_retro_run(); saveStateToPath /
-// loadStateFromPath acquire it around their s_retro_serialize /
-// s_retro_unserialize calls.
-//
-// NOTE: flushSaveRamToDisk / reloadSaveRamFromDisk are no-ops for DOS
-// (DOSBox-Pure manages its own saves via filesystem image, NOT via
-// RETRO_MEMORY_SAVE_RAM). They are kept in the API for uniformity with
-// the other cores.
-//
-// The lock is non-recursive; only one operation holds it at a time. The
-// emulation loop must NOT call any save/load state function from itself.
-static std::mutex s_stateMtx;
-
 static std::mutex s_optMtx;
 static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
@@ -829,12 +809,6 @@ void resetEmulation(bool /*hard*/) {
 void stepFrame() {
     if (!s_loaded || !s_gameLoaded) return;
 
-    // Hold s_stateMtx across s_retro_run() so a concurrent save/load-state
-    // call (from the UI thread via saveStateToPath / loadStateFromPath)
-    // cannot race against DOSBox-Pure's frame update and corrupt internal
-    // state.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-
     // Fast-forward skip-blit logic
     if (s_fastForward.load()) {
         int skip = s_ffFrameSkip.fetch_add(1);
@@ -952,28 +926,18 @@ void applySpeed(float multiplier) {
     s_fastForward.store(multiplier > 1.0f, std::memory_order_relaxed);
 }
 
-bool saveStateToPath(int slot, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded || !s_retro_serialize) return false;
-    // Hold the state mutex so stepFrame()'s s_retro_run() can't corrupt
-    // the savestate mid-serialize.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
+void saveStateToPath(int slot, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded || !s_retro_serialize) return;
     size_t size = s_retro_serialize_size();
-    if (size == 0) { LOGE("saveStateToPath: s_retro_serialize_size()=0"); return false; }
+    if (size == 0) return;
     std::vector<uint8_t> buf(size);
-    if (!s_retro_serialize(buf.data(), size)) {
-        LOGE("saveStateToPath: s_retro_serialize failed");
-        return false;
+    if (s_retro_serialize(buf.data(), size)) {
+        FILE* fp = fopen(path.c_str(), "wb");
+        if (fp) {
+            fwrite(buf.data(), 1, size, fp);
+            fclose(fp);
+        }
     }
-    FILE* fp = fopen(path.c_str(), "wb");
-    if (!fp) { LOGE("saveStateToPath: cannot open for write: %s", path.c_str()); return false; }
-    size_t wr = fwrite(buf.data(), 1, size, fp);
-    int flushErr = fflush(fp);
-    fclose(fp);
-    if (wr != size || flushErr != 0) {
-        LOGE("saveStateToPath: short write (wr=%zu, sz=%zu) — file may be corrupt", wr, size);
-        return false;
-    }
-    return true;
 }
 
 bool loadStateFromPath(int slot, const std::string& path) {
@@ -988,28 +952,7 @@ bool loadStateFromPath(int slot, const std::string& path) {
     size_t rd = fread(buf.data(), 1, sz, fp);
     fclose(fp);
     if (rd != (size_t)sz) return false;
-    // Hold the state mutex while s_retro_unserialize() restores DOSBox state.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    if (!s_retro_unserialize(buf.data(), sz)) {
-        LOGE("loadStateFromPath: s_retro_unserialize failed (sz=%ld)", sz);
-        return false;
-    }
-    return true;
-}
-
-// DOSBox-Pure does NOT use RETRO_MEMORY_SAVE_RAM — it manages its own saves
-// via an internal filesystem image. These no-ops keep the API uniform across
-// all cores so the Kotlin EmulatorEngine.flushSaveRam / reloadSaveRam
-// overrides work without a special case, but they return false (with a LOGI
-// message) so the caller knows nothing happened.
-bool flushSaveRamToDisk() {
-    LOGI("flushSaveRam: DOSBox-Pure manages its own saves via filesystem image — flushSaveRam not applicable");
-    return false;
-}
-
-bool reloadSaveRamFromDisk() {
-    LOGI("reloadSaveRam: DOSBox-Pure manages its own saves via filesystem image — reloadSaveRam not applicable");
-    return false;
+    return s_retro_unserialize(buf.data(), sz);
 }
 
 void setSurface(void* nativeWindow) {

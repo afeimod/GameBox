@@ -351,11 +351,8 @@ class NesEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = NesNative.setPad2(bits)
     override fun setRegion(region: Int) = NesNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NesNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = NesNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = NesNative.loadState(slot, src.absolutePath)
-
-    override fun flushSaveRam(): Boolean = NesNative.flushSaveRam()
-    override fun reloadSaveRam(): Boolean = NesNative.reloadSaveRam()
+    override fun saveState(slot: Int, dst: File) { NesNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { NesNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

@@ -992,6 +992,22 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    path_remove_extension(game_name);
    s_retro_game_name = game_name;
 
+   // Re-query the save directory at retro_load_game time so the frontend
+   // can return a per-ROM directory (e.g. the ROM's parent directory)
+   // instead of the one cached at retro_init time. Without this re-query,
+   // .sav files would always land in the frontend's initial saves dir
+   // regardless of which ROM is loaded. The frontend's
+   // RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY handler (see nds_loader.cpp)
+   // returns the ROM's parent directory when available, so the .sav
+   // lands next to the ROM (matching standalone melonDS behavior).
+   {
+      const char *save_dir_now = nullptr;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &save_dir_now)
+          && save_dir_now && save_dir_now[0])
+      {
+         sprintf(retro_saves_directory, "%s", save_dir_now);
+      }
+   }
    retro_save_path = std::string(retro_saves_directory) + "/" + std::string(game_name) + ".sav";
 
    // Load the ROM

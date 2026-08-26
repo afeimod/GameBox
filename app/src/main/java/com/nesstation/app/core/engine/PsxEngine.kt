@@ -279,11 +279,8 @@ class PsxEngine private constructor() : EmulatorEngine {
     fun setPad4(bits: Int) = PsxNative.setPad4(bits)
     override fun setRegion(region: Int) = PsxNative.setRegion(region)
     override fun setSampleRate(rate: Int) = PsxNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File): Boolean = PsxNative.saveState(slot, dst.absolutePath)
-    override fun loadState(slot: Int, src: File): Boolean = PsxNative.loadState(slot, src.absolutePath)
-
-    override fun flushSaveRam(): Boolean = PsxNative.flushSaveRam()
-    override fun reloadSaveRam(): Boolean = PsxNative.reloadSaveRam()
+    override fun saveState(slot: Int, dst: File) { PsxNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { PsxNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

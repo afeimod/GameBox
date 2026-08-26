@@ -117,31 +117,6 @@ object NdsNative {
     @JvmStatic external fun saveState(slot: Int, path: String): Boolean
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean
 
-    /**
-     * Flush the core's SAVE_RAM (battery save / .srm) to disk atomically.
-     * Safe to call mid-emulation (the native loader takes a state mutex
-     * so retro_run() can't race). Returns false if no game is loaded,
-     * the game has no SAVE_RAM region (e.g. some homebrew), or the write
-     * fails (in which case the previous .srm is left intact via the
-     * temp-file + rename atomic write).
-     *
-     * Used by the global "存档机制" setting when "核心sav存档" is selected
-     * — the menu's save button calls this directly instead of opening
-     * the slot picker.
-     */
-    @JvmStatic external fun flushSaveRam(): Boolean
-
-    /**
-     * Reload the per-game .srm file into the core's SAVE_RAM buffer,
-     * discarding any unsaved in-game progress. Safe to call mid-emulation.
-     * Returns false if no game is loaded or no .srm exists.
-     *
-     * Used by the global "存档机制" setting when "核心sav存档" is selected
-     * — the menu's load button calls this directly instead of opening
-     * the slot picker.
-     */
-    @JvmStatic external fun reloadSaveRam(): Boolean
-
     @JvmStatic external fun getFrameBuffer(out: IntArray): Boolean
 
     /**

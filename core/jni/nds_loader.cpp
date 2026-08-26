@@ -140,6 +140,16 @@ static std::string s_lastRomPath;
 static std::string s_coreMessage;
 static std::string s_coreError;
 
+// Effective save directory returned to the melonDS core via
+// RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY. melonDS's Platform::WriteNDSSave
+// writes the cartridge .sav file to "<saveDir>/<game_name>.sav". By
+// pointing this at the ROM's parent directory, the .sav lands next to
+// the ROM (e.g. /sdcard/Games/Mario.nds → /sdcard/Games/Mario.sav),
+// matching the behavior of standalone melonDS and other NDS emulators.
+// Falls back to s_saveDir (frontend's saves dir) when the ROM path is
+// unavailable or content:// URI (which can't be a save target).
+static std::string s_effectiveSaveDir;
+
 // Persistent copy of the currently-loaded ROM path.
 // melonDS may read retro_game_info.path asynchronously (e.g. for save-state
 // naming), so the pointer must outlive the JNI GetStringUTFChars /
@@ -202,21 +212,6 @@ static coreshared::AudioResampler s_resampler;
 
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
-
-// Mutex serializing save/load-state and SRAM-flush operations against the
-// running emulation thread. melonDS's DoSavestate() does NOT internally lock
-// against RunFrame(), so without this mutex, calling retro_serialize() /
-// retro_unserialize() from the UI thread while the emulation thread is
-// mid-retro_run() corrupts the NDS's internal state — and the corrupted
-// .state file then either fails to load on next attempt, or loads but
-// produces a broken game state. stepFrame() acquires this lock around
-// retro_run(); saveStateToPath/loadStateFromPath/flushSaveRamToDisk/
-// reloadSaveRamFromDisk acquire it around their retro_serialize /
-// retro_unserialize / SAVE_RAM I/O.
-//
-// The lock is non-recursive; only one operation holds it at a time. The
-// emulation loop must NOT call any save/load state function from itself.
-static std::mutex s_stateMtx;
 
 static std::mutex s_optMtx;
 static std::map<std::string, std::string> s_options;
@@ -570,26 +565,13 @@ static void initDefaultOptions() {
     setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
-    // OpenGL renderer. ENABLED by default: hardware-accelerated 3D rendering
-    // is 10-100x faster than the software rasterizer for 3D games (Pokemon,
-    // Mario Kart, etc.). Modern Android devices (API 24+) universally support
-    // OpenGL ES 3.0+ which melonDS requires for its GL shaders.
-    //
-    // SAFETY: initialize_opengl() in opengl.cpp has multiple safe fallbacks:
-    //   1. SET_HW_RENDER rejected by frontend → returns false → software
-    //   2. glad_glEnable NULL (EGL context creation failed) → false → software
-    //   3. GLRenderer::New() fails (shader compile / GL caps) → false → software
-    // In all fallback cases, enable_opengl is set back to false and the
-    // soft renderer is used. The previous comment claiming "crashes at pc=0"
-    // was from an earlier broken state — the wrapper code has since added
-    // null-pointer checks before every GL call (see opengl.cpp).
-    //
-    // The previous default "disabled" caused NDS 3D games to fall back to
-    // GPU3D_Soft (single-threaded software rasterizer) which is too slow
-    // for many 3D titles on mid-range Android hardware, leading users to
-    // incorrectly conclude JIT wasn't working (JIT speeds up ARM CPU
-    // emulation but does not help the 3D rasterizer).
-    setIfMissing("melonds_opengl_renderer",        "enabled");
+    // OpenGL renderer. DISABLED by default: this Android build has no
+    // usable GL path (the wrapper never sends RETRO_ENVIRONMENT_SET_HW_RENDER,
+    // so no EGL context is created and glad_glXxx pointers are never
+    // initialized — enabling the GL renderer crashes loadRom at pc=0).
+    // We use the software 3D renderer (GPU3D_Soft). Even if the option is
+    // later set to "enabled", initialize_opengl() safely falls back.
+    setIfMissing("melonds_opengl_renderer",        "disabled");
     // OpenGL 3D rendering resolution (1x = native 256x192, etc.).
     // The value format MUST match libretro_core_options.h exactly:
     // "1x native (256x192)" .. "8x native (2048x1536)".
@@ -661,8 +643,19 @@ static bool cb_environment(unsigned cmd, void* data) {
             return !s_systemDir.empty();
 
         case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
-            if (data) *static_cast<const char**>(data) = s_saveDir.c_str();
-            return !s_saveDir.empty();
+            // For NDS we want melonDS to write its .sav next to the ROM
+            // (same dir, same basename) — exactly what standalone melonDS
+            // and other NDS emulators do. s_effectiveSaveDir is computed
+            // in loadGame() from the ROM's parent directory; if we don't
+            // have one (e.g. content:// URI), fall back to the frontend's
+            // dedicated saves dir.
+            if (data) {
+                const std::string& dir = s_effectiveSaveDir.empty()
+                    ? s_saveDir : s_effectiveSaveDir;
+                *static_cast<const char**>(data) = dir.c_str();
+                LOGI("GET_SAVE_DIRECTORY -> %s", dir.c_str());
+            }
+            return !(s_effectiveSaveDir.empty() && s_saveDir.empty());
 
         case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
             if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
@@ -956,25 +949,11 @@ uint64_t frameStamp() {
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
-    // Fast-forward audio suppression: when FF is on, the emulation loop
-    // runs at 60 * ffSpeed fps. Each frame produces ~546 samples, so a
-    // 6x FF produces ~3276 samples per 1/60s wall-clock. The AudioTrack
-    // drains at the native 48000 Hz (~800 samples per 1/60s), so the
-    // ring buffer overflows in <100ms → AudioRingBuffer::push drops the
-    // oldest samples → audible crackle/pop on FF resume.
-    //
-    // Skipping push entirely during FF is the simplest fix: audio is
-    // silent during FF (acceptable for fast-forward UX — users FF to
-    // skip content, not to listen), and the ring buffer stays clean
-    // so audio resumes smoothly when FF ends.
-    if (s_fastForward.load(std::memory_order_relaxed)) return;
     int16_t pair[2] = {left, right};
     s_audio.push(pair, 2);
 }
 
 static size_t cb_audio_batch(const int16_t* data, size_t frames) {
-    // See cb_audio_sample above — skip audio push during FF.
-    if (s_fastForward.load(std::memory_order_relaxed)) return frames;
     s_audio.push(data, frames * 2);
     return frames;
 }
@@ -1112,6 +1091,32 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     gameInfo.data = romBuf.data();
     gameInfo.size = sz;
     gameInfo.meta = nullptr;
+
+    // Compute s_effectiveSaveDir = parent directory of the ROM file so
+    // melonDS's Platform::WriteNDSSave writes "<romDir>/<romBase>.sav"
+    // next to the ROM, matching the behavior of standalone melonDS and
+    // what users expect (the .sav lives with the ROM, not in the
+    // frontend's sandboxed saves dir). We skip this for content:// URIs
+    // (which start with "content:" — not a writable filesystem path)
+    // and relative paths — in those cases we fall back to s_saveDir.
+    //
+    // We patch melonDS's libretro.cpp to re-query GET_SAVE_DIRECTORY
+    // inside retro_load_game (not just at retro_init time), so this
+    // value will be picked up and used to construct retro_save_path.
+    {
+        const char* prefix = "content:";
+        bool isContentUri = (path.rfind(prefix, 0) == 0);
+        size_t slash = path.find_last_of('/');
+        if (!isContentUri && slash != std::string::npos && slash > 0) {
+            s_effectiveSaveDir = path.substr(0, slash);
+            LOGI("NDS .sav will be written next to ROM: %s/<basename>.sav",
+                 s_effectiveSaveDir.c_str());
+        } else {
+            s_effectiveSaveDir.clear();
+            LOGI("ROM path is content:// or root — .sav will fall back to %s",
+                 s_saveDir.c_str());
+        }
+    }
 
     bool ok = retro_load_game(&gameInfo);
 
@@ -1271,6 +1276,7 @@ void unload() {
     s_videoH = 384;
     s_lastRomPath.clear();
     s_saveName.clear();
+    s_effectiveSaveDir.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
     s_pad3.store(0, std::memory_order_relaxed);
@@ -1303,15 +1309,6 @@ void stepFrame() {
         }
     }
 
-    // CRITICAL: Hold s_stateMtx across retro_run() so a concurrent
-    // save/load-state call (from the UI thread via saveStateToPath /
-    // loadStateFromPath / flushSaveRamToDisk / reloadSaveRamFromDisk)
-    // cannot race against melonDS's RunFrame() and corrupt internal
-    // state. The save/load side uses a std::lock_guard on the same
-    // mutex; if the lock is held by the emulation thread, the UI
-    // call blocks until the current frame finishes (~16ms max) —
-    // perfectly acceptable latency for a manual save/load action.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
     retro_run();
 }
 
@@ -1423,37 +1420,16 @@ void applySpeed(float multiplier) {
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 
-bool saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded) return false;
-    // Hold the state mutex so stepFrame()'s retro_run() can't corrupt
-    // the savestate mid-serialize. melonDS's DoSavestate() walks the
-    // entire NDS object graph; concurrent RunFrame() mutates parts of
-    // that same graph → torn savestate that either fails to load or
-    // loads but produces a broken game.
-    std::lock_guard<std::mutex> lk(s_stateMtx);
+void saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded) return;
     size_t sz = retro_serialize_size();
-    if (sz == 0) {
-        LOGE("saveStateToPath: retro_serialize_size()=0 (nds=null or DSi mode)");
-        return false;
-    }
+    if (sz == 0) return;
     std::vector<uint8_t> buf(sz);
-    if (!retro_serialize(buf.data(), sz)) {
-        LOGE("saveStateToPath: retro_serialize failed");
-        return false;
-    }
+    if (!retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) {
-        LOGE("saveStateToPath: cannot open for write: %s", path.c_str());
-        return false;
-    }
-    size_t wr = std::fwrite(buf.data(), 1, sz, f);
-    int flushErr = std::fflush(f);
+    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
+    std::fwrite(buf.data(), 1, sz, f);
     std::fclose(f);
-    if (wr != sz || flushErr != 0) {
-        LOGE("saveStateToPath: short write (wr=%zu, sz=%zu) — file may be corrupt", wr, sz);
-        return false;
-    }
-    return true;
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
@@ -1468,50 +1444,7 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    // Same mutex as saveState — prevents RunFrame() from mutating NDS
-    // state while DoSavestate() (called inside retro_unserialize) is
-    // restoring it. Without this lock, the load would appear to "fail"
-    // because the emulation thread would overwrite the just-restored
-    // state on the very next frame, producing visible game-state
-    // corruption (or, in the worst case, a SIGSEGV from a half-restored
-    // pointer).
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    if (!retro_unserialize(buf.data(), sz)) {
-        LOGE("loadStateFromPath: retro_unserialize failed (sz=%ld)", sz);
-        return false;
-    }
-    return true;
-}
-
-bool flushSaveRamToDisk() {
-    if (!s_loaded || !s_gameLoaded || s_lastRomPath.empty()) return false;
-    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-    if (!sram || sramSize == 0) {
-        LOGI("flushSaveRam: no SAVE_RAM region — this game has no battery save");
-        return false;
-    }
-    // Hold the state mutex while we read SAVE_RAM out of the core —
-    // without it, retro_run() on the emulation thread could update the
-    // SRAM buffer mid-copy, producing a torn .srm. (melonDS's SPU / GPU
-    // code can call into cartridge code that touches SAVE_RAM.)
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    return coreshared::saveSramToDiskAtomic(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
-}
-
-bool reloadSaveRamFromDisk() {
-    if (!s_loaded || !s_gameLoaded || s_lastRomPath.empty()) return false;
-    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-    if (!sram || sramSize == 0) {
-        LOGI("reloadSaveRam: no SAVE_RAM region — this game has no battery save");
-        return false;
-    }
-    std::lock_guard<std::mutex> lk(s_stateMtx);
-    // loadSramFromDisk is read-only on the file and writes to the in-core
-    // SAVE_RAM buffer — must be under the same mutex as retro_run() so
-    // the emulation thread doesn't observe a half-loaded SRAM.
-    coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
+    if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
     return true;
 }
 

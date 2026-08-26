@@ -52,18 +52,8 @@ public:
     void setSampleRate(int hz);
     void setFastForward(int speed);
 
-    bool saveState(int slot, const std::string& dstPath);
+    void saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);
-
-    // Flush the core's SAVE_RAM (battery save / .srm) to disk atomically.
-    // Safe to call mid-emulation — the loader takes the state mutex so
-    // retro_run() can't race. Returns false if no game is loaded, the
-    // game has no SAVE_RAM, or the write fails.
-    bool flushSaveRam();
-    // Reload the per-game .srm file into the core's SAVE_RAM buffer,
-    // discarding any unsaved in-core progress. Safe to call mid-emulation.
-    // Returns false if no game is loaded or no .srm exists.
-    bool reloadSaveRam();
 
     // Pull the latest frame into `out` (w*h uint32, 0xAARRGGBB).
     bool getFrameBuffer(uint32_t* out, int w, int h);

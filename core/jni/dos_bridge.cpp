@@ -78,16 +78,13 @@ void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
 
-bool Engine::saveState(int slot, const std::string& path) {
-    return rom::saveStateToPath(slot, path);
+void Engine::saveState(int slot, const std::string& path) {
+    rom::saveStateToPath(slot, path);
 }
 
 bool Engine::loadState(int slot, const std::string& path) {
     return rom::loadStateFromPath(slot, path);
 }
-
-bool Engine::flushSaveRam()  { return rom::flushSaveRamToDisk(); }
-bool Engine::reloadSaveRam() { return rom::reloadSaveRamFromDisk(); }
 
 bool Engine::getFrameBuffer(uint32_t* out, int w, int h) {
     return rom::copyFramebufferARGB(out, w, h);
@@ -219,9 +216,9 @@ Java_com_nesstation_app_core_jni_DosNative_setFastForward(JNIEnv*, jclass, jint 
 JNIEXPORT jboolean JNICALL
 Java_com_nesstation_app_core_jni_DosNative_saveState(JNIEnv* env, jclass, jint slot, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    bool ok = doscore::Engine::instance().saveState(slot, cpath ? cpath : "");
+    doscore::Engine::instance().saveState(slot, cpath ? cpath : "");
     if (cpath) env->ReleaseStringUTFChars(path, cpath);
-    return ok ? JNI_TRUE : JNI_FALSE;
+    return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL
@@ -230,23 +227,6 @@ Java_com_nesstation_app_core_jni_DosNative_loadState(JNIEnv* env, jclass, jint s
     bool ok = doscore::Engine::instance().loadState(slot, cpath ? cpath : "");
     if (cpath) env->ReleaseStringUTFChars(path, cpath);
     return ok ? JNI_TRUE : JNI_FALSE;
-}
-
-// Manual in-game .sav (battery save) flush — used by the "核心sav存档"
-// save mechanism in the global settings. NOTE: For DOSBox-Pure this is a
-// no-op that returns false (DOS manages its own saves via an internal
-// filesystem image, not RETRO_MEMORY_SAVE_RAM). Kept here for API uniformity.
-JNIEXPORT jboolean JNICALL
-Java_com_nesstation_app_core_jni_DosNative_flushSaveRam(JNIEnv*, jclass) {
-    return doscore::Engine::instance().flushSaveRam() ? JNI_TRUE : JNI_FALSE;
-}
-
-// Reload the per-game .srm into the core's SAVE_RAM buffer — discards
-// any unsaved in-game progress and resets the cartridge RAM to whatever
-// was last persisted to disk. NOTE: For DOSBox-Pure this is a no-op.
-JNIEXPORT jboolean JNICALL
-Java_com_nesstation_app_core_jni_DosNative_reloadSaveRam(JNIEnv*, jclass) {
-    return doscore::Engine::instance().reloadSaveRam() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
