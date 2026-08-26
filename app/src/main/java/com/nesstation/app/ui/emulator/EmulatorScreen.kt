@@ -5555,7 +5555,7 @@ private fun PadLayoutEditor(
                             BtnType.Y -> btnY
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
-                            BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56),  // combo size handled separately
+                            BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
                             BtnType.GAME_AREA -> ButtonLayout(0.5f, 0.5f, 0)  // 不可选中 — 占位
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
