@@ -716,7 +716,7 @@ fun EmulatorScreen(
     var gameViewPosInRoot by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var gameViewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val gameViewTracker = Modifier.onGloballyPositioned { coords ->
-        gameViewPosInRoot = coords.positionInRoot
+        gameViewPosInRoot = coords.positionInRoot()
         gameViewSize = coords.size
     }
 
@@ -3016,7 +3016,7 @@ fun OnScreenController(
             // Track the pad overlay's root position so pad-local touch
             // positions can be converted to root coordinates for the NDS
             // touchscreen forwarder (onUnhandledTouch).
-            .onGloballyPositioned { coords -> padPosInRoot = coords.positionInRoot }
+            .onGloballyPositioned { coords -> padPosInRoot = coords.positionInRoot() }
             .pointerInput(padLayout, surfaceSize, isPortrait, useAnalogStick) {
                 // Compute hit areas once (recomputed when key changes)
                 // For analog stick mode, expand the hit area to a square around
@@ -5502,6 +5502,7 @@ private fun PadLayoutEditor(
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
+                    BtnType.GAME_AREA -> { currentSize = 0; minSize = 0; maxSize = 0; label = "" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5529,6 +5530,7 @@ private fun PadLayoutEditor(
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
+                            BtnType.GAME_AREA -> ButtonLayout(0f, 0f, 0)  // not editable; unreachable in editor
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },
