@@ -94,6 +94,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1423,6 +1424,7 @@ fun EmulatorScreen(
                 ndsScreenLayout = padLayout.ndsScreenLayout,
                 ndsScreenGapPx = padLayout.ndsScreenGap.toIntOrNull()?.coerceIn(0, 20) ?: 0,
                 ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
+                gameViewTracker = gameViewTracker,
                 ndsTopRect = ndsTopRect,
                 ndsBottomRect = ndsBottomRect,
                 modifier = Modifier
@@ -2313,7 +2315,14 @@ private fun GameSurfaceView(
     // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
     ndsScreenGapPx: Int = 0,
     // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
-    ndsOpenGl: Boolean = false
+    ndsOpenGl: Boolean = false,
+    /**
+     * 游戏视图几何追踪 Modifier（onGloballyPositioned：根坐标 + 尺寸）。
+     * 由 EmulatorScreen 注入 — 用于把虚拟手柄覆盖层转发的“未命中按键”
+     * 触摸（NDS 触摸屏）从根坐标换算回游戏视图局部坐标。
+     * 两个视图分支（NdsDualScreenView / SurfaceView）都挂同一个 tracker。
+     */
+    gameViewTracker: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -3189,6 +3198,10 @@ fun OnScreenController(
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
+                            // GAME_AREA 指针在上面的 btnType == null 分支已经
+                            // 转发并 return，运行时不会到达这里 —— 仅为满足
+                            // when 穷尽性检查。
+                            BtnType.GAME_AREA -> {}
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -5205,6 +5218,8 @@ private fun PadLayoutEditor(
             BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
             BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
+            // 游戏区域不是可编辑按钮 —— 布局不变（穷尽性分支）
+            BtnType.GAME_AREA -> padLayout
         }
         onLayoutChange(updated)
     }
@@ -5511,6 +5526,9 @@ private fun PadLayoutEditor(
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
+                    // GAME_AREA 不可被选中为编辑对象（selectedBtn 只由真实
+                    // 按钮的 onSelect 设置）—— 占位值仅为满足穷尽性检查。
+                    BtnType.GAME_AREA -> { currentSize = 0; minSize = 0; maxSize = 0; label = "" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5537,7 +5555,8 @@ private fun PadLayoutEditor(
                             BtnType.Y -> btnY
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
-                            BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
+                            BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56),  // combo size handled separately
+                            BtnType.GAME_AREA -> ButtonLayout(0.5f, 0.5f, 0)  // 不可选中 — 占位
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },
