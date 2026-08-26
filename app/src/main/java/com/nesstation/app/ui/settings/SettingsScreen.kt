@@ -38,9 +38,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +60,9 @@ import com.nesstation.app.core.engine.SnesEngine
 import com.nesstation.app.core.engine.GbaEngine
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayoutStore
+import com.nesstation.app.core.storage.SettingsRepository
 import com.nesstation.app.ui.components.PixelBackdrop
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -327,6 +331,39 @@ fun SettingsScreen(
                     // === 存储 ===
                     item {
                         SettingsSection("存储") {
+                            // === 存档机制 ===
+                            // 选择游戏内"存档"和"读档"按钮使用哪种机制:
+                            //   NesStation 存档 — 即时存档槽位 (.state 文件)
+                            //     每个游戏独立 10 槽位, 完整机器快照, 支持任意时刻存读
+                            //   核心 sav 存档 — 核心原生电池存档 (.srm 文件)
+                            //     每个游戏一份, 即游戏内"自带"的存档(电池/Flash/EEPROM),
+                            //     自动载入/自动保存游戏退出时; 也可手动按"存档"立即flush,
+                            //     或按"读档"丢弃当前进度重新载入上次保存的.sav
+                            //     对 DOSBox-Pure (DOS) 无效, 因 DOS 用内部文件系统管理存档。
+                            val saveMech by SettingsRepository.saveMechanism
+                                .collectAsState(initial = "nesstation")
+                            val saveMechScope = rememberCoroutineScope()
+                            DropdownRow(
+                                "存档机制",
+                                listOf(
+                                    "nesstation" to "NesStation 存档 (即时存档槽位)",
+                                    "core_sav"   to "核心 sav 存档 (游戏内电池存档)"
+                                ),
+                                saveMech
+                            ) { value ->
+                                saveMechScope.launch {
+                                    SettingsRepository.setSaveMechanism(value)
+                                }
+                            }
+                            SettingsRow(
+                                "存档说明",
+                                if (saveMech == "core_sav")
+                                    "游戏内 [存档] 按钮 = 立即写 .sav/.srm; [读档] 按钮 = 丢弃当前进度, 重载上次保存的.sav"
+                                else
+                                    "游戏内 [存档] 按钮 = 选 10 个槽位存即时存档; [读档] 按钮 = 选槽位读即时存档",
+                                showSubtitle = true,
+                                trailing = { ValueText(if (saveMech == "core_sav") ".sav" else ".state") }
+                            )
                             SettingsRow("存储权限", "点击授权", trailing = { Arrow() }) { requestStoragePermission() }
                             SettingsRow("应用详情", "系统设置", trailing = { Arrow() }) { openAppSettings() }
                             SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {

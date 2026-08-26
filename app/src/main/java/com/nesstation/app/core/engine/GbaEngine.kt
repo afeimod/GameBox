@@ -307,8 +307,11 @@ class GbaEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = GbaNative.setPad2(bits)
     override fun setRegion(region: Int) = GbaNative.setRegion(region)
     override fun setSampleRate(rate: Int) = GbaNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) { GbaNative.saveState(slot, dst.absolutePath) }
-    override fun loadState(slot: Int, src: File) { GbaNative.loadState(slot, src.absolutePath) }
+    override fun saveState(slot: Int, dst: File): Boolean = GbaNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File): Boolean = GbaNative.loadState(slot, src.absolutePath)
+
+    override fun flushSaveRam(): Boolean = GbaNative.flushSaveRam()
+    override fun reloadSaveRam(): Boolean = GbaNative.reloadSaveRam()
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

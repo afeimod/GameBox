@@ -69,8 +69,19 @@ void applyRegion(int region);
 void applySampleRate(int hz);
 void applySpeed(float multiplier);
 
-void saveStateToPath(int slot, const std::string& path);
+bool saveStateToPath(int slot, const std::string& path);
 bool loadStateFromPath(int slot, const std::string& path);
+
+// --- Manual in-game .sav (battery save) control ---
+// Flush the core's SAVE_RAM buffer to the per-game .srm file using an
+// atomic temp-file + rename — safe to call mid-emulation (the caller
+// MUST hold the state mutex via the Engine layer).
+// Returns true on success, false on any I/O error or no-SAVE_RAM case.
+bool flushSaveRamToDisk();
+// Reload the per-game .srm file into the core's SAVE_RAM buffer, replacing
+// any in-core progress. Safe to call mid-emulation (caller holds state mutex).
+// Returns true on success, false on any I/O error or no-SAVE_RAM case.
+bool reloadSaveRamFromDisk();
 
 void setSurface(void* nativeWindow);
 

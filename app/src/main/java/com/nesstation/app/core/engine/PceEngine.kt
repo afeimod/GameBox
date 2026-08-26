@@ -309,8 +309,11 @@ class PceEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) = PceNative.setPad2(bits)
     override fun setRegion(region: Int) = PceNative.setRegion(region)
     override fun setSampleRate(rate: Int) = PceNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) { PceNative.saveState(slot, dst.absolutePath) }
-    override fun loadState(slot: Int, src: File) { PceNative.loadState(slot, src.absolutePath) }
+    override fun saveState(slot: Int, dst: File): Boolean = PceNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File): Boolean = PceNative.loadState(slot, src.absolutePath)
+
+    override fun flushSaveRam(): Boolean = PceNative.flushSaveRam()
+    override fun reloadSaveRam(): Boolean = PceNative.reloadSaveRam()
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

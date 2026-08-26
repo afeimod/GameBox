@@ -50,6 +50,7 @@ object SettingsRepository {
     private val keyControllerMap  = stringPreferencesKey("controller_map_json")
     private val keyTheme          = stringPreferencesKey("theme") // system/light/dark
     private val keyAudioVolume    = intPreferencesKey("audio_volume") // 0..100
+    private val keySaveMechanism  = stringPreferencesKey("save_mechanism") // "nesstation" | "core_sav"
 
     // All flows are lazy — they defer ds() access to collection time, so
     // they are safe even if init() hasn't run yet (they'll throw only when
@@ -65,6 +66,20 @@ object SettingsRepository {
     val controllerMapJson: Flow<String?> by lazy { ds().data.map { it[keyControllerMap]?.ifBlank { null } } }
     val theme: Flow<String>           by lazy { ds().data.map { it[keyTheme] ?: "system" } }
     val audioVolume: Flow<Int>        by lazy { ds().data.map { it[keyAudioVolume] ?: 90 } }
+    /**
+     * Save mechanism used by the in-game menu's save/load buttons:
+     *   "nesstation" (default) — slot-based save state (.state files in
+     *     <filesDir>/saves/<gameId>_slot<N>.state). 10 slots per game.
+     *     Full machine snapshot via retro_serialize / retro_unserialize.
+     *   "core_sav"            — core's native battery save (.srm files
+     *     in <filesDir>/saves/<sanitized-game-id>.srm). One save per
+     *     game. Auto-loaded on game start, auto-saved on game exit,
+     *     AND manually flushable via flushSaveRam() / reloadable via
+     *     reloadSaveRam() (the in-game menu's save/load buttons call
+     *     these directly). The .srm is the in-game cartridge NVRAM
+     *     (battery-backed SRAM, Flash, EEPROM — depends on cart).
+     */
+    val saveMechanism: Flow<String>   by lazy { ds().data.map { it[keySaveMechanism] ?: "nesstation" } }
 
     suspend fun setTvMode(v: Boolean) = ds().edit { it[keyTvMode] = v }
     suspend fun setRegion(v: Int) = ds().edit { it[keyRegion] = v }
@@ -77,4 +92,6 @@ object SettingsRepository {
     suspend fun setControllerMapJson(v: String?) = ds().edit { it[keyControllerMap] = (v ?: "") }
     suspend fun setTheme(v: String) = ds().edit { it[keyTheme] = v }
     suspend fun setAudioVolume(v: Int) = ds().edit { it[keyAudioVolume] = v }
+    /** Set the save mechanism — see [saveMechanism] for valid values. */
+    suspend fun setSaveMechanism(v: String) = ds().edit { it[keySaveMechanism] = v }
 }

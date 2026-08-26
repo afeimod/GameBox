@@ -154,11 +154,31 @@ interface EmulatorEngine {
     /** Set audio sample rate hint. */
     fun setSampleRate(rate: Int)
 
-    /** Save state to a file. */
-    fun saveState(slot: Int, dst: File)
+    /**
+     * Save state to a file.
+     * @return true on success, false on any I/O or core error (caller can
+     *         surface an error toast).
+     */
+    fun saveState(slot: Int, dst: File): Boolean
 
-    /** Load state from a file. */
-    fun loadState(slot: Int, src: File)
+    /** Load state from a file. Returns true on success, false on error. */
+    fun loadState(slot: Int, src: File): Boolean
+
+    /**
+     * Flush the core's SAVE_RAM (battery save / .srm) to disk atomically.
+     * Safe to call mid-emulation (the native loader takes a state mutex so
+     * retro_run() can't race). Returns false if no game is loaded, the game
+     * has no SAVE_RAM region, or the write fails. Used by the global
+     * "存档机制" setting when "核心sav存档" is selected.
+     */
+    fun flushSaveRam(): Boolean = false
+
+    /**
+     * Reload the per-game .srm file into the core's SAVE_RAM buffer,
+     * discarding any unsaved in-game progress. Safe to call mid-emulation.
+     * Returns false if no game is loaded or no .srm exists.
+     */
+    fun reloadSaveRam(): Boolean = false
 
     /**
      * Capture the current frame as an ARGB bitmap (0xAARRGGBB).

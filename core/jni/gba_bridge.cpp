@@ -70,13 +70,16 @@ void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
 
-void Engine::saveState(int slot, const std::string& path) {
-    rom::saveStateToPath(slot, path);
+bool Engine::saveState(int slot, const std::string& path) {
+    return rom::saveStateToPath(slot, path);
 }
 
 bool Engine::loadState(int slot, const std::string& path) {
     return rom::loadStateFromPath(slot, path);
 }
+
+bool Engine::flushSaveRam()  { return rom::flushSaveRamToDisk(); }
+bool Engine::reloadSaveRam() { return rom::reloadSaveRamFromDisk(); }
 
 bool Engine::getFrameBuffer(uint32_t* out, int w, int h) {
     return rom::copyFramebufferARGB(out, w, h);
@@ -190,9 +193,9 @@ Java_com_nesstation_app_core_jni_GbaNative_setFastForward(JNIEnv*, jclass, jint 
 JNIEXPORT jboolean JNICALL
 Java_com_nesstation_app_core_jni_GbaNative_saveState(JNIEnv* env, jclass, jint slot, jstring path) {
     const char* cpath = env->GetStringUTFChars(path, nullptr);
-    gbacore::Engine::instance().saveState(slot, cpath ? cpath : "");
+    bool ok = gbacore::Engine::instance().saveState(slot, cpath ? cpath : "");
     if (cpath) env->ReleaseStringUTFChars(path, cpath);
-    return JNI_TRUE;
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
@@ -201,6 +204,23 @@ Java_com_nesstation_app_core_jni_GbaNative_loadState(JNIEnv* env, jclass, jint s
     bool ok = gbacore::Engine::instance().loadState(slot, cpath ? cpath : "");
     if (cpath) env->ReleaseStringUTFChars(path, cpath);
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Manual in-game .sav (battery save) flush — used by the "核心sav存档"
+// save mechanism in the global settings. Flushes the core's SAVE_RAM
+// buffer atomically to <saveDir>/<saveName>.srm via temp+rename, so a
+// crash mid-flush leaves the previous .srm intact.
+JNIEXPORT jboolean JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_flushSaveRam(JNIEnv*, jclass) {
+    return gbacore::Engine::instance().flushSaveRam() ? JNI_TRUE : JNI_FALSE;
+}
+
+// Reload the per-game .srm into the core's SAVE_RAM buffer — discards
+// any unsaved in-game progress and resets the cartridge RAM to whatever
+// was last persisted to disk.
+JNIEXPORT jboolean JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_reloadSaveRam(JNIEnv*, jclass) {
+    return gbacore::Engine::instance().reloadSaveRam() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

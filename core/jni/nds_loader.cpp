@@ -203,6 +203,21 @@ static coreshared::AudioResampler s_resampler;
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
 
+// Mutex serializing save/load-state and SRAM-flush operations against the
+// running emulation thread. melonDS's DoSavestate() does NOT internally lock
+// against RunFrame(), so without this mutex, calling retro_serialize() /
+// retro_unserialize() from the UI thread while the emulation thread is
+// mid-retro_run() corrupts the NDS's internal state — and the corrupted
+// .state file then either fails to load on next attempt, or loads but
+// produces a broken game state. stepFrame() acquires this lock around
+// retro_run(); saveStateToPath/loadStateFromPath/flushSaveRamToDisk/
+// reloadSaveRamFromDisk acquire it around their retro_serialize /
+// retro_unserialize / SAVE_RAM I/O.
+//
+// The lock is non-recursive; only one operation holds it at a time. The
+// emulation loop must NOT call any save/load state function from itself.
+static std::mutex s_stateMtx;
+
 static std::mutex s_optMtx;
 static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
@@ -1286,6 +1301,15 @@ void stepFrame() {
         }
     }
 
+    // CRITICAL: Hold s_stateMtx across retro_run() so a concurrent
+    // save/load-state call (from the UI thread via saveStateToPath /
+    // loadStateFromPath / flushSaveRamToDisk / reloadSaveRamFromDisk)
+    // cannot race against melonDS's RunFrame() and corrupt internal
+    // state. The save/load side uses a std::lock_guard on the same
+    // mutex; if the lock is held by the emulation thread, the UI
+    // call blocks until the current frame finishes (~16ms max) —
+    // perfectly acceptable latency for a manual save/load action.
+    std::lock_guard<std::mutex> lk(s_stateMtx);
     retro_run();
 }
 
@@ -1397,16 +1421,37 @@ void applySpeed(float multiplier) {
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 
-void saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded) return;
+bool saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded) return false;
+    // Hold the state mutex so stepFrame()'s retro_run() can't corrupt
+    // the savestate mid-serialize. melonDS's DoSavestate() walks the
+    // entire NDS object graph; concurrent RunFrame() mutates parts of
+    // that same graph → torn savestate that either fails to load or
+    // loads but produces a broken game.
+    std::lock_guard<std::mutex> lk(s_stateMtx);
     size_t sz = retro_serialize_size();
-    if (sz == 0) return;
+    if (sz == 0) {
+        LOGE("saveStateToPath: retro_serialize_size()=0 (nds=null or DSi mode)");
+        return false;
+    }
     std::vector<uint8_t> buf(sz);
-    if (!retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
+    if (!retro_serialize(buf.data(), sz)) {
+        LOGE("saveStateToPath: retro_serialize failed");
+        return false;
+    }
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
-    std::fwrite(buf.data(), 1, sz, f);
+    if (!f) {
+        LOGE("saveStateToPath: cannot open for write: %s", path.c_str());
+        return false;
+    }
+    size_t wr = std::fwrite(buf.data(), 1, sz, f);
+    int flushErr = std::fflush(f);
     std::fclose(f);
+    if (wr != sz || flushErr != 0) {
+        LOGE("saveStateToPath: short write (wr=%zu, sz=%zu) — file may be corrupt", wr, sz);
+        return false;
+    }
+    return true;
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
@@ -1421,7 +1466,50 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
+    // Same mutex as saveState — prevents RunFrame() from mutating NDS
+    // state while DoSavestate() (called inside retro_unserialize) is
+    // restoring it. Without this lock, the load would appear to "fail"
+    // because the emulation thread would overwrite the just-restored
+    // state on the very next frame, producing visible game-state
+    // corruption (or, in the worst case, a SIGSEGV from a half-restored
+    // pointer).
+    std::lock_guard<std::mutex> lk(s_stateMtx);
+    if (!retro_unserialize(buf.data(), sz)) {
+        LOGE("loadStateFromPath: retro_unserialize failed (sz=%ld)", sz);
+        return false;
+    }
+    return true;
+}
+
+bool flushSaveRamToDisk() {
+    if (!s_loaded || !s_gameLoaded || s_lastRomPath.empty()) return false;
+    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (!sram || sramSize == 0) {
+        LOGI("flushSaveRam: no SAVE_RAM region — this game has no battery save");
+        return false;
+    }
+    // Hold the state mutex while we read SAVE_RAM out of the core —
+    // without it, retro_run() on the emulation thread could update the
+    // SRAM buffer mid-copy, producing a torn .srm. (melonDS's SPU / GPU
+    // code can call into cartridge code that touches SAVE_RAM.)
+    std::lock_guard<std::mutex> lk(s_stateMtx);
+    return coreshared::saveSramToDiskAtomic(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
+}
+
+bool reloadSaveRamFromDisk() {
+    if (!s_loaded || !s_gameLoaded || s_lastRomPath.empty()) return false;
+    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (!sram || sramSize == 0) {
+        LOGI("reloadSaveRam: no SAVE_RAM region — this game has no battery save");
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(s_stateMtx);
+    // loadSramFromDisk is read-only on the file and writes to the in-core
+    // SAVE_RAM buffer — must be under the same mutex as retro_run() so
+    // the emulation thread doesn't observe a half-loaded SRAM.
+    coreshared::loadSramFromDisk(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
     return true;
 }
 

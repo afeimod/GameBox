@@ -980,4 +980,53 @@ static inline void saveSramToDisk(void* sram, size_t sramSize,
     LOGI("SRAM save: %zu bytes to %s", wr, srmPath.c_str());
 }
 
+// Atomic variant of [saveSramToDisk] — writes to a `<name>.srm.tmp` file first,
+// then renames it onto the final `<name>.srm` path. This guards against
+// partial writes caused by app crashes, disk-full conditions, or the user
+// force-killing the process mid-flush: a half-written .srm would otherwise
+// destroy the user's previous good save. Used by [flushSaveRam] when the
+// user manually triggers a save from the in-game menu.
+//
+// Returns true on success, false on any I/O error (in which case the
+// destination .srm is left untouched — the .tmp file may be left behind but
+// that's harmless and the next successful save will overwrite it).
+static inline bool saveSramToDiskAtomic(void* sram, size_t sramSize,
+                                         const std::string& saveDir,
+                                         const std::string& romPath,
+                                         const std::string& explicitName = "") {
+    if (!sram || sramSize == 0) {
+        LOGI("SRAM atomic save: no SAVE_RAM region (sram=%p, size=%zu) — skipping",
+             sram, sramSize);
+        return false;
+    }
+    std::string srmPath = getSrmPath(saveDir, romPath, explicitName);
+    std::string tmpPath = srmPath + ".tmp";
+    FILE* f = std::fopen(tmpPath.c_str(), "wb");
+    if (!f) {
+        LOGE("SRAM atomic save: cannot open %s for write", tmpPath.c_str());
+        return false;
+    }
+    size_t wr = std::fwrite(sram, 1, sramSize, f);
+    int flushErr = std::fflush(f);
+    std::fclose(f);
+    if (wr != sramSize || flushErr != 0) {
+        LOGE("SRAM atomic save: short write or flush error (wr=%zu, flushErr=%d) — leaving %s in place",
+             wr, flushErr, srmPath.c_str());
+        return false;
+    }
+    // rename() is atomic on POSIX local filesystems: either the rename
+    // fully succeeds (the .srm now points at the new content) or it fails
+    // (the .srm still points at the previous content). No intermediate
+    // state is observable by readers.
+    if (std::rename(tmpPath.c_str(), srmPath.c_str()) != 0) {
+        LOGE("SRAM atomic save: rename %s -> %s failed — leaving old .srm in place",
+             tmpPath.c_str(), srmPath.c_str());
+        // Best-effort cleanup of the .tmp file; ignore failure.
+        std::remove(tmpPath.c_str());
+        return false;
+    }
+    LOGI("SRAM atomic save: %zu bytes to %s (via %s)", wr, srmPath.c_str(), tmpPath.c_str());
+    return true;
+}
+
 } // namespace coreshared

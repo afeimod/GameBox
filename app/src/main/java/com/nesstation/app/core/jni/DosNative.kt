@@ -136,6 +136,30 @@ object DosNative {
     @JvmStatic external fun saveState(slot: Int, path: String): Boolean
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean
 
+    /**
+     * Flush the core's SAVE_RAM (battery save / .srm) to disk atomically.
+     * Safe to call mid-emulation (the native loader takes a state mutex
+     * so retro_run() can't race). Returns false if no game is loaded,
+     * the game has no SAVE_RAM region, or the write fails.
+     *
+     * NOTE: For DOSBox-Pure this is a no-op that returns false — DOS
+     * manages its own saves via an internal filesystem image, not via
+     * RETRO_MEMORY_SAVE_RAM. Kept in the API for uniformity with the
+     * other cores so the engine's "核心sav存档" save-mechanism switch
+     * works without a special case.
+     *
+     * Used by the global "存档机制" setting when "核心sav存档" is selected.
+     */
+    @JvmStatic external fun flushSaveRam(): Boolean
+
+    /**
+     * Reload the per-game .srm file into the core's SAVE_RAM buffer,
+     * discarding any unsaved in-game progress. Safe to call mid-emulation.
+     * Returns false if no game is loaded or no .srm exists.
+     * NOTE: For DOSBox-Pure this is a no-op that returns false.
+     */
+    @JvmStatic external fun reloadSaveRam(): Boolean
+
     @JvmStatic external fun getFrameBuffer(out: IntArray): Boolean
     @JvmStatic external fun readAudio(out: ShortArray): Int
     @JvmStatic external fun audioSampleRate(): Int
