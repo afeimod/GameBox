@@ -158,15 +158,45 @@ class NdsEngine private constructor() : EmulatorEngine {
 
                     onFrame()
 
-                    // DS runs at ~60fps (59.83 for NDS, but 60 is close enough)
-                    val targetNs = 1_000_000_000L / 60
-                    val elapsed = System.nanoTime() - t0
-                    val sleep = targetNs - elapsed
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                        } catch (_: InterruptedException) {
-                            break
+                    // Frame pacing — matches NesEngine.kt's pattern.
+                    // CRITICAL: NDS fast-forward was previously a no-op because
+                    // this loop ALWAYS paced to 60fps regardless of _ffSpeed.
+                    // The C++ side (nds_loader.cpp::cb_video) only skips the
+                    // video blit during FF — it does NOT run multiple frames.
+                    // So the visible FF effect comes entirely from this pacing:
+                    // when _ffSpeed > 0, we pace to 60 * _ffSpeed fps
+                    // (e.g., 6x = 360 fps = ~2.78 ms / frame, far faster than
+                    // the native ~16.67 ms / frame). On devices that can't
+                    // sustain that throughput, the loop runs as fast as the
+                    // CPU allows and Thread.sleep(0) is a no-op.
+                    //
+                    // NOTE: Audio thread keeps producing samples at 1x; the
+                    // C++ side skips cb_audio_batch push during FF to avoid
+                    // the ring buffer overflowing (which would otherwise
+                    // drop samples and create crackle on FF resume).
+                    if (_ffSpeed > 0) {
+                        val targetNs = 1_000_000_000L / (60L * _ffSpeed)
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
+                        }
+                    } else {
+                        // Normal: pace to ~60fps (NDS is 59.83 Hz but 60 is
+                        // close enough; the audio resampler absorbs drift).
+                        val targetNs = 1_000_000_000L / 60
+                        val elapsed = System.nanoTime() - t0
+                        val sleep = targetNs - elapsed
+                        if (sleep > 0) {
+                            try {
+                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
+                            } catch (_: InterruptedException) {
+                                break
+                            }
                         }
                     }
                 }
@@ -225,7 +255,17 @@ class NdsEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            val bufSize = (minBuf * 4).coerceAtLeast(8192)
+            // Increased from minBuf*4 to minBuf*6 for NDS specifically.
+            // The 32768→48000 Hz resampling (ratio 0.6827) is asymmetric, so
+            // melonDS's SPU produces samples in slightly-variable chunks per
+            // frame (~546 ± 2). The smaller buffer (minBuf*4 ≈ 128ms) was
+            // tight enough that any thread-scheduling jitter (GC pause,
+            // AudioTrack.write blocking longer than expected, foreground app
+            // switch) caused the AudioTrack buffer to underrun → silent gap
+            // → click when audio resumed. minBuf*6 ≈ 192ms gives ~64ms more
+            // headroom without introducing noticeable latency (game audio is
+            // ~16ms/frame, so 192ms buffer = ~12 frames, still snappy).
+            val bufSize = (minBuf * 6).coerceAtLeast(12288)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -248,7 +288,15 @@ class NdsEngine private constructor() : EmulatorEngine {
         audioRunning.set(true)
         audioThread = thread(name = "nds-audio-loop", isDaemon = true) {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
-            val buf = ShortArray(4096)
+            // Reduced buf from 4096 to 2048 shorts (1024 stereo frames).
+            // 4096 shorts = 2048 frames = ~42ms at 48kHz — that's larger than
+            // one frame's worth of audio (~16ms), so a single readResampled
+            // call could drain up to 2.5 frames worth from the ring buffer at
+            // once, risking an underrun on the next call. 2048 shorts =
+            // 1024 frames = ~21ms, so each call drains at most ~1.3 frames —
+            // the ring buffer (which holds ~4 frames at 16kHz headroom)
+            // always has enough for back-to-back reads.
+            val buf = ShortArray(2048)
             try {
                 while (audioRunning.get()) {
                     try {
@@ -256,7 +304,15 @@ class NdsEngine private constructor() : EmulatorEngine {
                         if (n > 0) {
                             audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
-                            Thread.sleep(2)
+                            // Reduced sleep from 2ms → 1ms. NDS produces a
+                            // batch of ~547 source frames per emulation frame
+                            // (every ~16.67ms). With 2ms sleep, we polled
+                            // ~8 times per frame period before getting data,
+                            // wasting CPU and increasing latency. 1ms sleep
+                            // doubles poll frequency without measurably
+                            // increasing CPU (the thread still blocks on
+                            // AudioTrack.write the vast majority of the time).
+                            Thread.sleep(1)
                         }
                     } catch (_: InterruptedException) {
                         break

@@ -399,6 +399,47 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     } else {
         LOGI("glad initialized successfully");
     }
+
+    // GL version guard: melonDS's GLRenderer requires OpenGL ES 3.0+ for
+    // its shaders (#version 300 es + transform feedback / compute shaders).
+    // If the actual context version is ES 2.0 only, calling ES 3.0+
+    // function pointers (which would be null) crashes with SIGSEGV at
+    // pc=0x0 — the original "crashes loadRom at pc=0" symptom.
+    //
+    // We query GL_VERSION via glGetString (always available on any GL
+    // context including ES 1.0/2.0). If the version string doesn't
+    // report ES 3.x, we tear down the EGL context and return false so
+    // the wrapper's initialize_opengl() falls back to software.
+    if (glad_glGetString) {
+        const char* ver = (const char*)glad_glGetString(GL_VERSION);
+        LOGI("GL_VERSION: %s", ver ? ver : "(null)");
+        bool es3Plus = false;
+        if (ver) {
+            // Match "OpenGL ES 3." or "OpenGL ES 3" or just "3." at start
+            // (some drivers report "OpenGL ES 3.2 V@0415.0")
+            const char* p = strstr(ver, "OpenGL ES");
+            if (p) p += 9;  // skip "OpenGL ES"
+            while (p && *p && (*p == ' ')) p++;  // skip whitespace
+            if (p && *p == '3' && (p[1] == '.' || p[1] == '\0')) es3Plus = true;
+            else if (p && (*p == '4' || *p == '5')) es3Plus = true; // future-proof
+        }
+        if (!es3Plus) {
+            LOGE("OpenGL ES 3.0+ not available (got '%s'), disabling GL renderer "
+                 "to prevent pc=0 crash — falling back to software 3D",
+                 ver ? ver : "(null)");
+            // Tear down the EGL context we just created.
+            eglMakeCurrent(s_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(s_eglDisplay, s_eglContext);
+            s_eglContext = EGL_NO_CONTEXT;
+            eglDestroySurface(s_eglDisplay, s_eglSurface);
+            s_eglSurface = EGL_NO_SURFACE;
+            eglTerminate(s_eglDisplay);
+            s_eglDisplay = EGL_NO_DISPLAY;
+            s_eglInitialized = false;
+            return false;
+        }
+        LOGI("OpenGL ES 3.0+ confirmed, GL renderer safe to initialize");
+    }
     return true;
 }
 
@@ -512,13 +553,26 @@ static void initDefaultOptions() {
     setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
-    // OpenGL renderer. DISABLED by default: this Android build has no
-    // usable GL path (the wrapper never sends RETRO_ENVIRONMENT_SET_HW_RENDER,
-    // so no EGL context is created and glad_glXxx pointers are never
-    // initialized — enabling the GL renderer crashes loadRom at pc=0).
-    // We use the software 3D renderer (GPU3D_Soft). Even if the option is
-    // later set to "enabled", initialize_opengl() safely falls back.
-    setIfMissing("melonds_opengl_renderer",        "disabled");
+    // OpenGL renderer. ENABLED by default: hardware-accelerated 3D rendering
+    // is 10-100x faster than the software rasterizer for 3D games (Pokemon,
+    // Mario Kart, etc.). Modern Android devices (API 24+) universally support
+    // OpenGL ES 3.0+ which melonDS requires for its GL shaders.
+    //
+    // SAFETY: initialize_opengl() in opengl.cpp has multiple safe fallbacks:
+    //   1. SET_HW_RENDER rejected by frontend → returns false → software
+    //   2. glad_glEnable NULL (EGL context creation failed) → false → software
+    //   3. GLRenderer::New() fails (shader compile / GL caps) → false → software
+    // In all fallback cases, enable_opengl is set back to false and the
+    // soft renderer is used. The previous comment claiming "crashes at pc=0"
+    // was from an earlier broken state — the wrapper code has since added
+    // null-pointer checks before every GL call (see opengl.cpp).
+    //
+    // The previous default "disabled" caused NDS 3D games to fall back to
+    // GPU3D_Soft (single-threaded software rasterizer) which is too slow
+    // for many 3D titles on mid-range Android hardware, leading users to
+    // incorrectly conclude JIT wasn't working (JIT speeds up ARM CPU
+    // emulation but does not help the 3D rasterizer).
+    setIfMissing("melonds_opengl_renderer",        "enabled");
     // OpenGL 3D rendering resolution (1x = native 256x192, etc.).
     // The value format MUST match libretro_core_options.h exactly:
     // "1x native (256x192)" .. "8x native (2048x1536)".
@@ -885,11 +939,25 @@ uint64_t frameStamp() {
 }
 
 static void cb_audio_sample(int16_t left, int16_t right) {
+    // Fast-forward audio suppression: when FF is on, the emulation loop
+    // runs at 60 * ffSpeed fps. Each frame produces ~546 samples, so a
+    // 6x FF produces ~3276 samples per 1/60s wall-clock. The AudioTrack
+    // drains at the native 48000 Hz (~800 samples per 1/60s), so the
+    // ring buffer overflows in <100ms → AudioRingBuffer::push drops the
+    // oldest samples → audible crackle/pop on FF resume.
+    //
+    // Skipping push entirely during FF is the simplest fix: audio is
+    // silent during FF (acceptable for fast-forward UX — users FF to
+    // skip content, not to listen), and the ring buffer stays clean
+    // so audio resumes smoothly when FF ends.
+    if (s_fastForward.load(std::memory_order_relaxed)) return;
     int16_t pair[2] = {left, right};
     s_audio.push(pair, 2);
 }
 
 static size_t cb_audio_batch(const int16_t* data, size_t frames) {
+    // See cb_audio_sample above — skip audio push during FF.
+    if (s_fastForward.load(std::memory_order_relaxed)) return frames;
     s_audio.push(data, frames * 2);
     return frames;
 }

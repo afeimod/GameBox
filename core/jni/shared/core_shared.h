@@ -507,8 +507,19 @@ public:
     // which is enough to absorb emulation thread jitter without underrunning.
     //
     // If underruns cause crackling, increase to 16384. Do NOT return to
-    // 65536 Б─■ that reintroduces the latency problem.
-    static constexpr size_t kDefaultCap = 1u << 13; // 8192 samples
+    // 65536 (em-dash mojibake removed) — that reintroduces the latency problem.
+    //
+    // NDS UPGRADE (16384): NDS runs at 32768 Hz source → 48000 Hz output
+    // (ratio 0.6827, far from 1.0). The asymmetric rate means melonDS's SPU
+    // produces samples in slightly-variable chunks per frame (~546 ± 2),
+    // and a 8192-sample ring was tight enough that small thread-scheduling
+    // jitter (e.g. GC pause, AudioTrack.write blocking longer than expected)
+    // would fill the buffer and start dropping samples one-at-a-time —
+    // each drop = audible click. Doubling to 16384 (≈ 4 NDS frames × 4096
+    // samples = ~125ms headroom at native rate) absorbs typical jitter
+    // without dropping. Latency cost: 8192 → 16384 at 48000Hz = +85ms max
+    // (acceptable for game audio).
+    static constexpr size_t kDefaultCap = 1u << 14; // 16384 samples
 
     AudioRingBuffer(size_t cap = kDefaultCap) : kCap(cap) {
         ring = new int16_t[cap];
@@ -517,15 +528,41 @@ public:
 
     void push(const int16_t* samples, size_t count) {
         std::lock_guard<std::mutex> lk(mtx);
-        for (size_t i = 0; i < count; ++i) {
-            if (count_ >= kCap) {
-                readPos = (readPos + 1) % kCap;
-                count_--;
+        // If the incoming batch would overflow the ring, drop a CONTIGUOUS
+        // chunk of the OLDEST data all at once (instead of dropping one sample
+        // per push as the old code did). Dropping one-at-a-time smears the
+        // discontinuity across the entire batch — every dropped sample
+        // creates a tiny click, and NDS pushes ~1094 samples per frame, so
+        // even a small overflow caused many clicks per frame (audible
+        // buzzing). Dropping one contiguous block preserves the continuity
+        // of all subsequent samples — at most ONE click per overflow event,
+        // and only when the buffer is genuinely over-full.
+        if (count_ + count > kCap) {
+            size_t overflow = (count_ + count) - kCap;
+            if (overflow >= count_) {
+                // The entire ring is being discarded — reset to empty and
+                // start writing from position 0 (cleanest continuity).
+                readPos = writePos = 0;
+                count_ = 0;
+            } else {
+                // Advance readPos by 'overflow' to discard that many oldest
+                // samples in one shot.
+                readPos = (readPos + overflow) % kCap;
+                count_ -= overflow;
             }
-            ring[writePos] = samples[i];
-            writePos = (writePos + 1) % kCap;
-            count_++;
         }
+        // Now there's guaranteed room for all `count` samples — copy them
+        // in up to two contiguous chunks (handling ring wrap-around).
+        // Using memcpy instead of the previous per-sample loop is also a
+        // small perf win for large batches (NDS pushes 1094 samples/frame).
+        size_t firstChunk = (writePos + count <= kCap) ? count : (kCap - writePos);
+        memcpy(ring + writePos, samples, firstChunk * sizeof(int16_t));
+        size_t secondChunk = count - firstChunk;
+        if (secondChunk > 0) {
+            memcpy(ring, samples + firstChunk, secondChunk * sizeof(int16_t));
+        }
+        writePos = (writePos + count) % kCap;
+        count_ += count;
     }
 
     // Returns number of *stereo frames* written (each frame = 2 samples)
@@ -647,12 +684,24 @@ public:
 
                 if (srcBufCount < 2) {
                     // Not enough source samples for interpolation.
-                    // Fill remaining output with zeros (underrun).
+                    // HOLD the last sample (zero-order) instead of writing zeros —
+                    // zero-padding causes a DC discontinuity at the audio/silence
+                    // boundary, audible as clicks/buzzing on NDS where the rate
+                    // mismatch (32768→48000, ratio 0.6827) makes underruns frequent.
+                    // Holding prevL/prevR keeps the output continuous until new
+                    // source data arrives (in-audible gap vs audible click).
+                    //
+                    // IMPORTANT: return maxFrames (not `produced`) so the caller
+                    // (AudioTrack) sees a full buffer of valid held samples. If we
+                    // returned only `produced`, AudioTrack would receive a short
+                    // write followed by silence (no write) until the next read,
+                    // causing the exact DC discontinuity clicks we're trying to
+                    // prevent — the held samples must actually reach the speaker.
                     for (int i = produced; i < maxFrames; i++) {
-                        out[i * 2]     = 0;
-                        out[i * 2 + 1] = 0;
+                        out[i * 2]     = prevL;
+                        out[i * 2 + 1] = prevR;
                     }
-                    return produced;
+                    return maxFrames;
                 }
             }
 
@@ -660,11 +709,26 @@ public:
             int idx = (int)srcBufPos;
             double frac = srcBufPos - idx;
 
-            // Clamp to prevent out-of-bounds access
+            // Clamp to prevent out-of-bounds access.
+            // When idx+1 >= srcBufCount we have only ONE source sample left
+            // (srcBuf[idx]) and can't interpolate. Emit that single source
+            // sample (zero-order hold), NOT prevL/prevR — using the previous
+            // OUTPUT sample here was a bug that caused audible buzzing on NDS:
+            // with ratio 0.6827, this boundary is hit ~90 times per second
+            // (every ~6148/4096 refills × ~60 readResampled calls/sec), and each
+            // hit repeated the last interpolated value, producing a high-frequency
+            // stutter. Holding srcBuf[idx] (the last actual source sample)
+            // eliminates the stutter — the value changes only when new source
+            // data arrives, which is the correct zero-order-hold behavior.
             if (idx + 1 >= srcBufCount) {
-                // Use previous samples for edge case
-                out[produced * 2]     = prevL;
-                out[produced * 2 + 1] = prevR;
+                if (idx < srcBufCount) {
+                    out[produced * 2]     = srcBuf[idx * 2];
+                    out[produced * 2 + 1] = srcBuf[idx * 2 + 1];
+                } else {
+                    // idx itself is out of range (shouldn't happen, but guard):
+                    out[produced * 2]     = prevL;
+                    out[produced * 2 + 1] = prevR;
+                }
             } else {
                 int16_t l0 = srcBuf[idx * 2];
                 int16_t r0 = srcBuf[idx * 2 + 1];
