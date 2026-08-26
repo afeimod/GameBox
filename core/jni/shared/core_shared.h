@@ -595,7 +595,6 @@ public:
     int    srcBufCount;                          // Number of valid frames in srcBuf
     double srcBufPos;                            // Fractional read position in srcBuf
     int16_t srcBuf[SRC_BUF_SIZE * 2];            // Interleaved stereo
-    std::mutex stateMtx;                         // Guards init()/reset() against readResampled()
 
     AudioResampler() : pos(0.0), srcRate(0), dstRate(TARGET_SAMPLE_RATE),
                        prevL(0), prevR(0), active(false),
@@ -604,26 +603,14 @@ public:
     }
 
     void init(int sourceRate, int destRate = TARGET_SAMPLE_RATE) {
-        // Acquire stateMtx in case the audio thread is currently mid-
-        // readResampled(). Without this lock, init() called from the
-        // UI thread (e.g. during loadRom) would mutate srcBufCount/
-        // srcBufPos/srcBuf underneath the audio thread, causing it to
-        // read garbage from the new (zeroed) srcBuf with stale position
-        // math — audible as brief crackling/static at game start.
-        std::lock_guard<std::mutex> lk(stateMtx);
         srcRate = sourceRate > 0 ? sourceRate : 48000;
         dstRate = destRate;
         ratio = (double)srcRate / dstRate;
         active = (srcRate != dstRate);
-        pos = 0.0;
-        prevL = 0;
-        prevR = 0;
-        srcBufCount = 0;
-        srcBufPos = 0.0;
+        reset();
     }
 
     void reset() {
-        std::lock_guard<std::mutex> lk(stateMtx);
         pos = 0.0;
         prevL = 0;
         prevR = 0;
@@ -638,12 +625,6 @@ public:
             // No resampling needed — pass through directly
             return audio.read(out, maxFrames);
         }
-
-        // Acquire stateMtx so init()/reset() from another thread can't
-        // mutate our internal srcBuf / srcBufPos / srcBufCount while we
-        // interpolate. Without this lock, the audio thread could be
-        // reading srcBuf[idx] right when init() zeroes it.
-        std::lock_guard<std::mutex> lk(stateMtx);
 
         int produced = 0;
 
@@ -665,15 +646,21 @@ public:
                 srcBufPos = 0.0;
 
                 if (srcBufCount < 2) {
-                    // Ring buffer underrun: NOT enough source samples.
-                    // IMPORTANT: do NOT fill the rest of `out` with zeros.
-                    // Returning early lets the audio thread sleep briefly
-                    // (it already handles n < maxFrames by sleeping 2ms)
-                    // and the AudioTrack's own output buffer absorbs the
-                    // gap. Previously we zero-filled here, which produced
-                    // a "audio → silence → audio → silence" pattern on
-                    // sustained notes — audible as a periodic waver /
-                    // "颤" on tail-of-note sounds.
+                    // Underrun: NOT enough source samples for interpolation.
+                    // Previously this filled remaining output with hard zeros,
+                    // which caused audible "tail flutter" / "quiver" when a
+                    // fading sound hit the boundary (the abrupt zero cut-off
+                    // alternated with the last few valid samples on every
+                    // refill attempt, producing a periodic amplitude
+                    // modulation). Instead, hold the last sample value so
+                    // the tail decays naturally with whatever the source
+                    // envelope was doing — much smoother.
+                    int16_t holdL = prevL;
+                    int16_t holdR = prevR;
+                    for (int i = produced; i < maxFrames; i++) {
+                        out[i * 2]     = holdL;
+                        out[i * 2 + 1] = holdR;
+                    }
                     return produced;
                 }
             }

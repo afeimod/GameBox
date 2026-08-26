@@ -7,7 +7,6 @@ import android.view.Surface
 import com.nesstation.app.core.jni.NdsNative
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
 
 /**
@@ -65,16 +64,6 @@ class NdsEngine private constructor() : EmulatorEngine {
     @Volatile private var _ffSpeed = 0
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
-
-    /**
-     * Frame lock — held by the emulation thread during runFrame() and by
-     * saveState()/loadState() to serialize state access. Without this, the
-     * UI thread can call retro_serialize/retro_unserialize while the
-     * emulation thread is mid-frame in retro_run(), producing corrupted
-     * save states and load failures (melonDS's DoSavestate is NOT thread-
-     * safe against concurrent RunFrame).
-     */
-    private val frameLock = ReentrantLock()
 
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
@@ -139,16 +128,7 @@ class NdsEngine private constructor() : EmulatorEngine {
                         }
                     }
 
-                    // Hold frameLock during runFrame() so saveState/loadState
-                    // can safely serialize/unserialize the core state without
-                    // racing with retro_run(). The lock is released between
-                    // frames, giving saveState/loadState a window to run.
-                    frameLock.lock()
-                    try {
-                        NdsNative.runFrame()
-                    } finally {
-                        frameLock.unlock()
-                    }
+                    NdsNative.runFrame()
 
                     if (npHook != null) {
                         npHook.afterFrame(_netFrame)
@@ -359,37 +339,8 @@ class NdsEngine private constructor() : EmulatorEngine {
     fun setTouchInputDirect(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInputDirect(x, y, pressed)
     override fun setRegion(region: Int) = NdsNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NdsNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) {
-        // Pause the emulation loop first to prevent runFrame() from starting
-        // a new frame, then acquire frameLock to wait for any in-progress
-        // runFrame() to complete. This guarantees retro_serialize() is
-        // called at a frame boundary, not mid-frame where melonDS's
-        // internal state would be inconsistent.
-        _paused = true
-        try {
-            frameLock.lock()
-            try {
-                NdsNative.saveState(slot, dst.absolutePath)
-            } finally {
-                frameLock.unlock()
-            }
-        } finally {
-            _paused = false
-        }
-    }
-    override fun loadState(slot: Int, src: File) {
-        _paused = true
-        try {
-            frameLock.lock()
-            try {
-                NdsNative.loadState(slot, src.absolutePath)
-            } finally {
-                frameLock.unlock()
-            }
-        } finally {
-            _paused = false
-        }
-    }
+    override fun saveState(slot: Int, dst: File) { NdsNative.saveState(slot, dst.absolutePath) }
+    override fun loadState(slot: Int, src: File) { NdsNative.loadState(slot, src.absolutePath) }
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

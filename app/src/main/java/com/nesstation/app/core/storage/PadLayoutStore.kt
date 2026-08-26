@@ -333,9 +333,11 @@ class PadLayout {
     // 仅 OpenGL 渲染器生效，软件渲染器忽略此设置
     var ndsResolution: String = "1x native (256x192)"
     // OpenGL 渲染器：启用后使用硬件加速 3D 渲染，分辨率缩放仅在此模式下生效
-    // 注意：当前 Android 构建无可用的 GL 路径（无 EGL 上下文/glad 未初始化，
-    // 启用会触发 loadRom 崩溃），默认设为 disabled 走软件 3D 渲染
-    var ndsOpenGlRenderer: String = "disabled"          // enabled | disabled
+    // 参考 melonDS 2.0.1 GH 官方 APK — 已实现硬件加速 3D 渲染，性能远胜软件渲染。
+    // nds_loader.cpp 的 createEglContext + ensureEglContextCurrent 链路已就绪，
+    // RETRO_ENVIRONMENT_SET_HW_RENDER 回调里会建立 EGL 上下文并调用 core context_reset。
+    // 默认开启硬件加速，只有设备确实无 GLES2 才会自动回退到软件渲染。
+    var ndsOpenGlRenderer: String = "enabled"           // enabled | disabled
     // OpenGL 多边形优化：改善多边形分割，减少图形错误
     var ndsOpenGlBetterPolygons: String = "disabled"   // enabled | disabled
     // OpenGL 纹理过滤：nearest(最近邻/锐利) | linear(线性/平滑)
@@ -350,6 +352,13 @@ class PadLayout {
     var ndsAudioInterpolation: String = "Cosine"       // Cosine | Linear | Sinc | None
     var ndsUseFwSettings: String = "disabled"          // enabled | disabled (use firmware settings)
     var ndsScreenGap: String = "0"                     // 0..20 两屏间距
+    // NDS 存档方式切换：
+    //   "nesstation"  → 用 NesStation 自带统一存档目录 (<filesDir>/saves/<gameId>.sav)
+    //                    saveName = game.id，每个游戏独立 .sav 文件，content:// URI
+    //                    复制到 temp_rom.<ext> 也不会被覆盖。
+    //   "core_builtin" → 用 melonDS 默认命名 (<saveDir>/<ROM basename>.sav)。
+    //                    适合从其他 melonDS 前端（如官方 APK）迁移存档的用户。
+    var ndsSaveMode: String = "nesstation"             // nesstation | core_builtin
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
@@ -698,6 +707,7 @@ class PadLayout {
         ndsJitEnable = another.ndsJitEnable
         ndsAudioInterpolation = another.ndsAudioInterpolation
         ndsUseFwSettings = another.ndsUseFwSettings
+        ndsSaveMode = another.ndsSaveMode
         ndsTopLayoutLeft = another.ndsTopLayoutLeft
         ndsTopLayoutTop = another.ndsTopLayoutTop
         ndsTopLayoutRight = another.ndsTopLayoutRight
@@ -1262,6 +1272,7 @@ object PadLayoutStore {
             ndsJitEnable = p.getString("nds_jit_enable", "enabled") ?: "enabled"
             ndsAudioInterpolation = p.getString("nds_audio_interpolation", "Cosine") ?: "Cosine"
             ndsUseFwSettings = p.getString("nds_use_fw_settings", "disabled") ?: "disabled"
+            ndsSaveMode = p.getString("nds_save_mode", "nesstation") ?: "nesstation"
             ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
             ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
             ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
@@ -1625,6 +1636,7 @@ object PadLayoutStore {
             putString("nds_jit_enable", layout.ndsJitEnable)
             putString("nds_audio_interpolation", layout.ndsAudioInterpolation)
             putString("nds_use_fw_settings", layout.ndsUseFwSettings)
+            putString("nds_save_mode", layout.ndsSaveMode)
             putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
             putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
             putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)

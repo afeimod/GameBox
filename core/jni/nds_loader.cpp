@@ -108,6 +108,16 @@ static void* glad_egl_loader(const char* name) {
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// Forward-declare the override hooks defined in the melonDS libretro
+// wrapper (libretro.cpp). These let us replace the .sav filename that
+// melonDS derives from info->path (which would be "temp_rom.sav" for
+// cached ROMs) with our own stable game.id-based name, so saves don't
+// clobber across games.
+extern "C" {
+void melonds_set_save_basename_override(const char* name);
+void melonds_set_gba_save_basename_override(const char* name);
+}
+
 namespace ndscore::rom {
 
 // ---------------------------------------------------------------------------
@@ -139,16 +149,6 @@ static std::string s_saveName;
 static std::string s_lastRomPath;
 static std::string s_coreMessage;
 static std::string s_coreError;
-
-// Effective save directory returned to the melonDS core via
-// RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY. melonDS's Platform::WriteNDSSave
-// writes the cartridge .sav file to "<saveDir>/<game_name>.sav". By
-// pointing this at the ROM's parent directory, the .sav lands next to
-// the ROM (e.g. /sdcard/Games/Mario.nds → /sdcard/Games/Mario.sav),
-// matching the behavior of standalone melonDS and other NDS emulators.
-// Falls back to s_saveDir (frontend's saves dir) when the ROM path is
-// unavailable or content:// URI (which can't be a save target).
-static std::string s_effectiveSaveDir;
 
 // Persistent copy of the currently-loaded ROM path.
 // melonDS may read retro_game_info.path asynchronously (e.g. for save-state
@@ -409,49 +409,6 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     } else {
         LOGI("glad initialized successfully");
     }
-
-    // GL version guard: melonDS's GLRenderer requires OpenGL ES 3.0+ for
-    // its shaders (#version 300 es + transform feedback / compute shaders).
-    // If the actual context version is ES 2.0 only, calling ES 3.0+
-    // function pointers (which would be null) crashes with SIGSEGV at
-    // pc=0x0 — the original "crashes loadRom at pc=0" symptom.
-    //
-    // We query GL_VERSION via glGetString (always available on any GL
-    // context including ES 1.0/2.0 — it's a direct libGLESv2.so symbol
-    // on Android, no GLAD function-pointer indirection needed). If the
-    // version string doesn't report ES 3.x, we tear down the EGL context
-    // and return false so the wrapper's initialize_opengl() falls back
-    // to software.
-    {
-        const char* ver = (const char*)glGetString(GL_VERSION);
-        LOGI("GL_VERSION: %s", ver ? ver : "(null)");
-        bool es3Plus = false;
-        if (ver) {
-            // Match "OpenGL ES 3." or "OpenGL ES 3" or just "3." at start
-            // (some drivers report "OpenGL ES 3.2 V@0415.0")
-            const char* p = strstr(ver, "OpenGL ES");
-            if (p) p += 9;  // skip "OpenGL ES"
-            while (p && *p && (*p == ' ')) p++;  // skip whitespace
-            if (p && *p == '3' && (p[1] == '.' || p[1] == '\0')) es3Plus = true;
-            else if (p && (*p == '4' || *p == '5')) es3Plus = true; // future-proof
-        }
-        if (!es3Plus) {
-            LOGE("OpenGL ES 3.0+ not available (got '%s'), disabling GL renderer "
-                 "to prevent pc=0 crash — falling back to software 3D",
-                 ver ? ver : "(null)");
-            // Tear down the EGL context we just created.
-            eglMakeCurrent(s_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            eglDestroyContext(s_eglDisplay, s_eglContext);
-            s_eglContext = EGL_NO_CONTEXT;
-            eglDestroySurface(s_eglDisplay, s_eglSurface);
-            s_eglSurface = EGL_NO_SURFACE;
-            eglTerminate(s_eglDisplay);
-            s_eglDisplay = EGL_NO_DISPLAY;
-            s_eglInitialized = false;
-            return false;
-        }
-        LOGI("OpenGL ES 3.0+ confirmed, GL renderer safe to initialize");
-    }
     return true;
 }
 
@@ -643,19 +600,8 @@ static bool cb_environment(unsigned cmd, void* data) {
             return !s_systemDir.empty();
 
         case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
-            // For NDS we want melonDS to write its .sav next to the ROM
-            // (same dir, same basename) — exactly what standalone melonDS
-            // and other NDS emulators do. s_effectiveSaveDir is computed
-            // in loadGame() from the ROM's parent directory; if we don't
-            // have one (e.g. content:// URI), fall back to the frontend's
-            // dedicated saves dir.
-            if (data) {
-                const std::string& dir = s_effectiveSaveDir.empty()
-                    ? s_saveDir : s_effectiveSaveDir;
-                *static_cast<const char**>(data) = dir.c_str();
-                LOGI("GET_SAVE_DIRECTORY -> %s", dir.c_str());
-            }
-            return !(s_effectiveSaveDir.empty() && s_saveDir.empty());
+            if (data) *static_cast<const char**>(data) = s_saveDir.c_str();
+            return !s_saveDir.empty();
 
         case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
             if (data) *static_cast<const char**>(data) = s_systemDir.c_str();
@@ -1024,12 +970,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     }
 
     if (s_gameLoaded) {
-        // Persist SRAM BEFORE unloading the previous game.
-        if (!s_lastRomPath.empty()) {
-            void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-            size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-            coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
-        }
+        // NOTE: melonDS persists its SRAM to the .sav file itself inside
+        // retro_unload_game() via Platform::WriteNDSSave. Do NOT call
+        // coreshared::saveSrmToDisk first — it would write a redundant
+        // .srm that could later race-condition with melonDS's own .sav
+        // write (the .srm being a stale snapshot).
         retro_unload_game();
         s_gameLoaded = false;
     }
@@ -1092,32 +1037,6 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     gameInfo.size = sz;
     gameInfo.meta = nullptr;
 
-    // Compute s_effectiveSaveDir = parent directory of the ROM file so
-    // melonDS's Platform::WriteNDSSave writes "<romDir>/<romBase>.sav"
-    // next to the ROM, matching the behavior of standalone melonDS and
-    // what users expect (the .sav lives with the ROM, not in the
-    // frontend's sandboxed saves dir). We skip this for content:// URIs
-    // (which start with "content:" — not a writable filesystem path)
-    // and relative paths — in those cases we fall back to s_saveDir.
-    //
-    // We patch melonDS's libretro.cpp to re-query GET_SAVE_DIRECTORY
-    // inside retro_load_game (not just at retro_init time), so this
-    // value will be picked up and used to construct retro_save_path.
-    {
-        const char* prefix = "content:";
-        bool isContentUri = (path.rfind(prefix, 0) == 0);
-        size_t slash = path.find_last_of('/');
-        if (!isContentUri && slash != std::string::npos && slash > 0) {
-            s_effectiveSaveDir = path.substr(0, slash);
-            LOGI("NDS .sav will be written next to ROM: %s/<basename>.sav",
-                 s_effectiveSaveDir.c_str());
-        } else {
-            s_effectiveSaveDir.clear();
-            LOGI("ROM path is content:// or root — .sav will fall back to %s",
-                 s_saveDir.c_str());
-        }
-    }
-
     bool ok = retro_load_game(&gameInfo);
 
     if (!ok) {
@@ -1175,12 +1094,13 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
         LOGI("EGL context unbound from loader thread — emulation thread will re-bind");
     }
 
-    // Load SRAM from disk into the core's SAVE_RAM region.
-    {
-        void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-        size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-        coreshared::loadSramFromDisk(nvram, nvramSize, s_saveDir, path, s_saveName);
-    }
+    // NOTE: melonDS manages its own .sav file via Platform::WriteNDSSave
+    // (loaded in retro_load_game above; written in retro_unload_game and
+    // on periodic SRAM flushes). Do NOT call coreshared::loadSramFromDisk
+    // here — it would overwrite the .sav that was just loaded into the
+    // cart's SRAM buffer with a .srm file that may be stale or empty.
+    // Leaving it out keeps the .sav as the single source of truth,
+    // matching how the reference melonDS Android APK works.
 
     // NOTE: Do NOT call retro_set_controller_port_device here.
     // The melonDS libretro core manages device types internally.
@@ -1227,12 +1147,9 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
 void unload() {
     if (s_loaded) {
         if (s_gameLoaded) {
-            // Persist SRAM BEFORE unloading.
-            if (!s_lastRomPath.empty()) {
-                void* nvram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
-                size_t nvramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
-                coreshared::saveSramToDisk(nvram, nvramSize, s_saveDir, s_lastRomPath, s_saveName);
-            }
+            // NOTE: melonDS persists its SRAM to .sav inside retro_unload_game()
+            // via Platform::WriteNDSSave. Do NOT call coreshared::saveSrmToDisk
+            // first — see loadFromFile() for the rationale.
 
             // Notify the core that the GL context is about to be destroyed.
             // The core cleans up its OpenGL resources (FBOs, shaders, etc.)
@@ -1276,7 +1193,6 @@ void unload() {
     s_videoH = 384;
     s_lastRomPath.clear();
     s_saveName.clear();
-    s_effectiveSaveDir.clear();
     s_pad1.store(0, std::memory_order_relaxed);
     s_pad2.store(0, std::memory_order_relaxed);
     s_pad3.store(0, std::memory_order_relaxed);
@@ -1410,6 +1326,11 @@ void setPaths(const std::string& systemDir, const std::string& saveDir) {
 void setSaveName(const std::string& name) {
     s_saveName = name;
     LOGI("SRAM save name set: '%s'", name.c_str());
+    // Propagate the save-basename override to the melonDS libretro core so
+    // it writes its .sav as "<saveDir>/<name>.sav" instead of deriving the
+    // basename from info->path (which is "temp_rom.<ext>" for cached URIs
+    // and would clobber saves across games).
+    ::melonds_set_save_basename_override(name.c_str());
 }
 
 void applyRegion(int /*region*/) { /* DS is region-free — ignored */ }
@@ -1423,13 +1344,23 @@ void applySpeed(float multiplier) {
 void saveStateToPath(int /*slot*/, const std::string& path) {
     if (!s_loaded || !s_gameLoaded) return;
     size_t sz = retro_serialize_size();
-    if (sz == 0) return;
+    if (sz == 0) {
+        LOGE("retro_serialize_size returned 0 — cannot save state (DSi mode or no game)");
+        return;
+    }
     std::vector<uint8_t> buf(sz);
-    if (!retro_serialize(buf.data(), sz)) { LOGE("retro_serialize failed"); return; }
+    // Zero-initialise so a partial write (savestate->Error) doesn't leave
+    // uninitialized garbage that would later be misread as a valid state.
+    std::memset(buf.data(), 0, sz);
+    if (!retro_serialize(buf.data(), sz)) {
+        LOGE("retro_serialize failed — not writing save state file to %s", path.c_str());
+        return;
+    }
     FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
     std::fwrite(buf.data(), 1, sz, f);
     std::fclose(f);
+    LOGI("NDS save state written: %zu bytes to %s", sz, path.c_str());
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {
@@ -1444,7 +1375,12 @@ bool loadStateFromPath(int /*slot*/, const std::string& path) {
     size_t rd = std::fread(buf.data(), 1, (size_t)sz, f);
     std::fclose(f);
     if (rd != (size_t)sz) return false;
-    if (!retro_unserialize(buf.data(), sz)) { LOGE("retro_unserialize failed"); return false; }
+    if (!retro_unserialize(buf.data(), sz)) {
+        LOGE("retro_unserialize failed for %s (size=%ld) — save state may be from a different version",
+             path.c_str(), sz);
+        return false;
+    }
+    LOGI("NDS save state loaded: %ld bytes from %s", sz, path.c_str());
     return true;
 }
 

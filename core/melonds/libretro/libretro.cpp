@@ -47,6 +47,29 @@ retro_video_refresh_t video_cb;
 std::string retro_save_path;
 std::string retro_gba_save_path;
 
+// Optional override for the .sav basename. Set by the loader (e.g. when
+// the user has chosen "NesStation" save mode) when the ROM path is a
+// shared temp file (e.g. content:// URI copied to cacheDir/temp_rom.<ext>)
+// — without this override, every game would write to "temp_rom.sav" and
+// clobber each other. Empty string = use the ROM's basename (default,
+// matches upstream melonDS).
+std::string melonds_save_basename_override;
+std::string melonds_gba_save_basename_override;
+
+// Called by the loader (nds_loader.cpp) to set the override BEFORE
+// retro_load_game() is invoked. Pass an empty string to clear.
+// __attribute__((visibility("default"))) ensures the symbol stays visible
+// when melonds-core (static) is linked into ndscore.so (which uses
+// -fvisibility=hidden), so nds_loader.cpp can resolve it at link time.
+extern "C" __attribute__((visibility("default")))
+void melonds_set_save_basename_override(const char* name) {
+    melonds_save_basename_override = (name ? std::string(name) : std::string());
+}
+extern "C" __attribute__((visibility("default")))
+void melonds_set_gba_save_basename_override(const char* name) {
+    melonds_gba_save_basename_override = (name ? std::string(name) : std::string());
+}
+
 retro_game_info* cached_info;
 
 VideoSettings video_settings;
@@ -992,22 +1015,16 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    path_remove_extension(game_name);
    s_retro_game_name = game_name;
 
-   // Re-query the save directory at retro_load_game time so the frontend
-   // can return a per-ROM directory (e.g. the ROM's parent directory)
-   // instead of the one cached at retro_init time. Without this re-query,
-   // .sav files would always land in the frontend's initial saves dir
-   // regardless of which ROM is loaded. The frontend's
-   // RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY handler (see nds_loader.cpp)
-   // returns the ROM's parent directory when available, so the .sav
-   // lands next to the ROM (matching standalone melonDS behavior).
+   // If the loader set a save-basename override (e.g. NesStation's stable
+   // game.id instead of the cacheDir/temp_rom.<ext> path), use it. This
+   // avoids the bug where every game loaded from a content:// URI would
+   // write to the same "temp_rom.sav" file and clobber each other.
+   if (!melonds_save_basename_override.empty())
    {
-      const char *save_dir_now = nullptr;
-      if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &save_dir_now)
-          && save_dir_now && save_dir_now[0])
-      {
-         sprintf(retro_saves_directory, "%s", save_dir_now);
-      }
+      strlcpy(game_name, melonds_save_basename_override.c_str(), sizeof(game_name));
+      log_cb(RETRO_LOG_INFO, "[melonds] save basename override: %s\n", game_name);
    }
+
    retro_save_path = std::string(retro_saves_directory) + "/" + std::string(game_name) + ".sav";
 
    // Load the ROM
@@ -1165,6 +1182,12 @@ size_t retro_serialize_size(void)
       if (!data) return 0;
       Savestate* savestate = new Savestate(data, MAX_SERIALIZE_TEST_SIZE, true);
       nds->DoSavestate(savestate);
+      // Call Finish() so the header length field is populated (matches
+      // what retro_serialize writes). The returned size is unaffected
+      // (Length() returns buffer_offset regardless), but the buffer is
+      // now byte-identical to a real savestate — useful if this buffer
+      // is ever inspected.
+      savestate->Finish();
       size_t size = savestate->Length();
       delete savestate;
       free(data);
@@ -1185,8 +1208,17 @@ bool retro_serialize(void *data, size_t size)
    {
       Savestate* savestate = new Savestate(data, size, true);
       nds->DoSavestate(savestate);
+      // CRITICAL: Finish() writes the savestate's actual length back into
+      // the file header (offset 0x08) and writes each section's length
+      // into its section header. Without Finish(), the header length
+      // field stays 0 and retro_unserialize() rejects the file with
+      // "savestate: expected a length of N, got 0". This was the bug
+      // behind "NDS save state can't load" — files were written but
+      // unreadable on the next launch.
+      savestate->Finish();
+      bool hadError = savestate->Error;
       delete savestate;
-      return true;
+      return !hadError;
    }
    else
    {
@@ -1203,8 +1235,14 @@ bool retro_unserialize(const void *data, size_t size)
    {
       Savestate* savestate = new Savestate((void*)data, size, false);
       nds->DoSavestate(savestate);
+      // If the savestate header didn't match (wrong magic, wrong version,
+      // length field was 0 from a non-Finish()'d save), Error will be
+      // set and DoSavestate would have been a no-op. Report the failure
+      // so the frontend can fall back to "no save" instead of silently
+      // leaving the emulator in an inconsistent state.
+      bool hadError = savestate->Error;
       delete savestate;
-      return true;
+      return !hadError;
    }
    else
    {
@@ -1219,6 +1257,14 @@ void *retro_get_memory_data(unsigned type)
 
    if (type == RETRO_MEMORY_SYSTEM_RAM)
       return nds->MainRAM;
+   else if (type == RETRO_MEMORY_SAVE_RAM)
+   {
+      // Expose the NDS cart's SRAM (in-game save) so the frontend can
+      // load/save .sav files. Without this, retro_get_memory_data(SAVE_RAM)
+      // returns NULL and nds_loader's loadSramFromDisk/saveSramToDisk no-op,
+      // so .sav files are never read or written for NDS games.
+      return nds->GetNDSSave();
+   }
    else
       return NULL;
 }
@@ -1229,6 +1275,13 @@ size_t retro_get_memory_size(unsigned type)
 
    if (type == RETRO_MEMORY_SYSTEM_RAM)
       return 0x400000;
+   else if (type == RETRO_MEMORY_SAVE_RAM)
+   {
+      // Length of the cart's SRAM buffer. May be 0 if no cart is loaded
+      // or the cart has no battery-backed save (e.g. some homebrew) — the
+      // frontend treats 0 as "no SRAM to persist".
+      return nds->GetNDSSaveLength();
+   }
    else
       return 0;
 }

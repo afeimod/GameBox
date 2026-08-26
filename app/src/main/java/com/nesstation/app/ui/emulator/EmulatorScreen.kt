@@ -94,7 +94,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -928,7 +927,19 @@ fun EmulatorScreen(
         // Tell the native core to use this stable name for the .srm file.
         // Must be called BEFORE loadRom() so the name is in effect when
         // retro_load_game() returns and we read the .srm into SAVE_RAM.
-        engine.setSaveName(saveName)
+        // For NDS, this name is also propagated to the melonDS libretro
+        // core via melonds_set_save_basename_override() so the .sav file
+        // is named after game.id (NesStation mode) instead of the cacheDir
+        // temp_rom.<ext> filename (which would clobber across games).
+        // NDS 存档方式切换：
+        //   - "nesstation"  : 用 game.id 作为 .sav basename
+        //   - "core_builtin" : 传空字符串让 melonDS 用 ROM basename（兼容官方 APK）
+        val ndsSaveName = if (platform == GamePlatform.NDS && padLayout.ndsSaveMode == "core_builtin") {
+            ""  // empty override → melonDS uses info->path basename
+        } else {
+            saveName
+        }
+        engine.setSaveName(ndsSaveName)
 
         // === Mega-CD BIOS pre-check ===
         // If the user is launching a Mega-CD / SEGA-CD game (.cue/.iso/.chd),
@@ -1416,11 +1427,7 @@ fun EmulatorScreen(
                 ndsBottomRect = ndsBottomRect,
                 modifier = Modifier
                     .fillMaxSize()
-                    .onSizeChanged { surfaceSize = it },
-                // 把 EmulatorScreen 中声明的 gameViewTracker 注入到
-                // GameSurfaceView，使其内部 AndroidView 上的 onGloballyPositioned
-                // 回调能更新 gameViewPosInRoot / gameViewSize —— NDS 触摸转发需要。
-                gameViewTracker = gameViewTracker
+                    .onSizeChanged { surfaceSize = it }
             )
 
             // === 联机对战状态条（顶部居中） ===
@@ -2306,11 +2313,7 @@ private fun GameSurfaceView(
     // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
     ndsScreenGapPx: Int = 0,
     // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
-    ndsOpenGl: Boolean = false,
-    // 由父 Composable 注入的 onGloballyPositioned 跟踪器：在游戏视图
-    // （AndroidView = SurfaceView / NdsDualScreenView）上挂载，用于把根
-    // 坐标系下的触摸位置换算成视图局部坐标（NDS 触摸转发使用）。
-    gameViewTracker: Modifier = Modifier
+    ndsOpenGl: Boolean = false
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -3186,7 +3189,6 @@ fun OnScreenController(
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
-                            BtnType.GAME_AREA -> { /* handled above before this when */ }
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -5203,7 +5205,6 @@ private fun PadLayoutEditor(
             BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
             BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
-            BtnType.GAME_AREA -> padLayout  // not a real button; not editable
         }
         onLayoutChange(updated)
     }
@@ -5510,7 +5511,6 @@ private fun PadLayoutEditor(
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
-                    BtnType.GAME_AREA -> { currentSize = 0; minSize = 0; maxSize = 0; label = "" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5538,7 +5538,6 @@ private fun PadLayoutEditor(
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
-                            BtnType.GAME_AREA -> ButtonLayout(0f, 0f, 0)  // not editable; unreachable in editor
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },
@@ -7131,6 +7130,24 @@ private fun SettingsPanel(
                     listOf("Toggle" to "切换", "Hold" to "按住"),
                     padLayout.ndsSwapscreenMode
                 ) { onLayoutChange(padLayout.copy {ndsSwapscreenMode = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("存档", color = Color(0xFF8899AA), fontSize = 11.sp)
+                // NDS 存档方式切换（曾被误删，现恢复）：
+                //   nesstation   → NesStation 自带统一存档目录：每个游戏独立 .sav
+                //                  文件名为 game.id，content:// URI 复制到 temp_rom.<ext>
+                //                  也不会被覆盖。所有 NDS 游戏的 .sav 集中在
+                //                  <filesDir>/saves/<gameId>.sav。
+                //   core_builtin → 用 melonDS 默认命名：<saveDir>/<ROM basename>.sav。
+                //                  适合从官方 melonDS APK 迁移存档的用户（与官方 APK
+                //                  的 .sav 路径完全兼容）。
+                DropdownSetting("存档方式",
+                    listOf(
+                        "nesstation" to "NesStation (推荐·每游戏独立)",
+                        "core_builtin" to "核心内置 (兼容官方 melonDS APK)"
+                    ),
+                    padLayout.ndsSaveMode
+                ) { onLayoutChange(padLayout.copy {ndsSaveMode = it}) }
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
