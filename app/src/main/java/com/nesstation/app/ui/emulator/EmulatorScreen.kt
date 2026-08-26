@@ -94,6 +94,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -715,7 +716,7 @@ fun EmulatorScreen(
     var gameViewPosInRoot by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var gameViewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val gameViewTracker = Modifier.onGloballyPositioned { coords ->
-        gameViewPosInRoot = coords.positionInRoot()
+        gameViewPosInRoot = coords.positionInRoot
         gameViewSize = coords.size
     }
 
@@ -3015,7 +3016,7 @@ fun OnScreenController(
             // Track the pad overlay's root position so pad-local touch
             // positions can be converted to root coordinates for the NDS
             // touchscreen forwarder (onUnhandledTouch).
-            .onGloballyPositioned { coords -> padPosInRoot = coords.positionInRoot() }
+            .onGloballyPositioned { coords -> padPosInRoot = coords.positionInRoot }
             .pointerInput(padLayout, surfaceSize, isPortrait, useAnalogStick) {
                 // Compute hit areas once (recomputed when key changes)
                 // For analog stick mode, expand the hit area to a square around
@@ -3177,6 +3178,7 @@ fun OnScreenController(
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
+                            BtnType.GAME_AREA -> { /* handled above before this when */ }
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -5193,6 +5195,7 @@ private fun PadLayoutEditor(
             BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
             BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
+            BtnType.GAME_AREA -> padLayout  // not a real button; not editable
         }
         onLayoutChange(updated)
     }
