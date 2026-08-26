@@ -422,11 +422,13 @@ static bool createEglContext(int contextType = RETRO_HW_CONTEXT_OPENGLES2,
     // pc=0x0 — the original "crashes loadRom at pc=0" symptom.
     //
     // We query GL_VERSION via glGetString (always available on any GL
-    // context including ES 1.0/2.0). If the version string doesn't
-    // report ES 3.x, we tear down the EGL context and return false so
-    // the wrapper's initialize_opengl() falls back to software.
-    if (glad_glGetString) {
-        const char* ver = (const char*)glad_glGetString(GL_VERSION);
+    // context including ES 1.0/2.0 — it's a direct libGLESv2.so symbol
+    // on Android, no GLAD function-pointer indirection needed). If the
+    // version string doesn't report ES 3.x, we tear down the EGL context
+    // and return false so the wrapper's initialize_opengl() falls back
+    // to software.
+    {
+        const char* ver = (const char*)glGetString(GL_VERSION);
         LOGI("GL_VERSION: %s", ver ? ver : "(null)");
         bool es3Plus = false;
         if (ver) {
