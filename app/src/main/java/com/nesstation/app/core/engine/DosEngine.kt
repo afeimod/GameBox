@@ -382,8 +382,8 @@ class DosEngine private constructor() : EmulatorEngine {
     override fun setPad2(bits: Int) { /* DOS is single-player only */ }
     override fun setRegion(region: Int) = DosNative.setRegion(region)
     override fun setSampleRate(rate: Int) = DosNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) { DosNative.saveState(slot, dst.absolutePath) }
-    override fun loadState(slot: Int, src: File) { DosNative.loadState(slot, src.absolutePath) }
+    override fun saveState(slot: Int, dst: File): Boolean = DosNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File): Boolean = DosNative.loadState(slot, src.absolutePath)
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

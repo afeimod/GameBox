@@ -1261,7 +1261,9 @@ object PadLayoutStore {
                 "8x (2048x1536)" -> "8x native (2048x1536)"
                 else -> v
             }
-            ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "disabled") ?: "disabled"
+            // 默认 "enabled"：NDS 硬件加速 GL 渲染（参考官方 melonDS APK 已默认开启）。
+            // 注意必须与类字段默认值一致，否则 load() 会把内存默认值覆盖回 disabled。
+            ndsOpenGlRenderer = p.getString("nds_opengl_renderer", "enabled") ?: "enabled"
             ndsOpenGlBetterPolygons = p.getString("nds_opengl_better_polygons", "disabled") ?: "disabled"
             ndsOpenGlFiltering = p.getString("nds_opengl_filtering", "nearest") ?: "nearest"
             ndsFiltering = p.getString("nds_filtering", "nearest") ?: "nearest"

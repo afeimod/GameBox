@@ -71,7 +71,7 @@ public:
     void setSampleRate(int hz);
     void setFastForward(int speed);
 
-    void saveState(int slot, const std::string& dstPath);
+    bool saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);
 
     // Pull the latest frame into `out` (w*h uint32, 0xAARRGGBB).

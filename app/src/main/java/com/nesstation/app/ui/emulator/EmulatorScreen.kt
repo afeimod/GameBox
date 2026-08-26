@@ -94,6 +94,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -762,6 +763,15 @@ fun EmulatorScreen(
                    padLayout.ndsFiltering, padLayout.ndsScreensaver, padLayout.ndsTouchMode,
                    padLayout.ndsMouseSpeed, padLayout.ndsDsiSdcard, padLayout.ndsRandomizeMac,
                    padLayout.ndsJitEnable, padLayout.ndsAudioInterpolation, padLayout.ndsUseFwSettings,
+                   // 补全：以下选项在 applyCoreOptions 中设置但此前不在触发列表里，
+                   // 导致 UI 里改了不生效（GL 硬件加速/JIT 细项/音频等），
+                   // 要等重进游戏才被应用。
+                   padLayout.ndsOpenGlRenderer, padLayout.ndsOpenGlBetterPolygons,
+                   padLayout.ndsOpenGlFiltering,
+                   padLayout.ndsJitBlockSize, padLayout.ndsJitFastMemory,
+                   padLayout.ndsJitBranchOptimisations, padLayout.ndsJitLiteralOptimisations,
+                   padLayout.ndsAudioBitrate, padLayout.ndsMicInput, padLayout.ndsLanguage,
+                   padLayout.ndsScreenGap, padLayout.ndsSwapscreenMode, padLayout.ndsHybridSmallScreen,
                    // PSX / PCSX-ReARMed options
                    padLayout.pscxBios, padLayout.pscxRegion, padLayout.pscxFrameskipType,
                    padLayout.pscxFrameskip, padLayout.pscxPad1Type, padLayout.pscxPad2Type,
@@ -1425,6 +1435,10 @@ fun EmulatorScreen(
                 ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
                 ndsTopRect = ndsTopRect,
                 ndsBottomRect = ndsBottomRect,
+                // 游戏视图位置/尺寸追踪（onGloballyPositioned）：供虚拟手柄
+                // 覆盖层把未命中按键的触摸坐标从根坐标换算成游戏视图局部
+                // 坐标后转发给 NDS 触摸屏（GAME_AREA 路径）。
+                gameViewTracker = gameViewTracker,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { surfaceSize = it }
@@ -1682,16 +1696,26 @@ fun EmulatorScreen(
                     val stateFile = java.io.File(savesDir, "${game.id}_slot${slot}.state")
                     if (showSlotPicker == "save") {
                         try {
-                            engine.saveState(slot, stateFile)
-                            Toast.makeText(context, "存档已保存 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                            // native 链路会校验 serialize 结果与文件写入字节数，
+                            // 失败时返回 false（不再产生 35B 假档还提示成功）。
+                            val ok = engine.saveState(slot, stateFile)
+                            if (ok) {
+                                Toast.makeText(context, "存档已保存 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "存档失败：核心未能生成即时存档", Toast.LENGTH_SHORT).show()
+                            }
                         } catch (e: Exception) {
                             Toast.makeText(context, "存档失败: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
                     } else {
                         if (stateFile.exists()) {
                             try {
-                                engine.loadState(slot, stateFile)
-                                Toast.makeText(context, "存档已读取 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                                val ok = engine.loadState(slot, stateFile)
+                                if (ok) {
+                                    Toast.makeText(context, "存档已读取 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "读档失败：存档损坏或版本不兼容，请重新存档", Toast.LENGTH_SHORT).show()
+                                }
                             } catch (e: Exception) {
                                 Toast.makeText(context, "读档失败: ${e.message}", Toast.LENGTH_SHORT).show()
                             }
@@ -2313,7 +2337,11 @@ private fun GameSurfaceView(
     // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
     ndsScreenGapPx: Int = 0,
     // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
-    ndsOpenGl: Boolean = false
+    ndsOpenGl: Boolean = false,
+    // 追踪游戏视图在窗口中位置/尺寸的 Modifier（onGloballyPositioned）。
+    // 声明在 EmulatorScreen 中，游戏视图两个分支（NdsDualScreenView /
+    // SurfaceView）都要挂上，供手柄覆盖层的 GAME_AREA 触摸转发换算坐标。
+    gameViewTracker: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
@@ -3189,6 +3217,9 @@ fun OnScreenController(
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
+                            // GAME_AREA 指针在上方 btnType == null 分支已提前
+                            // return，永远到不了这里；补空分支仅为穷举完整性。
+                            BtnType.GAME_AREA -> {}
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
                         if (turboBits != 0) {
@@ -5205,6 +5236,8 @@ private fun PadLayoutEditor(
             BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
             BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
+            // 游戏区域不是可编辑的实体按键，没有位置/大小可写回 —— 直接返回原布局。
+            BtnType.GAME_AREA -> padLayout
         }
         onLayoutChange(updated)
     }
@@ -5511,6 +5544,9 @@ private fun PadLayoutEditor(
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
+                    // GAME_AREA 不出现在布局编辑器（selectedBtn 只会指向实体按键），
+                    // 此分支仅为穷举完整性而设，正常流程不会执行。
+                    BtnType.GAME_AREA -> { currentSize = 0; minSize = 0; maxSize = 1; label = "游戏区域" }
                 }
 
                 Spacer(Modifier.size(4.dp))
@@ -5538,6 +5574,7 @@ private fun PadLayoutEditor(
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
+                            BtnType.GAME_AREA -> ButtonLayout(0.5f, 0.85f, 0)  // 不可达：编辑器不会选中游戏区域
                         }
                         updateBtn(sel, source.copy(sizeDp = intVal))
                     },
@@ -7151,6 +7188,16 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("性能/音频", color = Color(0xFF8899AA), fontSize = 11.sp)
+                // GL 硬件加速渲染器开关：官方 melonDS APK 默认开启（参考实现）。
+                // 启用后 3D 渲染走 OpenGL 硬件加速，卡顿大幅降低；分辨率缩放
+                // 仅在开启时生效。部分设备 GL 驱动异常时可切回软件渲染。
+                // 注：切换后需重进游戏生效（核心在加载 ROM 时创建 GL 上下文）。
+                DropdownSetting("3D 渲染器",
+                    listOf("enabled" to "硬件加速 OpenGL (推荐)",
+                           "disabled" to "软件渲染 (兼容模式)"),
+                    padLayout.ndsOpenGlRenderer
+                ) { onLayoutChange(padLayout.copy {ndsOpenGlRenderer = it}) }
+
                 DropdownSetting("3D 渲染分辨率",
                     (1..8).map { it.toString() to "${it}x native (${256*it}x${192*it})" },
                     padLayout.ndsResolution

@@ -339,8 +339,8 @@ class NdsEngine private constructor() : EmulatorEngine {
     fun setTouchInputDirect(x: Int, y: Int, pressed: Boolean) = NdsNative.setTouchInputDirect(x, y, pressed)
     override fun setRegion(region: Int) = NdsNative.setRegion(region)
     override fun setSampleRate(rate: Int) = NdsNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) { NdsNative.saveState(slot, dst.absolutePath) }
-    override fun loadState(slot: Int, src: File) { NdsNative.loadState(slot, src.absolutePath) }
+    override fun saveState(slot: Int, dst: File): Boolean = NdsNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File): Boolean = NdsNative.loadState(slot, src.absolutePath)
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null

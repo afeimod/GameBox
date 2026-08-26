@@ -1341,12 +1341,12 @@ void applySpeed(float multiplier) {
     s_ffFrameSkip.store(0, std::memory_order_relaxed);
 }
 
-void saveStateToPath(int /*slot*/, const std::string& path) {
-    if (!s_loaded || !s_gameLoaded) return;
+bool saveStateToPath(int /*slot*/, const std::string& path) {
+    if (!s_loaded || !s_gameLoaded) return false;
     size_t sz = retro_serialize_size();
     if (sz == 0) {
         LOGE("retro_serialize_size returned 0 — cannot save state (DSi mode or no game)");
-        return;
+        return false;
     }
     std::vector<uint8_t> buf(sz);
     // Zero-initialise so a partial write (savestate->Error) doesn't leave
@@ -1354,13 +1354,18 @@ void saveStateToPath(int /*slot*/, const std::string& path) {
     std::memset(buf.data(), 0, sz);
     if (!retro_serialize(buf.data(), sz)) {
         LOGE("retro_serialize failed — not writing save state file to %s", path.c_str());
-        return;
+        return false;
     }
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return; }
-    std::fwrite(buf.data(), 1, sz, f);
+    if (!f) { LOGE("Cannot open save state for write: %s", path.c_str()); return false; }
+    size_t wr = std::fwrite(buf.data(), 1, sz, f);
     std::fclose(f);
+    if (wr != sz) {
+        LOGE("Short write on save state %s (%zu/%zu bytes)", path.c_str(), wr, sz);
+        return false;
+    }
     LOGI("NDS save state written: %zu bytes to %s", sz, path.c_str());
+    return true;
 }
 
 bool loadStateFromPath(int /*slot*/, const std::string& path) {

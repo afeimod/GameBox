@@ -120,7 +120,9 @@ void applyRegion(int region);
 void applySampleRate(int hz);
 void applySpeed(float multiplier);
 
-void saveStateToPath(int slot, const std::string& path);
+// 返回 false 表示存档失败（serialize 出错/无法写文件）——前端据此提示用户，
+// 避免“显示保存成功但文件是假档”的体验。
+bool saveStateToPath(int slot, const std::string& path);
 bool loadStateFromPath(int slot, const std::string& path);
 
 // --- Hardware-accelerated rendering ---
