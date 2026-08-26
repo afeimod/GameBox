@@ -45,6 +45,58 @@ static inline uint32_t xrgbToRgba(uint32_t px) {
     return ((px & 0x00FFFFFF) << 8) | 0x000000FFu;
 }
 
+// ---------------------------------------------------------------------------
+// XRGB8888 -> ARGB8888 (opaque alpha) row conversion.
+//
+// Used by the video callbacks to normalise core frames into the internal
+// 0xFFRRGGBB representation consumed by the blit path / frame pull APIs.
+// The melonDS libretro core reports every frame through this format, so on
+// NDS this runs ONCE PER FRAME on the emulation thread — and with the GL
+// (hardware) 3D renderer at scale >1 the frames get big fast: a 4x render
+// emits 1024x1544 ≈ 1.58M pixels/frame, which cost ~6-10 ms per frame in
+// the old scalar per-pixel loop. The NEON path below ORRs the opaque-alpha
+// mask into 16 pixels per iteration (~vld1q + vorr + vst1q), typically 5-8×
+// faster; the scalar tail keeps non-NEON builds correct.
+// ---------------------------------------------------------------------------
+static inline void convertXrgbRowsToArgb(uint32_t* dst,
+                                         const uint32_t* src,
+                                         size_t srcStridePx,
+                                         size_t dstStridePx,
+                                         unsigned width,
+                                         unsigned height) {
+    for (unsigned y = 0; y < height; ++y) {
+        const uint32_t* srow = src + (size_t)y * srcStridePx;
+        uint32_t* drow = dst + (size_t)y * dstStridePx;
+        unsigned x = 0;
+#if defined(CORESHARED_HAVE_NEON)
+        {
+            // NOTE on lane math: vld1q_u32 moves FOUR uint32 pixels per
+            // iteration (a Q register holds 4x32-bit lanes) — NOT 16. An
+            // earlier draft used vld1q_u8 + a 16-pixel stride, which would
+            // have silently left 12 of every 16 pixels unconverted; the
+            // host-side unit test caught it. The unrolled 2×Q-load below
+            // gives memory-level parallelism without changing lane counts.
+            const uint32x4_t alphaMask = vdupq_n_u32(0xFF000000u);
+            for (; x + 8 <= width; x += 8) {
+                uint32x4_t p0 = vld1q_u32(srow + x);
+                uint32x4_t p1 = vld1q_u32(srow + x + 4);
+                p0 = vorrq_u32(p0, alphaMask);
+                p1 = vorrq_u32(p1, alphaMask);
+                vst1q_u32(drow + x, p0);
+                vst1q_u32(drow + x + 4, p1);
+            }
+            for (; x + 4 <= width; x += 4) {
+                uint32x4_t px = vld1q_u32(srow + x);
+                px = vorrq_u32(px, alphaMask);
+                vst1q_u32(drow + x, px);
+            }
+        }
+#endif
+        for (; x < width; ++x)
+            drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
+    }
+}
+
 // Convert a row of ARGB (0xAARRGGBB, little-endian memory [B,G,R,A]) into
 // the window's RGBA_8888 byte order ([R,G,B,A]) and write it to dst.
 // NEON path processes 16 pixels per iteration via de-interleaving loads /

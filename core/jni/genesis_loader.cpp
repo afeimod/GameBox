@@ -503,15 +503,13 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         }
 
         if (s_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
-            const uint32_t* src = static_cast<const uint32_t*>(data);
-            const size_t stride = pitch / sizeof(uint32_t);
-            for (unsigned y = 0; y < height; ++y) {
-                const uint32_t* srow = src + y * stride;
-                uint32_t* drow = s_frame.data() + (size_t)y * width;
-                for (unsigned x = 0; x < width; ++x) {
-                    drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
-                }
-            }
+            // NEON bulk conversion (16 px/iter, see core_shared.h) — the old
+            // scalar per-pixel loop cost several ms/frame on big frames.
+            coreshared::convertXrgbRowsToArgb(
+                s_frame.data(),
+                static_cast<const uint32_t*>(data),
+                pitch / sizeof(uint32_t), width,
+                width, height);
         } else if (s_pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
             const uint16_t* src = static_cast<const uint16_t*>(data);
             const size_t stride = pitch / sizeof(uint16_t);

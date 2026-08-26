@@ -109,7 +109,7 @@ interface EmulatorEngine {
      */
     fun setHighQualityScaling(enabled: Boolean)
 
-    /** Set fast-forward speed (0 = off, 2/4/6/8 = speed multiplier). */
+    /** Set fast-forward speed (0 = off, 2/4/6/8/16 = speed multiplier). */
     fun setFastForward(speed: Int)
 
     /** Pause or resume emulation. */
@@ -154,11 +154,13 @@ interface EmulatorEngine {
     /** Set audio sample rate hint. */
     fun setSampleRate(rate: Int)
 
-    /** Save state to a file. */
-    fun saveState(slot: Int, dst: File)
+    /** Save state to a file. Returns false if the core failed to serialize
+     *  (e.g. DSi mode) or the file could not be written. */
+    fun saveState(slot: Int, dst: File): Boolean
 
-    /** Load state from a file. */
-    fun loadState(slot: Int, src: File)
+    /** Load state from a file. Returns false if the file is missing/corrupt
+     *  or the core rejected it (wrong version, truncated, etc.). */
+    fun loadState(slot: Int, src: File): Boolean
 
     /**
      * Capture the current frame as an ARGB bitmap (0xAARRGGBB).

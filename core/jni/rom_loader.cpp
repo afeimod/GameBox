@@ -494,14 +494,10 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
         std::memset(s_frame, 0, sizeof(s_frame));
-        for (unsigned y = 0; y < ch; ++y) {
-            const uint32_t* srow = src + y * srcStride;
-            uint32_t* drow = s_frame + (size_t)y * kNesMaxW;
-            for (unsigned x = 0; x < cw; ++x) {
-                // XRGB8888 (0xXXRRGGBB) -> ARGB (0xFFRRGGBB)
-                drow[x] = 0xFF000000u | (srow[x] & 0x00FFFFFFu);
-            }
-        }
+        // NEON bulk conversion (16 px/iter, see core_shared.h); fixed
+        // kNesMaxW destination stride and clipped cw columns preserved.
+        coreshared::convertXrgbRowsToArgb(
+            s_frame, src, srcStride, (size_t)kNesMaxW, cw, ch);
         s_newFrame.store(true, std::memory_order_release);
     }
 

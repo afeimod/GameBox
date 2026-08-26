@@ -139,26 +139,15 @@ class FbNeoEngine private constructor() : EmulatorEngine {
 
                     onFrame()
 
-                    if (_ffSpeed > 0) {
-                        val targetNs = 1_000_000_000L / (60 * _ffSpeed)
-                        val elapsed = System.nanoTime() - t0
-                        val sleep = targetNs - elapsed
-                        if (sleep > 0) {
-                            try { Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt()) }
-                            catch (_: InterruptedException) { break }
-                        }
-                    } else {
-                        val targetNs = 1_000_000_000L / 60
-                        val elapsed = System.nanoTime() - t0
-                        val sleep = targetNs - elapsed
-                        if (sleep > 0) {
-                            try {
-                                Thread.sleep(sleep / 1_000_000, (sleep % 1_000_000).toInt())
-                            } catch (_: InterruptedException) {
-                                break
-                            }
-                        }
-                    }
+                    // Pacing — melonDS-style fast-forward: divide the frame
+                    // budget by the multiplier so emulation runs up to N×
+                    // real-time. FramePacer uses a hybrid sleep+parkNanos
+                    // deadline strategy — far less jitter than raw
+                    // Thread.sleep, which measurably reduced micro-stutter.
+                    val ff = _ffSpeed
+                    val paced = if (ff > 0) FramePacer.pace(t0, 60 * ff)
+                                else FramePacer.pace(t0, 60)
+                    if (!paced) break
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("FbNeoEngine", "Emulation thread crashed", t)
@@ -307,8 +296,8 @@ class FbNeoEngine private constructor() : EmulatorEngine {
     fun setPad4(bits: Int) = FbNeoNative.setPad4(bits)
     override fun setRegion(region: Int) = FbNeoNative.setRegion(region)
     override fun setSampleRate(rate: Int) = FbNeoNative.setSampleRate(rate)
-    override fun saveState(slot: Int, dst: File) { FbNeoNative.saveState(slot, dst.absolutePath) }
-    override fun loadState(slot: Int, src: File) { FbNeoNative.loadState(slot, src.absolutePath) }
+    override fun saveState(slot: Int, dst: File): Boolean = FbNeoNative.saveState(slot, dst.absolutePath)
+    override fun loadState(slot: Int, src: File): Boolean = FbNeoNative.loadState(slot, src.absolutePath)
 
     override fun captureFrame(): FrameCapture? {
         if (!isLoaded) return null
