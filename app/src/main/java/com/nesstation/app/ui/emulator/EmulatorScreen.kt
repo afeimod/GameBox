@@ -1416,7 +1416,11 @@ fun EmulatorScreen(
                 ndsBottomRect = ndsBottomRect,
                 modifier = Modifier
                     .fillMaxSize()
-                    .onSizeChanged { surfaceSize = it }
+                    .onSizeChanged { surfaceSize = it },
+                // 把 EmulatorScreen 中声明的 gameViewTracker 注入到
+                // GameSurfaceView，使其内部 AndroidView 上的 onGloballyPositioned
+                // 回调能更新 gameViewPosInRoot / gameViewSize —— NDS 触摸转发需要。
+                gameViewTracker = gameViewTracker
             )
 
             // === 联机对战状态条（顶部居中） ===
@@ -2302,7 +2306,11 @@ private fun GameSurfaceView(
     // NDS 屏幕间距 (px, 0..20) —— 用于精确计算下屏在复合帧中的位置
     ndsScreenGapPx: Int = 0,
     // NDS OpenGL 渲染器是否启用（GL 合成帧固定 256x386，含 2px gap）
-    ndsOpenGl: Boolean = false
+    ndsOpenGl: Boolean = false,
+    // 由父 Composable 注入的 onGloballyPositioned 跟踪器：在游戏视图
+    // （AndroidView = SurfaceView / NdsDualScreenView）上挂载，用于把根
+    // 坐标系下的触摸位置换算成视图局部坐标（NDS 触摸转发使用）。
+    gameViewTracker: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
     val isCustom = videoScale == "custom"
