@@ -397,8 +397,12 @@ class DosEngine private constructor() : EmulatorEngine {
         val h = videoHeight()
         if (w <= 0 || h <= 0) return null
         val buf = IntArray(w * h)
-        val ok = DosNative.getFrameBuffer(buf)
-        if (!ok) return null
+        // getFrameBuffer 返回值仅表示"自上次读取后是否有新帧"。渲染循环每帧都会
+        // 通过 getFrameBuffer(frameBuffer) 消费该标志，UI 侧截图几乎总是拿到
+        // false —— 旧代码把它当失败，导致游戏内菜单截图必报"无画面数据"。
+        // native 端无论返回值如何都会把最后渲染的一帧拷入 buf（仅在核心未加载
+        // 时提前返回，而上面 isLoaded 已拦截），所以这里不再以返回值判定成败。
+        DosNative.getFrameBuffer(buf)
         return FrameCapture(buf, w, h)
     }
 

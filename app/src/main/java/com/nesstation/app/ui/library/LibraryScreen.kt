@@ -406,12 +406,29 @@ fun LibraryScreen(
     // 当外部传入的 games 列表变化时（父级 NavHost 在 ON_RESUME 时重新加载），
     // 同步到本地列表，保留本地可能的新增（避免和远端并发写入时丢数据）
     LaunchedEffect(games) {
-        // 仅在外部列表比本地更新时合并：用 id 去重
-        val localIds = importedGames.map { it.id }.toSet()
-        val merged = (importedGames + games).distinctBy { it.id }
-        if (merged.size != importedGames.size || games.any { it.id !in localIds }) {
+        // 以本地列表为基底合并外部列表：id 未出现的新增；id 已存在但
+        // 图标/封面/标题字段与本地不同的一律采用外部版本 —— 外部数据来自
+        // RomStore 全量重读，代表最新落盘状态（例如刚设置的自定义图标），
+        // 旧的 distinctBy 首见优先会把过期条目留在列表里导致图标不刷新。
+        var changed = importedGames.size != games.size
+        val byId = LinkedHashMap<String, GameEntry>()
+        importedGames.forEach { byId[it.id] = it }
+        games.forEach { ext ->
+            val local = byId[ext.id]
+            if (local == null) {
+                byId[ext.id] = ext
+                changed = true
+            } else if (local.customIconPath != ext.customIconPath ||
+                       local.coverPath != ext.coverPath ||
+                       local.customTitle != ext.customTitle ||
+                       local.title != ext.title) {
+                byId[ext.id] = ext
+                changed = true
+            }
+        }
+        if (changed) {
             importedGames.clear()
-            importedGames.addAll(merged)
+            importedGames.addAll(byId.values)
         }
     }
 
@@ -1511,10 +1528,17 @@ private fun FsdGameCover(
     cache: HashMap<String, android.graphics.Bitmap>
 ) {
     val context = LocalContext.current
-    val bmp = remember(game.id, game.customIconPath, game.coverPath) {
-        // 简单容量上限：长时间浏览时防止内存无限增长
+    // 修复：缓存键必须包含图标来源标识。旧实现 remember 键虽然含 customIconPath，
+    // 但 cache.getOrPut(game.id) 用固定键取位图 —— 设置新图标后 remember 块重执行
+    // 时命中的仍是旧位图，导致"自定义图标不立即刷新，进游戏退游戏才生效"。
+    // 现在图标路径变化 → 缓存键变化 → 重新解码；同时移除旧键防止内存累积。
+    val cacheKey = "${game.id}|${game.customIconPath ?: ""}|${game.coverPath ?: ""}"
+    val staleKey = "${game.id}|"
+    val bmp = remember(cacheKey) {
         if (cache.size > 60) cache.clear()
-        cache.getOrPut(game.id) {
+        // 清掉同一游戏旧图标的残留位图
+        cache.keys.filter { it.startsWith(staleKey) && it != cacheKey }.forEach { cache.remove(it) }
+        cache.getOrPut(cacheKey) {
             var b: android.graphics.Bitmap? = null
             val path = try {
                 com.nesstation.app.core.storage.GameIconExtractor.resolveIconPath(context, game)

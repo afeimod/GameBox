@@ -1,6 +1,8 @@
 package com.nesstation.app.ui.fsd
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,6 +94,21 @@ fun FsdCoverFlow(
         val stepPx = with(LocalDensity.current) { (itemWidth + gap).toPx() }
         var dragAccum by remember { mutableFloatStateOf(0f) }
 
+        // 实时拖拽跟手：拖动中封面直接随手指平移，松手后残余偏移量平滑归零，
+        // 与翻页动画叠加 —— 旧版只在松手时整页翻转，手感生硬。
+        var dragPx by remember { mutableFloatStateOf(0f) }
+        var settling by remember { mutableStateOf(false) }
+        LaunchedEffect(settling) {
+            if (settling) {
+                animate(
+                    initialValue = dragPx,
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                ) { v -> dragPx = v }
+                settling = false
+            }
+        }
+
         // TV 遥控器：进入界面后自动抓焦，否则 D-pad 首次按键无响应
         val focusRequester = remember { FocusRequester() }
         LaunchedEffect(grabFocusOnLaunch) {
@@ -118,21 +136,29 @@ fun FsdCoverFlow(
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             onItemClick(sel); true
                         }
+                        Key.Y, Key.ButtonY -> { onItemLongClick(sel); true }  // Y = 选项（长按等效）
                         else -> false
                     }
                 }
                 .pointerInput(count) {
                     detectHorizontalDragGestures(
-                        onDragStart = { dragAccum = 0f },
+                        onDragStart = {
+                            dragAccum = 0f
+                            settling = false
+                            dragPx = 0f
+                        },
                         onHorizontalDrag = { change, amount ->
                             dragAccum += amount
+                            dragPx += amount
                             change.consume()
                         },
                         onDragEnd = {
-                            // 半步即翻页 — 手感与 FSD 一致
+                            // 半步即翻页 — 手感与 FSD 一致；翻页与回弹动画并行，落位顺滑
                             val steps = (-dragAccum / (stepPx * 0.45f)).roundToInt()
                             if (steps != 0) move(steps.coerceIn(-visibleHalfWindow, visibleHalfWindow))
-                        }
+                            settling = true
+                        },
+                        onDragCancel = { settling = true }
                     )
                 },
             contentAlignment = Alignment.Center
@@ -154,7 +180,7 @@ fun FsdCoverFlow(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .graphicsLayer {
-                            translationX = pos * stepPx
+                            translationX = pos * stepPx + dragPx
                             scaleX = scale
                             scaleY = scale
                             rotationY = tilt

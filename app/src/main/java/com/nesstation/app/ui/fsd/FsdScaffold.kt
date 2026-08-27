@@ -2,9 +2,15 @@ package com.nesstation.app.ui.fsd
 
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import android.view.Surface
+import android.view.TextureView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,14 +46,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -164,6 +175,135 @@ private fun DrawScope.drawFsdBackdrop() {
 }
 
 private data class Streak(val xFrac: Float, val widthFrac: Float, val alpha: Float)
+
+// ---------------------------------------------------------------------------
+// FsdCustomBackground — 用户自定义主页背景（图片 / 循环静音视频）
+// ---------------------------------------------------------------------------
+
+/**
+ * 用户自定义的 FSD 桌面壁纸。uri 为空时调用方应回退到默认 [FsdBackdrop]。
+ *
+ *   - 图片：降采样解码（防止 4K 壁纸 OOM），ContentScale.Crop 铺满
+ *   - 视频：TextureView + MediaPlayer 循环静音播放（无需额外播放器依赖），
+ *           硬解不支持时静默回退默认壁纸
+ *   - 上层叠加深蓝渐变遮罩，保证面包屑/磁贴/状态条前景可读
+ */
+@Composable
+fun FsdCustomBackground(
+    uriString: String,
+    isVideo: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (uriString.isBlank()) return
+    val context = LocalContext.current
+    if (isVideo) {
+        var playerRef by remember(uriString) { mutableStateOf<MediaPlayer?>(null) }
+        // key(uriString)：换视频时强制重建 TextureView + MediaPlayer（factory 只在组合时执行一次）
+        androidx.compose.runtime.key(uriString) {
+            AndroidView(
+                factory = { ctx ->
+                    TextureView(ctx).apply {
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(
+                                st: android.graphics.SurfaceTexture, width: Int, height: Int
+                            ) {
+                                try {
+                                    val mp = MediaPlayer()
+                                    mp.setDataSource(ctx, Uri.parse(uriString))
+                                    mp.setSurface(Surface(st))
+                                    mp.isLooping = true
+                                    mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                                    mp.setVolume(0f, 0f) // 静音视频壁纸
+                                    mp.prepareAsync()
+                                    mp.setOnPreparedListener { it.start() }
+                                    playerRef = mp
+                                } catch (_: Exception) {
+                                    // 解码器不支持等异常：保持黑屏，调用方遮罩仍在
+                                }
+                            }
+                            override fun onSurfaceTextureSizeChanged(
+                                st: android.graphics.SurfaceTexture, width: Int, height: Int
+                            ) {}
+                            override fun onSurfaceTextureDestroyed(
+                                st: android.graphics.SurfaceTexture
+                            ): Boolean {
+                                playerRef?.release()
+                                playerRef = null
+                                return true
+                            }
+                            override fun onSurfaceTextureUpdated(
+                                st: android.graphics.SurfaceTexture
+                            ) {}
+                        }
+                    }
+                },
+                modifier = modifier.fillMaxSize()
+            )
+        }
+    } else {
+        val bmp = remember(uriString) {
+            FsdImaging.decodeUri(context, uriString, 1280, 800)
+        }
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = modifier.fillMaxSize()
+            )
+        } else {
+            FsdBackdrop(modifier)
+        }
+    }
+    // 深蓝渐变遮罩 —— 自定义内容之上压一层 FSD 色调，前景文字/磁贴可读性优先
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    0f to Fsd.BgTop.copy(alpha = 0.55f),
+                    0.45f to Fsd.BgMid.copy(alpha = 0.40f),
+                    1f to Fsd.BgBottom.copy(alpha = 0.66f)
+                )
+            )
+    )
+}
+
+/** 降采样位图解码工具（图片背景 / 磁贴自定义图标共用）。 */
+object FsdImaging {
+    private fun sampleSize(opts: BitmapFactory.Options, reqW: Int, reqH: Int): Int {
+        val w = opts.outWidth.coerceAtLeast(1)
+        val h = opts.outHeight.coerceAtLeast(1)
+        var sample = 1
+        while (w / (sample * 2) >= reqW && h / (sample * 2) >= reqH) sample *= 2
+        return sample
+    }
+
+    fun decodeFile(path: String, reqW: Int, reqH: Int): android.graphics.Bitmap? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        if (bounds.outWidth <= 0 && bounds.outHeight <= 0) null
+        else BitmapFactory.decodeFile(
+            path,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds, reqW, reqH) }
+        )
+    } catch (_: Exception) { null }
+
+    fun decodeUri(context: Context, uriString: String, reqW: Int, reqH: Int): android.graphics.Bitmap? = try {
+        val uri = Uri.parse(uriString)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        }
+        if (bounds.outWidth <= 0 && bounds.outHeight <= 0) null
+        else context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(
+                it, null,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds, reqW, reqH) }
+            )
+        }
+    } catch (_: Exception) { null }
+}
 
 // ---------------------------------------------------------------------------
 // 系统状态数据采集（真实数据，不做假温度）
@@ -294,7 +434,13 @@ object FsdSysInfo {
 
 /** 单个状态项：标签 + 数值 + 迷你进度条 */
 @Composable
-private fun SysStatChip(label: String, value: String, fraction: Float) {
+private fun SysStatChip(
+    label: String,
+    value: String,
+    fraction: Float,
+    barWidth: Dp = 86.dp,
+    compact: Boolean = false
+) {
     val barColor = when {
         fraction >= 0.9f -> Fsd.BarRed
         fraction >= 0.7f -> Fsd.BarYellow
@@ -305,22 +451,26 @@ private fun SysStatChip(label: String, value: String, fraction: Float) {
             Text(
                 text = label,
                 color = Fsd.BarTextDim,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium
+                fontSize = if (compact) 9.sp else 10.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
             )
             Spacer(Modifier.width(5.dp))
             Text(
                 text = value,
                 color = Fsd.BarText,
-                fontSize = 10.sp,
+                fontSize = if (compact) 9.sp else 10.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false   // 竖屏禁止换行 —— 旧版“外置 423GB/462GB”换行把顶栏撑高了一倍
             )
         }
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(if (compact) 2.dp else 3.dp))
         Box(
             modifier = Modifier
-                .width(86.dp)
+                .width(barWidth)
                 .height(5.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(Color.White.copy(alpha = 0.14f))
@@ -346,6 +496,10 @@ fun FsdTopBar(modifier: Modifier = Modifier) {
     var stats by remember { mutableStateOf(FsdSysStats()) }
     var time by remember { mutableStateOf("") }
 
+    // 紧凑模式（竖屏手机）：压缩高度、缩短进度条、GB 缩写、隐藏品牌字，
+    // 外置与内置容量相同时不再重复展示 —— 解决“上方存储信息占用太多”的问题。
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+
     LaunchedEffect(Unit) {
         while (true) {
             // 采样含 120ms 的 /proc/stat 双读，放到 IO 线程避免卡 UI
@@ -357,34 +511,42 @@ fun FsdTopBar(modifier: Modifier = Modifier) {
         }
     }
 
+    fun abbrev(s: String) = if (compact) s.replace("GB", "G") else s
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(Fsd.BarBg)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 3.dp else 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SysStatChip("CPU", "%d%%".format((stats.cpuLoad * 100).toInt()), stats.cpuLoad)
-        SysStatChip("内存", stats.memText, stats.memUsedFraction)
-        SysStatChip("存储", stats.intText, stats.intUsedFraction)
-        if (stats.extUsedFraction >= 0f) {
-            SysStatChip("外置", stats.extText, stats.extUsedFraction)
+        SysStatChip("CPU", "%d%%".format((stats.cpuLoad * 100).toInt()), stats.cpuLoad,
+            barWidth = if (compact) 44.dp else 86.dp, compact = compact)
+        SysStatChip("内存", abbrev(stats.memText), stats.memUsedFraction,
+            barWidth = if (compact) 44.dp else 86.dp, compact = compact)
+        SysStatChip("存储", abbrev(stats.intText), stats.intUsedFraction,
+            barWidth = if (compact) 44.dp else 86.dp, compact = compact)
+        if (stats.extUsedFraction >= 0f && (!compact || stats.extText != stats.intText)) {
+            SysStatChip("外置", abbrev(stats.extText), stats.extUsedFraction,
+                barWidth = if (compact) 44.dp else 86.dp, compact = compact)
         }
         Spacer(Modifier.weight(1f))
-        Text(
-            text = "NES STATION",
-            color = Fsd.BarTextDim,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.5.sp
-        )
-        Spacer(Modifier.width(10.dp))
+        if (!compact) {
+            Text(
+                text = "NES STATION",
+                color = Fsd.BarTextDim,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         Text(
             text = time,
             color = Fsd.BarText,
-            fontSize = 13.sp,
+            fontSize = if (compact) 12.sp else 13.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace
         )

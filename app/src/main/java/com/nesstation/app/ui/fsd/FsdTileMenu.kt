@@ -1,6 +1,7 @@
 package com.nesstation.app.ui.fsd
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,8 +27,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,13 +53,15 @@ data class FsdTileItem(
     val key: String,
     val label: String,
     val icon: ImageVector?,
-    val badge: String? = null   // 右上角小徽标（如游戏数量）
+    val badge: String? = null,   // 右上角小徽标（如游戏数量）
+    val iconPath: String? = null // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
 )
 
 @Composable
 fun FsdTile(
     item: FsdTileItem,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compactTile: Boolean = false
 ) {
     Box(
         modifier = modifier
@@ -64,17 +71,27 @@ fun FsdTile(
         // 蓝/黄对角渐变表面
         Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
 
-        // 图标 — 蓝色区域中央
-        if (item.icon != null) {
-            Icon(
-                imageVector = item.icon,
-                contentDescription = item.label,
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 34.dp)
-                    .size(56.dp)
-            )
+        // 图标 — 自定义图片优先，否则用平台专属矢量图标；蓝色区域中央偏上
+        if (item.iconPath != null) {
+            val bmp = remember(item.iconPath) {
+                FsdImaging.decodeFile(item.iconPath!!, 220, 220)
+            }
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = item.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = if (compactTile) 16.dp else 30.dp)
+                        .size(if (compactTile) 46.dp else 68.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                )
+            } else if (item.icon != null) {
+                TileVectorIcon(item, compactTile)
+            }
+        } else if (item.icon != null) {
+            TileVectorIcon(item, compactTile)
         }
 
         // 徽标（游戏数量）
@@ -100,15 +117,36 @@ fun FsdTile(
         Text(
             text = item.label,
             color = Color(0xFF1A1206),
-            fontSize = 19.sp,
+            fontSize = if (compactTile) 15.sp else 19.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, bottom = 12.dp, end = 12.dp)
+                .padding(
+                    start = if (compactTile) 12.dp else 16.dp,
+                    bottom = if (compactTile) 8.dp else 12.dp,
+                    end = 12.dp
+                )
         )
     }
+}
+
+/** 平台专属矢量图标（自定义图标缺失/解码失败时的回退）。 */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.TileVectorIcon(
+    item: FsdTileItem,
+    compactTile: Boolean
+) {
+    Icon(
+        imageVector = item.icon!!, // 调用方已判空
+        contentDescription = item.label,
+        tint = Color.White,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = if (compactTile) 18.dp else 34.dp)
+            .size(if (compactTile) 44.dp else 56.dp)
+    )
 }
 
 private fun DrawScope.drawFsdTileSurface() {
@@ -164,6 +202,9 @@ private fun DrawScope.drawFsdTileSurface() {
  *   - 中央磁贴最大，右侧磁贴依次渐退（cover-flow 排布）
  *   - 下方居中显示「N of M」计数
  *   - 磁贴下方标题即 [FsdTileItem.label]（在磁贴内部）
+ *
+ * 竖屏（<600dp 宽）自动切换紧凑尺寸：磁贴缩小到 ~190dp，左右邻贴各露一角，
+ * 不再“整屏只看到一个磁贴”；横屏保持 296dp 大磁贴。
  */
 @Composable
 fun FsdTileFlow(
@@ -171,27 +212,30 @@ fun FsdTileFlow(
     selectedIndex: Int,
     onIndexChange: (Int) -> Unit,
     onActivate: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onItemLongClick: (Int) -> Unit = {}
 ) {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         FsdCoverFlow(
             count = items.size,
             selectedIndex = selectedIndex,
             onIndexChange = onIndexChange,
             onItemClick = onActivate,
+            onItemLongClick = onItemLongClick,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            itemWidth = 296.dp,
-            itemHeight = 196.dp,
-            gap = 26.dp,
-            tiltDegrees = 14f,
+            itemWidth = if (compact) 190.dp else 296.dp,
+            itemHeight = if (compact) 122.dp else 196.dp,
+            gap = if (compact) 16.dp else 26.dp,
+            tiltDegrees = if (compact) 10f else 14f,
             fadePerStep = 0.26f,
             scalePerStep = 0.22f,
             showReflection = false,
             grabFocusOnLaunch = true
         ) { i ->
-            FsdTile(items[i], modifier = Modifier.fillMaxSize())
+            FsdTile(items[i], modifier = Modifier.fillMaxSize(), compactTile = compact)
         }
 
         // N of M 计数

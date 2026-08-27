@@ -380,6 +380,14 @@ class PadLayout {
     //   "nesstation"  → 统一存档目录 <filesDir>/saves/<gameId>.srm（NDS 为 .sav）
     //   "core_builtin" → ROM 同目录同名 .srm/.sav（与常见模拟器/RetroArch 交换兼容）
     var globalSaveMode: String = "nesstation"           // nesstation | core_builtin
+
+    // === 主页个性化（FSD 桌面）===
+    // 主页背景：空 = 默认深蓝壁纸；非空 = SAF 持久 URI（图片或视频）。
+    var homeBackgroundUri: String = ""
+    var homeBackgroundIsVideo: Boolean = false
+    // 主页磁贴自定义图标：JSON map { tileKey → 图标文件绝对路径 }，
+    // 图标已拷贝到 filesDir/icons，路径稳定可直接 BitmapFactory 解码。
+    var homeTileIcons: String = ""
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
@@ -835,6 +843,9 @@ class PadLayout {
         hiddenButtonsNds = another.hiddenButtonsNds
         hiddenButtonsPsx = another.hiddenButtonsPsx
         inputMode = another.inputMode
+        homeBackgroundUri = another.homeBackgroundUri
+        homeBackgroundIsVideo = another.homeBackgroundIsVideo
+        homeTileIcons = another.homeTileIcons
     }
 }
 
@@ -1359,6 +1370,10 @@ object PadLayoutStore {
             globalSaveMode = p.getString("global_save_mode", null)
                 ?: p.getString("nds_save_mode", "nesstation")
                 ?: "nesstation"
+            // === 主页个性化 ===
+            homeBackgroundUri = p.getString("home_bg_uri", "") ?: ""
+            homeBackgroundIsVideo = p.getBoolean("home_bg_is_video", false)
+            homeTileIcons = p.getString("home_tile_icons", "") ?: ""
             ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
             ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
             ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
@@ -1757,6 +1772,10 @@ object PadLayoutStore {
             putString("nds_use_fw_settings", layout.ndsUseFwSettings)
             putString("nds_save_mode", layout.ndsSaveMode)   // legacy (NDS-only), 迁移到 global_save_mode
             putString("global_save_mode", layout.globalSaveMode)
+            // === 主页个性化 ===
+            putString("home_bg_uri", layout.homeBackgroundUri)
+            putBoolean("home_bg_is_video", layout.homeBackgroundIsVideo)
+            putString("home_tile_icons", layout.homeTileIcons)
             putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
             putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
             putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)

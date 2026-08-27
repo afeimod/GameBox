@@ -197,6 +197,39 @@ fun SettingsScreen(
         }
     }
 
+    // SAF：主页背景图片/视频选择器（OpenDocument 支持持久化 URI 权限，
+    // MediaPlayer / BitmapFactory 后续随时可读）。
+    val bgImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: Exception) { }
+        updateLayout(padLayout.copy {
+            homeBackgroundUri = uri.toString()
+            homeBackgroundIsVideo = false
+        })
+        dialogText = "主页背景已更新（图片）"
+    }
+    val bgVideoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: Exception) { }
+        updateLayout(padLayout.copy {
+            homeBackgroundUri = uri.toString()
+            homeBackgroundIsVideo = true
+        })
+        dialogText = "主页背景已更新（视频，循环静音播放）"
+    }
+
     fun openAppSettings() {
         val intent = Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", context.packageName, null)
@@ -368,6 +401,50 @@ fun SettingsScreen(
                             SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {
                                 dialogText = "请到游戏库点击「导入ROM」或「导入文件夹」按钮导入游戏文件"
                             }
+                        }
+                    }
+
+                    // === 主页 ===
+                    item {
+                        SettingsSection("主页") {
+                            SettingsRow("主页背景",
+                                if (padLayout.homeBackgroundUri.isEmpty()) "默认深蓝壁纸"
+                                else if (padLayout.homeBackgroundIsVideo) "自定义视频"
+                                else "自定义图片",
+                                trailing = { ValueText(if (padLayout.homeBackgroundUri.isEmpty()) "默认"
+                                                       else if (padLayout.homeBackgroundIsVideo) "视频" else "图片") }
+                            )
+                            SettingsRow("设置背景图片", "从文件选择图片作为主页壁纸") {
+                                try {
+                                    bgImagePicker.launch(arrayOf("image/*"))
+                                } catch (e: Exception) {
+                                    dialogText = "无法打开选择器：${e.message}"
+                                }
+                            }
+                            SettingsRow("设置背景视频", "循环静音播放的视频壁纸") {
+                                try {
+                                    bgVideoPicker.launch(arrayOf("video/*"))
+                                } catch (e: Exception) {
+                                    dialogText = "无法打开选择器：${e.message}"
+                                }
+                            }
+                            SettingsRow("恢复默认背景", "还原 FSD 深蓝壁纸") {
+                                if (padLayout.homeBackgroundUri.isNotEmpty()) {
+                                    updateLayout(padLayout.copy {
+                                        homeBackgroundUri = ""
+                                        homeBackgroundIsVideo = false
+                                    })
+                                    dialogText = "已恢复默认背景"
+                                } else {
+                                    dialogText = "当前已是默认背景"
+                                }
+                            }
+                            Text(
+                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可为其设置专属图标，立即生效并持久保存。",
+                                color = Color(0xFF4A5568), fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
                         }
                     }
 
