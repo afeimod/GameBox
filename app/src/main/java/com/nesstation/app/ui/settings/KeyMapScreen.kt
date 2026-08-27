@@ -203,6 +203,28 @@ private val PCE_ACTIONS = listOf(
     KeyAction("pce_run",    "Run",    Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Run (Start)")
 )
 
+// PS2 (PCEE2 — PCSX2 core) — full DualShock 2: 16 buttons incl. L2/R2/L3/R3.
+// Analog sticks are driven by physical gamepads via the OS; only button
+// events reach this key-action table. Ids match EmulatorScreen's PS2 table.
+private val PS2_ACTIONS = listOf(
+    KeyAction("ps2_up",     "上",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_UP,    "方向上"),
+    KeyAction("ps2_down",   "下",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_DOWN,  "方向下"),
+    KeyAction("ps2_left",   "左",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_LEFT,  "方向左"),
+    KeyAction("ps2_right",  "右",     Color(0xFF3498DB), KeyEvent.KEYCODE_DPAD_RIGHT, "方向右"),
+    KeyAction("ps2_a",      "×",      Color(0xFFE74C3C), KeyEvent.KEYCODE_BUTTON_A,   "× Cross"),
+    KeyAction("ps2_b",      "○",      Color(0xFFE67E22), KeyEvent.KEYCODE_BUTTON_B,   "○ Circle"),
+    KeyAction("ps2_x",      "□",      Color(0xFF3498DB), KeyEvent.KEYCODE_BUTTON_X,   "□ Square"),
+    KeyAction("ps2_y",      "△",      Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_Y,   "△ Triangle"),
+    KeyAction("ps2_l",      "L1",     Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_L1,  "L1"),
+    KeyAction("ps2_r",      "R1",     Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R1,  "R1"),
+    KeyAction("ps2_l2",     "L2",     Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_L2,  "L2"),
+    KeyAction("ps2_r2",     "R2",     Color(0xFF2ECC71), KeyEvent.KEYCODE_BUTTON_R2,  "R2"),
+    KeyAction("ps2_l3",     "L3",     Color(0xFF95A5A6), KeyEvent.KEYCODE_BUTTON_THUMBL, "左摇杆按下"),
+    KeyAction("ps2_r3",     "R3",     Color(0xFF95A5A6), KeyEvent.KEYCODE_BUTTON_THUMBR, "右摇杆按下"),
+    KeyAction("ps2_select", "Select", Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_SELECT, "Select"),
+    KeyAction("ps2_start",  "Start",  Color(0xFF1E2A3A), KeyEvent.KEYCODE_BUTTON_START,  "Start")
+)
+
 private fun actionsFor(platform: GamePlatform, player: Int = 0): List<KeyAction> {
     val suffix = "_p${player + 1}"
     return when (platform) {
@@ -217,6 +239,7 @@ private fun actionsFor(platform: GamePlatform, player: Int = 0): List<KeyAction>
         // NDS / PSX use the same 12-button layout as SNES (D-pad + 4 face + 4 shoulder + Start/Select)
         GamePlatform.NDS    -> SNES_ACTIONS.map { it.copy(id = it.id + suffix) }
         GamePlatform.PSX    -> SNES_ACTIONS.map { it.copy(id = it.id + suffix) }
+        GamePlatform.PS2    -> PS2_ACTIONS.map { it.copy(id = it.id + suffix) }
         GamePlatform.JAVA   -> JAVA_ACTIONS.map { it.copy(id = it.id + suffix) }
     }
 }

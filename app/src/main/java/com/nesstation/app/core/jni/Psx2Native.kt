@@ -76,6 +76,9 @@ object Psx2Native {
     /** App context — set by NesApp.onCreate so Psx2Native can locate the lib. */
     @Volatile var appContext: android.content.Context? = null
 
+    /** Tell the native side the absolute path to libpcee2_libretro_android.so (set before first load). */
+    @JvmStatic external fun setCoreLibPath(path: String)
+
     @JvmStatic external fun loadRom(path: String): Boolean
     @JvmStatic external fun unload()
     @JvmStatic external fun reset(hard: Boolean)

@@ -1537,7 +1537,7 @@ object PadLayoutStore {
             pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square"
             // === PS2 (PCEE2 — PCSX2 core) core options + 专属按键布局 ===
             // PCEE2 迁移：旧值 "1x"/"2x"/"4x"/"8x" 自动归一到 "1".."4"
-            ps2ResMulti = normalizePs2ResMulti(p.getString("ps2_res_multi", null))
+            ps2ResMulti = PadLayout.normalizePs2ResMulti(p.getString("ps2_res_multi", null))
             ps2Renderer = p.getString("ps2_renderer", "vulkan")?.takeIf { it == "vulkan" || it == "software" } ?: "vulkan"
             ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2Dpad = loadBtn(p, "ps2_dpad", ButtonLayout(x = 0.13f, y = 0.55f, sizeDp = 110))

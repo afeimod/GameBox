@@ -6292,6 +6292,10 @@ private fun PadLayoutEditor(
                     BtnType.Y -> { currentSize = btnY.sizeDp; minSize = 40; maxSize = 120; label = "Y键大小" }
                     BtnType.L2 -> { currentSize = btnL2.sizeDp; minSize = 36; maxSize = 90; label = "L2键大小" }
                     BtnType.R2 -> { currentSize = btnR2.sizeDp; minSize = 36; maxSize = 90; label = "R2键大小" }
+                    BtnType.LSTICK -> { currentSize = ps2LStick.sizeDp; minSize = 80; maxSize = 220; label = "左摇杆大小" }
+                    BtnType.RSTICK -> { currentSize = ps2RStick.sizeDp; minSize = 80; maxSize = 220; label = "右摇杆大小" }
+                    BtnType.L3 -> { currentSize = ps2BtnL3.sizeDp; minSize = 24; maxSize = 80; label = "L3大小" }
+                    BtnType.R3 -> { currentSize = ps2BtnR3.sizeDp; minSize = 24; maxSize = 80; label = "R3大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
                     // GAME_AREA 不出现在布局编辑器（selectedBtn 只会指向实体按键），
                     // 此分支仅为穷举完整性而设，正常流程不会执行。
@@ -6322,6 +6326,10 @@ private fun PadLayoutEditor(
                             BtnType.Y -> btnY
                             BtnType.L2 -> btnL2
                             BtnType.R2 -> btnR2
+                            BtnType.LSTICK -> ps2LStick
+                            BtnType.RSTICK -> ps2RStick
+                            BtnType.L3 -> ps2BtnL3
+                            BtnType.R3 -> ps2BtnR3
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
                             BtnType.GAME_AREA -> ButtonLayout(0.5f, 0.85f, 0)  // 不可达：编辑器不会选中游戏区域
                         }
