@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
  *           (Geargrafx core)
  * NDS    = Nintendo DS / DSi (melonDS libretro core)
  * PSX    = Sony PlayStation 1 (PCSX-ReARMed core)
+ * PS2    = Sony PlayStation 2 (PCEE2 libretro core — the official libretro
+ *          Android build of upstream PCSX2, shipped by the buildbot)
  * JAVA   = J2ME/Java ME games (J2ME-Loader engine)
  */
 enum class GamePlatform(val displayName: String) {
@@ -31,6 +33,7 @@ enum class GamePlatform(val displayName: String) {
     PCE("PCE/TG16"),
     NDS("NDS"),
     PSX("PSX"),
+    PS2("PS2"),
     JAVA("Java");
 
     companion object {
@@ -86,6 +89,8 @@ enum class GamePlatform(val displayName: String) {
                 // Sony PlayStation 1 (PCSX-ReARMed)
                 "psx", "ps1", "playstation", "playstation1", "sony", "pcsx",
                 "pcsxrearmed", "pcsxr" -> PSX
+                // Sony PlayStation 2 (PCEE2 libretro core — PCSX2)
+                "ps2", "playstation2", "play", "psx2", "pcsx2" -> PS2
                 // J2ME
                 "java", "j2me", "midlet" -> JAVA
                 // 兜底：未识别的字符串保持 NES 行为不变（旧 API 兼容）
@@ -158,6 +163,12 @@ enum class GamePlatform(val displayName: String) {
                 // a .cue/.pbp context it's PSX. detectPlatformFromUri handles
                 // .cue by looking at sibling files.
                 "pbp", "m3u", "ecm", "mds", "mdf" -> PSX
+                // Sony PlayStation 2 (PCEE2 libretro core — PCSX2)
+                // .iso is shared with DOS (disambiguated by the user's
+                // platform tab in detectPlatformFromUri). Unambiguous PS2-only
+                // extensions: .cso/.zso (compressed iso), .isz (legacy,
+                // kept for old libraries), .elf (PS2 homebrew/executable).
+                "cso", "isz", "elf", "zso" -> PS2
                 "jar", "jad" -> JAVA
                 // .zip is intentionally NOT mapped — see detectPlatformFromUri
                 // for the disambiguation logic.

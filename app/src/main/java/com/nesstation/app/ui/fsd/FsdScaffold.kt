@@ -40,7 +40,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -176,90 +175,6 @@ private fun DrawScope.drawFsdBackdrop() {
 }
 
 private data class Streak(val xFrac: Float, val widthFrac: Float, val alpha: Float)
-
-// ---------------------------------------------------------------------------
-// 全局背景 — 主页 / 游戏库等 FSD 深色页面共用同一张自定义壁纸
-// ---------------------------------------------------------------------------
-
-/**
- * FSD 全局视觉配置：uri 为空 = 默认深蓝壁纸；isVideo 区分图片 / 循环视频；
- * cardAlpha 为主页磁贴与游戏库封面卡片背景层的全局透明度（0.2..1.0）。
- */
-data class FsdBgConfig(
-    val uri: String = "",
-    val isVideo: Boolean = false,
-    val cardAlpha: Float = 1f
-)
-
-/** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。
- *  用 compositionLocalOf（dynamic 语义，1.0 起就有）：拖动透明度滑杆每帧更新时
- *  只重组真正读取本配置的组件（磁贴/封面卡片/壁纸），导航子树其余部分不受影响。
- *  注：本项目 BOM 2024.06.00 = Compose 1.6.8，无 1.7 才加入的 dynamicCompositionLocalOf。 */
-val LocalFsdBg = compositionLocalOf { FsdBgConfig() }
-
-/**
- * 全局背景配置的进程内实时总线。
- *
- * 此前 [rememberFsdBgConfig] 只在 ON_RESUME 时从 PadLayoutStore 重载，
- * 设置页改完透明度/壁纸后同一次会话内不会生效（要重进应用才行）。
- * 现在任何页面（设置页滑杆、主页磁贴选项对话框）写入本总线，
- * 所有经 [LocalFsdBg] 消费该配置的地方（主页磁贴、游戏库封面卡片、壁纸）
- * 立即重组生效 —— snapshot state 跨页面天然响应。
- */
-object FsdBgBus {
-    /** 当前生效配置；写入即触发所有消费方重组。 */
-    var config by mutableStateOf(FsdBgConfig())
-        private set
-
-    /** 从 PadLayoutStore 对齐一次（首次组合 / ON_RESUME）。 */
-    fun reload(context: Context) {
-        syncFrom(com.nesstation.app.core.storage.PadLayoutStore.load(context))
-    }
-
-    /** 已持有最新 PadLayout 时直接同步（设置页 updateLayout 落盘后调用，不回读存储）。 */
-    fun syncFrom(pl: com.nesstation.app.core.storage.PadLayout) {
-        config = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo, pl.tileCardAlpha)
-    }
-
-    /** 拖动中的内存态预览（只改总线不落盘，onValueChangeFinished 才持久化）。 */
-    fun previewCardAlpha(alpha: Float) {
-        config = config.copy(cardAlpha = alpha.coerceIn(0.2f, 1f))
-    }
-}
-
-/**
- * 在导航根部调用一次：首次组合与 ON_RESUME 时把存储内容对齐进 [FsdBgBus]，
- * 之后返回总线状态 —— 任何页面的写入都会立即反映到所有 FSD 页面。
- */
-@Composable
-fun rememberFsdBgConfig(): FsdBgConfig {
-    val context = LocalContext.current
-    val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(owner) {
-        fun reload() { FsdBgBus.reload(context) }
-        reload()
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) reload()
-        }
-        owner.lifecycle.addObserver(observer)
-        onDispose { owner.lifecycle.removeObserver(observer) }
-    }
-    return FsdBgBus.config
-}
-
-/**
- * 全局背景入口：自定义壁纸（图片/视频）优先，否则默认 [FsdBackdrop]。
- * 主页、游戏库等 FSD 深色页面统一调用本函数，保证壁纸全局一致。
- */
-@Composable
-fun FsdGlobalBackground(modifier: Modifier = Modifier) {
-    val bg = LocalFsdBg.current
-    if (bg.uri.isNotBlank()) {
-        FsdCustomBackground(uriString = bg.uri, isVideo = bg.isVideo, modifier = modifier)
-    } else {
-        FsdBackdrop(modifier)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // FsdCustomBackground — 用户自定义主页背景（图片 / 循环静音视频）

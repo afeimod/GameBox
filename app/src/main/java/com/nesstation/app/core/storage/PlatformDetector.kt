@@ -67,6 +67,7 @@ object PlatformDetector {
                 GamePlatform.DOS -> GamePlatform.DOS
                 GamePlatform.PCE -> GamePlatform.PCE
                 GamePlatform.PSX -> GamePlatform.PSX
+                GamePlatform.PS2 -> GamePlatform.PS2
                 else -> GamePlatform.MD
             }
         }
@@ -119,11 +120,14 @@ object PlatformDetector {
                 if (mdHints.any { lowerPath.contains(it) }) return GamePlatform.MD
                 val psxHints = listOf("psx", "ps1", "playstation", "sony")
                 if (psxHints.any { lowerPath.contains(it) }) return GamePlatform.PSX
+                val ps2Hints = listOf("ps2", "playstation2", "psx2")
+                if (ps2Hints.any { lowerPath.contains(it) }) return GamePlatform.PS2
             }
             return when (hintPlatform) {
                 GamePlatform.DOS -> GamePlatform.DOS
                 GamePlatform.PCE -> GamePlatform.PCE
                 GamePlatform.PSX -> GamePlatform.PSX
+                GamePlatform.PS2 -> GamePlatform.PS2
                 else -> GamePlatform.MD
             }
         }
@@ -168,6 +172,7 @@ object PlatformDetector {
                 GamePlatform.PCE -> GamePlatform.PCE
                 GamePlatform.DOS -> GamePlatform.DOS
                 GamePlatform.PSX -> GamePlatform.PSX
+                GamePlatform.PS2 -> GamePlatform.PS2
                 else -> GamePlatform.ARCADE
             }
         }

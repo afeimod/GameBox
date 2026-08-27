@@ -29,7 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -64,22 +63,13 @@ fun FsdTile(
     modifier: Modifier = Modifier,
     compactTile: Boolean = false
 ) {
-    // 卡片背景全局透明度（设置→主页调节）；背景层透出壁纸，图标/文字保持不透明
-    val cardAlpha = LocalFsdBg.current.cardAlpha.coerceIn(0.2f, 1f)
-
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF0D2C55))
     ) {
-        // 卡片背景层：深蓝基底 + 蓝/黄对角渐变，整体可调透明度（壁纸透出的玻璃质感）
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { this.alpha = cardAlpha }
-                .background(Color(0xFF0D2C55))
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
-        }
+        // 蓝/黄对角渐变表面
+        Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
 
         // 图标 — 自定义图片优先，否则用平台专属矢量图标；蓝色区域中央偏上
         if (item.iconPath != null) {

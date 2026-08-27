@@ -185,6 +185,7 @@ interface EmulatorEngine {
          * PCE    -> PceEngine (Geargrafx — PC-Engine/TurboGrafx-16/SuperGrafx/PCE-CD)
          * NDS    -> NdsEngine (melonDS — Nintendo DS / DSi)
          * PSX    -> PsxEngine (PCSX-ReARMed — Sony PlayStation 1)
+         * PS2    -> Psx2Engine (PCEE2 — PCSX2 — Sony PlayStation 2)
          */
         fun forPlatform(platform: GamePlatform): EmulatorEngine = when (platform) {
             GamePlatform.NES    -> NesEngine.get()
@@ -197,6 +198,7 @@ interface EmulatorEngine {
             GamePlatform.PCE    -> PceEngine.get()
             GamePlatform.NDS    -> NdsEngine.get()
             GamePlatform.PSX    -> PsxEngine.get()
+            GamePlatform.PS2    -> Psx2Engine.get()
             GamePlatform.JAVA   -> NesEngine.get() // fallback, should not be used
         }
     }

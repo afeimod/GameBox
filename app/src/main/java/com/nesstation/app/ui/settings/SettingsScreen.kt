@@ -32,7 +32,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -98,9 +97,6 @@ fun SettingsScreen(
     fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
         padLayout = new
         PadLayoutStore.save(context, new)
-        // 全局背景（壁纸/卡片透明度）实时总线同步：主页磁贴 + 游戏库封面卡片
-        // 在回到前台/重进之前就立即生效
-        com.nesstation.app.ui.fsd.FsdBgBus.syncFrom(new)
         // Apply core options to whichever engine(s) are currently loaded.
         // Previously this hard-coded NesEngine.get() which silently dropped
         // options when the user was playing a SNES or GBA game.
@@ -301,6 +297,7 @@ fun SettingsScreen(
                             SettingsRow("街机 Arcade", "FBNeo 核心 · 旋转/跳帧/NeoGeo", trailing = { Arrow() }) { selectedCore = GamePlatform.ARCADE }
                             SettingsRow("NDS / DSi", "melonDS 核心 · 屏幕/OpenGL/JIT/触摸", trailing = { Arrow() }) { selectedCore = GamePlatform.NDS }
                             SettingsRow("PSX", "PCSX-ReARMed 核心 · DRC/GPU线程/超频/SPU/手柄", trailing = { Arrow() }) { selectedCore = GamePlatform.PSX }
+                            SettingsRow("PS2", "PCSX2 (PCEE2) 核心 · 渲染器/分辨率倍数/双摇杆/肩键", trailing = { Arrow() }) { selectedCore = GamePlatform.PS2 }
                         }
                     }
 
@@ -408,24 +405,24 @@ fun SettingsScreen(
                         }
                     }
 
-                    // === 主页 / 个性化 ===
+                    // === 主页 ===
                     item {
                         SettingsSection("主页") {
-                            SettingsRow("全局背景",
+                            SettingsRow("主页背景",
                                 if (padLayout.homeBackgroundUri.isEmpty()) "默认深蓝壁纸"
                                 else if (padLayout.homeBackgroundIsVideo) "自定义视频"
                                 else "自定义图片",
                                 trailing = { ValueText(if (padLayout.homeBackgroundUri.isEmpty()) "默认"
                                                        else if (padLayout.homeBackgroundIsVideo) "视频" else "图片") }
                             )
-                            SettingsRow("设置背景图片", "图片将同时用作主页与游戏库壁纸") {
+                            SettingsRow("设置背景图片", "从文件选择图片作为主页壁纸") {
                                 try {
                                     bgImagePicker.launch(arrayOf("image/*"))
                                 } catch (e: Exception) {
                                     dialogText = "无法打开选择器：${e.message}"
                                 }
                             }
-                            SettingsRow("设置背景视频", "循环静音播放，主页与游戏库共用") {
+                            SettingsRow("设置背景视频", "循环静音播放的视频壁纸") {
                                 try {
                                     bgVideoPicker.launch(arrayOf("video/*"))
                                 } catch (e: Exception) {
@@ -443,43 +440,8 @@ fun SettingsScreen(
                                     dialogText = "当前已是默认背景"
                                 }
                             }
-                            // 卡片背景透明度（全局：主页磁贴 + 游戏库封面卡片）
-                            val cardAlphaDraft = remember(padLayout.tileCardAlpha) {
-                                mutableStateOf(padLayout.tileCardAlpha)
-                            }
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "卡片背景透明度",
-                                        color = Color(0xFF1E2A3A), fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        "${(cardAlphaDraft.value * 100).toInt()}%",
-                                        color = Color(0xFF4A5568), fontSize = 13.sp
-                                    )
-                                }
-                                Slider(
-                                    value = cardAlphaDraft.value,
-                                    onValueChange = {
-                                        cardAlphaDraft.value = it
-                                        // 拖动中实时预览（总线即时推送主页/游戏库）
-                                        com.nesstation.app.ui.fsd.FsdBgBus.previewCardAlpha(it)
-                                    },
-                                    onValueChangeFinished = {
-                                        updateLayout(padLayout.copy { tileCardAlpha = cardAlphaDraft.value })
-                                    },
-                                    valueRange = 0.2f..1f
-                                )
-                                Text(
-                                    "调低后主页磁贴与游戏库封面卡片变透明，壁纸从卡片背后透出",
-                                    color = Color(0xFF4A5568), fontSize = 11.sp,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
-                            }
                             Text(
-                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可设置专属图片图标，立即生效并持久保存。",
+                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可为其设置专属图标，立即生效并持久保存。",
                                 color = Color(0xFF4A5568), fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -490,11 +452,11 @@ fun SettingsScreen(
                     // === 关于 ===
                     item {
                         SettingsSection("关于") {
-                            SettingsRow("版本", "3.1.0", trailing = { ValueText("3.1.0") })
-                            SettingsRow("核心", "FCEUmm · Snes9x · mGBA · Genesis-Plus-GX · Geargrafx · DOSBox-Pure · FBNeo · melonDS · PCSX-ReARMed",
-                                trailing = { ValueText("10 个模拟核心") })
+                            SettingsRow("版本", "3.3.0", trailing = { ValueText("3.3.0") })
+                            SettingsRow("核心", "FCEUmm · Snes9x · mGBA · Genesis-Plus-GX · Geargrafx · DOSBox-Pure · FBNeo · melonDS · PCSX-ReARMed · PCEE2 (PCSX2)",
+                                trailing = { ValueText("11 个模拟核心") })
                             SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
-                                dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、Genesis-Plus-GX (MD)、Geargrafx (PCE)、DOSBox-Pure (DOS)、FBNeo (Arcade)、melonDS (NDS)、PCSX-ReARMed (PSX) 核心构建，遵循各自开源许可证"
+                                dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、Genesis-Plus-GX (MD)、Geargrafx (PCE)、DOSBox-Pure (DOS)、FBNeo (Arcade)、melonDS (NDS)、PCSX-ReARMed (PSX)、PCEE2 / PCSX2 (PS2) 核心构建，遵循各自开源许可证"
                             }
                         }
                     }

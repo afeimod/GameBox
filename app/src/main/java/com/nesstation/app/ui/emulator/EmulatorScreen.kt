@@ -154,6 +154,8 @@ private fun gamepadKeyToBits(keyCode: Int, platform: GamePlatform): Int {
         KeyEvent.KEYCODE_BUTTON_R1     -> rBit
         KeyEvent.KEYCODE_BUTTON_L2     -> BTN_L2
         KeyEvent.KEYCODE_BUTTON_R2     -> BTN_R2
+        KeyEvent.KEYCODE_BUTTON_THUMBL -> BTN_L3
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> BTN_R3
         KeyEvent.KEYCODE_BUTTON_START,
         KeyEvent.KEYCODE_MENU          -> BTN_START
         KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
@@ -331,6 +333,27 @@ private fun buildKeyActions(platform: GamePlatform): List<KeyActionInternal> {
             KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_select", KeyEvent.KEYCODE_BUTTON_SELECT),
             KeyActionInternal("${if (platform == GamePlatform.NDS) "nds" else "psx"}_start", KeyEvent.KEYCODE_BUTTON_START)
         )
+        // PS2 (PCEE2 — PCSX2 core) — full DualShock 2: 16 buttons, incl. L2/R2/L3/R3.
+        // Analog sticks come from physical gamepads via the OS — only button
+        // events reach this key-action table.
+        GamePlatform.PS2 -> listOf(
+            KeyActionInternal("ps2_up", KeyEvent.KEYCODE_DPAD_UP),
+            KeyActionInternal("ps2_down", KeyEvent.KEYCODE_DPAD_DOWN),
+            KeyActionInternal("ps2_left", KeyEvent.KEYCODE_DPAD_LEFT),
+            KeyActionInternal("ps2_right", KeyEvent.KEYCODE_DPAD_RIGHT),
+            KeyActionInternal("ps2_a", KeyEvent.KEYCODE_BUTTON_A),      // × Cross
+            KeyActionInternal("ps2_b", KeyEvent.KEYCODE_BUTTON_B),      // ○ Circle
+            KeyActionInternal("ps2_x", KeyEvent.KEYCODE_BUTTON_X),      // □ Square
+            KeyActionInternal("ps2_y", KeyEvent.KEYCODE_BUTTON_Y),      // △ Triangle
+            KeyActionInternal("ps2_l", KeyEvent.KEYCODE_BUTTON_L1),
+            KeyActionInternal("ps2_r", KeyEvent.KEYCODE_BUTTON_R1),
+            KeyActionInternal("ps2_l2", KeyEvent.KEYCODE_BUTTON_L2),
+            KeyActionInternal("ps2_r2", KeyEvent.KEYCODE_BUTTON_R2),
+            KeyActionInternal("ps2_l3", KeyEvent.KEYCODE_BUTTON_THUMBL),
+            KeyActionInternal("ps2_r3", KeyEvent.KEYCODE_BUTTON_THUMBR),
+            KeyActionInternal("ps2_select", KeyEvent.KEYCODE_BUTTON_SELECT),
+            KeyActionInternal("ps2_start", KeyEvent.KEYCODE_BUTTON_START)
+        )
     }
     return base
 }
@@ -352,6 +375,8 @@ private fun actionToBits(action: KeyActionInternal, platform: GamePlatform): Int
         KeyEvent.KEYCODE_BUTTON_R1     -> rBit
         KeyEvent.KEYCODE_BUTTON_L2     -> BTN_L2
         KeyEvent.KEYCODE_BUTTON_R2     -> BTN_R2
+        KeyEvent.KEYCODE_BUTTON_THUMBL -> BTN_L3
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> BTN_R3
         KeyEvent.KEYCODE_BUTTON_START  -> BTN_START
         KeyEvent.KEYCODE_BUTTON_SELECT -> BTN_SELECT
         else -> 0
@@ -368,7 +393,7 @@ private fun actionToBits(action: KeyActionInternal, platform: GamePlatform): Int
 // this pad overlay's fillMaxSize pointerInput Box sits ABOVE the game view
 // (AndroidView sibling), so without forwarding the game view would NEVER
 // receive any touch event while the pad is visible.
-private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, COMBO, GAME_AREA }
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, L3, R3, LSTICK, RSTICK, COMBO, GAME_AREA }
 
 // Bit masks for NES/SNES/GBA controller
 // NES/GB/GBC: A B SEL STA U D L R (8 buttons)
@@ -414,6 +439,37 @@ private fun projectToLibretroLayout(bits: Int): Int {
     if (bits and BTN_Y != 0)       r = r or (1 shl 1)   // proj Y(bit9) -> libretro Y(bit1)
     if (bits and BTN_L_SNES != 0)  r = r or (1 shl 10)  // L(bit10)     -> L(bit10)
     if (bits and BTN_R_SNES != 0)  r = r or (1 shl 11)  // R(bit11)     -> R(bit11)
+    if (bits and BTN_L2 != 0)      r = r or (1 shl 12)  // L2
+    if (bits and BTN_R2 != 0)      r = r or (1 shl 13)  // R2
+    if (bits and BTN_L3 != 0)      r = r or (1 shl 14)  // L3
+    if (bits and BTN_R3 != 0)      r = r or (1 shl 15)  // R3
+    return r
+}
+
+// PS2 (PCEE2) 专用：项目位布局 → libretro 16 键 DualShock 布局。
+// PS2 虚拟按键的 label 映射为：A=×(Cross)、B=○(Circle)、X=□(Square)、Y=△(Triangle)，
+// 而 libretro 标准位是 B=bit0(Cross)、Y=bit1(Square)、A=bit8(Circle)、X=bit9(Triangle)，
+// 与 projectToLibretroLayout 的 SNES 习惯（A→8, B→0, X→9, Y→1）不同 —— 这里按
+// PS2 的 label 语义直转，保证屏幕上的 × 就是真的 Cross。
+//   × (项目 A/bit0)  -> libretro bit0  (B = Cross)
+//   ○ (项目 B/bit1)  -> libretro bit8  (A = Circle)
+//   □ (项目 X/bit8)  -> libretro bit1  (Y = Square)
+//   △ (项目 Y/bit9)  -> libretro bit9  (X = Triangle)
+//   方向/Select/Start/L1/R1/L2/R2/L3/R3 与 libretro 同位。
+private fun ps2ToLibretroLayout(bits: Int): Int {
+    var r = 0
+    if (bits and BTN_A != 0)       r = r or (1 shl 0)   // × Cross
+    if (bits and BTN_B != 0)       r = r or (1 shl 8)   // ○ Circle
+    if (bits and BTN_X != 0)       r = r or (1 shl 1)   // □ Square
+    if (bits and BTN_Y != 0)       r = r or (1 shl 9)   // △ Triangle
+    if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select
+    if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start
+    if (bits and BTN_UP != 0)      r = r or (1 shl 4)   // Up
+    if (bits and BTN_DOWN != 0)    r = r or (1 shl 5)   // Down
+    if (bits and BTN_LEFT != 0)    r = r or (1 shl 6)   // Left
+    if (bits and BTN_RIGHT != 0)   r = r or (1 shl 7)   // Right
+    if (bits and BTN_L_SNES != 0)  r = r or (1 shl 10)  // L1
+    if (bits and BTN_R_SNES != 0)  r = r or (1 shl 11)  // R1
     if (bits and BTN_L2 != 0)      r = r or (1 shl 12)  // L2
     if (bits and BTN_R2 != 0)      r = r or (1 shl 13)  // R2
     if (bits and BTN_L3 != 0)      r = r or (1 shl 14)  // L3
@@ -954,6 +1010,9 @@ fun EmulatorScreen(
         // <filesDir>/nds/.
         // PCSX-ReARMed expects PSX BIOS files (scph1001.bin, psxonpsp660.bin)
         // in <filesDir>/psx/.
+        // PCEE2 (PCSX2) expects PS2 BIOS files in <filesDir>/ps2/pcsx2/bios/
+        // (e.g. scph10000.bin); the native loader auto-migrates a legacy
+        // <filesDir>/ps2/bios/ folder from previous releases on first load.
         // Other cores (NES/SNES/GBA/DOS) use the root filesDir.
         val systemDir = when (platform) {
             GamePlatform.ARCADE -> java.io.File(context.filesDir, "fbneo").apply { mkdirs() }.absolutePath
@@ -961,6 +1020,7 @@ fun EmulatorScreen(
             GamePlatform.PCE    -> java.io.File(context.filesDir, "pce").apply { mkdirs() }.absolutePath
             GamePlatform.NDS    -> java.io.File(context.filesDir, "nds").apply { mkdirs() }.absolutePath
             GamePlatform.PSX    -> java.io.File(context.filesDir, "psx").apply { mkdirs() }.absolutePath
+            GamePlatform.PS2    -> java.io.File(context.filesDir, "ps2").apply { mkdirs() }.absolutePath
             else                -> context.filesDir.absolutePath
         }
         val filesDir = systemDir  // pass the platform-specific system dir to the core
@@ -1197,10 +1257,11 @@ fun EmulatorScreen(
                     loaded = true
                 }
             }
-        } else if (platform == GamePlatform.PSX &&
+        } else if ((platform == GamePlatform.PSX || platform == GamePlatform.PS2) &&
                    (romPath.endsWith(".cue", ignoreCase = true) ||
                     romPath.endsWith(".chd", ignoreCase = true) ||
                     romPath.endsWith(".iso", ignoreCase = true) ||
+                    romPath.endsWith(".cso", ignoreCase = true) ||
                     romPath.endsWith(".mdf", ignoreCase = true) ||
                     romPath.endsWith(".mds", ignoreCase = true) ||
                     romPath.endsWith(".ccd", ignoreCase = true))) {
@@ -1215,12 +1276,13 @@ fun EmulatorScreen(
             // .mdf+.mds pairs).
             val cdFile = loadGameFolder(context, romPath, game.id, "psx_cd")
             if (cdFile == null) {
-                errorMsg = "PS1 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
+                errorMsg = if (platform == GamePlatform.PS2) "PS2 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
+                           else "PS1 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
                 val ok = engine.loadRom(cdFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
                 if (!ok) {
                     val err = engine.lastError()
-                    errorMsg = err.ifEmpty { "PS1 加载失败" }
+                    errorMsg = err.ifEmpty { if (platform == GamePlatform.PS2) "PS2 加载失败" else "PS1 加载失败" }
                 } else {
                     loaded = true
                 }
@@ -1346,6 +1408,9 @@ fun EmulatorScreen(
                         // shared "temp_rom.pbp" etc., causing the second game
                         // opened to load the first game's data.
                         platform == GamePlatform.PSX -> "psx_${saveName}"
+                        // PS2 disc images (.iso/.cso/.chd/.cue/.isz): same
+                        // per-game temp file strategy as PSX.
+                        platform == GamePlatform.PS2 -> "ps2_${saveName}"
                         else -> "temp_rom"
                     }
                     val ext = when {
@@ -1675,7 +1740,19 @@ fun EmulatorScreen(
                         } else {
                             routePadBits(engine, currentPlayer, bits, platform = platform)
                         }
-                    }
+                    },
+                    // PS2 双摇杆：把归一化拇指位置转成 int16 libretro 轴值
+                    // 直接推给 PCEE2 核心（数字位走上面的 onPadBits 链路）
+                    onAnalogAxes = if (platform == GamePlatform.PS2) {
+                        { lx, ly, rx, ry ->
+                            (engine as? com.nesstation.app.core.engine.Psx2Engine)?.setAnalogAxes(
+                                (lx * 32767).toInt(),
+                                (ly * 32767).toInt(),
+                                (rx * 32767).toInt(),
+                                (ry * 32767).toInt()
+                            )
+                        }
+                    } else null
                 )
             }
         }
@@ -2339,8 +2416,13 @@ private fun routePadBits(
     netplayController: com.nesstation.app.battle.NetplayController? = null,
     platform: GamePlatform = GamePlatform.NES
 ) {
-    // NDS 使用 libretro 标准 JOYPAD 布局（melonDS 内部用 ADD_KEY_TO_MASK 转换）
-    val ndsBits = if (platform == GamePlatform.NDS) projectToLibretroLayout(bits) else bits
+    // NDS / PS2 使用项目位布局到 libretro 标准位布局的转换（PS2 = 16 键
+    // DualShock：×=bit0、□=bit1、○=bit8、△=bit9 + L2/R2/L3/R3 bit12..15）。
+    // NDS 内部用 ADD_KEY_TO_MASK(libretro_id, nds_bit) 转换；PS2 的 PCEE2
+    // 核心直接读 libretro 标准位。
+    val ndsBits = if (platform == GamePlatform.NDS) projectToLibretroLayout(bits)
+                  else if (platform == GamePlatform.PS2) ps2ToLibretroLayout(bits)
+                  else bits
     if (netplayController != null) {
         // 联机对战：只接受本地 1P 输入；2P 由远端玩家控制
         if (player == 0) netplayController.setLocalPad(ndsBits)
@@ -2601,6 +2683,21 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx_rearmed_negcon_response", layout.pscxNegconResponse)
             engine.setCoreOption("pcsx_rearmed_negcon_deadzone", layout.pscxNegconDeadzone)
             engine.setCoreOption("pcsx_rearmed_gpu_peops_odd_even_bit", layout.pscxGpuOddEven)
+        }
+        GamePlatform.PS2 -> {
+            // --- PCEE2 (PCSX2 v2.7.523) core options ---
+            // 键名/取值已对照核心源码的 option 定义表验证：
+            //   pcsx2_renderer            — vulkan | software (即时切换)
+            //   pcsx2_upscale_multiplier  — "1"|"2"|"3"|"4" 纯数字字符串
+            //   pcsx2_texture_filtering   — nearest | bilinear_ps2 | ...
+            // 分辨率倍数改后立即生效；renderer 在 Vulkan 与软件之间切换
+            // 也支持运行时切换，无需重启游戏。
+            engine.setCoreOption("pcsx2_renderer", layout.ps2Renderer)
+            engine.setCoreOption("pcsx2_upscale_multiplier", layout.ps2ResMulti)
+            engine.setCoreOption(
+                "pcsx2_texture_filtering",
+                if (layout.ps2Bilinear == "enabled") "bilinear_ps2" else "nearest"
+            )
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -3095,6 +3192,7 @@ private fun parseComboButtons(padLayout: PadLayout, platform: GamePlatform): Lis
         GamePlatform.DOS    -> ""
         GamePlatform.NDS    -> padLayout.comboButtonsSfc  // NDS uses SNES-style combos
         GamePlatform.PSX    -> padLayout.comboButtonsSfc  // PSX uses SNES-style combos
+        GamePlatform.PS2    -> padLayout.comboButtonsSfc  // PS2 uses SNES-style combos
         GamePlatform.JAVA   -> ""
     }
     if (json.isBlank()) return emptyList()
@@ -3240,6 +3338,11 @@ fun OnScreenController(
     platform: GamePlatform = GamePlatform.NES,
     isPortrait: Boolean = false,
     /**
+     * PS2 双摇杆模拟轴回调（仅 PS2 使用）。值为归一化 -1..1（X 右正、Y 下正），
+     * 由调用方转换为 int16 libretro 轴值推给核心。
+     */
+    onAnalogAxes: ((lx: Float, ly: Float, rx: Float, ry: Float) -> Unit)? = null,
+    /**
      * Forwarder for touches that land on NO pad button (i.e. on the game
      * screen area). Receives the pointer position in ROOT coordinates plus
      * the action (MotionEvent.ACTION_DOWN / ACTION_MOVE / ACTION_UP).
@@ -3256,6 +3359,7 @@ fun OnScreenController(
 ) {
     val density = LocalDensity.current
     val opacity = padLayout.opacity
+    val isPs2 = platform == GamePlatform.PS2
 
     // Which extra buttons to show based on platform.
     // SNES / ARCADE / MD / PCE: 6-button layout — show all of A/B/X/Y/L/R.
@@ -3274,16 +3378,21 @@ fun OnScreenController(
     // PCE uses the SNES/ARCADE/MD bit layout (L/R on bit10/11), not GBA.
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
+                 platform == GamePlatform.PSX || platform == GamePlatform.PS2
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
+                 platform == GamePlatform.PSX || platform == GamePlatform.PS2
     // L2/R2 (Turbo toggle for PCE, L2/R2 for PSX) — show for ARCADE when explicitly enabled,
     // always for PCE (PCE has turbo toggle as a standard feature), and for PSX
     // (DualShock L2/R2 mapped to libretro bits 12/13).
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
                    platform == GamePlatform.PCE ||
-                   platform == GamePlatform.PSX
+                   platform == GamePlatform.PSX || platform == GamePlatform.PS2
+    // PS2 专属：L3/R3（摇杆按下）小按钮，可在显隐对话框里关闭
+    val showL3Btn = isPs2 && !PadLayoutStore.isButtonHidden(padLayout, platform, "l3")
+    val showR3Btn = isPs2 && !PadLayoutStore.isButtonHidden(padLayout, platform, "r3")
 
     // === Per-button visibility for ALL platforms ===
     // Each platform can independently hide/show individual buttons via the
@@ -3323,6 +3432,16 @@ fun OnScreenController(
     var analogThumbX by remember { mutableStateOf(0f) }
     var analogThumbY by remember { mutableStateOf(0f) }
 
+    // === PS2 双摇杆状态 ===
+    // 左/右摇杆的拇指位置（-1..1），拖动时更新并经 onAnalogAxes 回调输出
+    // 真实模拟轴；同时超阈值方向会置对应数字方向位（兼容纯数字游戏）。
+    var lStickTX by remember { mutableStateOf(0f) }
+    var lStickTY by remember { mutableStateOf(0f) }
+    var rStickTX by remember { mutableStateOf(0f) }
+    var rStickTY by remember { mutableStateOf(0f) }
+    // 回调用 rememberUpdatedState 包装，手势协程重启期间始终拿到最新 lambda
+    val currentOnAnalogAxes by rememberUpdatedState(onAnalogAxes)
+
     // L/R bit values differ between GBA (bit8/9) and SNES/ARCADE/MD (bit10/11)
     val lBit = if (platform == GamePlatform.GBA) BTN_L_GBA else BTN_L_SNES
     val rBit = if (platform == GamePlatform.GBA) BTN_R_GBA else BTN_R_SNES
@@ -3330,9 +3449,13 @@ fun OnScreenController(
     // === 横竖屏布局选择 ===
     // 横屏用 dpad / btnA / btnB / ...，竖屏用 dpadP / btnAP / btnBP / ...
     // 两套布局各自独立保存，互不干扰。
-    val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
-    val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
-    val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
+    // PS2 使用专属全套布局字段（双摇杆 + 错层位置，避免与通用布局冲突）。
+    val dpad = if (isPs2) (if (isPortrait) padLayout.ps2DpadP else padLayout.ps2Dpad)
+               else if (isPortrait) padLayout.dpadP else padLayout.dpad
+    val btnA = if (isPs2) (if (isPortrait) padLayout.ps2BtnAP else padLayout.ps2BtnA)
+               else if (isPortrait) padLayout.btnAP else padLayout.btnA
+    val btnB = if (isPs2) (if (isPortrait) padLayout.ps2BtnBP else padLayout.ps2BtnB)
+               else if (isPortrait) padLayout.btnBP else padLayout.btnB
     // 连发 A/B（小 AB）：所有平台可见（可在"显示/隐藏按键"里按需隐藏）。
     // 6 键平台（有 X/Y）且用户从未拖动过时，用避让后的默认位置，
     // 防止与 X/Y 键重叠（见 shiftTurboDefault）。
@@ -3342,14 +3465,27 @@ fun OnScreenController(
     val btnTurboB = shiftTurboDefault(
         if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB,
         showXY, isPortrait, isA = false)
-    val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
-    val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
-    val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
-    val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
-    val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
-    val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
-    val btnL2 = if (isPortrait) padLayout.btnL2P else padLayout.btnL2
-    val btnR2 = if (isPortrait) padLayout.btnR2P else padLayout.btnR2
+    val btnStart = if (isPs2) (if (isPortrait) padLayout.ps2BtnStartP else padLayout.ps2BtnStart)
+                   else if (isPortrait) padLayout.btnStartP else padLayout.btnStart
+    val btnSelect = if (isPs2) (if (isPortrait) padLayout.ps2BtnSelectP else padLayout.ps2BtnSelect)
+                    else if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
+    val btnL = if (isPs2) (if (isPortrait) padLayout.ps2BtnL1P else padLayout.ps2BtnL1)
+               else if (isPortrait) padLayout.btnLP else padLayout.btnL
+    val btnR = if (isPs2) (if (isPortrait) padLayout.ps2BtnR1P else padLayout.ps2BtnR1)
+               else if (isPortrait) padLayout.btnRP else padLayout.btnR
+    val btnX = if (isPs2) (if (isPortrait) padLayout.ps2BtnXP else padLayout.ps2BtnX)
+               else if (isPortrait) padLayout.btnXP else padLayout.btnX
+    val btnY = if (isPs2) (if (isPortrait) padLayout.ps2BtnYP else padLayout.ps2BtnY)
+               else if (isPortrait) padLayout.btnYP else padLayout.btnY
+    val btnL2 = if (isPs2) (if (isPortrait) padLayout.ps2BtnL2P else padLayout.ps2BtnL2)
+                else if (isPortrait) padLayout.btnL2P else padLayout.btnL2
+    val btnR2 = if (isPs2) (if (isPortrait) padLayout.ps2BtnR2P else padLayout.ps2BtnR2)
+                else if (isPortrait) padLayout.btnR2P else padLayout.btnR2
+    // PS2 专属：双摇杆 + L3/R3（摇杆常驻，不参与显隐）
+    val ps2LStick = if (isPortrait) padLayout.ps2LStickP else padLayout.ps2LStick
+    val ps2RStick = if (isPortrait) padLayout.ps2RStickP else padLayout.ps2RStick
+    val ps2BtnL3 = if (isPortrait) padLayout.ps2BtnL3P else padLayout.ps2BtnL3
+    val ps2BtnR3 = if (isPortrait) padLayout.ps2BtnR3P else padLayout.ps2BtnR3
 
     // === Combo buttons for this platform ===
     // Parse the per-platform JSON combo list. Each entry has {id,label,bits,x,y,size,color}.
@@ -3394,6 +3530,13 @@ fun OnScreenController(
                 onPadBits(vs)
             }
         }
+    }
+
+    // PS2 双摇杆轴输出：把四轴拇指位置（-1..1）打包回调给调用方，
+    // 由主 composable 转成 int16 libretro 轴值推给 Psx2Engine。
+    // libretro ANALOG 轴约定与屏幕坐标一致：X 右正、Y 下正 —— 无需翻转。
+    fun pushAnalog() {
+        currentOnAnalogAxes?.invoke(lStickTX, lStickTY, rStickTX, rStickTY)
     }
 
     // Turbo auto-fire: simulates rapid short taps (press 2 frames, release 4 frames)
@@ -3457,6 +3600,11 @@ fun OnScreenController(
                 val yRect = if (showXY && showYBtn) btnRect(btnY) else null
                 val l2Rect = if (showL2R2 && showL2Btn) btnRect(btnL2) else null
                 val r2Rect = if (showL2R2 && showR2Btn) btnRect(btnR2) else null
+                // PS2 专属：L3/R3 小按钮 + 双摇杆（摇杆命中区 1.3x，方便拖动）
+                val l3Rect = if (showL3Btn) btnRect(ps2BtnL3, 1.4f, 1.4f) else null
+                val r3Rect = if (showR3Btn) btnRect(ps2BtnR3, 1.4f, 1.4f) else null
+                val lStickRect = if (isPs2) btnRect(ps2LStick, 1.3f, 1.3f) else null
+                val rStickRect = if (isPs2) btnRect(ps2RStick, 1.3f, 1.3f) else null
                 // Combo button hit areas
                 val comboRects = comboList.map { c ->
                     c.id to btnRect(ButtonLayout(c.x, c.y, c.sizeDp))
@@ -3549,6 +3697,11 @@ fun OnScreenController(
                         yRect?.contains(pos) == true -> BtnType.Y
                         l2Rect?.contains(pos) == true -> BtnType.L2
                         r2Rect?.contains(pos) == true -> BtnType.R2
+                        // PS2 专属按键（先于摇杆判定，L3/R3 面积小优先命中）
+                        l3Rect?.contains(pos) == true -> BtnType.L3
+                        r3Rect?.contains(pos) == true -> BtnType.R3
+                        lStickRect?.contains(pos) == true -> BtnType.LSTICK
+                        rStickRect?.contains(pos) == true -> BtnType.RSTICK
                         else -> null
                     }
                     if (btnType == null) {
@@ -3577,6 +3730,20 @@ fun OnScreenController(
                                     analogThumbY = ty
                                 }
                             }
+                            BtnType.LSTICK -> {
+                                val (b, tx, ty) = computeStickDirection(pos, lStickRect!!)
+                                bits = b
+                                lStickTX = tx
+                                lStickTY = ty
+                                pushAnalog()
+                            }
+                            BtnType.RSTICK -> {
+                                val (b, tx, ty) = computeStickDirection(pos, rStickRect!!)
+                                bits = b
+                                rStickTX = tx
+                                rStickTY = ty
+                                pushAnalog()
+                            }
                             BtnType.A -> bits = BTN_A
                             BtnType.B -> bits = BTN_B
                             BtnType.TURBO_A -> turboBits = BTN_A
@@ -3589,6 +3756,8 @@ fun OnScreenController(
                             BtnType.Y -> bits = BTN_Y
                             BtnType.L2 -> bits = BTN_L2
                             BtnType.R2 -> bits = BTN_R2
+                            BtnType.L3 -> bits = BTN_L3
+                            BtnType.R3 -> bits = BTN_R3
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
                             // GAME_AREA 指针在上方 btnType == null 分支已提前
                             // return，永远到不了这里；补空分支仅为穷举完整性。
@@ -3646,6 +3815,7 @@ fun OnScreenController(
                                             BtnType.L, BtnType.R,
                                             BtnType.X, BtnType.Y,
                                             BtnType.L2, BtnType.R2,
+                                            BtnType.L3, BtnType.R3,
                                             BtnType.COMBO -> {
                                                 visualState = visualState and heldBits.inv()
                                                 sendStateNow(visualState, turboState)
@@ -3654,6 +3824,21 @@ fun OnScreenController(
                                                     analogThumbX = 0f
                                                     analogThumbY = 0f
                                                 }
+                                            }
+                                            BtnType.LSTICK -> {
+                                                // 松手：拇指回中 + 清方向位 + 轴归零
+                                                visualState = visualState and heldBits.inv()
+                                                lStickTX = 0f
+                                                lStickTY = 0f
+                                                pushAnalog()
+                                                sendStateNow(visualState, turboState)
+                                            }
+                                            BtnType.RSTICK -> {
+                                                visualState = visualState and heldBits.inv()
+                                                rStickTX = 0f
+                                                rStickTY = 0f
+                                                pushAnalog()
+                                                sendStateNow(visualState, turboState)
                                             }
                                             BtnType.TURBO_A, BtnType.TURBO_B -> {
                                                 turboState = turboState and heldBits.inv()
@@ -3673,6 +3858,28 @@ fun OnScreenController(
                                             analogThumbX = tx
                                             analogThumbY = ty
                                         }
+                                        sendStateNow(visualState, turboState)
+                                    } else if (entry != null && entry.first == BtnType.LSTICK) {
+                                        // PS2 左摇杆拖动：更新拇指位置 + 轴回调 +
+                                        // 数字方向位（超阈值方向）
+                                        val oldBits = entry.second
+                                        visualState = visualState and oldBits.inv()
+                                        val (newBits, tx, ty) = computeStickDirection(change.position, lStickRect!!)
+                                        visualState = visualState or newBits
+                                        activePointers[pid] = BtnType.LSTICK to newBits
+                                        lStickTX = tx
+                                        lStickTY = ty
+                                        pushAnalog()
+                                        sendStateNow(visualState, turboState)
+                                    } else if (entry != null && entry.first == BtnType.RSTICK) {
+                                        val oldBits = entry.second
+                                        visualState = visualState and oldBits.inv()
+                                        val (newBits, tx, ty) = computeStickDirection(change.position, rStickRect!!)
+                                        visualState = visualState or newBits
+                                        activePointers[pid] = BtnType.RSTICK to newBits
+                                        rStickTX = tx
+                                        rStickTY = ty
+                                        pushAnalog()
                                         sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.GAME_AREA) {
                                         // Drag on the game area — forward as
@@ -3718,47 +3925,50 @@ fun OnScreenController(
         // reference source's input descriptor: A="I", B="II".)
         val labelA = when (platform) {
             GamePlatform.PCE -> "I"
-            GamePlatform.PSX -> "✕"  // Cross
+            GamePlatform.PSX, GamePlatform.PS2 -> "✕"  // Cross
             else -> "A"
         }
         val labelB = when (platform) {
             GamePlatform.PCE -> "II"
-            GamePlatform.PSX -> "○"  // Circle
+            GamePlatform.PSX, GamePlatform.PS2 -> "○"  // Circle
             else -> "B"
         }
         val labelX = when (platform) {
             GamePlatform.PCE -> "IV"
+            // PSX 屏幕排布：X 在右上 = △；PS2 专属菱形：X 在左 = □
             GamePlatform.PSX -> "△"  // Triangle
+            GamePlatform.PS2 -> "□"  // Square
             else -> "X"
         }
         val labelY = when (platform) {
             GamePlatform.PCE -> "III"
             GamePlatform.PSX -> "□"  // Square
+            GamePlatform.PS2 -> "△"  // Triangle
             else -> "Y"
         }
         val labelL = when (platform) {
             GamePlatform.PCE -> "V"
-            GamePlatform.PSX -> "L1"
+            GamePlatform.PSX, GamePlatform.PS2 -> "L1"
             else -> "L"
         }
         val labelR = when (platform) {
             GamePlatform.PCE -> "VI"
-            GamePlatform.PSX -> "R1"
+            GamePlatform.PSX, GamePlatform.PS2 -> "R1"
             else -> "R"
         }
         val labelL2 = when (platform) {
             GamePlatform.PCE -> "TURBO II"
-            GamePlatform.PSX -> "L2"
+            GamePlatform.PSX, GamePlatform.PS2 -> "L2"
             else -> "L2"
         }
         val labelR2 = when (platform) {
             GamePlatform.PCE -> "TURBO I"
-            GamePlatform.PSX -> "R2"
+            GamePlatform.PSX, GamePlatform.PS2 -> "R2"
             else -> "R2"
         }
         if (showABtn) {
             val aColor = when (platform) {
-                GamePlatform.PSX -> Color(0xFF2ECC71)  // Green (Cross)
+                GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF2ECC71)  // Green (Cross)
                 else -> Color(0xFFE74C3C)
             }
             ActionButtonCanvas(labelA, aColor, btnA, surfaceSize, opacity, visualState and BTN_A != 0)
@@ -3766,7 +3976,7 @@ fun OnScreenController(
         // Draw B
         if (showBBtn) {
             val bColor = when (platform) {
-                GamePlatform.PSX -> Color(0xFFE74C3C)  // Red (Circle)
+                GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFFE74C3C)  // Red (Circle)
                 else -> Color(0xFFE67E22)
             }
             ActionButtonCanvas(labelB, bColor, btnB, surfaceSize, opacity, visualState and BTN_B != 0)
@@ -3795,10 +4005,11 @@ fun OnScreenController(
         if (showLR && showRBtn) {
             ShoulderButtonCanvas(labelR, btnR, surfaceSize, opacity, visualState and rBit != 0)
         }
-        // X/Y face buttons (SNES/Arcade/MD/PCE/NDS/PSX)
+        // X/Y face buttons (SNES/Arcade/MD/PCE/NDS/PSX/PS2)
         if (showXY && showXBtn) {
             val xColor = when (platform) {
                 GamePlatform.PSX -> Color(0xFFE91E9B)  // Pink (Triangle)
+                GamePlatform.PS2 -> Color(0xFF3498DB)  // Blue (Square — PS2 X 位置在左)
                 else -> Color(0xFF3498DB)
             }
             ActionButtonCanvas(labelX, xColor, btnX, surfaceSize, opacity, visualState and BTN_X != 0)
@@ -3806,6 +4017,7 @@ fun OnScreenController(
         if (showXY && showYBtn) {
             val yColor = when (platform) {
                 GamePlatform.PSX -> Color(0xFF3498DB)  // Blue (Square)
+                GamePlatform.PS2 -> Color(0xFFE91E9B)  // Pink (Triangle — PS2 Y 位置在上)
                 else -> Color(0xFF2ECC71)
             }
             ActionButtonCanvas(labelY, yColor, btnY, surfaceSize, opacity, visualState and BTN_Y != 0)
@@ -3816,17 +4028,43 @@ fun OnScreenController(
         //   PSX — DualShock L2/R2 shoulder buttons (bits 12/13)
         if (showL2R2 && showL2Btn) {
             val l2Color = when (platform) {
-                GamePlatform.PSX -> Color(0xFF95A5A6)  // Silver/gray (DualShock L2)
+                GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF95A5A6)  // Silver/gray (DualShock L2)
                 else -> Color(0xFFFF9800)
             }
             ActionButtonCanvas(labelL2, l2Color, btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0)
         }
         if (showL2R2 && showR2Btn) {
             val r2Color = when (platform) {
-                GamePlatform.PSX -> Color(0xFF95A5A6)  // Silver/gray (DualShock R2)
+                GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF95A5A6)  // Silver/gray (DualShock R2)
                 else -> Color(0xFFFF9800)
             }
             ActionButtonCanvas(labelR2, r2Color, btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0)
+        }
+        // PS2 专属：双模拟摇杆（常驻，左下/右下）+ L3/R3 小按钮。
+        // 摇杆输出真实模拟轴（onAnalogAxes），箭头高亮跟随数字方向位。
+        if (isPs2) {
+            AnalogStickCanvas(
+                layout = ps2LStick,
+                surfaceSize = surfaceSize,
+                opacity = opacity,
+                pressedDirs = visualState and 0xF0,
+                thumbX = lStickTX,
+                thumbY = lStickTY
+            )
+            AnalogStickCanvas(
+                layout = ps2RStick,
+                surfaceSize = surfaceSize,
+                opacity = opacity,
+                pressedDirs = 0,   // 右摇杆箭头不做数字高亮（轴专用）
+                thumbX = rStickTX,
+                thumbY = rStickTY
+            )
+            if (showL3Btn) {
+                ActionButtonCanvas("L3", Color(0xFF95A5A6), ps2BtnL3, surfaceSize, opacity, visualState and BTN_L3 != 0)
+            }
+            if (showR3Btn) {
+                ActionButtonCanvas("R3", Color(0xFF95A5A6), ps2BtnR3, surfaceSize, opacity, visualState and BTN_R3 != 0)
+            }
         }
         // Combo buttons (per-platform, user-defined)
         comboList.forEach { combo ->
@@ -3841,6 +4079,53 @@ fun OnScreenController(
             )
         }
     }
+}
+
+// Compute PS2 analog-stick direction + thumb offset from a touch position.
+// Returns (directionBits, thumbX, thumbY): bits are the digital direction
+// flags (BTN_UP/DOWN/LEFT/RIGHT, for games that read the d-pad), thumbX/Y
+// are the continuous axis values in [-1, 1] (screen coords: Y down = +1;
+// pushAnalog() 翻转后送给核心)。
+private fun computeStickDirection(
+    pos: Offset,
+    rect: androidx.compose.ui.geometry.Rect
+): Triple<Int, Float, Float> {
+    val cx = rect.center.x
+    val cy = rect.center.y
+    val radius = rect.width / 2f
+    val dx = (pos.x - cx) / radius
+    val dy = (pos.y - cy) / radius
+    val mag = kotlin.math.sqrt(dx * dx + dy * dy)
+    val clampedDx: Float
+    val clampedDy: Float
+    if (mag > 1f) {
+        clampedDx = dx / mag
+        clampedDy = dy / mag
+    } else {
+        clampedDx = dx
+        clampedDy = dy
+    }
+    // Radial deadzone: 0.2 of radius (比 dpad analog 模式略小，PS2 摇杆更灵敏)
+    val deadzone = 0.2f
+    var bits = 0
+    if (mag > deadzone) {
+        val absX = kotlin.math.abs(clampedDx)
+        val absY = kotlin.math.abs(clampedDy)
+        val cardThreshold = 0.4f
+        if (clampedDx < -cardThreshold) bits = bits or BTN_LEFT
+        else if (clampedDx > cardThreshold) bits = bits or BTN_RIGHT
+        if (clampedDy < -cardThreshold) bits = bits or BTN_UP
+        else if (clampedDy > cardThreshold) bits = bits or BTN_DOWN
+        if (bits == 0) {
+            // 死区内但未过阈值：主轴方向兑底，保证小位移也能触发方向
+            if (absX > absY) {
+                bits = bits or (if (clampedDx < 0) BTN_LEFT else BTN_RIGHT)
+            } else {
+                bits = bits or (if (clampedDy < 0) BTN_UP else BTN_DOWN)
+            }
+        }
+    }
+    return Triple(bits, clampedDx, clampedDy)
 }
 
 // Compute D-pad direction from touch position within dpad rect.
@@ -5545,13 +5830,20 @@ private fun PadLayoutEditor(
 
     val showLR = platform == GamePlatform.GBA || platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
+                 platform == GamePlatform.PSX || platform == GamePlatform.PS2
     val showXY = platform == GamePlatform.SFC ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
-                 platform == GamePlatform.PCE || platform == GamePlatform.NDS || platform == GamePlatform.PSX
+                 platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
+                 platform == GamePlatform.PSX || platform == GamePlatform.PS2
     // L2/R2 editable in edit mode for Arcade (when enabled) and PCE (turbo toggle)
     val showL2R2 = (platform == GamePlatform.ARCADE && padLayout.arcadeShowL2R2) ||
-                   platform == GamePlatform.PCE || platform == GamePlatform.PSX
+                   platform == GamePlatform.PCE || platform == GamePlatform.PSX ||
+                   platform == GamePlatform.PS2
+    val isPs2 = platform == GamePlatform.PS2
+    // PS2 专属键的可编辑开关（双摇杆常驻始终可编辑；L3/R3 可隐）
+    val showL3Btn = isPs2 && !PadLayoutStore.isButtonHidden(padLayout, platform, "l3")
+    val showR3Btn = isPs2 && !PadLayoutStore.isButtonHidden(padLayout, platform, "r3")
 
     // === Per-button visibility for ALL platforms ===
     // Each platform can independently hide/show individual buttons via the
@@ -5585,9 +5877,13 @@ private fun PadLayoutEditor(
     // === 横竖屏布局选择 ===
     // 横屏编辑修改 dpad / btnA / ...，竖屏编辑修改 dpadP / btnAP / ...
     // 全局设置（透明度、核心选项等）在两个方向共享，编辑器不动这些。
-    val dpad = if (isPortrait) padLayout.dpadP else padLayout.dpad
-    val btnA = if (isPortrait) padLayout.btnAP else padLayout.btnA
-    val btnB = if (isPortrait) padLayout.btnBP else padLayout.btnB
+    // PS2 平台读写专属全套字段（与 OnScreenController 一致）。
+    val dpad = if (isPs2) (if (isPortrait) padLayout.ps2DpadP else padLayout.ps2Dpad)
+               else if (isPortrait) padLayout.dpadP else padLayout.dpad
+    val btnA = if (isPs2) (if (isPortrait) padLayout.ps2BtnAP else padLayout.ps2BtnA)
+               else if (isPortrait) padLayout.btnAP else padLayout.btnA
+    val btnB = if (isPs2) (if (isPortrait) padLayout.ps2BtnBP else padLayout.ps2BtnB)
+               else if (isPortrait) padLayout.btnBP else padLayout.btnB
     // 连发 A/B 编辑器位置：6 键平台且未拖动过时用避让后的默认位置，
     // 保证编辑器里看到的与游戏中渲染的一致。
     val btnTurboA = shiftTurboDefault(
@@ -5596,31 +5892,59 @@ private fun PadLayoutEditor(
     val btnTurboB = shiftTurboDefault(
         if (isPortrait) padLayout.btnTurboBP else padLayout.btnTurboB,
         showXY, isPortrait, isA = false)
-    val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
-    val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
-    val btnL = if (isPortrait) padLayout.btnLP else padLayout.btnL
-    val btnR = if (isPortrait) padLayout.btnRP else padLayout.btnR
-    val btnX = if (isPortrait) padLayout.btnXP else padLayout.btnX
-    val btnY = if (isPortrait) padLayout.btnYP else padLayout.btnY
-    val btnL2 = if (isPortrait) padLayout.btnL2P else padLayout.btnL2
-    val btnR2 = if (isPortrait) padLayout.btnR2P else padLayout.btnR2
+    val btnStart = if (isPs2) (if (isPortrait) padLayout.ps2BtnStartP else padLayout.ps2BtnStart)
+                   else if (isPortrait) padLayout.btnStartP else padLayout.btnStart
+    val btnSelect = if (isPs2) (if (isPortrait) padLayout.ps2BtnSelectP else padLayout.ps2BtnSelect)
+                    else if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
+    val btnL = if (isPs2) (if (isPortrait) padLayout.ps2BtnL1P else padLayout.ps2BtnL1)
+               else if (isPortrait) padLayout.btnLP else padLayout.btnL
+    val btnR = if (isPs2) (if (isPortrait) padLayout.ps2BtnR1P else padLayout.ps2BtnR1)
+               else if (isPortrait) padLayout.btnRP else padLayout.btnR
+    val btnX = if (isPs2) (if (isPortrait) padLayout.ps2BtnXP else padLayout.ps2BtnX)
+               else if (isPortrait) padLayout.btnXP else padLayout.btnX
+    val btnY = if (isPs2) (if (isPortrait) padLayout.ps2BtnYP else padLayout.ps2BtnY)
+               else if (isPortrait) padLayout.btnYP else padLayout.btnY
+    val btnL2 = if (isPs2) (if (isPortrait) padLayout.ps2BtnL2P else padLayout.ps2BtnL2)
+                else if (isPortrait) padLayout.btnL2P else padLayout.btnL2
+    val btnR2 = if (isPs2) (if (isPortrait) padLayout.ps2BtnR2P else padLayout.ps2BtnR2)
+                else if (isPortrait) padLayout.btnR2P else padLayout.btnR2
+    val ps2LStick = if (isPortrait) padLayout.ps2LStickP else padLayout.ps2LStick
+    val ps2RStick = if (isPortrait) padLayout.ps2RStickP else padLayout.ps2RStick
+    val ps2BtnL3 = if (isPortrait) padLayout.ps2BtnL3P else padLayout.ps2BtnL3
+    val ps2BtnR3 = if (isPortrait) padLayout.ps2BtnR3P else padLayout.ps2BtnR3
 
-    // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段
+    // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段。
+    // PS2 写回专属字段（ps2*），其他平台写通用字段。
     fun updateBtn(btnType: BtnType, newLayout: ButtonLayout) {
         val updated = when (btnType) {
-            BtnType.DPAD -> if (isPortrait) padLayout.copy {this.dpadP = newLayout} else padLayout.copy {this.dpad = newLayout}
-            BtnType.A -> if (isPortrait) padLayout.copy {this.btnAP = newLayout} else padLayout.copy {this.btnA = newLayout}
-            BtnType.B -> if (isPortrait) padLayout.copy {this.btnBP = newLayout} else padLayout.copy {this.btnB = newLayout}
+            BtnType.DPAD -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2DpadP = newLayout} else padLayout.copy {this.ps2Dpad = newLayout})
+                            else if (isPortrait) padLayout.copy {this.dpadP = newLayout} else padLayout.copy {this.dpad = newLayout}
+            BtnType.A -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnAP = newLayout} else padLayout.copy {this.ps2BtnA = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnAP = newLayout} else padLayout.copy {this.btnA = newLayout}
+            BtnType.B -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnBP = newLayout} else padLayout.copy {this.ps2BtnB = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnBP = newLayout} else padLayout.copy {this.btnB = newLayout}
             BtnType.TURBO_A -> if (isPortrait) padLayout.copy {this.btnTurboAP = newLayout} else padLayout.copy {this.btnTurboA = newLayout}
             BtnType.TURBO_B -> if (isPortrait) padLayout.copy {this.btnTurboBP = newLayout} else padLayout.copy {this.btnTurboB = newLayout}
-            BtnType.START -> if (isPortrait) padLayout.copy {this.btnStartP = newLayout} else padLayout.copy {this.btnStart = newLayout}
-            BtnType.SELECT -> if (isPortrait) padLayout.copy {this.btnSelectP = newLayout} else padLayout.copy {this.btnSelect = newLayout}
-            BtnType.L -> if (isPortrait) padLayout.copy {this.btnLP = newLayout} else padLayout.copy {this.btnL = newLayout}
-            BtnType.R -> if (isPortrait) padLayout.copy {this.btnRP = newLayout} else padLayout.copy {this.btnR = newLayout}
-            BtnType.X -> if (isPortrait) padLayout.copy {this.btnXP = newLayout} else padLayout.copy {this.btnX = newLayout}
-            BtnType.Y -> if (isPortrait) padLayout.copy {this.btnYP = newLayout} else padLayout.copy {this.btnY = newLayout}
-            BtnType.L2 -> if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
-            BtnType.R2 -> if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
+            BtnType.START -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnStartP = newLayout} else padLayout.copy {this.ps2BtnStart = newLayout})
+                             else if (isPortrait) padLayout.copy {this.btnStartP = newLayout} else padLayout.copy {this.btnStart = newLayout}
+            BtnType.SELECT -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnSelectP = newLayout} else padLayout.copy {this.ps2BtnSelect = newLayout})
+                              else if (isPortrait) padLayout.copy {this.btnSelectP = newLayout} else padLayout.copy {this.btnSelect = newLayout}
+            BtnType.L -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnL1P = newLayout} else padLayout.copy {this.ps2BtnL1 = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnLP = newLayout} else padLayout.copy {this.btnL = newLayout}
+            BtnType.R -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnR1P = newLayout} else padLayout.copy {this.ps2BtnR1 = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnRP = newLayout} else padLayout.copy {this.btnR = newLayout}
+            BtnType.X -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnXP = newLayout} else padLayout.copy {this.ps2BtnX = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnXP = newLayout} else padLayout.copy {this.btnX = newLayout}
+            BtnType.Y -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnYP = newLayout} else padLayout.copy {this.ps2BtnY = newLayout})
+                         else if (isPortrait) padLayout.copy {this.btnYP = newLayout} else padLayout.copy {this.btnY = newLayout}
+            BtnType.L2 -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnL2P = newLayout} else padLayout.copy {this.ps2BtnL2 = newLayout})
+                          else if (isPortrait) padLayout.copy {this.btnL2P = newLayout} else padLayout.copy {this.btnL2 = newLayout}
+            BtnType.R2 -> if (isPs2) (if (isPortrait) padLayout.copy {this.ps2BtnR2P = newLayout} else padLayout.copy {this.ps2BtnR2 = newLayout})
+                          else if (isPortrait) padLayout.copy {this.btnR2P = newLayout} else padLayout.copy {this.btnR2 = newLayout}
+            BtnType.L3 -> if (isPortrait) padLayout.copy {this.ps2BtnL3P = newLayout} else padLayout.copy {this.ps2BtnL3 = newLayout}
+            BtnType.R3 -> if (isPortrait) padLayout.copy {this.ps2BtnR3P = newLayout} else padLayout.copy {this.ps2BtnR3 = newLayout}
+            BtnType.LSTICK -> if (isPortrait) padLayout.copy {this.ps2LStickP = newLayout} else padLayout.copy {this.ps2LStick = newLayout}
+            BtnType.RSTICK -> if (isPortrait) padLayout.copy {this.ps2RStickP = newLayout} else padLayout.copy {this.ps2RStick = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
             // 游戏区域不是可编辑的实体按键，没有位置/大小可写回 —— 直接返回原布局。
             BtnType.GAME_AREA -> padLayout
@@ -5769,6 +6093,45 @@ private fun PadLayoutEditor(
                     },
                     onSelect = { selectedBtn = BtnType.R2 }
                 )
+            }
+            // PS2 专属可编辑控件：双摇杆（常驻）+ L3/R3
+            if (isPs2) {
+                EditableRoundBtn("左摇杆", Color(0xFFFFD66B), ps2LStick, surfaceSize, selectedBtn == BtnType.LSTICK,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.02f, 0.45f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.LSTICK, ps2LStick.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.LSTICK }
+                )
+                EditableRoundBtn("右摇杆", Color(0xFFFFD66B), ps2RStick, surfaceSize, selectedBtn == BtnType.RSTICK,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.55f, 0.98f)
+                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        updateBtn(BtnType.RSTICK, ps2RStick.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.RSTICK }
+                )
+                if (showL3Btn) {
+                    EditableRoundBtn("L3", Color(0xFF95A5A6), ps2BtnL3, surfaceSize, selectedBtn == BtnType.L3,
+                        onMove = { targetX, targetY ->
+                            val nx = targetX.coerceIn(0.02f, 0.5f)
+                            val ny = targetY.coerceIn(0.3f, 0.97f)
+                            updateBtn(BtnType.L3, ps2BtnL3.copy(x = nx, y = ny))
+                        },
+                        onSelect = { selectedBtn = BtnType.L3 }
+                    )
+                }
+                if (showR3Btn) {
+                    EditableRoundBtn("R3", Color(0xFF95A5A6), ps2BtnR3, surfaceSize, selectedBtn == BtnType.R3,
+                        onMove = { targetX, targetY ->
+                            val nx = targetX.coerceIn(0.5f, 0.98f)
+                            val ny = targetY.coerceIn(0.3f, 0.97f)
+                            updateBtn(BtnType.R3, ps2BtnR3.copy(x = nx, y = ny))
+                        },
+                        onSelect = { selectedBtn = BtnType.R3 }
+                    )
+                }
             }
             // Combo buttons (draggable, per-platform)
             val combos = remember(padLayout, platform) { parseComboButtons(padLayout, platform) }
@@ -6091,6 +6454,8 @@ private fun PadLayoutEditor(
                         "y" -> BtnType.Y
                         "l2" -> BtnType.L2
                         "r2" -> BtnType.R2
+                        "l3" -> BtnType.L3
+                        "r3" -> BtnType.R3
                         else -> null
                     }
                     if (hiddenBtn != null && selectedBtn == hiddenBtn) {
@@ -7779,6 +8144,56 @@ private fun SettingsPanel(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(4.dp))
                 PsxBiosImportSection()
+            }
+            GamePlatform.PS2 -> {
+                Text("PS2 专属设置 (PCSX2 核心)", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+
+                Spacer(Modifier.size(4.dp))
+                Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
+                // 渲染器：Vulkan = GPU 硬件渲染（推荐）；Software = CPU 软渲染。
+                // 设备不支持 Vulkan 时报错就切 Software。两者都可在游戏中途切换。
+                DropdownSetting("渲染器",
+                    listOf("vulkan" to "Vulkan (硬件加速)", "software" to "Software (软渲染)"),
+                    padLayout.ps2Renderer
+                ) { onLayoutChange(padLayout.copy {ps2Renderer = it}) }
+
+                // 分辨率倍数：pcsx2_upscale_multiplier。1x = 原生 640x448；
+                // 2x/3x/4x 逐级放大。硬件渲染下倍率越高越清晰但越吃性能 ——
+                // 手机建议 1x~2x 起步。
+                DropdownSetting("分辨率倍数",
+                    listOf("1" to "1x (原生 640x448)", "2" to "2x (1280x896)",
+                           "3" to "3x (1920x1344)", "4" to "4x (2560x1792 高配专用)"),
+                    padLayout.ps2ResMulti
+                ) { onLayoutChange(padLayout.copy {ps2ResMulti = it}) }
+
+                DropdownSetting("双线性过滤",
+                    listOf("enabled" to "开启 (PS2 原生平滑)", "disabled" to "关闭 (像素风)"),
+                    padLayout.ps2Bilinear
+                ) { onLayoutChange(padLayout.copy {ps2Bilinear = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("双摇杆", color = Color(0xFF8899AA), fontSize = 11.sp)
+                Text(
+                    "PS2 虚拟手柄自带左/右双摇杆（屏幕左下/右下），输出真实模拟轴，" +
+                    "支持 L1/R1/L2/R2 肩键与 L3/R3。键位可在布局编辑器中自由拖动。",
+                    color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp
+                )
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("PS2 BIOS 管理", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "PCSX2 必须要真实 PS2 BIOS 才能启动游戏。请将 scph10000.bin / " +
+                    "scph39001.bin 等 BIOS 文件放到 应用私有目录/ps2/pcsx2/bios/ 下 " +
+                    "(旧版放在 ps2/bios/ 的文件会在启动时自动迁移)。没有 BIOS " +
+                    "时游戏无法启动并给出详细提示。",
+                    color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp
+                )
             }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }

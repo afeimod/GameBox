@@ -388,9 +388,6 @@ class PadLayout {
     // 主页磁贴自定义图标：JSON map { tileKey → 图标文件绝对路径 }，
     // 图标已拷贝到 filesDir/icons，路径稳定可直接 BitmapFactory 解码。
     var homeTileIcons: String = ""
-    // 卡片背景透明度（全局）：主页磁贴与游戏库封面卡片的蓝黄/深蓝背景层透明度，
-    // 0.2..1.0，默认 1.0 不透明。调低后自定义壁纸可从卡片背后透出（玻璃质感）。
-    var tileCardAlpha: Float = 1f
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
@@ -462,6 +459,67 @@ class PadLayout {
     var pscxGpuOddEven: String = "disabled"         // disabled | enabled (Peops odd/even GPU hack — Chrono Cross)
     var pscxAnalogAxis: String = "square"           // circle | square (analog stick bounds)
 
+    // === PS2 (PCEE2 — PCSX2 v2.7.523 core) core options ===
+    // ps2ResMulti: 内部分辨率倍数，发给核心的 pcsx2_upscale_multiplier。
+    // 核心取值是纯数字字符串 "1".."4"（1=原生 640x448；2x=1280x896；
+    // 3x=1920x1344；4x=2560x1792）。前端帧缓冲上限 2560x2048 全覆盖，
+    // 超大帧仍有 box 降采样兜底。旧版 Play! 的 "1x"/"2x"/"4x"/"8x" 取值
+    // 在 load() 时自动迁移到新枚举。键名已对照 PCEE2 源码验证。
+    var ps2ResMulti: String = "1"                   // "1" | "2" | "3" | "4" (分辨率倍数)
+    var ps2Renderer: String = "vulkan"              // vulkan | software (渲染器, 即时切换)
+    var ps2Bilinear: String = "enabled"             // disabled | enabled → 映射为 nearest/bilinear_ps2
+
+    companion object {
+        /** 把 Play! 时代的 "1x|2x|4x|8x" 迁移为 PCEE2 的 "1".."4"；非法值回落默认。 */
+        fun normalizePs2ResMulti(raw: String?): String = when (raw?.trim()) {
+            "1", "1x" -> "1"
+            "2", "2x" -> "2"
+            "3", "3x" -> "3"
+            "4", "4x", "8x", "8" -> "4"   // 8x 在 PCEE2 无对应档位，就近映射 4x
+            else -> "1"
+        }
+    }
+
+    // === PS2 on-screen pad（专属全套布局：双摇杆 + 双肩键 + L3/R3）===
+    // PS2 手柄 = DualShock 2：左摇杆/十字键左侧上下排布、右侧 △○×□ 菱形 +
+    // 右摇杆下方、顶部 L2/L1 + R1/R2。与通用布局字段分开，避免挤占其他
+    // 平台的默认位置。摇杆输出真实模拟轴（int16 LX/LY/RX/RY），不是数字 8 向。
+    // 十字键（左侧上部）
+    var ps2Dpad: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.55f, sizeDp = 110)
+    var ps2DpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.58f, sizeDp = 104)
+    // 左/右摇杆（左下 / 右下）
+    var ps2LStick: ButtonLayout = ButtonLayout(x = 0.13f, y = 0.88f, sizeDp = 112)
+    var ps2RStick: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.88f, sizeDp = 112)
+    var ps2LStickP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.78f, sizeDp = 96)
+    var ps2RStickP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.80f, sizeDp = 96)
+    // 脸键菱形（右上）：× 下、○ 右、□ 左、△ 上（DualShock 标准）
+    var ps2BtnA: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.58f, sizeDp = 56)   // × Cross
+    var ps2BtnB: ButtonLayout = ButtonLayout(x = 0.95f, y = 0.50f, sizeDp = 56)   // ○ Circle
+    var ps2BtnX: ButtonLayout = ButtonLayout(x = 0.79f, y = 0.50f, sizeDp = 56)   // □ Square
+    var ps2BtnY: ButtonLayout = ButtonLayout(x = 0.87f, y = 0.42f, sizeDp = 56)   // △ Triangle
+    var ps2BtnAP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.60f, sizeDp = 50)
+    var ps2BtnBP: ButtonLayout = ButtonLayout(x = 0.91f, y = 0.52f, sizeDp = 50)
+    var ps2BtnXP: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.52f, sizeDp = 50)
+    var ps2BtnYP: ButtonLayout = ButtonLayout(x = 0.82f, y = 0.44f, sizeDp = 50)
+    // 肩键（顶部）：L1/R1 外侧、L2/R2 内侧
+    var ps2BtnL1: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.13f, sizeDp = 52)
+    var ps2BtnR1: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.13f, sizeDp = 52)
+    var ps2BtnL2: ButtonLayout = ButtonLayout(x = 0.22f, y = 0.08f, sizeDp = 44)
+    var ps2BtnR2: ButtonLayout = ButtonLayout(x = 0.78f, y = 0.08f, sizeDp = 44)
+    var ps2BtnL1P: ButtonLayout = ButtonLayout(x = 0.10f, y = 0.11f, sizeDp = 46)
+    var ps2BtnR1P: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.11f, sizeDp = 46)
+    var ps2BtnL2P: ButtonLayout = ButtonLayout(x = 0.22f, y = 0.06f, sizeDp = 40)
+    var ps2BtnR2P: ButtonLayout = ButtonLayout(x = 0.78f, y = 0.06f, sizeDp = 40)
+    // 中下：Select / Start + L3 / R3（摇杆按下，屏幕上以小按钮提供）
+    var ps2BtnStart: ButtonLayout = ButtonLayout(x = 0.60f, y = 0.93f, sizeDp = 48)
+    var ps2BtnSelect: ButtonLayout = ButtonLayout(x = 0.40f, y = 0.93f, sizeDp = 48)
+    var ps2BtnL3: ButtonLayout = ButtonLayout(x = 0.26f, y = 0.94f, sizeDp = 36)
+    var ps2BtnR3: ButtonLayout = ButtonLayout(x = 0.74f, y = 0.94f, sizeDp = 36)
+    var ps2BtnStartP: ButtonLayout = ButtonLayout(x = 0.58f, y = 0.92f, sizeDp = 42)
+    var ps2BtnSelectP: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 42)
+    var ps2BtnL3P: ButtonLayout = ButtonLayout(x = 0.29f, y = 0.93f, sizeDp = 32)
+    var ps2BtnR3P: ButtonLayout = ButtonLayout(x = 0.71f, y = 0.93f, sizeDp = 32)
+
     // === Arcade (FBNeo) on-screen pad extras ===
     // L2/R2 button positions (bit12/bit13 in the libretro joypad word).
     // Used for 6-button fight-stick layouts and as Coin/Start shortcuts.
@@ -526,6 +584,7 @@ class PadLayout {
     var hiddenButtonsPce: String = ""     // PCE hidden button keys
     var hiddenButtonsNds: String = ""     // NDS hidden button keys
     var hiddenButtonsPsx: String = ""     // PSX hidden button keys
+    var hiddenButtonsPs2: String = ""     // PS2 hidden button keys (含 l3/r3；双摇杆常驻不隐藏)
 
     // === Input mode (joystick vs D-pad) ===
     // "dpad" = cross-shaped digital D-pad (default); "analog" = circular
@@ -814,6 +873,40 @@ class PadLayout {
         pscxMultitap = another.pscxMultitap
         pscxGpuOddEven = another.pscxGpuOddEven
         pscxAnalogAxis = another.pscxAnalogAxis
+        ps2ResMulti = another.ps2ResMulti
+        ps2Renderer = another.ps2Renderer
+        ps2Bilinear = another.ps2Bilinear
+        ps2Dpad = another.ps2Dpad
+        ps2DpadP = another.ps2DpadP
+        ps2LStick = another.ps2LStick
+        ps2RStick = another.ps2RStick
+        ps2LStickP = another.ps2LStickP
+        ps2RStickP = another.ps2RStickP
+        ps2BtnA = another.ps2BtnA
+        ps2BtnB = another.ps2BtnB
+        ps2BtnX = another.ps2BtnX
+        ps2BtnY = another.ps2BtnY
+        ps2BtnAP = another.ps2BtnAP
+        ps2BtnBP = another.ps2BtnBP
+        ps2BtnXP = another.ps2BtnXP
+        ps2BtnYP = another.ps2BtnYP
+        ps2BtnL1 = another.ps2BtnL1
+        ps2BtnR1 = another.ps2BtnR1
+        ps2BtnL2 = another.ps2BtnL2
+        ps2BtnR2 = another.ps2BtnR2
+        ps2BtnL1P = another.ps2BtnL1P
+        ps2BtnR1P = another.ps2BtnR1P
+        ps2BtnL2P = another.ps2BtnL2P
+        ps2BtnR2P = another.ps2BtnR2P
+        ps2BtnStart = another.ps2BtnStart
+        ps2BtnSelect = another.ps2BtnSelect
+        ps2BtnL3 = another.ps2BtnL3
+        ps2BtnR3 = another.ps2BtnR3
+        ps2BtnStartP = another.ps2BtnStartP
+        ps2BtnSelectP = another.ps2BtnSelectP
+        ps2BtnL3P = another.ps2BtnL3P
+        ps2BtnR3P = another.ps2BtnR3P
+        hiddenButtonsPs2 = another.hiddenButtonsPs2
         btnL2 = another.btnL2
         btnR2 = another.btnR2
         btnL2P = another.btnL2P
@@ -849,7 +942,6 @@ class PadLayout {
         homeBackgroundUri = another.homeBackgroundUri
         homeBackgroundIsVideo = another.homeBackgroundIsVideo
         homeTileIcons = another.homeTileIcons
-        tileCardAlpha = another.tileCardAlpha
     }
 }
 
@@ -1378,7 +1470,6 @@ object PadLayoutStore {
             homeBackgroundUri = p.getString("home_bg_uri", "") ?: ""
             homeBackgroundIsVideo = p.getBoolean("home_bg_is_video", false)
             homeTileIcons = p.getString("home_tile_icons", "") ?: ""
-            tileCardAlpha = p.getFloat("tile_card_alpha", 1f).coerceIn(0.2f, 1f)
             ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
             ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
             ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
@@ -1444,6 +1535,42 @@ object PadLayoutStore {
             }
             pscxGpuOddEven = p.getString("psx_gpu_odd_even", "disabled") ?: "disabled"
             pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square"
+            // === PS2 (PCEE2 — PCSX2 core) core options + 专属按键布局 ===
+            // PCEE2 迁移：旧值 "1x"/"2x"/"4x"/"8x" 自动归一到 "1".."4"
+            ps2ResMulti = normalizePs2ResMulti(p.getString("ps2_res_multi", null))
+            ps2Renderer = p.getString("ps2_renderer", "vulkan")?.takeIf { it == "vulkan" || it == "software" } ?: "vulkan"
+            ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2Dpad = loadBtn(p, "ps2_dpad", ButtonLayout(x = 0.13f, y = 0.55f, sizeDp = 110))
+            ps2DpadP = loadBtn(p, "ps2_p_dpad", ButtonLayout(x = 0.18f, y = 0.58f, sizeDp = 104))
+            ps2LStick = loadBtn(p, "ps2_lstick", ButtonLayout(x = 0.13f, y = 0.88f, sizeDp = 112))
+            ps2RStick = loadBtn(p, "ps2_rstick", ButtonLayout(x = 0.87f, y = 0.88f, sizeDp = 112))
+            ps2LStickP = loadBtn(p, "ps2_p_lstick", ButtonLayout(x = 0.18f, y = 0.78f, sizeDp = 96))
+            ps2RStickP = loadBtn(p, "ps2_p_rstick", ButtonLayout(x = 0.82f, y = 0.80f, sizeDp = 96))
+            ps2BtnA = loadBtn(p, "ps2_btn_a", ButtonLayout(x = 0.87f, y = 0.58f, sizeDp = 56))
+            ps2BtnB = loadBtn(p, "ps2_btn_b", ButtonLayout(x = 0.95f, y = 0.50f, sizeDp = 56))
+            ps2BtnX = loadBtn(p, "ps2_btn_x", ButtonLayout(x = 0.79f, y = 0.50f, sizeDp = 56))
+            ps2BtnY = loadBtn(p, "ps2_btn_y", ButtonLayout(x = 0.87f, y = 0.42f, sizeDp = 56))
+            ps2BtnAP = loadBtn(p, "ps2_p_btn_a", ButtonLayout(x = 0.82f, y = 0.60f, sizeDp = 50))
+            ps2BtnBP = loadBtn(p, "ps2_p_btn_b", ButtonLayout(x = 0.91f, y = 0.52f, sizeDp = 50))
+            ps2BtnXP = loadBtn(p, "ps2_p_btn_x", ButtonLayout(x = 0.73f, y = 0.52f, sizeDp = 50))
+            ps2BtnYP = loadBtn(p, "ps2_p_btn_y", ButtonLayout(x = 0.82f, y = 0.44f, sizeDp = 50))
+            ps2BtnL1 = loadBtn(p, "ps2_btn_l1", ButtonLayout(x = 0.10f, y = 0.13f, sizeDp = 52))
+            ps2BtnR1 = loadBtn(p, "ps2_btn_r1", ButtonLayout(x = 0.90f, y = 0.13f, sizeDp = 52))
+            ps2BtnL2 = loadBtn(p, "ps2_btn_l2", ButtonLayout(x = 0.22f, y = 0.08f, sizeDp = 44))
+            ps2BtnR2 = loadBtn(p, "ps2_btn_r2", ButtonLayout(x = 0.78f, y = 0.08f, sizeDp = 44))
+            ps2BtnL1P = loadBtn(p, "ps2_p_btn_l1", ButtonLayout(x = 0.10f, y = 0.11f, sizeDp = 46))
+            ps2BtnR1P = loadBtn(p, "ps2_p_btn_r1", ButtonLayout(x = 0.90f, y = 0.11f, sizeDp = 46))
+            ps2BtnL2P = loadBtn(p, "ps2_p_btn_l2", ButtonLayout(x = 0.22f, y = 0.06f, sizeDp = 40))
+            ps2BtnR2P = loadBtn(p, "ps2_p_btn_r2", ButtonLayout(x = 0.78f, y = 0.06f, sizeDp = 40))
+            ps2BtnStart = loadBtn(p, "ps2_btn_start", ButtonLayout(x = 0.60f, y = 0.93f, sizeDp = 48))
+            ps2BtnSelect = loadBtn(p, "ps2_btn_select", ButtonLayout(x = 0.40f, y = 0.93f, sizeDp = 48))
+            ps2BtnL3 = loadBtn(p, "ps2_btn_l3", ButtonLayout(x = 0.26f, y = 0.94f, sizeDp = 36))
+            ps2BtnR3 = loadBtn(p, "ps2_btn_r3", ButtonLayout(x = 0.74f, y = 0.94f, sizeDp = 36))
+            ps2BtnStartP = loadBtn(p, "ps2_p_btn_start", ButtonLayout(x = 0.58f, y = 0.92f, sizeDp = 42))
+            ps2BtnSelectP = loadBtn(p, "ps2_p_btn_select", ButtonLayout(x = 0.42f, y = 0.92f, sizeDp = 42))
+            ps2BtnL3P = loadBtn(p, "ps2_p_btn_l3", ButtonLayout(x = 0.29f, y = 0.93f, sizeDp = 32))
+            ps2BtnR3P = loadBtn(p, "ps2_p_btn_r3", ButtonLayout(x = 0.71f, y = 0.93f, sizeDp = 32))
+            hiddenButtonsPs2 = p.getString("hidden_buttons_ps2", "") ?: ""
             // === Arcade extras ===
             btnL2 = loadBtn(p, "btn_l2", ButtonLayout(x = 0.08f, y = 0.32f, sizeDp = 48))
             btnR2 = loadBtn(p, "btn_r2", ButtonLayout(x = 0.92f, y = 0.32f, sizeDp = 48))
@@ -1781,7 +1908,6 @@ object PadLayoutStore {
             putString("home_bg_uri", layout.homeBackgroundUri)
             putBoolean("home_bg_is_video", layout.homeBackgroundIsVideo)
             putString("home_tile_icons", layout.homeTileIcons)
-            putFloat("tile_card_alpha", layout.tileCardAlpha)
             putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
             putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
             putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)
@@ -1836,6 +1962,41 @@ object PadLayoutStore {
             putString("psx_multitap", layout.pscxMultitap)
             putString("psx_gpu_odd_even", layout.pscxGpuOddEven)
             putString("psx_analog_axis", layout.pscxAnalogAxis)
+            // === PS2 (PCEE2 — PCSX2 core) core options + 专属按键布局 ===
+            putString("ps2_res_multi", layout.ps2ResMulti)
+            putString("ps2_renderer", layout.ps2Renderer)
+            putString("ps2_bilinear", layout.ps2Bilinear)
+            saveBtn("ps2_dpad", layout.ps2Dpad)
+            saveBtn("ps2_p_dpad", layout.ps2DpadP)
+            saveBtn("ps2_lstick", layout.ps2LStick)
+            saveBtn("ps2_rstick", layout.ps2RStick)
+            saveBtn("ps2_p_lstick", layout.ps2LStickP)
+            saveBtn("ps2_p_rstick", layout.ps2RStickP)
+            saveBtn("ps2_btn_a", layout.ps2BtnA)
+            saveBtn("ps2_btn_b", layout.ps2BtnB)
+            saveBtn("ps2_btn_x", layout.ps2BtnX)
+            saveBtn("ps2_btn_y", layout.ps2BtnY)
+            saveBtn("ps2_p_btn_a", layout.ps2BtnAP)
+            saveBtn("ps2_p_btn_b", layout.ps2BtnBP)
+            saveBtn("ps2_p_btn_x", layout.ps2BtnXP)
+            saveBtn("ps2_p_btn_y", layout.ps2BtnYP)
+            saveBtn("ps2_btn_l1", layout.ps2BtnL1)
+            saveBtn("ps2_btn_r1", layout.ps2BtnR1)
+            saveBtn("ps2_btn_l2", layout.ps2BtnL2)
+            saveBtn("ps2_btn_r2", layout.ps2BtnR2)
+            saveBtn("ps2_p_btn_l1", layout.ps2BtnL1P)
+            saveBtn("ps2_p_btn_r1", layout.ps2BtnR1P)
+            saveBtn("ps2_p_btn_l2", layout.ps2BtnL2P)
+            saveBtn("ps2_p_btn_r2", layout.ps2BtnR2P)
+            saveBtn("ps2_btn_start", layout.ps2BtnStart)
+            saveBtn("ps2_btn_select", layout.ps2BtnSelect)
+            saveBtn("ps2_btn_l3", layout.ps2BtnL3)
+            saveBtn("ps2_btn_r3", layout.ps2BtnR3)
+            saveBtn("ps2_p_btn_start", layout.ps2BtnStartP)
+            saveBtn("ps2_p_btn_select", layout.ps2BtnSelectP)
+            saveBtn("ps2_p_btn_l3", layout.ps2BtnL3P)
+            saveBtn("ps2_p_btn_r3", layout.ps2BtnR3P)
+            putString("hidden_buttons_ps2", layout.hiddenButtonsPs2)
             // === Arcade extras ===
             saveBtn("btn_l2", layout.btnL2)
             saveBtn("btn_r2", layout.btnR2)
@@ -1911,6 +2072,7 @@ object PadLayoutStore {
             GamePlatform.MD -> isHiddenInList(layout.hiddenButtonsMd, key)
             GamePlatform.NDS -> isHiddenInList(layout.hiddenButtonsNds, key)
             GamePlatform.PSX -> isHiddenInList(layout.hiddenButtonsPsx, key)
+            GamePlatform.PS2 -> isHiddenInList(layout.hiddenButtonsPs2, key)
             else -> false
         }
     }
@@ -1945,6 +2107,7 @@ object PadLayoutStore {
             GamePlatform.MD -> layout.copy {hiddenButtonsMd = updateHiddenList(layout.hiddenButtonsMd, key, hidden)}
             GamePlatform.NDS -> layout.copy {hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden)}
             GamePlatform.PSX -> layout.copy {hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden)}
+            GamePlatform.PS2 -> layout.copy {hiddenButtonsPs2 = updateHiddenList(layout.hiddenButtonsPs2, key, hidden)}
             else -> layout
         }
     }
@@ -2043,6 +2206,15 @@ object PadLayoutStore {
                 "l" to "L1键", "r" to "R1键",
                 "l2" to "L2键", "r2" to "R2键",
                 "start" to "START", "select" to "SELECT"
+            )
+            GamePlatform.PS2 -> listOf(
+                "dpad" to "十字键", "a" to "×键", "b" to "○键",
+                "x" to "□键", "y" to "△键",
+                "l" to "L1键", "r" to "R1键",
+                "l2" to "L2键", "r2" to "R2键",
+                "l3" to "L3键", "r3" to "R3键",
+                "start" to "START", "select" to "SELECT"
+                // 双摇杆为 PS2 常驻控件，不参与显隐
             )
             else -> emptyList()
         }

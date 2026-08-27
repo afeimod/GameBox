@@ -1006,6 +1006,53 @@ fun CoreSettingsPanel(
                     ) { updateLayout(padLayout.copy {pscxIcache = it}) }
                 }
             }
+            GamePlatform.PS2 -> item {
+                // PCEE2 核心 — 上游 PCSX2 (v2.7.523) 的 libretro 官方 Android 构建。
+                // 键名/取值已对照核心源码的 option 定义表验证：
+                //   pcsx2_renderer            — vulkan | software
+                //   pcsx2_upscale_multiplier  — "1"|"2"|"3"|"4" 纯数字字符串
+                //   pcsx2_texture_filtering   — nearest | bilinear_ps2 | ...
+                // 说明: 替换了此前使用的 Play! 核心 (游戏兼容性问题太多)，
+                // PCEE2 跟随现行 PCSX2 代码，兼容性与性能显著更好。
+                SettingsSection("PS2 (PCSX2) · 画面") {
+                    // 渲染器 — Vulkan 硬件加速 / CPU 软渲染，可在游戏中途切换。
+                    DropdownRow("渲染器",
+                        listOf("vulkan" to "Vulkan (硬件加速)",
+                               "software" to "Software (软渲染)"),
+                        padLayout.ps2Renderer
+                    ) { updateLayout(padLayout.copy {ps2Renderer = it}) }
+                    // 分辨率倍数 — 用户点名的核心设置项。发给核心的是纯数字字符串，
+                    // 改动即时生效；1x 原生 640x448，4x = 2560x1792。
+                    DropdownRow("分辨率倍数",
+                        listOf("1" to "1x (原生 640x448)", "2" to "2x (1280x896)",
+                               "3" to "3x (1920x1344)", "4" to "4x (2560x1792 高配专用)"),
+                        padLayout.ps2ResMulti
+                    ) { updateLayout(padLayout.copy {ps2ResMulti = it}) }
+                    DropdownRow("双线性过滤",
+                        listOf("enabled" to "开启 (PS2 原生平滑)", "disabled" to "关闭 (像素风)"),
+                        padLayout.ps2Bilinear
+                    ) { updateLayout(padLayout.copy {ps2Bilinear = it}) }
+                }
+
+                SettingsSection("PS2 · 双摇杆虚拟手柄") {
+                    Text(
+                        "PS2 虚拟手柄为 DualShock 2 完整布局：左/右双模拟摇杆 " +
+                        "(屏幕左下/右下，输出真实模拟轴)、十字键、△○×□、L1/R1/L2/R2 " +
+                        "肩键、L3/R3 与 Select/Start。所有按键可在游戏内布局编辑器中 " +
+                        "自由拖动与显隐，分辨率倍数等设置游戏内菜单同样可调。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                }
+
+                SettingsSection("PS2 · BIOS 与兼容性") {
+                    Text(
+                        "PCSX2 需要真实 PS2 BIOS：将 scph10000.bin / scph39001.bin 等 " +
+                        "放到 应用私有目录/ps2/pcsx2/bios/ 下 (旧版 ps2/bios/ 的文件会自动迁移)。没有 BIOS 时游戏无法启动，" +
+                        "启动失败会给出详细的中文排查提示。支持 .iso / .chd / .cso / " +
+                        ".zso / .cue+bin / .gz / .mdf / .nrg / .elf 镜像；渲染器默认 " +
+                        "Vulkan 硬件加速，设备不支持时切 Software 软渲染。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                }
+            }
         }
     }
 }

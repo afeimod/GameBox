@@ -587,6 +587,59 @@ target_compile_options(psxcore PRIVATE
 target_link_libraries(psxcore log android dl)
 
 # ---------------------------------------------------------------------------
+# PCEE2 (Sony PlayStation 2, upstream PCSX2 v2.7.523) — built as
+# libpsx2core.so, which dlopen()s the prebuilt libpcee2_libretro_android.so
+# from app/src/main/jniLibs/<abi>/. Same dlopen pattern as PSX-ReARMed /
+# FBNeo / Genesis-Plus-GX / Geargrafx.
+#
+# The prebuilt .so comes from the libretro buildbot
+# (https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/).
+# NOTE: PCEE2 replaced Play! as this app's PS2 core (better game
+# compatibility — it tracks modern PCSX2 instead of an old snapshot).
+#
+# Our JNI bridge (pcsx2_bridge.cpp) + libretro frontend (pcsx2_loader.cpp)
+# drive the core through the standard retro_* API. Supports the HQX library
+# for video filter upscalers. PS2 BIOS files go in <systemDir>/pcsx2/bios/
+# (e.g. scph10000.bin); a legacy <systemDir>/bios/ folder is auto-migrated
+# by the loader on first load.
+# ---------------------------------------------------------------------------
+set(PSX2_JNI_SOURCES
+    "${APP_JNI_DIR}/pcsx2_bridge.cpp"
+    "${APP_JNI_DIR}/pcsx2_loader.cpp"
+    ${HQX_SOURCES}
+)
+
+add_library(psx2core SHARED ${PSX2_JNI_SOURCES})
+
+target_include_directories(psx2core PRIVATE
+    "${APP_JNI_DIR}"
+    "${APP_JNI_DIR}/shared"
+    "${HQX_DIR}"
+)
+
+target_compile_definitions(psx2core PRIVATE
+    __LIBRETRO__
+    ANDROID
+    NDEBUG
+)
+
+target_compile_options(psx2core PRIVATE
+    -O2
+    -fvisibility=hidden
+    -ffunction-sections -fdata-sections
+    -fno-rtti
+    -fno-exceptions
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-sign-compare
+    -Wno-write-strings
+    -Wno-deprecated-declarations
+)
+
+# `dl` is required for dlopen() / dlsym() on the prebuilt Play! .so.
+target_link_libraries(psx2core log android dl)
+
+# ---------------------------------------------------------------------------
 # melonDS (Nintendo DS / DSi) — built as libndscore.so, which links the
 # melonDS core + libretro wrapper as a static library (melonds-core),
 # compiled directly from source via core/melonds/CMakeLists.txt.

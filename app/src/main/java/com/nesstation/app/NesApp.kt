@@ -10,6 +10,7 @@ import com.nesstation.app.core.engine.FbNeoEngine
 import com.nesstation.app.core.engine.GenesisEngine
 import com.nesstation.app.core.engine.PceEngine
 import com.nesstation.app.core.engine.PsxEngine
+import com.nesstation.app.core.engine.Psx2Engine
 import com.nesstation.app.core.engine.NdsEngine
 import com.nesstation.app.core.storage.AppContainer
 import com.nesstation.app.core.storage.SettingsRepository
@@ -85,6 +86,11 @@ class NesApp : Application() {
             // libpcsx_rearmed_libretro_android.so.
             com.nesstation.app.core.jni.PsxNative.appContext = this
             PsxEngine.ensureLoaded()
+        }
+        tryInit("Psx2Engine")          {
+            // PCEE2 (PCSX2) PS2 core — dlopen()s libpcee2_libretro_android.so.
+            com.nesstation.app.core.jni.Psx2Native.appContext = this
+            Psx2Engine.ensureLoaded()
         }
         tryInit("NdsEngine")           {
             // melonDS NDS core — dlopen()s
