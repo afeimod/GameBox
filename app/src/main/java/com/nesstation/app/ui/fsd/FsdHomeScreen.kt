@@ -13,7 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.Arcade
+import androidx.compose.material.icons.rounded.LocalPlay
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.GridView
@@ -66,7 +66,7 @@ private fun platformIcon(p: GamePlatform) = when (p) {
     GamePlatform.PCE    -> Icons.Rounded.Radio           // PC-E 小白机
     GamePlatform.PSX    -> Icons.Rounded.Album           // CD 光盘
     GamePlatform.NDS    -> Icons.Rounded.MenuBook        // 翻盖双屏
-    GamePlatform.ARCADE -> Icons.Rounded.Arcade          // 街机柜
+    GamePlatform.ARCADE -> Icons.Rounded.LocalPlay       // 街机厅票券（legacy 集无 Arcade 图标）
     GamePlatform.DOS    -> Icons.Rounded.Terminal        // DOS 命令行
     GamePlatform.JAVA   -> Icons.Rounded.LocalCafe       // Java 咖啡
 }

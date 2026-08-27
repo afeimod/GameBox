@@ -104,7 +104,7 @@ fun FsdCoverFlow(
                     initialValue = dragPx,
                     targetValue = 0f,
                     animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-                ) { v -> dragPx = v }
+                ) { v, _ -> dragPx = v }   // animate 尾 lambda 签名为 (value, velocity) 两参数
                 settling = false
             }
         }
