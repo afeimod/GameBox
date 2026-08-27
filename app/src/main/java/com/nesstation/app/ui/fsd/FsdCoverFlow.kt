@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -87,7 +88,7 @@ fun FsdCoverFlow(
             label = "fsd-flow-pos"
         )
 
-        val stepPx = (itemWidth + gap).toPx()
+        val stepPx = with(LocalDensity.current) { (itemWidth + gap).toPx() }
         var dragAccum by remember { mutableFloatStateOf(0f) }
 
         // TV 遥控器：进入界面后自动抓焦，否则 D-pad 首次按键无响应
@@ -185,7 +186,7 @@ fun FsdCoverFlow(
                                 .graphicsLayer {
                                     scaleX = 1f
                                     scaleY = -1f
-                                    alpha = 0.22f
+                                    this.alpha = 0.22f // 外层局部 val alpha 遮蔽了 GraphicsLayerScope.alpha，必须用 this.
                                 }
                         ) {
                             content(i)

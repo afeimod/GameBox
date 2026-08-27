@@ -86,7 +86,7 @@ import com.nesstation.app.ui.fsd.FsdTitleBanner
 import com.nesstation.app.ui.fsd.FsdTopBar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.clipToBounds
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
@@ -96,6 +96,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import java.io.File
 
@@ -1431,7 +1432,7 @@ private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit = {}
             .background(
                 if (selected) Brush.verticalGradient(
                     listOf(Fsd.TileBlueTop, Fsd.TileBlueBottom)
-                ) else Color.White.copy(alpha = 0.12f)
+                ) else SolidColor(Color.White.copy(alpha = 0.12f))
             )
             .border(
                 width = 1.dp,
