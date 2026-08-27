@@ -40,7 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.dynamicCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -192,9 +192,10 @@ data class FsdBgConfig(
 )
 
 /** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。
- *  dynamic：拖动透明度滑杆时每帧更新，只重组真正读取本配置的组件，
- *  导航子树其余部分不受影响。 */
-val LocalFsdBg = dynamicCompositionLocalOf { FsdBgConfig() }
+ *  用 compositionLocalOf（dynamic 语义，1.0 起就有）：拖动透明度滑杆每帧更新时
+ *  只重组真正读取本配置的组件（磁贴/封面卡片/壁纸），导航子树其余部分不受影响。
+ *  注：本项目 BOM 2024.06.00 = Compose 1.6.8，无 1.7 才加入的 dynamicCompositionLocalOf。 */
+val LocalFsdBg = compositionLocalOf { FsdBgConfig() }
 
 /**
  * 全局背景配置的进程内实时总线。
