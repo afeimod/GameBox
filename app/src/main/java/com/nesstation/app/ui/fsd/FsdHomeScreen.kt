@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.VideogameAsset
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -98,7 +100,8 @@ private fun parseTileIconMap(json: String): Map<String, String> {
  *   - 全局背景（主页/游戏库共用）可在设置里换成图片 / 循环视频（[FsdCustomBackground]），
  *     配置由 NesApp 导航根部经 [LocalFsdBg] 注入，本页经 [FsdGlobalBackground] 消费；
  *     卡片背景透明度同样在设置→主页里全局调节（[FsdTile] 内消费 cardAlpha）
- *   - 长按任意磁贴（或按 Y 键）可给该磁贴设置自定义图标
+ *   - 长按任意磁贴（或按 Y 键）弹「磁贴选项」：自定义图标 + 卡片背景透明度
+ *     （透明度全局生效 —— 主页磁贴与游戏库封面卡片同步，拖动即时预览）
  *
  * 手机与 TV 共用：磁贴流内建 D-pad 焦点导航（左/右切换、OK 激活），
  * 触屏设备点击磁贴即可。平台磁贴仅在库内有游戏时显示。
@@ -264,12 +267,15 @@ fun FsdHomeScreen(
         }
     }
 
-    // === 磁贴选项对话框：自定义图标 / 恢复默认 ===
+    // === 磁贴选项对话框：自定义图标 / 卡片背景透明度 / 恢复默认 ===
     tileMenuIdx?.let { idx ->
         val tile = tiles.getOrNull(idx)
         if (tile == null) {
             tileMenuIdx = null
         } else {
+            // 滑杆值直接绑定 FsdBgBus（拖动中 previewCardAlpha 实时写入总线），
+            // 背后的磁贴立即变透明/不透明 —— 无需重进页面
+            val bg = LocalFsdBg.current
             AlertDialog(
                 onDismissRequest = { tileMenuIdx = null },
                 title = {
@@ -280,11 +286,46 @@ fun FsdHomeScreen(
                     )
                 },
                 text = {
-                    Text(
-                        "可为本磁贴设置自定义图标（支持图片）。图标立即生效并持久保存。",
-                        fontSize = 13.sp,
-                        color = Color(0xFF4A5568)
-                    )
+                    Column {
+                        Text(
+                            "可为本磁贴设置自定义图标（支持图片）。卡片背景透明度为全局调节，主页磁贴与游戏库封面同时生效。",
+                            fontSize = 13.sp,
+                            color = Color(0xFF4A5568)
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "卡片背景透明度",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1A365D),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "${(bg.cardAlpha * 100).toInt()}%",
+                                fontSize = 12.sp,
+                                color = Color(0xFF4A5568)
+                            )
+                        }
+                        Slider(
+                            value = bg.cardAlpha.coerceIn(0.2f, 1f),
+                            onValueChange = { FsdBgBus.previewCardAlpha(it) },
+                            onValueChangeFinished = {
+                                // 松手才落盘一次；总线已是预览值，直接持久化
+                                val layout = PadLayoutStore.load(context)
+                                PadLayoutStore.save(
+                                    context,
+                                    layout.copy { tileCardAlpha = FsdBgBus.config.cardAlpha }
+                                )
+                            },
+                            valueRange = 0.2f..1f
+                        )
+                        Text(
+                            "调低后卡片背景变透明，壁纸从背后透出；图标与文字不受影响",
+                            fontSize = 11.sp,
+                            color = Color(0xFF4A5568)
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = {

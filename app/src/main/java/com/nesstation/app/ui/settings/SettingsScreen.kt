@@ -98,6 +98,9 @@ fun SettingsScreen(
     fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
         padLayout = new
         PadLayoutStore.save(context, new)
+        // 全局背景（壁纸/卡片透明度）实时总线同步：主页磁贴 + 游戏库封面卡片
+        // 在回到前台/重进之前就立即生效
+        com.nesstation.app.ui.fsd.FsdBgBus.syncFrom(new)
         // Apply core options to whichever engine(s) are currently loaded.
         // Previously this hard-coded NesEngine.get() which silently dropped
         // options when the user was playing a SNES or GBA game.
@@ -459,7 +462,11 @@ fun SettingsScreen(
                                 }
                                 Slider(
                                     value = cardAlphaDraft.value,
-                                    onValueChange = { cardAlphaDraft.value = it },
+                                    onValueChange = {
+                                        cardAlphaDraft.value = it
+                                        // 拖动中实时预览（总线即时推送主页/游戏库）
+                                        com.nesstation.app.ui.fsd.FsdBgBus.previewCardAlpha(it)
+                                    },
                                     onValueChangeFinished = {
                                         updateLayout(padLayout.copy { tileCardAlpha = cardAlphaDraft.value })
                                     },

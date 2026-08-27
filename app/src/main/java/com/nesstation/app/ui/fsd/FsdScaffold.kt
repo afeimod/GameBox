@@ -40,7 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.dynamicCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -191,23 +191,51 @@ data class FsdBgConfig(
     val cardAlpha: Float = 1f
 )
 
-/** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。 */
-val LocalFsdBg = staticCompositionLocalOf { FsdBgConfig() }
+/** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。
+ *  dynamic：拖动透明度滑杆时每帧更新，只重组真正读取本配置的组件，
+ *  导航子树其余部分不受影响。 */
+val LocalFsdBg = dynamicCompositionLocalOf { FsdBgConfig() }
 
 /**
- * 在导航根部调用一次：从 PadLayoutStore 加载全局背景，
- * 并在 ON_RESUME 时重载 —— 从设置页改完背景返回任意页面都立即生效。
+ * 全局背景配置的进程内实时总线。
+ *
+ * 此前 [rememberFsdBgConfig] 只在 ON_RESUME 时从 PadLayoutStore 重载，
+ * 设置页改完透明度/壁纸后同一次会话内不会生效（要重进应用才行）。
+ * 现在任何页面（设置页滑杆、主页磁贴选项对话框）写入本总线，
+ * 所有经 [LocalFsdBg] 消费该配置的地方（主页磁贴、游戏库封面卡片、壁纸）
+ * 立即重组生效 —— snapshot state 跨页面天然响应。
+ */
+object FsdBgBus {
+    /** 当前生效配置；写入即触发所有消费方重组。 */
+    var config by mutableStateOf(FsdBgConfig())
+        private set
+
+    /** 从 PadLayoutStore 对齐一次（首次组合 / ON_RESUME）。 */
+    fun reload(context: Context) {
+        syncFrom(com.nesstation.app.core.storage.PadLayoutStore.load(context))
+    }
+
+    /** 已持有最新 PadLayout 时直接同步（设置页 updateLayout 落盘后调用，不回读存储）。 */
+    fun syncFrom(pl: com.nesstation.app.core.storage.PadLayout) {
+        config = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo, pl.tileCardAlpha)
+    }
+
+    /** 拖动中的内存态预览（只改总线不落盘，onValueChangeFinished 才持久化）。 */
+    fun previewCardAlpha(alpha: Float) {
+        config = config.copy(cardAlpha = alpha.coerceIn(0.2f, 1f))
+    }
+}
+
+/**
+ * 在导航根部调用一次：首次组合与 ON_RESUME 时把存储内容对齐进 [FsdBgBus]，
+ * 之后返回总线状态 —— 任何页面的写入都会立即反映到所有 FSD 页面。
  */
 @Composable
 fun rememberFsdBgConfig(): FsdBgConfig {
     val context = LocalContext.current
-    var cfg by remember { mutableStateOf(FsdBgConfig()) }
     val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(owner) {
-        fun reload() {
-            val pl = com.nesstation.app.core.storage.PadLayoutStore.load(context)
-            cfg = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo, pl.tileCardAlpha)
-        }
+        fun reload() { FsdBgBus.reload(context) }
         reload()
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) reload()
@@ -215,7 +243,7 @@ fun rememberFsdBgConfig(): FsdBgConfig {
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    return cfg
+    return FsdBgBus.config
 }
 
 /**
