@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.VideogameAsset
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,6 +86,21 @@ private fun parseTileIconMap(json: String): Map<String, String> {
     }
 }
 
+/** 解析磁贴图标透明度 JSON（{ tileKey → Float }），损坏/缺失时回退 1.0。 */
+private fun parseTileAlphaMap(json: String): Map<String, Float> {
+    if (json.isBlank()) return emptyMap()
+    return try {
+        val obj = JSONObject(json)
+        val map = LinkedHashMap<String, Float>()
+        obj.keys().forEach { key ->
+            map[key] = obj.optDouble(key, 1.0).toFloat().coerceIn(0.05f, 1f)
+        }
+        map
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
 /**
  * FSD 桌面主页 — 仿 Xbox 360 Freestyle Dash 的磁贴主菜单。
  *
@@ -95,8 +112,9 @@ private fun parseTileIconMap(json: String): Map<String, String> {
  *   - 底部状态条（IP / 状态 / 日期 时间）
  *
  * 个性化：
- *   - 主页背景可在设置里换成图片 / 循环视频（[FsdCustomBackground]）
- *   - 长按任意磁贴（或按 Y 键）可给该磁贴设置自定义图标
+ *   - 全局背景（主页/游戏库共用）可在设置里换成图片 / 循环视频（[FsdCustomBackground]），
+ *     配置由 NesApp 导航根部经 [LocalFsdBg] 注入，本页经 [FsdGlobalBackground] 消费
+ *   - 长按任意磁贴（或按 Y 键）可给该磁贴设置自定义图标并调节透明度
  *
  * 手机与 TV 共用：磁贴流内建 D-pad 焦点导航（左/右切换、OK 激活），
  * 触屏设备点击磁贴即可。平台磁贴仅在库内有游戏时显示。
@@ -116,20 +134,19 @@ fun FsdHomeScreen(
 ) {
     val context = LocalContext.current
 
-    // === 个性化状态（背景 + 磁贴图标），ON_RESUME 时从存储重载 ===
-    var bgUri by rememberSaveable { mutableStateOf("") }
-    var bgIsVideo by rememberSaveable { mutableStateOf(false) }
+    // === 个性化状态（磁贴图标 + 透明度），ON_RESUME 时从存储重载 ===
+    // 背景改由 NesApp 导航根部的 LocalFsdBg 全局提供（主页/游戏库同一张壁纸）
     var tileIconsJson by rememberSaveable { mutableStateOf("") }
+    var tileAlphasJson by rememberSaveable { mutableStateOf("") }
 
     fun reloadPersonalization() {
         val pl = PadLayoutStore.load(context)
-        bgUri = pl.homeBackgroundUri
-        bgIsVideo = pl.homeBackgroundIsVideo
         tileIconsJson = pl.homeTileIcons
+        tileAlphasJson = pl.homeTileIconAlphas
     }
 
     LaunchedEffect(Unit) { reloadPersonalization() }
-    // 从设置页改完背景/图标返回主页时立即生效
+    // 从设置页改完图标返回主页时立即生效（背景由全局层重载）
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -140,6 +157,7 @@ fun FsdHomeScreen(
     }
 
     val tileIcons = remember(tileIconsJson) { parseTileIconMap(tileIconsJson) }
+    val tileAlphas = remember(tileAlphasJson) { parseTileAlphaMap(tileAlphasJson) }
 
     val platformOrder = listOf(
         GamePlatform.NES, GamePlatform.SFC, GamePlatform.GB, GamePlatform.GBA,
@@ -150,29 +168,31 @@ fun FsdHomeScreen(
         games.groupingBy { it.platform }.eachCount()
     }
 
-    val tiles = remember(games, countByPlatform, tileIcons) {
+    val tiles = remember(games, countByPlatform, tileIcons, tileAlphas) {
+        fun alpha(key: String) = tileAlphas[key] ?: 1f
         buildList {
             add(FsdTileItem("all", "全部游戏", Icons.Rounded.GridView,
-                badge = games.size.toString(), iconPath = tileIcons["all"]))
+                badge = games.size.toString(), iconPath = tileIcons["all"], iconAlpha = alpha("all")))
             platformOrder.forEach { p ->
                 val n = countByPlatform[p] ?: 0
                 if (n > 0) {
                     add(FsdTileItem("platform:${p.name}", p.displayName, platformIcon(p),
-                        badge = n.toString(), iconPath = tileIcons["platform:${p.name}"]))
+                        badge = n.toString(), iconPath = tileIcons["platform:${p.name}"],
+                        iconAlpha = alpha("platform:${p.name}")))
                 }
             }
             add(FsdTileItem("online", "在线游戏", Icons.Rounded.Public,
-                iconPath = tileIcons["online"]))
+                iconPath = tileIcons["online"], iconAlpha = alpha("online")))
             add(FsdTileItem("battle", "对战平台", Icons.Rounded.SportsEsports,
-                iconPath = tileIcons["battle"]))
+                iconPath = tileIcons["battle"], iconAlpha = alpha("battle")))
             add(FsdTileItem("swf", "SWF/Flash", Icons.Rounded.PlayArrow,
-                iconPath = tileIcons["swf"]))
+                iconPath = tileIcons["swf"], iconAlpha = alpha("swf")))
             add(FsdTileItem("settings", "设置", Icons.Rounded.Settings,
-                iconPath = tileIcons["settings"]))
+                iconPath = tileIcons["settings"], iconAlpha = alpha("settings")))
             add(FsdTileItem("about", "关于", Icons.AutoMirrored.Rounded.HelpOutline,
-                iconPath = tileIcons["about"]))
+                iconPath = tileIcons["about"], iconAlpha = alpha("about")))
             add(FsdTileItem("exit", "退出", Icons.AutoMirrored.Rounded.Logout,
-                iconPath = tileIcons["exit"]))
+                iconPath = tileIcons["exit"], iconAlpha = alpha("exit")))
         }
     }
 
@@ -231,12 +251,8 @@ fun FsdHomeScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 背景：用户自定义（图片/视频）优先，否则默认 FSD 深蓝壁纸
-        if (bgUri.isNotBlank()) {
-            FsdCustomBackground(uriString = bgUri, isVideo = bgIsVideo)
-        } else {
-            FsdBackdrop()
-        }
+        // 背景：全局壁纸（NesApp 层注入 —— 主页/游戏库共用同一张），默认 FSD 深蓝
+        FsdGlobalBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
             FsdTopBar()
@@ -285,11 +301,51 @@ fun FsdHomeScreen(
                     )
                 },
                 text = {
-                    Text(
-                        "可为本磁贴设置自定义图标（支持图片）。图标立即生效并持久保存。",
-                        fontSize = 13.sp,
-                        color = Color(0xFF4A5568)
-                    )
+                    Column {
+                        Text(
+                            "可为本磁贴设置自定义图标（支持图片）。图标立即生效并持久保存。",
+                            fontSize = 13.sp,
+                            color = Color(0xFF4A5568)
+                        )
+                        // 已设置自定义图标时：透明度调节（拖动即时预览，松手持久化）
+                        if (tile.iconPath != null) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "图标透明度",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E2A3A),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    "${((tileAlphas[tile.key] ?: 1f) * 100).toInt()}%",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF4A5568)
+                                )
+                            }
+                            Slider(
+                                value = tileAlphas[tile.key] ?: 1f,
+                                onValueChange = { v ->
+                                    // 拖动中：只更新内存状态，磁贴实时预览
+                                    val m = LinkedHashMap<String, Float>(tileAlphas)
+                                    m[tile.key] = v
+                                    tileAlphasJson = JSONObject().apply {
+                                        m.forEach { (k, a) -> put(k, a.toDouble()) }
+                                    }.toString()
+                                },
+                                onValueChangeFinished = {
+                                    // 松手才写盘一次，避免拖动过程高频 SharedPreferences 写入
+                                    val layout = PadLayoutStore.load(context)
+                                    PadLayoutStore.save(
+                                        context,
+                                        layout.copy { homeTileIconAlphas = tileAlphasJson }
+                                    )
+                                },
+                                valueRange = 0.05f..1f
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = {

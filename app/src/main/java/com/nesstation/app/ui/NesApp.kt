@@ -97,10 +97,18 @@ fun NesApp() {
 
     val reloadGames: () -> Unit = { games = loadAllGames(ctx) }
 
-    if (isTv) {
-        TvNavHost(nav = nav, games = games, reloadGames = reloadGames)
-    } else {
-        PhoneNavHost(nav = nav, games = games, reloadGames = reloadGames)
+    // 全局背景配置：导航根部加载一次，ON_RESUME 自动重载，
+    // 主页 / 游戏库等所有 FSD 深色页面通过 LocalFsdBg 消费同一张自定义壁纸。
+    val bgConfig = com.nesstation.app.ui.fsd.rememberFsdBgConfig()
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.nesstation.app.ui.fsd.LocalFsdBg provides bgConfig
+    ) {
+        if (isTv) {
+            TvNavHost(nav = nav, games = games, reloadGames = reloadGames)
+        } else {
+            PhoneNavHost(nav = nav, games = games, reloadGames = reloadGames)
+        }
     }
 }
 

@@ -54,7 +54,8 @@ data class FsdTileItem(
     val label: String,
     val icon: ImageVector?,
     val badge: String? = null,   // 右上角小徽标（如游戏数量）
-    val iconPath: String? = null // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
+    val iconPath: String? = null, // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
+    val iconAlpha: Float = 1f    // 自定义图标透明度 0.05..1.0（磁贴选项里调节）；对矢量图标不生效
 )
 
 @Composable
@@ -81,6 +82,7 @@ fun FsdTile(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = item.label,
                     contentScale = ContentScale.Fit,
+                    alpha = item.iconAlpha.coerceIn(0.05f, 1f),   // 用户可调透明度，让图标与磁贴底色融合
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = if (compactTile) 16.dp else 30.dp)

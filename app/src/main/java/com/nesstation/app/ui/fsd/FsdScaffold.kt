@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -175,6 +176,54 @@ private fun DrawScope.drawFsdBackdrop() {
 }
 
 private data class Streak(val xFrac: Float, val widthFrac: Float, val alpha: Float)
+
+// ---------------------------------------------------------------------------
+// 全局背景 — 主页 / 游戏库等 FSD 深色页面共用同一张自定义壁纸
+// ---------------------------------------------------------------------------
+
+/** 全局背景配置：uri 为空 = 默认深蓝壁纸；isVideo 区分图片 / 循环视频。 */
+data class FsdBgConfig(val uri: String = "", val isVideo: Boolean = false)
+
+/** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。 */
+val LocalFsdBg = staticCompositionLocalOf { FsdBgConfig() }
+
+/**
+ * 在导航根部调用一次：从 PadLayoutStore 加载全局背景，
+ * 并在 ON_RESUME 时重载 —— 从设置页改完背景返回任意页面都立即生效。
+ */
+@Composable
+fun rememberFsdBgConfig(): FsdBgConfig {
+    val context = LocalContext.current
+    var cfg by remember { mutableStateOf(FsdBgConfig()) }
+    val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        fun reload() {
+            val pl = com.nesstation.app.core.storage.PadLayoutStore.load(context)
+            cfg = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo)
+        }
+        reload()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) reload()
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return cfg
+}
+
+/**
+ * 全局背景入口：自定义壁纸（图片/视频）优先，否则默认 [FsdBackdrop]。
+ * 主页、游戏库等 FSD 深色页面统一调用本函数，保证壁纸全局一致。
+ */
+@Composable
+fun FsdGlobalBackground(modifier: Modifier = Modifier) {
+    val bg = LocalFsdBg.current
+    if (bg.uri.isNotBlank()) {
+        FsdCustomBackground(uriString = bg.uri, isVideo = bg.isVideo, modifier = modifier)
+    } else {
+        FsdBackdrop(modifier)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // FsdCustomBackground — 用户自定义主页背景（图片 / 循环静音视频）

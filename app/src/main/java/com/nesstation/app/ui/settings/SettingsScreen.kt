@@ -404,24 +404,24 @@ fun SettingsScreen(
                         }
                     }
 
-                    // === 主页 ===
+                    // === 主页 / 个性化 ===
                     item {
                         SettingsSection("主页") {
-                            SettingsRow("主页背景",
+                            SettingsRow("全局背景",
                                 if (padLayout.homeBackgroundUri.isEmpty()) "默认深蓝壁纸"
                                 else if (padLayout.homeBackgroundIsVideo) "自定义视频"
                                 else "自定义图片",
                                 trailing = { ValueText(if (padLayout.homeBackgroundUri.isEmpty()) "默认"
                                                        else if (padLayout.homeBackgroundIsVideo) "视频" else "图片") }
                             )
-                            SettingsRow("设置背景图片", "从文件选择图片作为主页壁纸") {
+                            SettingsRow("设置背景图片", "图片将同时用作主页与游戏库壁纸") {
                                 try {
                                     bgImagePicker.launch(arrayOf("image/*"))
                                 } catch (e: Exception) {
                                     dialogText = "无法打开选择器：${e.message}"
                                 }
                             }
-                            SettingsRow("设置背景视频", "循环静音播放的视频壁纸") {
+                            SettingsRow("设置背景视频", "循环静音播放，主页与游戏库共用") {
                                 try {
                                     bgVideoPicker.launch(arrayOf("video/*"))
                                 } catch (e: Exception) {
@@ -440,7 +440,7 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可为其设置专属图标，立即生效并持久保存。",
+                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可设置专属图片图标并调节透明度，立即生效并持久保存。",
                                 color = Color(0xFF4A5568), fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)

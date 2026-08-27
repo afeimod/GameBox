@@ -75,7 +75,7 @@ import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.PixelBackdrop
 import com.nesstation.app.ui.fsd.Fsd
-import com.nesstation.app.ui.fsd.FsdBackdrop
+import com.nesstation.app.ui.fsd.FsdGlobalBackground
 import com.nesstation.app.ui.fsd.FsdBottomBar
 import com.nesstation.app.ui.fsd.FsdBreadcrumb
 import com.nesstation.app.ui.fsd.FsdButtonHint
@@ -770,7 +770,7 @@ fun LibraryScreen(
                 }
             }
     ) {
-        FsdBackdrop()
+        FsdGlobalBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
             FsdTopBar()
