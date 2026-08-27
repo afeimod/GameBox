@@ -506,18 +506,6 @@ fun CoreSettingsPanel(
                         padLayout.dosSbType
                     ) { updateLayout(padLayout.copy {dosSbType = it}) }
 
-                    DropdownRow("音频输出模式",
-                        listOf(
-                            "core_native" to "核心自带输出 (推荐·无杂音)",
-                            "resample_48k" to "重采样到 48kHz (兼容模式)"
-                        ),
-                        padLayout.dosAudioMode
-                    ) { updateLayout(padLayout.copy {dosAudioMode = it}) }
-                    Text(
-                        "「核心自带输出」直接使用 DOSBox-Pure 混音器的原始采样率播放，不经任何重采样；若仍有个别设备杂音可切到兼容模式。切换后需重进游戏。",
-                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp
-                    )
-
                     DropdownRow("混音器采样率(核心)",
                         listOf(
                             "48000" to "48000 Hz (推荐)",

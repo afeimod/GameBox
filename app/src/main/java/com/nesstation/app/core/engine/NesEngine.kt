@@ -15,22 +15,19 @@ import kotlin.concurrent.thread
  *
  * Architecture:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode (prevents sample
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode (prevents sample
  *     drops / crackling)
  *
  * Audio pipeline (matches the GB/GBC/GBA core):
  *   FCEUmm core (44100 Hz) → libretro callback → AudioRingBuffer
- *     → AudioResampler (44100→48000 Hz, linear interpolation)
- *     → readAudio() JNI → AudioTrack (48000 Hz)
+ *     → readAudio() JNI → AudioTrack (core's own sample rate)
  *
- * The resampler runs in the native layer (rom_loader.cpp). AudioTrack is
- * always created at 48000 Hz, which is Android's native audio sample rate.
- * This eliminates the buzzing/crackling/muffled audio that occurred on TV
- * boxes (HDMI output always runs at 48000 Hz) when AudioTrack was created
- * at the core's native 44100 Hz and AudioFlinger was forced to resample.
- * Phones often have 44100 Hz as the native rate, so the bug was invisible
- * there — which is why the issue only appeared in TV mode.
+ * Default audio output: AudioTrack opens at the core's own sample rate —
+ * no TV-mode special handling anywhere. The native resampler runs in
+ * passthrough mode (rom_loader.cpp), so the core's mixer output reaches
+ * the speaker untouched; AudioFlinger performs standard device-rate
+ * conversion only when the hardware requires it.
  *
  * Lifecycle:
  *  - [ensureLoaded] loads the native library (call once at app startup).
@@ -99,18 +96,10 @@ class NesEngine private constructor() : EmulatorEngine {
 
         NesNative.setFastForward(_ffSpeed)
 
-        // Use the target sample rate (48000 Hz) for AudioTrack, not the core's
-        // native rate (typically 44100 Hz for FCEUmm). The native resampler in
-        // rom_loader.cpp converts from the core rate to 48000 Hz before
-        // returning samples via readAudio().
-        //
-        // WHY: On TV boxes with HDMI output, the hardware native audio rate is
-        // always 48000 Hz. If AudioTrack is created at 44100 Hz, Android's
-        // AudioFlinger performs low-quality resampling to 48000 Hz internally,
-        // producing audible buzzing, crackling, and muffled audio. On phones
-        // the native rate is often 44100 Hz, so the bug was invisible there.
-        // This matches the GB/GBC/GBA core (mGBA) which already does the same.
-        val rate = NesNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        // Default audio — open the AudioTrack at the core's own sample rate
+        // (no TV-mode 48kHz special handling; AudioFlinger handles any
+        // device-rate conversion with its standard high-quality path).
+        val rate = NesNative.audioSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
 
         running.set(true)
@@ -252,7 +241,7 @@ class NesEngine private constructor() : EmulatorEngine {
 
         // Dedicated audio thread with BLOCKING writes — no crackling.
         // The audio thread reads from the native ring buffer (non-blocking,
-        // already resampled to 48000 Hz by the native AudioResampler) and
+        // core-rate passthrough — no resampling) and
         // writes to AudioTrack (blocking). AudioTrack plays at the hardware
         // sample rate, so the blocking write naturally paces the loop — when
         // AudioTrack's buffer is full, write() blocks until room is available,

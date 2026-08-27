@@ -200,13 +200,13 @@ static coreshared::AudioRingBuffer s_audio{12288}; // ~128ms of headroom @48k st
                                                    // (dropped samples = crackle/buzz)
 static coreshared::AudioResampler s_resampler;
 
-// Frontend-requested output sample rate. Set via applySampleRate() from the
-// Kotlin side BEFORE opening the AudioTrack:
-//   48000          → resample core audio to Android's native 48 kHz
-//   == core rate   → ratio becomes 1.0 → pure PASSTHROUGH, i.e. DOSBox-Pure's
-//                    own mixer output goes to the speaker untouched
-//                    (dosbox_pure_audiorate must match — see its default).
-static std::atomic<int> s_targetSampleRate{coreshared::TARGET_SAMPLE_RATE};
+// Output sample rate for the (now passthrough-only) resampler.
+// DEFAULT: 0 == "follow the core" — after retro_load_game reports the
+// core's mixer rate, the resampler is initialized src == dst (ratio 1.0),
+// i.e. DOSBox-Pure's own audio output goes to the speaker untouched.
+// No TV/HDMI 48kHz special handling anymore. applySampleRate() may still
+// pin an explicit rate, but the Kotlin side always passes the core rate.
+static std::atomic<int> s_targetSampleRate{0};
 
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
@@ -423,7 +423,10 @@ static bool cb_environment(unsigned cmd, void* data) {
                 if (newRate > 0 && newRate != s_sampleRate) {
                     LOGI("Sample rate changed: %d -> %d", s_sampleRate, newRate);
                     s_sampleRate = newRate;
-                    s_resampler.init(s_sampleRate, s_targetSampleRate.load());
+                    // Default audio — target follows the core (passthrough)
+                    // unless applySampleRate() pinned an explicit override.
+                    int t = s_targetSampleRate.load();
+                    s_resampler.init(s_sampleRate, (t >= 8000) ? t : s_sampleRate);
                 }
             }
             return true;
@@ -757,7 +760,10 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_retro_get_system_av_info(&av);
     s_sampleRate = (int)av.timing.sample_rate;
     if (s_sampleRate > 0) {
-        s_resampler.init(s_sampleRate, s_targetSampleRate.load());
+        // Default audio — target follows the core rate (passthrough) unless
+        // applySampleRate() pinned an explicit override.
+        int t = s_targetSampleRate.load();
+        s_resampler.init(s_sampleRate, (t >= 8000) ? t : s_sampleRate);
     }
     s_videoW = av.geometry.base_width;
     s_videoH = av.geometry.base_height;
@@ -868,8 +874,9 @@ int audioSampleRate() {
 }
 
 int audioTargetSampleRate() {
+    // Default audio == the core's own mixer rate (no TV special-casing).
     int t = s_targetSampleRate.load();
-    return (t >= 8000) ? t : TARGET_SAMPLE_RATE;
+    return (t >= 8000) ? t : s_sampleRate;
 }
 
 void setControllerInput(int port, uint16_t bits) {

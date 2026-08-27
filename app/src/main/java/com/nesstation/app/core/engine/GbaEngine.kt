@@ -14,18 +14,16 @@ import kotlin.concurrent.thread
  *
  * Architecture:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode (prevents sample
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode (prevents sample
  *     drops / crackling)
  *
  * Audio pipeline (fixed):
  *   mGBA core (32768 Hz) → libretro callback → AudioRingBuffer
- *     → AudioResampler (32768→48000 Hz, linear interpolation)
- *     → readAudio() JNI → AudioTrack (48000 Hz)
+ *     → readAudio() JNI → AudioTrack (core's own sample rate)
  *
- * The resampler runs in the native layer (gba_loader.cpp). AudioTrack is
- * always created at 48000 Hz, which is Android's native audio sample rate.
- * This matches the mGBA Android reference project that uses Oboe at 48000 Hz.
+ * Default audio output: AudioTrack opens at the core's own sample rate —
+ * no TV-mode special handling anywhere (gba_loader.cpp passthrough).
  * Previously, AudioTrack was created at 32768 Hz, which caused poor-quality
  * resampling in AudioFlinger (pitch errors, crackling, muffled audio).
  *
@@ -88,11 +86,10 @@ class GbaEngine private constructor() : EmulatorEngine {
 
         GbaNative.setFastForward(_ffSpeed)
 
-        // Use the target sample rate (48000 Hz) for AudioTrack, not the core's
-        // native rate (32768 Hz). The native resampler in gba_loader.cpp converts
-        // from the core rate to 48000 Hz before returning samples via readAudio().
-        // This matches the mGBA Android reference project (Oboe at 48000 Hz).
-        val rate = GbaNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        // Default audio — open the AudioTrack at the core's own sample rate
+        // (no TV-mode 48kHz special handling; AudioFlinger handles any
+        // device-rate conversion with its standard high-quality path).
+        val rate = GbaNative.audioSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
 
         running.set(true)
@@ -195,7 +192,7 @@ class GbaEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            // Use a larger buffer for 48000 Hz output to prevent underruns.
+            // Larger output buffer prevents audio underruns.
             // At 48kHz stereo 16-bit, 1 frame = 4 bytes.
             // minBuf is typically ~4800 bytes (~1200 frames) on most devices.
             // A multiplier of 4 gives ~4800 frames, enough for ~100ms of audio.
@@ -220,7 +217,7 @@ class GbaEngine private constructor() : EmulatorEngine {
         }
 
         // Dedicated audio thread with BLOCKING writes.
-        // The native readAudio() returns samples already resampled to 48000 Hz
+        // The native readAudio() returns samples at the core's own rate
         // by the AudioResampler in gba_loader.cpp. Blocking write paces the
         // loop at the hardware sample rate.
         audioRunning.set(true)

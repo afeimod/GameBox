@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -26,9 +27,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
 
@@ -75,8 +73,30 @@ import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ArcadeTitleMapper
 import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
-import com.nesstation.app.ui.components.GameCard
 import com.nesstation.app.ui.components.PixelBackdrop
+import com.nesstation.app.ui.fsd.Fsd
+import com.nesstation.app.ui.fsd.FsdBackdrop
+import com.nesstation.app.ui.fsd.FsdBottomBar
+import com.nesstation.app.ui.fsd.FsdBreadcrumb
+import com.nesstation.app.ui.fsd.FsdButtonHint
+import com.nesstation.app.ui.fsd.FsdButtonHints
+import com.nesstation.app.ui.fsd.FsdCoverFlow
+import com.nesstation.app.ui.fsd.FsdCounter
+import com.nesstation.app.ui.fsd.FsdTitleBanner
+import com.nesstation.app.ui.fsd.FsdTopBar
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.clipToBounds
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import java.io.File
 
 /// ROM file extensions we support (NES, SNES/SFC, GB/GBC/GBA, DOSBox,
@@ -128,6 +148,7 @@ fun LibraryScreen(
     onBack: () -> Unit = {},
     onHome: () -> Unit = onBack,
     onGamesChanged: (() -> Unit)? = null,
+    initialPlatform: GamePlatform? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -144,7 +165,7 @@ fun LibraryScreen(
     var showFileBrowser by remember { mutableStateOf(false) }
 
     // 选中的平台分类标签（NES / Java）
-    var selectedPlatform by remember { mutableStateOf(GamePlatform.NES) }
+    var selectedPlatform by remember { mutableStateOf(initialPlatform ?: GamePlatform.NES) }
 
     // 搜索关键字 — 空字符串表示不搜索，显示当前平台所有游戏
     var searchQuery by remember { mutableStateOf("") }
@@ -698,223 +719,124 @@ fun LibraryScreen(
                             (it.customTitle?.contains(searchQuery, ignoreCase = true) ?: false) }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        PixelBackdrop()
+    // === FSD 封面流 UI（Xbox 360 Freestyle Dash 风格）===
+
+    // 封面位图缓存 — 同一游戏封面被「封面主体 + 倒影」两处组合使用，
+    // 在此统一解码一次，避免重复 IO。
+    val coverCache = remember { HashMap<String, android.graphics.Bitmap>() }
+
+    // 封面流选中索引
+    var selectedIndex by remember { mutableStateOf(0) }
+    // 切换平台 / 修改搜索词时回到第一个
+    LaunchedEffect(selectedPlatform, searchQuery) { selectedIndex = 0 }
+    // 列表变化（导入/删除）后收敛到有效范围
+    LaunchedEffect(displayGames.size) {
+        if (selectedIndex >= displayGames.size) selectedIndex = 0
+    }
+
+    val selIdx = selectedIndex.coerceIn(0, (displayGames.size - 1).coerceAtLeast(0))
+    val curGame = displayGames.getOrNull(selIdx)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { e ->
+                // 手柄按键（TV / 蓝牙手柄）：A=启动 B=返回主页 X=搜索 Y=选项
+                if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.ButtonA -> { curGame?.let(onOpenGame); true }
+                    Key.ButtonB -> { onHome(); true }
+                    Key.ButtonX, Key.X -> { showSearch = !showSearch; true }
+                    Key.ButtonY, Key.Y -> { curGame?.let { longPressGame = it }; true }
+                    else -> false
+                }
+            }
+    ) {
+        FsdBackdrop()
+
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+            FsdTopBar()
+
+            // ===== 工具行：面包屑 + 操作按钮 =====
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(end = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "游戏库",
-                        color = Color(0xFF1E2A3A),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = if (searchQuery.isNotBlank()) {
-                            "搜索「${searchQuery}」· 找到 ${displayGames.size} 款游戏"
-                        } else {
-                            "${platformGames.size} 款 ${selectedPlatform.displayName} 游戏 · 复古之旅"
-                        },
-                        color = Color(0xFF4A5568),
-                        fontSize = 11.sp
-                    )
-                }
-                if (isPortrait) {
-                    // 竖屏：紧凑排列，不占用过多垂直空间
-                    Column(
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            HomePill(onClick = onHome)
-                            Spacer(Modifier.size(6.dp))
-                            SearchPill(onClick = { showSearch = true })
-                        }
-                        Spacer(Modifier.size(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            if (selectedPlatform != GamePlatform.JAVA) {
-                                ImportButton(
-                                    onClick = { importFolder() },
-                                    icon = Icons.Rounded.Folder,
-                                    text = "文件夹",
-                                    color = Color(0xFF4F8AC4)
-                                )
-                                ImportButton(
-                                    onClick = { importFiles() },
-                                    icon = Icons.Rounded.Add,
-                                    text = "导入ROM",
-                                    color = Color(0xFFE74C3C)
-                                )
-                                ImportButton(
-                                    onClick = { showFileBrowser = true },
-                                    icon = Icons.Rounded.Storage,
-                                    text = "浏览",
-                                    color = Color(0xFF2E7D32)
-                                )
-                            } else {
-                                ImportButton(
-                                    onClick = {
-                                        try {
-                                            jarPickerLauncher.launch(
-                                                arrayOf("application/java-archive", "application/java", "*/*")
-                                            )
-                                        } catch (_: android.content.ActivityNotFoundException) {
-                                            dialogMsg = "系统文件选择器不可用"
-                                        } catch (e: Exception) {
-                                            dialogMsg = "无法打开文件选择器：${e.message}"
-                                        }
-                                    },
-                                    icon = Icons.Rounded.Add,
-                                    text = "安装 JAR",
-                                    color = Color(0xFF6A1B9A)
-                                )
-                            }
-                        }
-                    }
+                FsdBreadcrumb(
+                    listOf(
+                        "游戏库",
+                        if (searchQuery.isNotBlank()) "搜索「$searchQuery」"
+                        else selectedPlatform.displayName
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                FsdToolButton(Icons.Rounded.Search, "搜索") { showSearch = !showSearch }
+                if (selectedPlatform != GamePlatform.JAVA) {
+                    FsdToolButton(Icons.Rounded.Add, "导入ROM") { importFiles() }
+                    FsdToolButton(Icons.Rounded.Folder, "导入文件夹") { importFolder() }
+                    FsdToolButton(Icons.Rounded.Storage, "本地浏览") { showFileBrowser = true }
                 } else {
-                    // 横屏：操作按钮横向排列（保持原样）
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        HomePill(
-                            onClick = onHome,
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                        SearchPill(onClick = { showSearch = true }, modifier = Modifier.padding(end = 6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (selectedPlatform != GamePlatform.JAVA) {
-                                ImportButton(
-                                    onClick = { importFolder() },
-                                    icon = Icons.Rounded.Folder,
-                                    text = "导入文件夹",
-                                    color = Color(0xFF4F8AC4)
-                                )
-                                ImportButton(
-                                    onClick = { importFiles() },
-                                    icon = Icons.Rounded.Add,
-                                    text = "导入ROM",
-                                    color = Color(0xFFE74C3C)
-                                )
-                                ImportButton(
-                                    onClick = { showFileBrowser = true },
-                                    icon = Icons.Rounded.Storage,
-                                    text = "本地浏览",
-                                    color = Color(0xFF2E7D32)
-                                )
-                            } else {
-                                ImportButton(
-                                    onClick = {
-                                        try {
-                                            jarPickerLauncher.launch(
-                                                arrayOf("application/java-archive", "application/java", "*/*")
-                                            )
-                                        } catch (_: android.content.ActivityNotFoundException) {
-                                            dialogMsg = "系统文件选择器不可用"
-                                        } catch (e: Exception) {
-                                            dialogMsg = "无法打开文件选择器：${e.message}"
-                                        }
-                                    },
-                                    icon = Icons.Rounded.Add,
-                                    text = "安装 JAR",
-                                    color = Color(0xFF6A1B9A)
-                                )
-                            }
+                    FsdToolButton(Icons.Rounded.Add, "安装JAR") {
+                        try {
+                            jarPickerLauncher.launch(
+                                arrayOf("application/java-archive", "application/java", "*/*")
+                            )
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            dialogMsg = "系统文件选择器不可用"
+                        } catch (e: Exception) {
+                            dialogMsg = "无法打开文件选择器：${e.message}"
                         }
                     }
                 }
+                FsdToolButton(Icons.Rounded.Refresh, "刷新") { refreshList() }
+                Spacer(Modifier.size(6.dp))
+                FsdToolButton(Icons.Rounded.Home, "主页") { onHome() }
             }
 
-            // Action row — 平台分类标签（NES / Java 等）
-            // 竖屏：FlowRow 自动换行排列，充分利用宽度
-            // 横屏：LazyRow 横向滚动（保持原样）
-            Row(
+            // ===== 平台标签行 =====
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 34.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(vertical = 2.dp)
             ) {
-                if (isPortrait) {
-                    LazyRow(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        lazyItems(listOf(
-                            GamePlatform.NES, GamePlatform.SFC,
-                            GamePlatform.GB, GamePlatform.GBA,
-                            GamePlatform.DOS,
-                            GamePlatform.ARCADE,
-                            GamePlatform.MD,
-                            GamePlatform.PCE,
-                            GamePlatform.NDS,
-                            GamePlatform.PSX,
-                            GamePlatform.JAVA
-                        )) { platform ->
-                            FilterChip(
-                                text = platform.displayName,
-                                selected = selectedPlatform == platform,
-                                onClick = { selectedPlatform = platform }
-                            )
-                        }
-                    }
-                } else {
-                    LazyRow(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        lazyItems(listOf(
-                            GamePlatform.NES, GamePlatform.SFC,
-                            GamePlatform.GB, GamePlatform.GBA,
-                            GamePlatform.DOS,
-                            GamePlatform.ARCADE,
-                            GamePlatform.MD,
-                            GamePlatform.PCE,
-                            GamePlatform.NDS,
-                            GamePlatform.PSX,
-                            GamePlatform.JAVA
-                        )) { platform ->
-                            FilterChip(
-                                text = platform.displayName,
-                                selected = selectedPlatform == platform,
-                                onClick = { selectedPlatform = platform }
-                            )
-                        }
-                    }
-                }
-                IconButton(onClick = { refreshList() }) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = Color(0xFF1E2A3A), modifier = Modifier.size(18.dp))
+                lazyItems(listOf(
+                    GamePlatform.NES, GamePlatform.SFC,
+                    GamePlatform.GB, GamePlatform.GBA,
+                    GamePlatform.DOS,
+                    GamePlatform.ARCADE,
+                    GamePlatform.MD,
+                    GamePlatform.PCE,
+                    GamePlatform.NDS,
+                    GamePlatform.PSX,
+                    GamePlatform.JAVA
+                )) { platform ->
+                    FilterChip(
+                        text = platform.displayName,
+                        selected = selectedPlatform == platform,
+                        onClick = { selectedPlatform = platform }
+                    )
                 }
             }
 
-            // 搜索栏 — 点击搜索 pill 后展开，搜索完成后自动收起
+            // ===== 搜索栏（FSD 深色）=====
             if (showSearch) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                        .padding(horizontal = 34.dp, vertical = 4.dp),
                     placeholder = {
-                        Text(
-                            "搜索游戏名称…",
-                            fontSize = 13.sp,
-                            color = Color(0xFF9CA3AF)
-                        )
+                        Text("搜索游戏名称…", fontSize = 13.sp, color = Fsd.BarTextDim)
                     },
                     leadingIcon = {
                         Icon(
-                            Icons.Rounded.Search,
-                            contentDescription = null,
-                            tint = Color(0xFF4A5568),
-                            modifier = Modifier.size(18.dp)
+                            Icons.Rounded.Search, contentDescription = null,
+                            tint = Fsd.BarTextDim, modifier = Modifier.size(18.dp)
                         )
                     },
                     trailingIcon = {
@@ -923,70 +845,126 @@ fun LibraryScreen(
                             showSearch = false
                         }) {
                             Icon(
-                                Icons.Rounded.Clear,
-                                contentDescription = "清除并收起",
-                                tint = Color(0xFF4A5568),
-                                modifier = Modifier.size(16.dp)
+                                Icons.Rounded.Clear, contentDescription = "清除并收起",
+                                tint = Fsd.BarTextDim, modifier = Modifier.size(16.dp)
                             )
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color(0xFF4F8AC4),
-                        unfocusedBorderColor = Color(0xFFD1D5DB),
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.7f),
-                        cursorColor = Color(0xFF4F8AC4)
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
+                        focusedContainerColor = Color.Black.copy(alpha = 0.35f),
+                        unfocusedContainerColor = Color.Black.copy(alpha = 0.25f),
+                        cursorColor = Color(0xFF4F8AC4),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
                     )
                 )
             }
 
-            // Permission hint for Android 11+
+            // ===== 权限提示横幅（Android 11+，FSD 深色样式）=====
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFFFF3E0))
+                        .padding(horizontal = 34.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF7A4A00).copy(alpha = 0.55f))
                         .clickable { requestManageStorage() }
-                        .padding(12.dp)
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Text(
-                        text = "点击此处授予「所有文件访问权限」可自动扫描本地ROM。也可直接点击上方按钮通过系统文件选择器导入。",
-                        color = Color(0xFFE65100),
+                        text = "点击授予「所有文件访问权限」可自动扫描本地ROM；也可使用上方导入按钮。",
+                        color = Color(0xFFFFD9A0),
                         fontSize = 11.sp
                     )
                 }
             }
 
-            LazyVerticalGrid(
-                columns = if (isPortrait) GridCells.Fixed(2) else GridCells.Adaptive(120.dp),
-                contentPadding = PaddingValues(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth()
+            // ===== 封面流主体 =====
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
             ) {
-                items(displayGames) { g ->
-                    // Resolve icon path: custom icon > built-in icon (Java/arcade)
-                    // > cover path. GameIconExtractor handles Java MIDlet-Icon
-                    // extraction and arcade zip preview png extraction.
-                    val resolvedIcon = remember(g.id, g.customIconPath, g.coverPath) {
-                        com.nesstation.app.core.storage.GameIconExtractor
-                            .resolveIconPath(context, g)
+                if (displayGames.isEmpty()) {
+                    // 空状态
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 34.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            if (searchQuery.isNotBlank()) "未找到匹配「$searchQuery」的游戏"
+                            else "该平台还没有游戏",
+                            color = Fsd.BarText,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            if (selectedPlatform == GamePlatform.JAVA) "点击右上角「安装JAR」导入 Java 游戏"
+                            else "点击右上角「导入ROM / 导入文件夹」添加游戏",
+                            color = Fsd.BarTextDim,
+                            fontSize = 13.sp
+                        )
                     }
-                    GameCard(
-                        title = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title,
-                        accent = g.accent,
-                        onClick = { onOpenGame(g) },
-                        onLongClick = { longPressGame = g },
-                        coverPath = resolvedIcon,
-                        platform = g.platform,
-                        modifier = Modifier.height(if (isPortrait) 140.dp else 130.dp)
+                } else {
+                    FsdCoverFlow(
+                        count = displayGames.size,
+                        selectedIndex = selIdx,
+                        onIndexChange = { selectedIndex = it },
+                        onItemClick = { idx -> displayGames.getOrNull(idx)?.let(onOpenGame) },
+                        onItemLongClick = { idx ->
+                            displayGames.getOrNull(idx)?.let { longPressGame = it }
+                        },
+                        grabFocusOnLaunch = true,
+                        modifier = Modifier.fillMaxSize()
+                    ) { i ->
+                        FsdGameCover(displayGames[i], coverCache)
+                    }
+
+                    // 底部左：按键提示
+                    FsdButtonHints(
+                        hints = listOf(
+                            FsdButtonHint("A", "启动", Fsd.BtnA),
+                            FsdButtonHint("B", "主页", Fsd.BtnB),
+                            FsdButtonHint("Y", "选项", Fsd.BtnY),
+                            FsdButtonHint("X", "搜索", Fsd.BtnX)
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 34.dp, bottom = 8.dp)
+                    )
+
+                    // 底部中：标题横幅（平台 · 游戏名）
+                    curGame?.let { g ->
+                        val displayTitle = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title
+                        FsdTitleBanner(
+                            text = "${g.platform.displayName}  $displayTitle",
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 38.dp)
+                        )
+                    }
+
+                    // 右侧：N of M 计数
+                    FsdCounter(
+                        current = selIdx + 1,
+                        total = displayGames.size,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 34.dp, bottom = 38.dp)
                     )
                 }
             }
+
+            FsdBottomBar(status = if (displayGames.isEmpty()) "空" else "游戏库")
         }
     }
 
@@ -1449,17 +1427,24 @@ private fun detectPlatformFromFile(
 private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(
-                if (selected) Color(0xFF1E2A3A)
-                else Color.White.copy(alpha = 0.5f)
+                if (selected) Brush.verticalGradient(
+                    listOf(Fsd.TileBlueTop, Fsd.TileBlueBottom)
+                ) else Color.White.copy(alpha = 0.12f)
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) Color.White.copy(alpha = 0.65f)
+                        else Color.White.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Text(
             text,
-            color = if (selected) Color.White else Color(0xFF1E2A3A),
+            color = if (selected) Color.White else Fsd.BarTextDim,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -1484,74 +1469,150 @@ private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Uni
     }
 }
 
+/** FSD 工具按钮 — 顶部图标 + 小字标签，D-pad 可聚焦（TV 友好） */
 @Composable
-private fun SearchPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF1E2A3A), modifier = Modifier.size(14.dp))
-            Spacer(Modifier.size(4.dp))
-            Text("搜索", color = Color(0xFF1E2A3A), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-/** 首页风格的「返回主页」按钮（与 SwfListScreen / OnlineGamesScreen 一致）。 */
-@Composable
-private fun HomePill(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun FsdToolButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.7f))
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Icon(
-            Icons.Rounded.Home,
-            contentDescription = "返回主页",
-            tint = Color(0xFF1E2A3A),
-            modifier = Modifier.size(14.dp)
+            icon,
+            contentDescription = label,
+            tint = Color.White.copy(alpha = 0.88f),
+            modifier = Modifier.size(18.dp)
         )
-        Spacer(Modifier.size(4.dp))
         Text(
-            "主页",
-            color = Color(0xFF1E2A3A),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold
+            label,
+            color = Fsd.BarTextDim,
+            fontSize = 9.sp,
+            maxLines = 1
         )
     }
 }
 
-/** 紧凑的导入按钮 — 相比 ExtendedFloatingActionButton 尺寸更小，竖屏时不会溢出。 */
+/**
+ * FSD 封面卡片 — 封面流中的单个游戏封面。
+ * 优先使用真实封面（自定义图标 / Java MIDlet-Icon / 街机 zip 内预览图），
+ * 否则用 [GameIconExtractor.generateFallbackCover] 生成带游戏名首字的
+ * 主题色封面。位图通过 [cache] 复用（封面主体与倒影共享一次解码）。
+ */
 @Composable
-private fun ImportButton(
-    onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    color: Color,
-    modifier: Modifier = Modifier
+private fun FsdGameCover(
+    game: GameEntry,
+    cache: HashMap<String, android.graphics.Bitmap>
 ) {
+    val context = LocalContext.current
+    val bmp = remember(game.id, game.customIconPath, game.coverPath) {
+        // 简单容量上限：长时间浏览时防止内存无限增长
+        if (cache.size > 60) cache.clear()
+        cache.getOrPut(game.id) {
+            var b: android.graphics.Bitmap? = null
+            val path = try {
+                com.nesstation.app.core.storage.GameIconExtractor.resolveIconPath(context, game)
+            } catch (_: Exception) { null }
+            if (path != null) {
+                try { b = BitmapFactory.decodeFile(path) } catch (_: Exception) { b = null }
+            }
+            if (b == null) {
+                try {
+                    b = com.nesstation.app.core.storage.GameIconExtractor
+                        .generateFallbackCover(game, 320, 420)
+                } catch (_: Exception) {
+                    b = android.graphics.Bitmap.createBitmap(
+                        4, 4, android.graphics.Bitmap.Config.ARGB_8888
+                    )
+                }
+            }
+            b!!
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF0D2C55))
+            .border(
+                width = 2.dp,
+                color = Color.White.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(10.dp)
+            )
+    ) {
+        Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // 平台徽标 — 左上角
+        FsdPlatformBadge(
+            game.platform,
+            modifier = Modifier.align(Alignment.TopStart)
+        )
+
+        // 底部渐变 + 游戏名（倒影上方的可读性遮罩）
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.72f)
+                    )
+                )
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** FSD 平台徽标 — 半透明黑底白字（区别于旧版彩色徽标，更贴近 FSD 质感） */
+@Composable
+private fun FsdPlatformBadge(platform: GamePlatform, modifier: Modifier = Modifier) {
+    val label = when (platform) {
+        GamePlatform.NES    -> "FC"
+        GamePlatform.SFC    -> "SFC"
+        GamePlatform.GB     -> "GB"
+        GamePlatform.GBA    -> "GBA"
+        GamePlatform.DOS    -> "DOS"
+        GamePlatform.ARCADE -> "ARC"
+        GamePlatform.MD     -> "MD"
+        GamePlatform.PCE    -> "PCE"
+        GamePlatform.NDS    -> "NDS"
+        GamePlatform.PSX    -> "PSX"
+        GamePlatform.JAVA   -> "Java"
+    }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(color)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(6.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = text, tint = Color.White, modifier = Modifier.size(13.dp))
-            Spacer(Modifier.size(3.dp))
-            Text(text, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

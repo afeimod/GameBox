@@ -14,12 +14,12 @@ import kotlin.concurrent.thread
  *
  * Architecture mirrors [SnesEngine] / [NesEngine]:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode
  *
  * Audio pipeline:
  *   FBNeo core (44100/48000 Hz) → libretro callback → AudioRingBuffer
- *     → AudioResampler → 48000 Hz → readAudio() JNI → AudioTrack
+ *     → readAudio() JNI → AudioTrack (core's own sample rate)
  *
  * Lifecycle:
  *  - [ensureLoaded] loads the native library (call once at app startup).
@@ -95,7 +95,10 @@ class FbNeoEngine private constructor() : EmulatorEngine {
 
         FbNeoNative.setFastForward(_ffSpeed)
 
-        val rate = FbNeoNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        // Default audio — open the AudioTrack at the core's own sample rate
+        // (no TV-mode 48kHz special handling; AudioFlinger handles any
+        // device-rate conversion with its standard high-quality path).
+        val rate = FbNeoNative.audioSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
 
         running.set(true)

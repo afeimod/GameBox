@@ -383,16 +383,17 @@ class NetplayEngine(
                 else                -> NesNative.lastError()
             }
 
+            // Default audio — always the core's own sample rate (no TV special-casing)
             fun audioTargetSampleRate(p: GamePlatform): Int = when (p) {
-                GamePlatform.NES    -> NesNative.audioTargetSampleRate()
-                GamePlatform.SFC    -> SnesNative.audioTargetSampleRate()
+                GamePlatform.NES    -> NesNative.audioSampleRate()
+                GamePlatform.SFC    -> SnesNative.audioSampleRate()
                 GamePlatform.GB,
-                GamePlatform.GBA    -> GbaNative.audioTargetSampleRate()
-                GamePlatform.DOS    -> DosNative.audioTargetSampleRate()
-                GamePlatform.ARCADE -> FbNeoNative.audioTargetSampleRate()
-                GamePlatform.MD     -> GenesisNative.audioTargetSampleRate()
-                GamePlatform.PCE    -> PceNative.audioTargetSampleRate()
-                else                -> NesNative.audioTargetSampleRate()
+                GamePlatform.GBA    -> GbaNative.audioSampleRate()
+                GamePlatform.DOS    -> DosNative.audioSampleRate()
+                GamePlatform.ARCADE -> FbNeoNative.audioSampleRate()
+                GamePlatform.MD     -> GenesisNative.audioSampleRate()
+                GamePlatform.PCE    -> PceNative.audioSampleRate()
+                else                -> NesNative.audioSampleRate()
             }
 
             fun setPad1(p: GamePlatform, bits: Int) {

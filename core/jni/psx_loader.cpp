@@ -465,7 +465,8 @@ static bool cb_environment(unsigned cmd, void* data) {
                 auto* av2 = static_cast<retro_system_av_info*>(data);
                 if (av2->timing.sample_rate > 8000) {
                     s_sampleRate = (int)av2->timing.sample_rate;
-                    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+                    // Default audio — passthrough, no TV-mode resampling.
+                    s_resampler.init(s_sampleRate, s_sampleRate);
                 }
                 if (av2->timing.fps > 10.0) {
                     s_refreshRate = av2->timing.fps;
@@ -856,10 +857,11 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_newFrame.store(false);
 
     if (s_sampleRate > 0) {
-        s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
-        LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f, active=%d)",
-             s_sampleRate, TARGET_SAMPLE_RATE,
-             s_resampler.ratio, s_resampler.active ? 1 : 0);
+        // Default audio output — pure passthrough (src == dst), no TV-mode
+        // 48kHz forced resampling. AudioTrack opens at the core's own rate.
+        s_resampler.init(s_sampleRate, s_sampleRate);
+        LOGI("Audio passthrough: %d Hz (ratio=%.6f, active=%d)",
+             s_sampleRate, s_resampler.ratio, s_resampler.active ? 1 : 0);
     }
 
     LOGI("PS1 ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
@@ -951,7 +953,7 @@ int readAudio(int16_t* out, int maxFrames) {
 }
 
 int audioSampleRate() { return s_sampleRate; }
-int audioTargetSampleRate() { return TARGET_SAMPLE_RATE; }
+int audioTargetSampleRate() { return s_sampleRate; }  // default audio == core rate
 
 void setControllerInput(int port, uint16_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);

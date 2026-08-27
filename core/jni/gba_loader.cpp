@@ -299,7 +299,8 @@ static bool cb_environment(unsigned cmd, void* data) {
                     LOGI("Sample rate changed: %d -> %d, reinitializing resampler",
                          s_sampleRate, newRate);
                     s_sampleRate = newRate;
-                    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+                    // Default audio — passthrough, no TV-mode resampling.
+                    s_resampler.init(s_sampleRate, s_sampleRate);
                 }
             }
             return true;
@@ -613,12 +614,12 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_audio.reset();
     s_newFrame.store(false);
 
-    // Initialize the resampler from the core's native rate to Android's 48000 Hz.
-    // This replaces the previous approach of passing 32768 Hz directly to
-    // AudioTrack, which caused poor-quality resampling in AudioFlinger.
-    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
-    LOGI("Audio resampler: %d Hz -> %d Hz (ratio=%.6f)",
-         s_sampleRate, TARGET_SAMPLE_RATE, s_resampler.ratio);
+    // Default audio output — pure passthrough (src == dst), no TV-mode
+    // 48kHz forced resampling. AudioTrack opens at the core's own rate and
+    // AudioFlinger performs standard device-rate conversion when needed.
+    s_resampler.init(s_sampleRate, s_sampleRate);
+    LOGI("Audio passthrough: %d Hz (ratio=%.6f)",
+         s_sampleRate, s_resampler.ratio);
 
     LOGI("ROM loaded: %s  rate=%d  fps=%.2f  region=%d  geom=%ux%u  max=%ux%u",
          path.c_str(), s_sampleRate, av.timing.fps, s_region,
@@ -690,7 +691,7 @@ int readAudio(int16_t* out, int maxFrames) {
 
 int audioSampleRate() { return s_sampleRate; }
 
-int audioTargetSampleRate() { return TARGET_SAMPLE_RATE; }
+int audioTargetSampleRate() { return s_sampleRate; }  // default audio == core rate
 
 void setControllerInput(int port, uint16_t bits) {
     if (port == 0)      s_pad1.store(bits, std::memory_order_relaxed);

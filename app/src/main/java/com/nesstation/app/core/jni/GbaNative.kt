@@ -48,12 +48,8 @@ object GbaNative {
     @JvmStatic external fun audioSampleRate(): Int
 
     /**
-     * Target output sample rate for AudioTrack (48000 Hz on Android).
-     * Audio is resampled from the core's native rate (e.g. 32768 Hz for GBA)
-     * to this rate in the native layer, matching the mGBA Android reference
-     * project which uses 48000 Hz for Oboe output. Using the core's native
-     * rate directly with AudioTrack causes poor-quality resampling in
-     * AudioFlinger, leading to pitch errors and audio artifacts.
+     * Deprecated TV-era hook — now returns the core's own sample rate
+     * (same as [audioSampleRate]). Kept only for ABI/符号兼容。
      */
     @JvmStatic external fun audioTargetSampleRate(): Int
     @JvmStatic external fun setPaths(systemDir: String, saveDir: String)

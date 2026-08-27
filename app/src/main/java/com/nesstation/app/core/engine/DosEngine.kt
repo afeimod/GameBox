@@ -14,12 +14,12 @@ import kotlin.concurrent.thread
  *
  * Architecture mirrors [GbaEngine]:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode
  *
  * Audio pipeline:
  *   DOSBox-Pure (44100/48000 Hz) → libretro callback → AudioRingBuffer
- *     → AudioResampler → 48000 Hz → readAudio() JNI → AudioTrack
+ *     → readAudio() JNI → AudioTrack (core's own sample rate)
  *
  * Input pipeline (unique to DOS):
  *   - Standard gamepad bits via [setPad1] (auto-mapped to DOS keys by the core)
@@ -72,14 +72,11 @@ class DosEngine private constructor() : EmulatorEngine {
     @Volatile private var _paused = false
 
     /**
-     * 音频输出模式（由 EmulatorScreen 在启动游戏前按设置注入）：
-     *   "core_native"  → 以核心自带的混音器采样率直接打开 AudioTrack，
-     *                    本地重采样器旁路（ratio=1），DOSBox-Pure 的音频
-     *                    原样输出，彻底消除重采样杂音。
-     *   "resample_48k" → 强制重采样到 48000 Hz（老电视 HDMI 兼容模式）。
-     * 修改后需重新进入游戏生效。
+     * 音频：统一使用核心自带的混音器采样率直接输出（默认行为）。
+     * 不再提供 TV/HDMI 48kHz 兼容模式 —— 所有核心一律「默认音频，
+     * 不做特殊处理」：AudioTrack 按核心报告的速率打开，本地重采样器
+     * ratio=1 纯旁路，DOSBox-Pure 的混音器输出原样到达扬声器。
      */
-    @Volatile var audioOutputMode: String = "core_native"
 
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
@@ -122,14 +119,13 @@ class DosEngine private constructor() : EmulatorEngine {
         // This lets the on-screen overlay dispatch all three input types.
         DosNative.setInputDeviceMode(3)
 
-        // === 音频：核心自带音频输出 ===
-        // retro_load_game 之后核心已报告它自己的混音器速率 (通常 48000，
-        // 与 dosbox_pure_audiorate 一致)。核心原生模式下 AudioTrack 直接
-        // 按该速率打开并把本地重采样器旁路 → 无线性插值损耗、无杂音。
+        // === 音频：核心自带音频输出（默认，无 TV 模式特殊处理）===
+        // retro_load_game 之后核心已报告它自己的混音器速率（与
+        // dosbox_pure_audiorate 一致）。AudioTrack 直接按该速率打开，
+        // 本地重采样器 ratio=1 纯旁路 → 无线性插值损耗、无杂音。
         val coreRate = DosNative.audioSampleRate().takeIf { it > 8000 } ?: 48000
-        val targetRate = if (audioOutputMode != "resample_48k") coreRate else 48000
-        DosNative.setSampleRate(targetRate)
-        startAudio(targetRate)
+        DosNative.setSampleRate(coreRate)
+        startAudio(coreRate)
 
         running.set(true)
         thread = thread(name = "doscore-loop", isDaemon = true) {

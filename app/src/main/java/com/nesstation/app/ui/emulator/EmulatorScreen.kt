@@ -924,12 +924,8 @@ fun EmulatorScreen(
         // fully torn down — preventing stale state when switching games.
         try { engine.unload() } catch (_: Throwable) {}
 
-        // DOSBox-Pure 音频输出模式注入（必须在 loadRom 之前设置）。
-        // "core_native" = 核心自带音频输出（推荐，无重采样杂音）
-        // "resample_48k" = 强制 48kHz 重采样（老电视 HDMI 兼容）
-        if (engine is com.nesstation.app.core.engine.DosEngine) {
-            (engine as com.nesstation.app.core.engine.DosEngine).audioOutputMode = padLayout.dosAudioMode
-        }
+        // DOSBox-Pure 音频：统一使用核心自带采样率输出（默认行为，无
+        // TV 模式特殊处理），由 DosEngine.loadRom 内部自动设置，无需注入。
 
         val romPath = game.romPath
         if (romPath.isNullOrEmpty()) {
@@ -7035,14 +7031,6 @@ private fun SettingsPanel(
                     padLayout.dosMouseInput
                 ) { onLayoutChange(padLayout.copy {dosMouseInput = it}) }
 
-
-                DropdownSetting("音频输出模式",
-                    listOf(
-                        "core_native" to "核心自带输出 (推荐·无杂音)",
-                        "resample_48k" to "重采样到 48kHz (兼容)"
-                    ),
-                    padLayout.dosAudioMode
-                ) { onLayoutChange(padLayout.copy {dosAudioMode = it}) }
 
                 DropdownSetting("混音器采样率(核心)",
                     listOf(

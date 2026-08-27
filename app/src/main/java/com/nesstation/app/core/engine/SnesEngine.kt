@@ -14,14 +14,13 @@ import kotlin.concurrent.thread
  *
  * Architecture:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode (prevents sample
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode (prevents sample
  *     drops / crackling)
  *
  * Audio pipeline (matches the GB/GBC/GBA core):
  *   SNES9x core (~32040 Hz) → libretro callback → AudioRingBuffer
- *     → AudioResampler (32040→48000 Hz, linear interpolation)
- *     → readAudio() JNI → AudioTrack (48000 Hz)
+ *     → readAudio() JNI → AudioTrack (core's own sample rate)
  *
  * The resampler runs in the native layer (snes_loader.cpp). AudioTrack is
  * always created at 48000 Hz, which is Android's native audio sample rate.
@@ -92,20 +91,10 @@ class SnesEngine private constructor() : EmulatorEngine {
 
         SnesNative.setFastForward(_ffSpeed)
 
-        // Use the target sample rate (48000 Hz) for AudioTrack, not the SNES
-        // native rate (~32040 Hz). The native resampler in snes_loader.cpp
-        // converts from the core rate to 48000 Hz before returning samples
-        // via readAudio().
-        //
-        // WHY: On TV boxes with HDMI output, the hardware native audio rate is
-        // always 48000 Hz. If AudioTrack is created at ~32040 Hz, Android's
-        // AudioFlinger performs low-quality resampling to 48000 Hz internally,
-        // producing audible buzzing, crackling, and muffled audio. On phones
-        // the artifact is milder (the phone's audio HAL may accept 32040 Hz
-        // natively or have a higher-quality resampler), which is why the bug
-        // only appeared in TV mode. This matches the GB/GBC/GBA core (mGBA)
-        // which already does the same.
-        val rate = SnesNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        // Default audio — open the AudioTrack at the core's own sample rate
+        // (no TV-mode 48kHz special handling; AudioFlinger handles any
+        // device-rate conversion with its standard high-quality path).
+        val rate = SnesNative.audioSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
 
         running.set(true)
@@ -233,7 +222,7 @@ class SnesEngine private constructor() : EmulatorEngine {
         }
 
         // Dedicated audio thread with BLOCKING writes — no crackling.
-        // The native readAudio() returns samples already resampled to 48000 Hz
+        // The native readAudio() returns samples at the core's own rate
         // by the AudioResampler in snes_loader.cpp. Blocking write paces the
         // loop at the hardware sample rate.
         audioRunning.set(true)

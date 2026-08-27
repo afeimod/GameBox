@@ -48,12 +48,8 @@ object SnesNative {
     @JvmStatic external fun audioSampleRate(): Int
 
     /**
-     * Target output sample rate for AudioTrack (48000 Hz on Android).
-     * Audio is resampled from the SNES native rate (~32040 Hz) to this rate
-     * in the native layer, matching the GB/GBC/GBA core. Using the SNES
-     * native rate directly with AudioTrack causes poor-quality resampling
-     * in AudioFlinger on TV boxes (HDMI output always runs at 48000 Hz),
-     * producing buzzing/crackling/muffled audio.
+     * Deprecated TV-era hook — now returns the core's own sample rate
+     * (same as [audioSampleRate]). Kept only for ABI/符号兼容。
      */
     @JvmStatic external fun audioTargetSampleRate(): Int
 

@@ -14,8 +14,8 @@ import kotlin.concurrent.thread
  *
  * Architecture mirrors [FbNeoEngine] / [NesEngine]:
  *   - Emulation thread: runs game frames, renders to surface, paces to 60fps
- *   - Audio thread: reads from native ring buffer (resampled to 48000 Hz in
- *     native code), writes to AudioTrack with BLOCKING mode
+ *   - Audio thread: reads from the native ring buffer (core-rate
+ *     passthrough — no resampling), writes to AudioTrack with BLOCKING mode
  *
  * PSX BIOS files (scph1000/1/2.bin, scph5500/1/2.bin, psxonpsp660.bin) are
  * looked up by the core in the system directory (set via [setPaths]).
@@ -98,7 +98,10 @@ class PsxEngine private constructor() : EmulatorEngine {
         val coreFps = PsxNative.videoFps()
         _targetHz = if (coreFps > 10.0 && coreFps < 500.0) Math.round(coreFps).toInt() else 60
 
-        val rate = PsxNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
+        // Default audio — open the AudioTrack at the core's own sample rate
+        // (no TV-mode 48kHz special handling; AudioFlinger handles any
+        // device-rate conversion with its standard high-quality path).
+        val rate = PsxNative.audioSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
 
         running.set(true)

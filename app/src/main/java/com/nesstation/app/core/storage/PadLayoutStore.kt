@@ -189,10 +189,8 @@ class PadLayout {
     var dosSbAdlibMode: String = "off"                // on | off
     var dosSbAdlibEmu: String = "default"             // default | cms | dual
     var dosGus: String = "off"                        // off | on
-    // === 音频：核心自带混音器相关（修复滋滋爆音 + 核心音频输出速率）===
-    // "core_native"  = AudioTrack 直接按核心采样率打开，重采样器旁路（推荐）
-    // "resample_48k" = 本地线性插值到 48000 Hz（老电视 HDMI 兼容）
-    var dosAudioMode: String = "core_native"          // core_native | resample_48k
+    // === 音频：核心自带混音器相关 ===
+    // 音频输出已统一为「核心默认采样率直通」（无 TV 兼容模式选项）。
     var dosAudiorate: String = "48000"                // dosbox_pure_audiorate: 48000 | 44100 | 32000 | 22050 | 11025 | 8000 | 49716
     var dosSwapStereo: String = "false"               // false | true (立体声反转)
     var dosTandySound: String = "auto"                // auto | on | off (Tandy 声卡)
@@ -627,7 +625,6 @@ class PadLayout {
         dosSbAdlibEmu = another.dosSbAdlibEmu
         dosGus = another.dosGus
         // 音频（核心自带混音器）
-        dosAudioMode = another.dosAudioMode
         dosAudiorate = another.dosAudiorate
         dosSwapStereo = another.dosSwapStereo
         dosTandySound = another.dosTandySound
@@ -1189,7 +1186,6 @@ object PadLayoutStore {
                 if (v in setOf("emulated", "absolute", "ps2", "none")) "touchpad" else v
             }
             // 音频（核心自带混音器）+ CPU/内存/视频补充选项
-            dosAudioMode = p.getString("dos_audio_mode", "core_native") ?: "core_native"
             dosAudiorate = p.getString("dos_audiorate", "48000") ?: "48000"
             dosSwapStereo = p.getString("dos_swap_stereo", "false") ?: "false"
             dosTandySound = p.getString("dos_tandysound", "auto") ?: "auto"
@@ -1637,7 +1633,6 @@ object PadLayoutStore {
             putString("dos_gus", layout.dosGus)
             putString("dos_mouse_input", layout.dosMouseInput)
             // 音频（核心自带混音器）+ CPU/内存/视频补充
-            putString("dos_audio_mode", layout.dosAudioMode)
             putString("dos_audiorate", layout.dosAudiorate)
             putString("dos_swap_stereo", layout.dosSwapStereo)
             putString("dos_tandysound", layout.dosTandySound)
