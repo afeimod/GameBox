@@ -229,6 +229,14 @@ static void initDefaultOptions() {
     s_options["pcsx2_renderer"]           = "vulkan";       // vulkan | software
     s_options["pcsx2_upscale_multiplier"] = "1";            // "1"|"2"|"3"|"4"
     s_options["pcsx2_texture_filtering"]  = "bilinear_ps2"; // nearest|bilinear_ps2|...
+    // --- 系统：跳过 BIOS 开机动画（PCSX2 默认快启动）---
+    s_options["pcsx2_fast_boot"]          = "enabled";      // enabled | disabled
+    // --- 性能（移动 GPU 是 tiler 架构，非同步回读大幅提速）---
+    s_options["pcsx2_hw_download_mode"]   = "unsynchronized"; // accurate|unsynchronized|disabled
+    s_options["pcsx2_blending_accuracy"]  = "basic";        // minimum|basic|medium|high|full|maximum
+    s_options["pcsx2_mtvu"]               = "enabled";      // enabled | disabled
+    s_options["pcsx2_instant_vu1"]        = "enabled";      // enabled | disabled
+    s_options["pcsx2_rumble"]             = "enabled";      // enabled | disabled
 }
 
 // ---------------------------------------------------------------------------

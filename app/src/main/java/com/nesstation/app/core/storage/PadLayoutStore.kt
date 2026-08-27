@@ -469,6 +469,24 @@ class PadLayout {
     var ps2Renderer: String = "vulkan"              // vulkan | software (渲染器, 即时切换)
     var ps2Bilinear: String = "enabled"             // disabled | enabled → 映射为 nearest/bilinear_ps2
 
+    // === PS2 (PCEE2) 补充核心选项 — 键名/取值对照 pcee2-libretro Libretro.cpp definitions[] 表 ===
+    var ps2FastBoot: String = "enabled"              // pcsx2_fast_boot: enabled(跳过BIOS动画,默认) | disabled(播放BIOS动画)
+    var ps2HwDownloadMode: String = "unsynchronized" // pcsx2_hw_download_mode: accurate|unsynchronized|disabled (GPU回读,手机tiler提速)
+    var ps2BlendingAccuracy: String = "basic"        // pcsx2_blending_accuracy: minimum|basic|medium|high|full|maximum
+    var ps2Trilinear: String = "auto"                // pcsx2_trilinear_filtering: auto|off|ps2|forced
+    var ps2Anisotropic: String = "0"                 // pcsx2_anisotropic_filtering: 0|2|4|8|16
+    var ps2Dithering: String = "2"                   // pcsx2_dithering: 0|1|2 (2=Unscaled 默认)
+    var ps2Mipmapping: String = "enabled"            // pcsx2_mipmapping: enabled|disabled
+    var ps2Deinterlace: String = "0"                 // pcsx2_deinterlace_mode: 0..9 (0=自动)
+    var ps2AspectRatio: String = "auto"              // pcsx2_aspect_ratio: auto|4:3|16:9
+    var ps2Widescreen: String = "disabled"           // pcsx2_widescreen_patches: disabled|enabled
+    var ps2NoInterlace: String = "disabled"          // pcsx2_no_interlacing_patches: disabled|enabled
+    var ps2Mtvu: String = "enabled"                  // pcsx2_mtvu (多线程VU1, 性能关键)
+    var ps2InstantVu1: String = "enabled"            // pcsx2_instant_vu1 (性能)
+    var ps2EeCycleRate: String = "0"                 // pcsx2_ee_cycle_rate: -3..3 (超频/降频)
+    var ps2EeCycleSkip: String = "0"                 // pcsx2_ee_cycle_skip: 0|1|2|3
+    var ps2Rumble: String = "enabled"                // pcsx2_rumble: enabled|disabled
+
     companion object {
         /** 把 Play! 时代的 "1x|2x|4x|8x" 迁移为 PCEE2 的 "1".."4"；非法值回落默认。 */
         fun normalizePs2ResMulti(raw: String?): String = when (raw?.trim()) {
@@ -876,6 +894,22 @@ class PadLayout {
         ps2ResMulti = another.ps2ResMulti
         ps2Renderer = another.ps2Renderer
         ps2Bilinear = another.ps2Bilinear
+        ps2FastBoot = another.ps2FastBoot
+        ps2HwDownloadMode = another.ps2HwDownloadMode
+        ps2BlendingAccuracy = another.ps2BlendingAccuracy
+        ps2Trilinear = another.ps2Trilinear
+        ps2Anisotropic = another.ps2Anisotropic
+        ps2Dithering = another.ps2Dithering
+        ps2Mipmapping = another.ps2Mipmapping
+        ps2Deinterlace = another.ps2Deinterlace
+        ps2AspectRatio = another.ps2AspectRatio
+        ps2Widescreen = another.ps2Widescreen
+        ps2NoInterlace = another.ps2NoInterlace
+        ps2Mtvu = another.ps2Mtvu
+        ps2InstantVu1 = another.ps2InstantVu1
+        ps2EeCycleRate = another.ps2EeCycleRate
+        ps2EeCycleSkip = another.ps2EeCycleSkip
+        ps2Rumble = another.ps2Rumble
         ps2Dpad = another.ps2Dpad
         ps2DpadP = another.ps2DpadP
         ps2LStick = another.ps2LStick
@@ -1540,6 +1574,37 @@ object PadLayoutStore {
             ps2ResMulti = PadLayout.normalizePs2ResMulti(p.getString("ps2_res_multi", null))
             ps2Renderer = p.getString("ps2_renderer", "vulkan")?.takeIf { it == "vulkan" || it == "software" } ?: "vulkan"
             ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2FastBoot = p.getString("ps2_fast_boot", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2HwDownloadMode = p.getString("ps2_hw_download_mode", "unsynchronized")?.takeIf {
+                it == "accurate" || it == "unsynchronized" || it == "disabled" } ?: "unsynchronized"
+            ps2BlendingAccuracy = p.getString("ps2_blending_accuracy", "basic")?.takeIf {
+                it in setOf("minimum", "basic", "medium", "high", "full", "maximum") } ?: "basic"
+            ps2Trilinear = p.getString("ps2_trilinear", "auto")?.takeIf {
+                it in setOf("auto", "off", "ps2", "forced") } ?: "auto"
+            ps2Anisotropic = p.getString("ps2_anisotropic", "0")?.takeIf {
+                it in setOf("0", "2", "4", "8", "16") } ?: "0"
+            ps2Dithering = p.getString("ps2_dithering", "2")?.takeIf {
+                it in setOf("0", "1", "2") } ?: "2"
+            ps2Mipmapping = p.getString("ps2_mipmapping", "enabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2Deinterlace = p.getString("ps2_deinterlace", "0")?.takeIf {
+                it.toIntOrNull() in 0..9 } ?: "0"
+            ps2AspectRatio = p.getString("ps2_aspect_ratio", "auto")?.takeIf {
+                it == "auto" || it == "4:3" || it == "16:9" } ?: "auto"
+            ps2Widescreen = p.getString("ps2_widescreen", "disabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "disabled"
+            ps2NoInterlace = p.getString("ps2_no_interlace", "disabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "disabled"
+            ps2Mtvu = p.getString("ps2_mtvu", "enabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2InstantVu1 = p.getString("ps2_instant_vu1", "enabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2EeCycleRate = p.getString("ps2_ee_cycle_rate", "0")?.takeIf {
+                it in setOf("-3", "-2", "-1", "0", "1", "2", "3") } ?: "0"
+            ps2EeCycleSkip = p.getString("ps2_ee_cycle_skip", "0")?.takeIf {
+                it in setOf("0", "1", "2", "3") } ?: "0"
+            ps2Rumble = p.getString("ps2_rumble", "enabled")?.takeIf {
+                it == "disabled" || it == "enabled" } ?: "enabled"
             ps2Dpad = loadBtn(p, "ps2_dpad", ButtonLayout(x = 0.13f, y = 0.55f, sizeDp = 110))
             ps2DpadP = loadBtn(p, "ps2_p_dpad", ButtonLayout(x = 0.18f, y = 0.58f, sizeDp = 104))
             ps2LStick = loadBtn(p, "ps2_lstick", ButtonLayout(x = 0.13f, y = 0.88f, sizeDp = 112))
@@ -1966,6 +2031,22 @@ object PadLayoutStore {
             putString("ps2_res_multi", layout.ps2ResMulti)
             putString("ps2_renderer", layout.ps2Renderer)
             putString("ps2_bilinear", layout.ps2Bilinear)
+            putString("ps2_fast_boot", layout.ps2FastBoot)
+            putString("ps2_hw_download_mode", layout.ps2HwDownloadMode)
+            putString("ps2_blending_accuracy", layout.ps2BlendingAccuracy)
+            putString("ps2_trilinear", layout.ps2Trilinear)
+            putString("ps2_anisotropic", layout.ps2Anisotropic)
+            putString("ps2_dithering", layout.ps2Dithering)
+            putString("ps2_mipmapping", layout.ps2Mipmapping)
+            putString("ps2_deinterlace", layout.ps2Deinterlace)
+            putString("ps2_aspect_ratio", layout.ps2AspectRatio)
+            putString("ps2_widescreen", layout.ps2Widescreen)
+            putString("ps2_no_interlace", layout.ps2NoInterlace)
+            putString("ps2_mtvu", layout.ps2Mtvu)
+            putString("ps2_instant_vu1", layout.ps2InstantVu1)
+            putString("ps2_ee_cycle_rate", layout.ps2EeCycleRate)
+            putString("ps2_ee_cycle_skip", layout.ps2EeCycleSkip)
+            putString("ps2_rumble", layout.ps2Rumble)
             saveBtn("ps2_dpad", layout.ps2Dpad)
             saveBtn("ps2_p_dpad", layout.ps2DpadP)
             saveBtn("ps2_lstick", layout.ps2LStick)

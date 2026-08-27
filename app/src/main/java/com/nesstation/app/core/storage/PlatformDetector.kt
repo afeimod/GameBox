@@ -31,6 +31,15 @@ object PlatformDetector {
     )
 
     /**
+     * MDF/MDS (Alcohol 120%) 与 NRG (Nero) 镜像。
+     * PCEE2 (PCSX2) 核心支持 .mdf/.nrg(见 pcee2_libretro.info 的 supported_extensions),
+     * MDS 是其子通道伴随文件(核心直接读 .mdf, 无需单独加载 .mds)。
+     * 但 MDF/MDS 传统上也是 PS1 抓轨格式, 故需靠平台 tab/hint 消歧:
+     * 用户在 PS2 平台页导入 → PS2, 否则默认 PSX(兼容旧库里已有的 PS1 MDF/MDS)。
+     */
+    val MDF_MDS_NRG_EXTENSIONS = setOf("mdf", "mds", "nrg")
+
+    /**
      * 街机 ROM 在 zip 内常见的扩展名（NeoGeo / CPS1/2/3 / PGM / 通用 dump）。
      * 用于在 zip 里看到这些后缀时判定为 ARCADE（FBNeo）。
      */
@@ -69,6 +78,14 @@ object PlatformDetector {
                 GamePlatform.PSX -> GamePlatform.PSX
                 GamePlatform.PS2 -> GamePlatform.PS2
                 else -> GamePlatform.MD
+            }
+        }
+
+        // === MDF/MDS/NRG 镜像：靠 hint 消歧，PS2 页导入 → PS2，否则默认 PSX ===
+        if (ext in MDF_MDS_NRG_EXTENSIONS) {
+            return when (hintPlatform) {
+                GamePlatform.PS2 -> GamePlatform.PS2
+                else -> GamePlatform.PSX
             }
         }
 
@@ -129,6 +146,22 @@ object PlatformDetector {
                 GamePlatform.PSX -> GamePlatform.PSX
                 GamePlatform.PS2 -> GamePlatform.PS2
                 else -> GamePlatform.MD
+            }
+        }
+
+        // === MDF/MDS/NRG 镜像：先看路径关键字(ps2)，再看 hint，最后默认 PSX ===
+        if (ext in MDF_MDS_NRG_EXTENSIONS) {
+            val path = pathHint ?: file.parent
+            if (path != null) {
+                val lowerPath = path.lowercase()
+                if (lowerPath.contains("ps2") || lowerPath.contains("playstation2") ||
+                    lowerPath.contains("psx2")) return GamePlatform.PS2
+                if (lowerPath.contains("psx") || lowerPath.contains("ps1") ||
+                    lowerPath.contains("playstation")) return GamePlatform.PSX
+            }
+            return when (hintPlatform) {
+                GamePlatform.PS2 -> GamePlatform.PS2
+                else -> GamePlatform.PSX
             }
         }
 

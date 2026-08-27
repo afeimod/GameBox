@@ -865,7 +865,15 @@ fun EmulatorScreen(
                    padLayout.pscxPad1Type, padLayout.pscxPad2Type,
                    padLayout.pscxMultitap, padLayout.pscxNegconResponse,
                    padLayout.pscxNegconDeadzone, padLayout.pscxGpuOddEven,
-                   padLayout.pscxAnalogAxis
+                   padLayout.pscxAnalogAxis,
+                   // PS2 / PCEE2 (PCSX2) options
+                   padLayout.ps2Renderer, padLayout.ps2ResMulti, padLayout.ps2Bilinear,
+                   padLayout.ps2FastBoot, padLayout.ps2HwDownloadMode, padLayout.ps2BlendingAccuracy,
+                   padLayout.ps2Trilinear, padLayout.ps2Anisotropic, padLayout.ps2Dithering,
+                   padLayout.ps2Mipmapping, padLayout.ps2Deinterlace, padLayout.ps2AspectRatio,
+                   padLayout.ps2Widescreen, padLayout.ps2NoInterlace,
+                   padLayout.ps2Mtvu, padLayout.ps2InstantVu1,
+                   padLayout.ps2EeCycleRate, padLayout.ps2EeCycleSkip, padLayout.ps2Rumble
                    ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
@@ -2686,18 +2694,36 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
         }
         GamePlatform.PS2 -> {
             // --- PCEE2 (PCSX2 v2.7.523) core options ---
-            // 键名/取值已对照核心源码的 option 定义表验证：
-            //   pcsx2_renderer            — vulkan | software (即时切换)
-            //   pcsx2_upscale_multiplier  — "1"|"2"|"3"|"4" 纯数字字符串
-            //   pcsx2_texture_filtering   — nearest | bilinear_ps2 | ...
-            // 分辨率倍数改后立即生效；renderer 在 Vulkan 与软件之间切换
-            // 也支持运行时切换，无需重启游戏。
+            // 键名/取值已对照 pcee2-libretro 源码 Libretro.cpp definitions[] 表验证
+            // (WizzardSK/pcee2-libretro, 与预编译 libpcee2_libretro_android.so 同源)。
+            // 分辨率倍数/渲染器改后即时生效；需要重启的项(fast_boot/bios/multitap)
+            // 在 applyCoreOptions 先于 loadRom 运行，故下次进游戏即生效。
             engine.setCoreOption("pcsx2_renderer", layout.ps2Renderer)
             engine.setCoreOption("pcsx2_upscale_multiplier", layout.ps2ResMulti)
             engine.setCoreOption(
                 "pcsx2_texture_filtering",
                 if (layout.ps2Bilinear == "enabled") "bilinear_ps2" else "nearest"
             )
+            // System: BIOS 快速启动(跳过BIOS动画) / 手柄震动
+            engine.setCoreOption("pcsx2_fast_boot", layout.ps2FastBoot)
+            engine.setCoreOption("pcsx2_rumble", layout.ps2Rumble)
+            // Graphics — 性能关键(移动 GPU 是 tiler 架构, 回读模式提速明显)
+            engine.setCoreOption("pcsx2_hw_download_mode", layout.ps2HwDownloadMode)
+            engine.setCoreOption("pcsx2_blending_accuracy", layout.ps2BlendingAccuracy)
+            engine.setCoreOption("pcsx2_trilinear_filtering", layout.ps2Trilinear)
+            engine.setCoreOption("pcsx2_anisotropic_filtering", layout.ps2Anisotropic)
+            engine.setCoreOption("pcsx2_dithering", layout.ps2Dithering)
+            engine.setCoreOption("pcsx2_mipmapping", layout.ps2Mipmapping)
+            engine.setCoreOption("pcsx2_deinterlace_mode", layout.ps2Deinterlace)
+            engine.setCoreOption("pcsx2_aspect_ratio", layout.ps2AspectRatio)
+            // Patches
+            engine.setCoreOption("pcsx2_widescreen_patches", layout.ps2Widescreen)
+            engine.setCoreOption("pcsx2_no_interlacing_patches", layout.ps2NoInterlace)
+            // Performance — 速度作弊(可能破坏个别游戏)
+            engine.setCoreOption("pcsx2_mtvu", layout.ps2Mtvu)
+            engine.setCoreOption("pcsx2_instant_vu1", layout.ps2InstantVu1)
+            engine.setCoreOption("pcsx2_ee_cycle_rate", layout.ps2EeCycleRate)
+            engine.setCoreOption("pcsx2_ee_cycle_skip", layout.ps2EeCycleSkip)
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -8181,6 +8207,71 @@ private fun SettingsPanel(
                     padLayout.ps2Bilinear
                 ) { onLayoutChange(padLayout.copy {ps2Bilinear = it}) }
 
+                DropdownSetting("三线性过滤",
+                    listOf("auto" to "自动 (默认)", "off" to "关闭",
+                           "ps2" to "PS2 原生", "forced" to "强制"),
+                    padLayout.ps2Trilinear
+                ) { onLayoutChange(padLayout.copy {ps2Trilinear = it}) }
+
+                DropdownSetting("各向异性过滤",
+                    listOf("0" to "关闭", "2" to "2x", "4" to "4x", "8" to "8x", "16" to "16x"),
+                    padLayout.ps2Anisotropic
+                ) { onLayoutChange(padLayout.copy {ps2Anisotropic = it}) }
+
+                DropdownSetting("去隔行模式",
+                    listOf("0" to "自动 (默认)", "1" to "关闭", "4" to "Bob (TFF)",
+                           "5" to "Bob (BFF)", "8" to "Adaptive (TFF)", "9" to "Adaptive (BFF)"),
+                    padLayout.ps2Deinterlace
+                ) { onLayoutChange(padLayout.copy {ps2Deinterlace = it}) }
+
+                DropdownSetting("画面比例",
+                    listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9"),
+                    padLayout.ps2AspectRatio
+                ) { onLayoutChange(padLayout.copy {ps2AspectRatio = it}) }
+
+                Spacer(Modifier.size(4.dp))
+                Text("性能 (速度作弊)", color = Color(0xFF8899AA), fontSize = 11.sp)
+                DropdownSetting("GPU 回读模式",
+                    listOf("unsynchronized" to "非同步 (快, 推荐)",
+                           "accurate" to "精确 (慢)",
+                           "disabled" to "关闭 (最快, 部分特效异常)"),
+                    padLayout.ps2HwDownloadMode
+                ) { onLayoutChange(padLayout.copy {ps2HwDownloadMode = it}) }
+
+                DropdownSetting("混色精度",
+                    listOf("minimum" to "最低 (最快)", "basic" to "基础 (推荐)",
+                           "medium" to "中等", "high" to "高", "full" to "全 (慢)",
+                           "maximum" to "最高 (很慢)"),
+                    padLayout.ps2BlendingAccuracy
+                ) { onLayoutChange(padLayout.copy {ps2BlendingAccuracy = it}) }
+
+                DropdownSetting("MTVU (多线程 VU1)",
+                    listOf("enabled" to "开启 (推荐)", "disabled" to "关闭 (个别游戏)"),
+                    padLayout.ps2Mtvu
+                ) { onLayoutChange(padLayout.copy {ps2Mtvu = it}) }
+
+                DropdownSetting("Instant VU1",
+                    listOf("enabled" to "开启 (推荐)", "disabled" to "关闭"),
+                    padLayout.ps2InstantVu1
+                ) { onLayoutChange(padLayout.copy {ps2InstantVu1 = it}) }
+
+                DropdownSetting("EE 周期率",
+                    listOf("-3" to "50% (降频)", "-2" to "60% (降频)", "-1" to "75% (降频)",
+                           "0" to "100% (默认)", "1" to "130% (超频)", "2" to "180% (超频)",
+                           "3" to "300% (超频)"),
+                    padLayout.ps2EeCycleRate
+                ) { onLayoutChange(padLayout.copy {ps2EeCycleRate = it}) }
+
+                DropdownSetting("快速启动 (跳过 BIOS 动画)",
+                    listOf("enabled" to "开启 (推荐)", "disabled" to "关闭 (看 BIOS 画面)"),
+                    padLayout.ps2FastBoot
+                ) { onLayoutChange(padLayout.copy {ps2FastBoot = it}) }
+
+                DropdownSetting("手柄震动",
+                    listOf("enabled" to "开启", "disabled" to "关闭"),
+                    padLayout.ps2Rumble
+                ) { onLayoutChange(padLayout.copy {ps2Rumble = it}) }
+
                 Spacer(Modifier.size(4.dp))
                 Text("双摇杆", color = Color(0xFF8899AA), fontSize = 11.sp)
                 Text(
@@ -8196,12 +8287,12 @@ private fun SettingsPanel(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(4.dp))
                 Text(
-                    "PCSX2 必须要真实 PS2 BIOS 才能启动游戏。请将 scph10000.bin / " +
-                    "scph39001.bin 等 BIOS 文件放到 应用私有目录/ps2/pcsx2/bios/ 下 " +
-                    "(旧版放在 ps2/bios/ 的文件会在启动时自动迁移)。没有 BIOS " +
-                    "时游戏无法启动并给出详细提示。",
+                    "PCSX2 必须要真实 PS2 BIOS 才能启动游戏。下方可导入 BIOS 文件到 " +
+                    "ps2/pcsx2/bios/ 目录；导入后下次进入游戏自动生效(快速启动默认跳过 " +
+                    "BIOS 开机动画)。",
                     color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp
                 )
+                Psx2BiosImportSection()
             }
             GamePlatform.JAVA -> { /* no core options for J2ME */ }
         }
@@ -9005,6 +9096,108 @@ private fun PsxBiosImportSection() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "导入 BIOS (.bin)",
+                color = Color(0xFFFFD66B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { biosPickerLauncher.launch(arrayOf("*/*")) }
+                    .padding(8.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Text(
+                "刷新",
+                color = Color(0xFF8899AA),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { refreshKey++ }
+                    .padding(8.dp)
+            )
+        }
+    }
+}
+
+/**
+ * PS2 (PCEE2 / PCSX2) BIOS 导入区。PCSX2 必须有真实 PS2 BIOS 才能启动。
+ * BIOS 文件(如 scph39001.bin / scph10000.bin)需放到
+ * `<filesDir>/ps2/pcsx2/bios/` (PCEE2 核心从 <systemDir>/pcsx2/bios 读取,
+ * systemDir = <filesDir>/ps2)。本组件显示目录内已有 BIOS 状态并提供导入按钮。
+ */
+@Composable
+fun Psx2BiosImportSection() {
+    val context = LocalContext.current
+    // PCEE2 期望 <systemDir>/pcsx2/bios/，其中 systemDir = <filesDir>/ps2。
+    val biosDir = remember {
+        java.io.File(java.io.File(context.filesDir, "ps2"), "pcsx2/bios").apply { mkdirs() }
+    }
+    var statusText by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshKey) {
+        statusText = buildString {
+            val files = biosDir.listFiles()
+                ?.filter { it.isFile && it.length() > 0 }
+                ?.sortedBy { it.name } ?: emptyList()
+            if (files.isEmpty()) {
+                append("未检测到 PS2 BIOS 文件\n")
+                append("PCSX2 必须要有真实 PS2 BIOS 才能启动游戏。\n")
+                append("请导入 scph39001.bin / scph10000.bin / scph70004.bin 等任一 BIOS\n")
+            } else {
+                for (f in files) {
+                    append("✓ ${f.name} (${f.length() / 1024}KB)\n")
+                }
+            }
+            append("\n目录: ${biosDir.absolutePath}")
+        }
+    }
+
+    val biosPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            var origName = ""
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    if (idx >= 0 && c.moveToFirst()) {
+                        val n = c.getString(idx)
+                        if (!n.isNullOrBlank()) origName = n
+                    }
+                }
+            } catch (_: Exception) { }
+            if (origName.isBlank()) {
+                origName = uri.lastPathSegment?.let { android.net.Uri.decode(it) }
+                    ?.substringAfterLast('/')?.substringAfterLast(':') ?: "scph39001.bin"
+            }
+
+            val msg: String = try {
+                val dest = java.io.File(biosDir, origName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                "已导入 BIOS: ${dest.name} (${dest.length() / 1024}KB)"
+            } catch (e: Exception) {
+                "导入失败: ${e.message}"
+            }
+            refreshKey++
+            statusText = msg
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            statusText,
+            color = Color(0xFF88DD88),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "导入 BIOS (.bin/.rom)",
                 color = Color(0xFFFFD66B),
                 fontSize = 13.sp,
                 modifier = Modifier

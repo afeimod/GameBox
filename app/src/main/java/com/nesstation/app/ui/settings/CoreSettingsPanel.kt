@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.ui.emulator.Psx2BiosImportSection
 
 /**
  * 核心设置子页：进入后展示该核心专属的模拟器选项。
@@ -1008,21 +1009,15 @@ fun CoreSettingsPanel(
             }
             GamePlatform.PS2 -> item {
                 // PCEE2 核心 — 上游 PCSX2 (v2.7.523) 的 libretro 官方 Android 构建。
-                // 键名/取值已对照核心源码的 option 定义表验证：
-                //   pcsx2_renderer            — vulkan | software
-                //   pcsx2_upscale_multiplier  — "1"|"2"|"3"|"4" 纯数字字符串
-                //   pcsx2_texture_filtering   — nearest | bilinear_ps2 | ...
-                // 说明: 替换了此前使用的 Play! 核心 (游戏兼容性问题太多)，
-                // PCEE2 跟随现行 PCSX2 代码，兼容性与性能显著更好。
+                // 键名/取值已对照 pcee2-libretro 源码 Libretro.cpp definitions[] 表验证
+                // (WizzardSK/pcee2-libretro, 与预编译 libpcee2_libretro_android.so 同源)。
                 SettingsSection("PS2 (PCSX2) · 画面") {
-                    // 渲染器 — Vulkan 硬件加速 / CPU 软渲染，可在游戏中途切换。
                     DropdownRow("渲染器",
                         listOf("vulkan" to "Vulkan (硬件加速)",
                                "software" to "Software (软渲染)"),
                         padLayout.ps2Renderer
                     ) { updateLayout(padLayout.copy {ps2Renderer = it}) }
-                    // 分辨率倍数 — 用户点名的核心设置项。发给核心的是纯数字字符串，
-                    // 改动即时生效；1x 原生 640x448，4x = 2560x1792。
+                    // 分辨率倍数 — 1x 原生 640x448，4x = 2560x1792。
                     DropdownRow("分辨率倍数",
                         listOf("1" to "1x (原生 640x448)", "2" to "2x (1280x896)",
                                "3" to "3x (1920x1344)", "4" to "4x (2560x1792 高配专用)"),
@@ -1032,25 +1027,94 @@ fun CoreSettingsPanel(
                         listOf("enabled" to "开启 (PS2 原生平滑)", "disabled" to "关闭 (像素风)"),
                         padLayout.ps2Bilinear
                     ) { updateLayout(padLayout.copy {ps2Bilinear = it}) }
+                    DropdownRow("三线性过滤",
+                        listOf("auto" to "自动 (默认)", "off" to "关闭",
+                               "ps2" to "PS2 原生", "forced" to "强制"),
+                        padLayout.ps2Trilinear
+                    ) { updateLayout(padLayout.copy {ps2Trilinear = it}) }
+                    DropdownRow("各向异性过滤",
+                        listOf("0" to "关闭", "2" to "2x", "4" to "4x", "8" to "8x", "16" to "16x"),
+                        padLayout.ps2Anisotropic
+                    ) { updateLayout(padLayout.copy {ps2Anisotropic = it}) }
+                    DropdownRow("抖动 (Dithering)",
+                        listOf("2" to "不缩放 (PS2 默认)", "1" to "缩放", "0" to "关闭 (去色带)"),
+                        padLayout.ps2Dithering
+                    ) { updateLayout(padLayout.copy {ps2Dithering = it}) }
+                    DropdownRow("硬件 Mipmapping",
+                        listOf("enabled" to "开启", "disabled" to "关闭 (提速)"),
+                        padLayout.ps2Mipmapping
+                    ) { updateLayout(padLayout.copy {ps2Mipmapping = it}) }
+                    DropdownRow("去隔行模式",
+                        listOf("0" to "自动 (默认)", "1" to "关闭", "4" to "Bob (TFF)",
+                               "5" to "Bob (BFF)", "8" to "Adaptive (TFF)", "9" to "Adaptive (BFF)"),
+                        padLayout.ps2Deinterlace
+                    ) { updateLayout(padLayout.copy {ps2Deinterlace = it}) }
+                    DropdownRow("画面比例",
+                        listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9"),
+                        padLayout.ps2AspectRatio
+                    ) { updateLayout(padLayout.copy {ps2AspectRatio = it}) }
                 }
 
-                SettingsSection("PS2 · 双摇杆虚拟手柄") {
-                    Text(
-                        "PS2 虚拟手柄为 DualShock 2 完整布局：左/右双模拟摇杆 " +
-                        "(屏幕左下/右下，输出真实模拟轴)、十字键、△○×□、L1/R1/L2/R2 " +
-                        "肩键、L3/R3 与 Select/Start。所有按键可在游戏内布局编辑器中 " +
-                        "自由拖动与显隐，分辨率倍数等设置游戏内菜单同样可调。",
-                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                SettingsSection("PS2 · 性能 (速度作弊)") {
+                    DropdownRow("GPU 回读模式",
+                        listOf("unsynchronized" to "非同步 (快, 推荐)",
+                               "accurate" to "精确 (慢)",
+                               "disabled" to "关闭 (最快, 部分特效异常)"),
+                        padLayout.ps2HwDownloadMode
+                    ) { updateLayout(padLayout.copy {ps2HwDownloadMode = it}) }
+                    DropdownRow("混色精度",
+                        listOf("minimum" to "最低 (最快)", "basic" to "基础 (推荐)",
+                               "medium" to "中等", "high" to "高", "full" to "全 (慢)",
+                               "maximum" to "最高 (很慢)"),
+                        padLayout.ps2BlendingAccuracy
+                    ) { updateLayout(padLayout.copy {ps2BlendingAccuracy = it}) }
+                    DropdownRow("MTVU (多线程 VU1)",
+                        listOf("enabled" to "开启 (推荐)", "disabled" to "关闭 (个别游戏)"),
+                        padLayout.ps2Mtvu
+                    ) { updateLayout(padLayout.copy {ps2Mtvu = it}) }
+                    DropdownRow("Instant VU1",
+                        listOf("enabled" to "开启 (推荐)", "disabled" to "关闭"),
+                        padLayout.ps2InstantVu1
+                    ) { updateLayout(padLayout.copy {ps2InstantVu1 = it}) }
+                    DropdownRow("EE 周期率",
+                        listOf("-3" to "50% (降频)", "-2" to "60% (降频)", "-1" to "75% (降频)",
+                               "0" to "100% (默认)", "1" to "130% (超频)", "2" to "180% (超频)",
+                               "3" to "300% (超频)"),
+                        padLayout.ps2EeCycleRate
+                    ) { updateLayout(padLayout.copy {ps2EeCycleRate = it}) }
+                    DropdownRow("EE 周期跳过",
+                        listOf("0" to "关闭 (默认)", "1" to "轻度", "2" to "中度", "3" to "最大"),
+                        padLayout.ps2EeCycleSkip
+                    ) { updateLayout(padLayout.copy {ps2EeCycleSkip = it}) }
                 }
 
-                SettingsSection("PS2 · BIOS 与兼容性") {
+                SettingsSection("PS2 · 系统 / 补丁") {
+                    DropdownRow("快速启动 (跳过 BIOS 动画)",
+                        listOf("enabled" to "开启 (推荐)", "disabled" to "关闭 (看 BIOS 画面)"),
+                        padLayout.ps2FastBoot
+                    ) { updateLayout(padLayout.copy {ps2FastBoot = it}) }
+                    DropdownRow("手柄震动",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.ps2Rumble
+                    ) { updateLayout(padLayout.copy {ps2Rumble = it}) }
+                    DropdownRow("宽屏补丁",
+                        listOf("disabled" to "关闭", "enabled" to "开启 (16:9)"),
+                        padLayout.ps2Widescreen
+                    ) { updateLayout(padLayout.copy {ps2Widescreen = it}) }
+                    DropdownRow("去隔行补丁 (逐行输出)",
+                        listOf("disabled" to "关闭", "enabled" to "开启"),
+                        padLayout.ps2NoInterlace
+                    ) { updateLayout(padLayout.copy {ps2NoInterlace = it}) }
+                }
+
+                SettingsSection("PS2 · BIOS 管理") {
                     Text(
-                        "PCSX2 需要真实 PS2 BIOS：将 scph10000.bin / scph39001.bin 等 " +
-                        "放到 应用私有目录/ps2/pcsx2/bios/ 下 (旧版 ps2/bios/ 的文件会自动迁移)。没有 BIOS 时游戏无法启动，" +
-                        "启动失败会给出详细的中文排查提示。支持 .iso / .chd / .cso / " +
-                        ".zso / .cue+bin / .gz / .mdf / .nrg / .elf 镜像；渲染器默认 " +
-                        "Vulkan 硬件加速，设备不支持时切 Software 软渲染。",
+                        "PCSX2 必须要真实 PS2 BIOS 才能启动游戏。下方可导入 BIOS 文件到 " +
+                        "ps2/pcsx2/bios/ 目录 (旧版 ps2/bios/ 的文件会自动迁移)。\n" +
+                        "支持镜像: .iso / .chd / .cso / .zso / .cue+bin / .gz / .mdf / .mds / " +
+                        ".nrg / .elf；MDF/MDS 组合镜像在 PS2 平台页导入会自动识别。",
                         color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                    Psx2BiosImportSection()
                 }
             }
         }
