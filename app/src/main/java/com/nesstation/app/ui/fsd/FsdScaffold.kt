@@ -181,8 +181,15 @@ private data class Streak(val xFrac: Float, val widthFrac: Float, val alpha: Flo
 // 全局背景 — 主页 / 游戏库等 FSD 深色页面共用同一张自定义壁纸
 // ---------------------------------------------------------------------------
 
-/** 全局背景配置：uri 为空 = 默认深蓝壁纸；isVideo 区分图片 / 循环视频。 */
-data class FsdBgConfig(val uri: String = "", val isVideo: Boolean = false)
+/**
+ * FSD 全局视觉配置：uri 为空 = 默认深蓝壁纸；isVideo 区分图片 / 循环视频；
+ * cardAlpha 为主页磁贴与游戏库封面卡片背景层的全局透明度（0.2..1.0）。
+ */
+data class FsdBgConfig(
+    val uri: String = "",
+    val isVideo: Boolean = false,
+    val cardAlpha: Float = 1f
+)
 
 /** 全局背景配置的 Composition 作用域注入（NesApp 层提供，所有 FSD 页面消费）。 */
 val LocalFsdBg = staticCompositionLocalOf { FsdBgConfig() }
@@ -199,7 +206,7 @@ fun rememberFsdBgConfig(): FsdBgConfig {
     androidx.compose.runtime.DisposableEffect(owner) {
         fun reload() {
             val pl = com.nesstation.app.core.storage.PadLayoutStore.load(context)
-            cfg = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo)
+            cfg = FsdBgConfig(pl.homeBackgroundUri, pl.homeBackgroundIsVideo, pl.tileCardAlpha)
         }
         reload()
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->

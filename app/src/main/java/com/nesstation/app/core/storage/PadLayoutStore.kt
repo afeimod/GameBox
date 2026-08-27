@@ -388,9 +388,9 @@ class PadLayout {
     // 主页磁贴自定义图标：JSON map { tileKey → 图标文件绝对路径 }，
     // 图标已拷贝到 filesDir/icons，路径稳定可直接 BitmapFactory 解码。
     var homeTileIcons: String = ""
-    // 磁贴自定义图标透明度：JSON map { tileKey → Float 0.05..1.0 }，缺省 1.0 不透明。
-    // 与 homeTileIcons 分键存储，互不影响；仅对已设置自定义图标的磁贴有意义。
-    var homeTileIconAlphas: String = ""
+    // 卡片背景透明度（全局）：主页磁贴与游戏库封面卡片的蓝黄/深蓝背景层透明度，
+    // 0.2..1.0，默认 1.0 不透明。调低后自定义壁纸可从卡片背后透出（玻璃质感）。
+    var tileCardAlpha: Float = 1f
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
@@ -849,7 +849,7 @@ class PadLayout {
         homeBackgroundUri = another.homeBackgroundUri
         homeBackgroundIsVideo = another.homeBackgroundIsVideo
         homeTileIcons = another.homeTileIcons
-        homeTileIconAlphas = another.homeTileIconAlphas
+        tileCardAlpha = another.tileCardAlpha
     }
 }
 
@@ -1378,7 +1378,7 @@ object PadLayoutStore {
             homeBackgroundUri = p.getString("home_bg_uri", "") ?: ""
             homeBackgroundIsVideo = p.getBoolean("home_bg_is_video", false)
             homeTileIcons = p.getString("home_tile_icons", "") ?: ""
-            homeTileIconAlphas = p.getString("home_tile_icon_alphas", "") ?: ""
+            tileCardAlpha = p.getFloat("tile_card_alpha", 1f).coerceIn(0.2f, 1f)
             ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
             ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
             ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
@@ -1781,7 +1781,7 @@ object PadLayoutStore {
             putString("home_bg_uri", layout.homeBackgroundUri)
             putBoolean("home_bg_is_video", layout.homeBackgroundIsVideo)
             putString("home_tile_icons", layout.homeTileIcons)
-            putString("home_tile_icon_alphas", layout.homeTileIconAlphas)
+            putFloat("tile_card_alpha", layout.tileCardAlpha)
             putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
             putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
             putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)

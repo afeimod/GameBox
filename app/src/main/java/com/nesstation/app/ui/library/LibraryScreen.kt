@@ -76,6 +76,7 @@ import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.PixelBackdrop
 import com.nesstation.app.ui.fsd.Fsd
 import com.nesstation.app.ui.fsd.FsdGlobalBackground
+import com.nesstation.app.ui.fsd.LocalFsdBg
 import com.nesstation.app.ui.fsd.FsdBottomBar
 import com.nesstation.app.ui.fsd.FsdBreadcrumb
 import com.nesstation.app.ui.fsd.FsdButtonHint
@@ -90,6 +91,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -1560,23 +1562,34 @@ private fun FsdGameCover(
         }
     }
 
+    // 卡片背景全局透明度（设置→主页调节）：深蓝基底与封面图整体变透明，
+    // 壁纸从卡片背后透出；平台徽标与底部标题保持不透明保证可读
+    val cardAlpha = LocalFsdBg.current.cardAlpha.coerceIn(0.2f, 1f)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0D2C55))
             .border(
                 width = 2.dp,
                 color = Color.White.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(10.dp)
             )
     ) {
-        Image(
-            bitmap = bmp.asImageBitmap(),
-            contentDescription = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        // 可透明层：深蓝基底 + 封面图
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { this.alpha = cardAlpha }
+                .background(Color(0xFF0D2C55))
+        ) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // 平台徽标 — 左上角
         FsdPlatformBadge(

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -54,8 +55,7 @@ data class FsdTileItem(
     val label: String,
     val icon: ImageVector?,
     val badge: String? = null,   // 右上角小徽标（如游戏数量）
-    val iconPath: String? = null, // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
-    val iconAlpha: Float = 1f    // 自定义图标透明度 0.05..1.0（磁贴选项里调节）；对矢量图标不生效
+    val iconPath: String? = null // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
 )
 
 @Composable
@@ -64,13 +64,22 @@ fun FsdTile(
     modifier: Modifier = Modifier,
     compactTile: Boolean = false
 ) {
+    // 卡片背景全局透明度（设置→主页调节）；背景层透出壁纸，图标/文字保持不透明
+    val cardAlpha = LocalFsdBg.current.cardAlpha.coerceIn(0.2f, 1f)
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0D2C55))
     ) {
-        // 蓝/黄对角渐变表面
-        Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
+        // 卡片背景层：深蓝基底 + 蓝/黄对角渐变，整体可调透明度（壁纸透出的玻璃质感）
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { this.alpha = cardAlpha }
+                .background(Color(0xFF0D2C55))
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
+        }
 
         // 图标 — 自定义图片优先，否则用平台专属矢量图标；蓝色区域中央偏上
         if (item.iconPath != null) {
@@ -82,7 +91,6 @@ fun FsdTile(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = item.label,
                     contentScale = ContentScale.Fit,
-                    alpha = item.iconAlpha.coerceIn(0.05f, 1f),   // 用户可调透明度，让图标与磁贴底色融合
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = if (compactTile) 16.dp else 30.dp)

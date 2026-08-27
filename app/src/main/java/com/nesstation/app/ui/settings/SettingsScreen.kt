@@ -32,6 +32,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -439,8 +440,39 @@ fun SettingsScreen(
                                     dialogText = "当前已是默认背景"
                                 }
                             }
+                            // 卡片背景透明度（全局：主页磁贴 + 游戏库封面卡片）
+                            val cardAlphaDraft = remember(padLayout.tileCardAlpha) {
+                                mutableStateOf(padLayout.tileCardAlpha)
+                            }
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "卡片背景透明度",
+                                        color = Color(0xFF1E2A3A), fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        "${(cardAlphaDraft.value * 100).toInt()}%",
+                                        color = Color(0xFF4A5568), fontSize = 13.sp
+                                    )
+                                }
+                                Slider(
+                                    value = cardAlphaDraft.value,
+                                    onValueChange = { cardAlphaDraft.value = it },
+                                    onValueChangeFinished = {
+                                        updateLayout(padLayout.copy { tileCardAlpha = cardAlphaDraft.value })
+                                    },
+                                    valueRange = 0.2f..1f
+                                )
+                                Text(
+                                    "调低后主页磁贴与游戏库封面卡片变透明，壁纸从卡片背后透出",
+                                    color = Color(0xFF4A5568), fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
                             Text(
-                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可设置专属图片图标并调节透明度，立即生效并持久保存。",
+                                "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可设置专属图片图标，立即生效并持久保存。",
                                 color = Color(0xFF4A5568), fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
