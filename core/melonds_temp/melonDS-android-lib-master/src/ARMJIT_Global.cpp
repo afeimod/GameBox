@@ -123,6 +123,48 @@ void DeInit()
     }
 }
 
+bool ProbeCodeMemory()
+{
+    // Lightweight capability check for the JIT recompiler: verify that this
+    // process may make a page of its own (anonymous) memory executable.
+    // Vanilla melonDS relies on exactly this when it mprotect()s the static
+    // CodeMemory pool RWX in Init(); on some OEM builds / hardened SELinux
+    // policies that call fails with EPERM, which historically manifested as
+    // "JIT enabled but games are slow/crashy" with no diagnostic at all.
+    //
+    // The probe mirrors Init()'s allocation model WITHOUT touching the real
+    // code-memory slices or the fault handler, so it is safe to call before
+    // an NDS instance is constructed.
+#if defined(_WIN32)
+    // Desktop Windows always allows VirtualAlloc RWX; the libretro Android
+    // build never takes this path, but keep the function total anyway.
+    return true;
+#elif defined(APPLE_AARCH64) || defined(__NetBSD__) || defined(__OpenBSD__)
+    // Handled by their respective JIT support paths; assume usable here as
+    // upstream does.
+    return true;
+#else
+    long pagesz = sysconf(_SC_PAGESIZE);
+    if (pagesz <= 0 || pagesz > 65536)
+        pagesz = 4096;
+
+    // Double-size buffer so we can always find a page-aligned address inside
+    // our own data segment regardless of the runtime page size.
+    static uint8_t probeBuf[131072] __attribute__((aligned(4096)));
+
+    uintptr_t base = reinterpret_cast<uintptr_t>(probeBuf);
+    base = (base + (uintptr_t)pagesz - 1) & ~((uintptr_t)pagesz - 1);
+
+    void* page = reinterpret_cast<void*>(base);
+    if (mprotect(page, (size_t)pagesz, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
+        return false;
+
+    // Restore — the page belongs to a plain static buffer, not code memory.
+    mprotect(page, (size_t)pagesz, PROT_READ | PROT_WRITE);
+    return true;
+#endif
+}
+
 }
 
 }

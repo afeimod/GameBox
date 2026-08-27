@@ -37,6 +37,12 @@ void DeInit();
 void* AllocateCodeMem();
 void FreeCodeMem(void* codeMem);
 
+// Frontend-facing capability probe: true when the process may map
+// executable pages (i.e. the JIT's BSS code pool can actually be made RWX).
+// Android frontends call this BEFORE constructing NDS so they can fall back
+// to the interpreter with a clear log on W^X-restricted devices.
+bool ProbeCodeMemory();
+
 }
 
 }

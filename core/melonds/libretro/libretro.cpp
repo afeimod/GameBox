@@ -29,6 +29,12 @@
 #include "opengl.h"
 #include "screenlayout.h"
 #include "utils.h"
+#include "GPU3D_Soft.h"
+
+// JIT code-memory probe implemented in ARMJIT_Global.cpp (vendored core).
+// Returns true when the device/SELinux policy allows mapping executable
+// pages for the JIT recompiler.
+namespace melonDS { namespace ARMJIT_Global { bool ProbeCodeMemory(); } }
 
 using namespace melonDS;
 
@@ -105,6 +111,36 @@ melonDS::NDS* nds = nullptr;
 // Game name (without extension) — stored for retro_reset() which needs
 // to pass it to SetupDirectBoot(const std::string&).
 static std::string s_retro_game_name;
+
+// ---------------------------------------------------------------------------
+// Soft-renderer threading — mirrors the reference melonDS Android frontend.
+//
+// The melonds_threaded_renderer option was consumed into
+// video_settings.Soft_Threaded but never APPLIED: nothing called
+// SoftRenderer::SetThreaded(), so CPU scanline rendering always ran
+// single-threaded even when the option said "enabled". The standalone
+// melonDS APK defaults this on, which is part of why it feels much faster
+// on mid-range devices running the same core.
+//
+// Threading applies to the CPU renderer only. With the OpenGL hardware 3D
+// renderer active the flag is irrelevant (polygons go to the GPU); when GL
+// fails and we fall back to software we explicitly apply the option again
+// so the fallback path does not ALSO lose multithreading.
+// ---------------------------------------------------------------------------
+static void apply_soft_threading(void)
+{
+   if (!nds || using_opengl)
+      return;
+
+   // NOTE: compiled with -fno-rtti, so no dynamic_cast here. The wrapper's
+   // renderer lifecycle guarantees GetCurrentRenderer() is either a
+   // SoftRenderer (software mode / GL fallback) or a GLRenderer installed
+   // by opengl.cpp while using_opengl==true — and this function early-outs
+   // whenever using_opengl is set. Therefore reaching this line means the
+   // current renderer IS the CPU SoftRenderer.
+   static_cast<melonDS::SoftRenderer&>(nds->GPU.GPU3D.GetCurrentRenderer())
+      .SetThreaded(video_settings.Soft_Threaded, nds->GPU);
+}
 
 enum CurrentRenderer
 {
@@ -492,7 +528,14 @@ static void check_variables(bool init)
       enable_opengl = use_opengl;
    }
 
-   if(enable_opengl) video_settings.Soft_Threaded = false;
+      // NOTE (perf): this wrapper previously forced
+      //     video_settings.Soft_Threaded = false;
+      // here whenever the OpenGL OPTION was enabled, even though the
+      // software renderer would still be used after GL init failure or on
+      // non-stacked layouts — silently leaving the fallback single-threaded
+      // AND dead-locking the flag away from later checks. Threading is now
+      // honored via apply_soft_threading(): while actually running the GL
+      // renderer it has no effect anyway.
 
    var.key = "melonds_opengl_resolution";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -647,16 +690,16 @@ static void check_variables(bool init)
    // When the GL renderer is active, the screen layout is managed by
    // update_gl_screenlayout() in opengl.cpp.  Don't call update_screenlayout
    // here — it would overwrite the GL-specific layout dimensions.
-   //
-   // When GL is not yet active (first frame before initialize_opengl()),
-   // call update_screenlayout with opengl=false so the buffer is allocated
-   // at 1x scale for the software renderer's first frame.  The GL renderer
-   // will set up its own layout when it's initialized.
    if (!using_opengl)
       update_screenlayout(layout, &screen_layout_data, false, swapped_screens);
 #else
    update_screenlayout(layout, &screen_layout_data, false, swapped_screens);
 #endif
+
+   // Apply soft-renderer threading whenever options changed while running
+   // the software renderer (e.g. user toggles threaded_renderer / screen
+   // layout flips from stacked to horizontal forcing software mode).
+   apply_soft_threading();
 
    update_option_visibility();
 }
@@ -689,6 +732,14 @@ static void render_frame(void)
             {
                using_opengl = false;
                current_renderer = CurrentRenderer::Software;
+               // GL init failed — keep the software fallback threaded and
+               // leave a LOUD trace so the perf regression isn't silent.
+               log_cb(RETRO_LOG_WARN,
+                  "[melonds-perf] OpenGL renderer unavailable — running CPU "
+                  "renderer (threaded=%d). Expect lower performance; check "
+                  "earlier melonds-gl logs for the cause.\n",
+                  video_settings.Soft_Threaded ? 1 : 0);
+               apply_soft_threading();
             }
          }
          else
@@ -696,6 +747,7 @@ static void render_frame(void)
             if(using_opengl) deinitialize_opengl_renderer();
 #endif
             current_renderer = CurrentRenderer::Software;
+            apply_soft_threading();
 #ifdef HAVE_OPENGL
          }
 #endif
@@ -954,6 +1006,17 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
    args.OutputSampleRate = 32000.0;
 
 #ifdef JIT_ENABLED
+   // Gate the JIT on actual capability: some OEM ROMs/SELinux policies deny
+   // PROT_EXEC on anonymous memory — recompiled blocks would then either
+   // crash or never execute, which looks exactly like "JIT didn't help".
+   // Probe once per load and fall back to the interpreter with a LOUD log.
+   if (Config::JIT_Enable && !melonDS::ARMJIT_Global::ProbeCodeMemory())
+   {
+      log_cb(RETRO_LOG_ERROR,
+         "[melonds-perf] JIT unusable on this device (executable code memory "
+         "denied by W^X policy) — falling back to interpreter.\n");
+      Config::JIT_Enable = false;
+   }
    if (Config::JIT_Enable)
    {
       melonDS::JITArgs jit_args;
@@ -1072,6 +1135,24 @@ static bool _handle_load_game(unsigned type, const struct retro_game_info *info)
       nds->SetupDirectBoot(s_retro_game_name);
 
    nds->Start();
+
+   // Apply soft-renderer threading right after the NDS instance is live
+   // (check_variables already parsed the option; note the GL renderer may
+   // have been initialized earlier inside this function).
+   apply_soft_threading();
+
+#ifdef JIT_ENABLED
+   log_cb(RETRO_LOG_INFO,
+      "[melonds-perf] JIT: %s block=%d branch=%d literal=%s fastmem=%s\n",
+      Config::JIT_Enable ? "ON" : "OFF",
+      Config::JIT_MaxBlockSize,
+      Config::JIT_BranchOptimisations ? 1 : 0,
+      Config::JIT_LiteralOptimisations ? "on" : "off",
+      Config::JIT_FastMemory ? "on" : "off");
+#else
+   log_cb(RETRO_LOG_INFO,
+      "[melonds-perf] JIT: unavailable in this build (no aarch64 backend).\n");
+#endif
 
    // --- NDS diagnostics: one-time boot configuration summary ---
    // Helps diagnose white-screen issues: tells us whether we're on FreeBIOS or

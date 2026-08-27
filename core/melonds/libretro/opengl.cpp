@@ -42,6 +42,18 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// One-shot dump of the live GL context identity, used for performance
+// triage: if this never appears in logcat, the hardware 3D renderer was
+// never initialized and games are running entirely on the CPU.
+static void log_gl_context_info()
+{
+    const char* ver   = (const char*)glGetString(GL_VERSION);
+    const char* rend  = (const char*)glGetString(GL_RENDERER);
+    LOGI("GL context: version=%s renderer=%s",
+         ver ? ver : "(null)",
+         rend ? rend : "(null)");
+}
+
 // ---------------------------------------------------------------------------
 // Externs from libretro.cpp
 // ---------------------------------------------------------------------------
@@ -177,12 +189,18 @@ bool initialize_opengl()
         return false;
     }
 
+    log_gl_context_info();
+
     // --- Create the OpenGL 3D renderer ------------------------------------
     LOGI("initialize_opengl: creating GLRenderer...");
     auto renderer = melonDS::GLRenderer::New();
     if (!renderer)
     {
-        LOGE("GLRenderer::New() failed (shader compile / GL caps)");
+        const char* ver = (const char*)glGetString(GL_VERSION);
+        LOGE("GLRenderer::New() failed (shader compile / GL caps). "
+             "context=%s — shader set requires OpenGL ES 3.2; falling back "
+             "to the CPU renderer.",
+             ver ? ver : "(unknown)");
         enable_opengl = false;
         return false;
     }
