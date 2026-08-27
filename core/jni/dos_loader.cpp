@@ -194,8 +194,19 @@ static uint32_t* s_xbrBuffer4x = nullptr;
 static size_t    s_xbrBufferSize2x = 0;
 static size_t    s_xbrBufferSize4x = 0;
 
-static coreshared::AudioRingBuffer s_audio;
+static coreshared::AudioRingBuffer s_audio{12288}; // ~128ms of headroom @48k stereo —
+                                                   // absorbs emulation-thread bursts so
+                                                   // push() never drops oldest samples
+                                                   // (dropped samples = crackle/buzz)
 static coreshared::AudioResampler s_resampler;
+
+// Frontend-requested output sample rate. Set via applySampleRate() from the
+// Kotlin side BEFORE opening the AudioTrack:
+//   48000          → resample core audio to Android's native 48 kHz
+//   == core rate   → ratio becomes 1.0 → pure PASSTHROUGH, i.e. DOSBox-Pure's
+//                    own mixer output goes to the speaker untouched
+//                    (dosbox_pure_audiorate must match — see its default).
+static std::atomic<int> s_targetSampleRate{coreshared::TARGET_SAMPLE_RATE};
 
 static ANativeWindow* s_window = nullptr;
 static std::mutex s_windowMtx;
@@ -212,7 +223,6 @@ static void initDefaultOptions() {
     s_options["dosbox_pure_machine"]            = "svga_s3";
     s_options["dosbox_pure_cycles"]             = "auto";
     s_options["dosbox_pure_cycles_max"]         = "50000";
-    s_options["dosbox_pure_time_announce"]      = "none";
     s_options["dosbox_pure_sblaster_type"]      = "sb16";
     s_options["dosbox_pure_sblaster_adlib_mode"]= "off";
     s_options["dosbox_pure_sblaster_adlib_emu"] = "default";
@@ -221,19 +231,29 @@ static void initDefaultOptions() {
     // click, two-finger tap to right-click). Valid values are:
     //   touchpad | auto | virtual | direct | off
     s_options["dosbox_pure_mouse_input"]        = "touchpad";
-    s_options["dosbox_pure_mouse_timeout"]      = "off";
     s_options["dosbox_pure_keyboard_layout"]    = "us";
-    s_options["dosbox_pure_keyboard_delay"]     = "300";
-    s_options["dosbox_pure_keyboard_rate"]      = "10";
     s_options["dosbox_pure_auto_mapping"]       = "on";
     s_options["dosbox_pure_savestate"]          = "on";
-    s_options["dosbox_pure_dim_screen"]         = "off";
-    s_options["dosbox_pure_resolution"]         = "original";
-    s_options["dosbox_pure_scale"]              = "2";
-    s_options["dosbox_pure_aspect_ratio"]       = "auto";
-    s_options["dosbox_pure_cga_colors"]         = "default";
+    // NOTE: 以下键在旧版 DOSBox-Pure 中存在，但本预编译核心已移除/改名，
+    // GET_VARIABLE 根本不会查询它们（保留注释避免再被误加回来）：
+    //   dosbox_pure_resolution / dosbox_pure_scale / dosbox_pure_aspect_ratio
+    //   dosbox_pure_cga_colors(改为 dosbox_pure_cga) / dim_screen / time_announce
+    //   keyboard_delay / keyboard_rate / mouse_timeout
     s_options["dosbox_pure_voodoo"]             = "off";
     s_options["dosbox_pure_force60fps"]         = "on";
+    // === Audio: DOSBox-Pure 自带混音器输出速率（核心自带音频输出）===
+    // 默认 48000 与前端 AudioTrack 完全一致 → 重采样器自动旁路，无杂音。
+    // 其余合法值: 44100 / 32730(部分版本) / 32000 / 22050 / 11025 / 8000 / 49716
+    s_options["dosbox_pure_audiorate"]          = "48000";
+    s_options["dosbox_pure_swapstereo"]         = "false";
+    s_options["dosbox_pure_tandysound"]         = "auto";
+    // === CPU / memory（补充的合法核心选项，值与核心 core_options.h 一致）===
+    s_options["dosbox_pure_cpu_core"]           = "auto";
+    s_options["dosbox_pure_cpu_type"]           = "auto";
+    s_options["dosbox_pure_memory_size"]        = "16";
+    // === Video（本预编译核心实际支持的键）===
+    s_options["dosbox_pure_cga"]                = "early_auto";
+    s_options["dosbox_pure_aspect_correction"]  = "false";
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +423,7 @@ static bool cb_environment(unsigned cmd, void* data) {
                 if (newRate > 0 && newRate != s_sampleRate) {
                     LOGI("Sample rate changed: %d -> %d", s_sampleRate, newRate);
                     s_sampleRate = newRate;
-                    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+                    s_resampler.init(s_sampleRate, s_targetSampleRate.load());
                 }
             }
             return true;
@@ -737,7 +757,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     s_retro_get_system_av_info(&av);
     s_sampleRate = (int)av.timing.sample_rate;
     if (s_sampleRate > 0) {
-        s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+        s_resampler.init(s_sampleRate, s_targetSampleRate.load());
     }
     s_videoW = av.geometry.base_width;
     s_videoH = av.geometry.base_height;
@@ -848,7 +868,8 @@ int audioSampleRate() {
 }
 
 int audioTargetSampleRate() {
-    return TARGET_SAMPLE_RATE;
+    int t = s_targetSampleRate.load();
+    return (t >= 8000) ? t : TARGET_SAMPLE_RATE;
 }
 
 void setControllerInput(int port, uint16_t bits) {
@@ -917,8 +938,20 @@ void applyRegion(int /*region*/) {
     // DOS has no region concept — no-op.
 }
 
-void applySampleRate(int /*hz*/) {
-    // Sample rate is fixed by the core at load time — no-op.
+void applySampleRate(int hz) {
+    // Set the frontend output rate. Called by DosEngine after retro_load_game
+    // has reported the core's native mixer rate:
+    //   hz == 48000            → resample to Android's 48 kHz (old behavior)
+    //   hz == core-native rate → ratio 1.0 → pure passthrough of DOSBox-Pure's
+    //                             own audio mixer output (no artifacts)
+    if (hz >= 8000) {
+        s_targetSampleRate.store(hz, std::memory_order_relaxed);
+        if (s_sampleRate >= 8000) {
+            s_resampler.init(s_sampleRate, hz);
+        }
+        LOGI("DOS audio target sample rate set: %d Hz (core rate: %d Hz)",
+             hz, s_sampleRate);
+    }
 }
 
 void applySpeed(float multiplier) {

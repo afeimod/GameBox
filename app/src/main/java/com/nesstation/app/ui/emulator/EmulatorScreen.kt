@@ -761,12 +761,14 @@ fun EmulatorScreen(
                    // DOSBox-Pure options — trigger applyCoreOptions when changed
                    padLayout.dosMachine, padLayout.dosCycles, padLayout.dosCyclesMax,
                    padLayout.dosSbType, padLayout.dosSbAdlibMode, padLayout.dosSbAdlibEmu,
-                   padLayout.dosGus, padLayout.dosMouseInput, padLayout.dosMouseTimeout,
-                   padLayout.dosKeyboardLayout, padLayout.dosKeyboardDelay, padLayout.dosKeyboardRate,
-                   padLayout.dosAutoMapping, padLayout.dosSavestate, padLayout.dosDimScreen,
-                   padLayout.dosResolution, padLayout.dosScale, padLayout.dosAspectRatio,
-                   padLayout.dosCgaColors, padLayout.dosVoodoo, padLayout.dosForce60fps,
-                   padLayout.dosTimeAnnounce,
+                   padLayout.dosGus, padLayout.dosMouseInput,
+                   padLayout.dosKeyboardLayout,
+                   padLayout.dosAutoMapping, padLayout.dosSavestate,
+                   padLayout.dosVoodoo, padLayout.dosForce60fps,
+                   // DOS 音频/新选项 (全部与预编译核心支持的键一一对应)
+                   padLayout.dosAudiorate, padLayout.dosSwapStereo, padLayout.dosTandySound,
+                   padLayout.dosCpuCore, padLayout.dosCpuType, padLayout.dosMemorySize,
+                   padLayout.dosCgaMode, padLayout.dosAspectCorrection,
                    // MD / Genesis-Plus-GX options
                    padLayout.mdAspect, padLayout.mdRegion, padLayout.mdCdFastboot,
                    padLayout.mdInput, padLayout.mdAllowUpDown, padLayout.mdOverclock,
@@ -789,15 +791,25 @@ fun EmulatorScreen(
                    padLayout.ndsJitBranchOptimisations, padLayout.ndsJitLiteralOptimisations,
                    padLayout.ndsAudioBitrate, padLayout.ndsMicInput, padLayout.ndsLanguage,
                    padLayout.ndsScreenGap, padLayout.ndsSwapscreenMode, padLayout.ndsHybridSmallScreen,
-                   // PSX / PCSX-ReARMed options
+                   // PSX / PCSX-ReARMed options — keys verified against the
+                   // shipped core; wrong-key entries (padNtype/cpu_clock 等) 已移除
                    padLayout.pscxBios, padLayout.pscxRegion, padLayout.pscxFrameskipType,
-                   padLayout.pscxFrameskip, padLayout.pscxPad1Type, padLayout.pscxPad2Type,
+                   padLayout.pscxFrameskip, padLayout.pscxFrameskipThreshold,
                    padLayout.pscxVibration, padLayout.pscxDithering, padLayout.pscxSpuInterp,
                    padLayout.pscxSpuReverb, padLayout.pscxShowBootlogo, padLayout.pscxCdReadahead,
                    padLayout.pscxMemcard1, padLayout.pscxMemcard2,
-                   padLayout.pscxDrc, padLayout.pscxClock, padLayout.pscxRgb32,
-                   padLayout.pscxScaleHires, padLayout.pscxShowOverscan, padLayout.pscxMultitap,
-                   padLayout.pscxGpuOddEven, padLayout.pscxAnalogAxis
+                   padLayout.pscxDrc, padLayout.pscxDrcThread, padLayout.pscxClock,
+                   padLayout.pscxIcache, padLayout.pscxCdTurbo,
+                   padLayout.pscxGpuThreadRendering, padLayout.pscxRgb32,
+                   padLayout.pscxScaleHires, padLayout.pscxShowOverscan,
+                   padLayout.pscxFractionalFps, padLayout.pscxAltFlip,
+                   padLayout.pscxNeonInterlace, padLayout.pscxNeonEnhance,
+                   padLayout.pscxCentering,
+                   padLayout.pscxCdAudio, padLayout.pscxXaAudio, padLayout.pscxSpuThread,
+                   padLayout.pscxPad1Type, padLayout.pscxPad2Type,
+                   padLayout.pscxMultitap, padLayout.pscxNegconResponse,
+                   padLayout.pscxNegconDeadzone, padLayout.pscxGpuOddEven,
+                   padLayout.pscxAnalogAxis
                    ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
@@ -912,6 +924,13 @@ fun EmulatorScreen(
         // fully torn down — preventing stale state when switching games.
         try { engine.unload() } catch (_: Throwable) {}
 
+        // DOSBox-Pure 音频输出模式注入（必须在 loadRom 之前设置）。
+        // "core_native" = 核心自带音频输出（推荐，无重采样杂音）
+        // "resample_48k" = 强制 48kHz 重采样（老电视 HDMI 兼容）
+        if (engine is com.nesstation.app.core.engine.DosEngine) {
+            (engine as com.nesstation.app.core.engine.DosEngine).audioOutputMode = padLayout.dosAudioMode
+        }
+
         val romPath = game.romPath
         if (romPath.isNullOrEmpty()) {
             errorMsg = "该游戏未关联 ROM 文件"
@@ -950,40 +969,40 @@ fun EmulatorScreen(
         }
         val filesDir = systemDir  // pass the platform-specific system dir to the core
 
-        // === NDS 存档方式解析 ===
-        // "nesstation"  : .sav 放在 NesStation 统一存档目录，文件名 = game.id
-        // "core_builtin": .sav 放在 ROM 同目录、与 ROM 同名（官方 melonDS APK
-        //                 完全一致）。ROM 经 content:// 选择时尝试从 URI 推导出
-        //                 真实父目录；推导不出或目录不可写时回退到应用内部目录
-        //                 （仍按 ROM 文件名命名，避免多游戏共用 temp_rom.sav）。
-        var ndsSaveDirPath: String? = null
-        var ndsSaveNameOverride: String? = null
-        var ndsSaveNotice: String? = null
-        if (platform == GamePlatform.NDS && padLayout.ndsSaveMode == "core_builtin") {
+        // === 全局存档方式解析（所有核心通用，不再是 NDS 独有）===
+        // globalSaveMode == "nesstation" :
+        //   存档放在 NesStation 统一存档目录 <filesDir>/saves/<gameId>.srm
+        //   （NDS 核心是 .sav），文件名 = game.id，content:// URI 复制到
+        //   temp_rom.<ext> 时也不会相互覆盖。
+        // globalSaveMode == "core_builtin" :
+        //   存档放在 ROM 同目录、与 ROM 同名（NDS = 官方 melonDS APK 的
+        //   <ROM名>.sav；NES/SFC/GBA/PCE/MD/街机/PSX/DOS = <ROM名>.srm，
+        //   与 RetroArch/常见模拟器交换习惯一致）。ROM 目录不可写时自动
+        //   回退到应用内部目录。J2ME (JAVA) 平台的存档在核心内部管理，
+        //   不参与此切换。
+        var romAdjSaveDirPath: String? = null
+        var romAdjSaveNameOverride: String? = null
+        var romAdjSaveNotice: String? = null
+        if (platform != GamePlatform.JAVA && padLayout.globalSaveMode == "core_builtin") {
             val resolved = resolveNdsRomAdjacentSave(context, romPath, savesDir)
-            ndsSaveDirPath = resolved.dir
-            ndsSaveNameOverride = resolved.basename
-            ndsSaveNotice = resolved.notice
+            romAdjSaveDirPath = resolved.dir
+            romAdjSaveNameOverride = resolved.basename
+            romAdjSaveNotice = resolved.notice
         }
-        val savesDirPath = ndsSaveDirPath ?: savesDir.absolutePath
+        val savesDirPath = romAdjSaveDirPath ?: savesDir.absolutePath
 
-        // Tell the native core to use this stable name for the .srm file.
+        // Tell the native core to use this stable name for the save file.
         // Must be called BEFORE loadRom() so the name is in effect when
-        // retro_load_game() returns and we read the .srm into SAVE_RAM.
-        // For NDS, this name is also propagated to the melonDS libretro
-        // core via melonds_set_save_basename_override() so the .sav file
-        // is named after game.id (NesStation mode) or the ROM basename
-        // (core_builtin mode — same-directory save, compatible with the
-        // official melonDS APK). Never pass "" for NDS: an empty override
-        // would make melonDS derive the name from info->path, which is
-        // "temp_rom" for cached content:// URIs (all games would share
-        // one temp_rom.sav and clobber each other).
-        val ndsSaveName = if (platform == GamePlatform.NDS) {
-            ndsSaveNameOverride ?: saveName
-        } else {
-            saveName
-        }
-        engine.setSaveName(ndsSaveName)
+        // retro_load_game() returns and we read the SRAM into SAVE_RAM.
+        // For NDS, this name is also propagated to the melonDS libretro core
+        // via melonds_set_save_basename_override() so the .sav file is named
+        // after game.id (nesstation mode) or the ROM basename (core_builtin
+        // mode — same-directory save, compatible with the official melonDS
+        // APK). Never pass "" for NDS: an empty override would make melonDS
+        // derive the name from info->path, which is "temp_rom" for cached
+        // content:// URIs (all games would share one temp_rom.sav).
+        val coreSaveName = romAdjSaveNameOverride ?: saveName
+        engine.setSaveName(coreSaveName)
 
         // === Mega-CD BIOS pre-check ===
         // If the user is launching a Mega-CD / SEGA-CD game (.cue/.iso/.chd),
@@ -1430,9 +1449,9 @@ fun EmulatorScreen(
             }
         }
 
-        // NDS 同目录存档回退提示（core_builtin 模式且 ROM 目录不可访问时）
+        // 同目录存档回退提示（core_builtin 模式且 ROM 目录不可访问时）
         if (loaded) {
-            ndsSaveNotice?.let {
+            romAdjSaveNotice?.let {
                 Toast.makeText(context, it, Toast.LENGTH_LONG).show()
             }
         }
@@ -2409,8 +2428,9 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             }
         }
         GamePlatform.DOS -> {
-            // Apply all DOSBox-Pure core options. These match the upstream
-            // dosbox_pure retro_set_variables() declarations.
+            // Apply all DOSBox-Pure core options. Keys AND values verified
+            // against the shipped libdosbox_pure_libretro_android.so
+            // (strings-dumped; invalid keys are silently ignored by cores).
             engine.setCoreOption("dosbox_pure_machine", layout.dosMachine)
             engine.setCoreOption("dosbox_pure_cycles", layout.dosCycles)
             engine.setCoreOption("dosbox_pure_cycles_max", layout.dosCyclesMax)
@@ -2418,21 +2438,27 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("dosbox_pure_sblaster_adlib_mode", layout.dosSbAdlibMode)
             engine.setCoreOption("dosbox_pure_sblaster_adlib_emu", layout.dosSbAdlibEmu)
             engine.setCoreOption("dosbox_pure_gus", layout.dosGus)
+            // === 音频：核心自带混音器输出速率（修复爆音的关键设置之一）===
+            // 默认 48000 与前端 AudioTrack 完全一致 → 本地重采样器旁路。
+            engine.setCoreOption("dosbox_pure_audiorate", layout.dosAudiorate)
+            engine.setCoreOption("dosbox_pure_swapstereo", layout.dosSwapStereo)
+            engine.setCoreOption("dosbox_pure_tandysound", layout.dosTandySound)
             engine.setCoreOption("dosbox_pure_mouse_input", layout.dosMouseInput)
-            engine.setCoreOption("dosbox_pure_mouse_timeout", layout.dosMouseTimeout)
             engine.setCoreOption("dosbox_pure_keyboard_layout", layout.dosKeyboardLayout)
-            engine.setCoreOption("dosbox_pure_keyboard_delay", layout.dosKeyboardDelay)
-            engine.setCoreOption("dosbox_pure_keyboard_rate", layout.dosKeyboardRate)
             engine.setCoreOption("dosbox_pure_auto_mapping", layout.dosAutoMapping)
             engine.setCoreOption("dosbox_pure_savestate", layout.dosSavestate)
-            engine.setCoreOption("dosbox_pure_dim_screen", layout.dosDimScreen)
-            engine.setCoreOption("dosbox_pure_resolution", layout.dosResolution)
-            engine.setCoreOption("dosbox_pure_scale", layout.dosScale)
-            engine.setCoreOption("dosbox_pure_aspect_ratio", layout.dosAspectRatio)
-            engine.setCoreOption("dosbox_pure_cga_colors", layout.dosCgaColors)
             engine.setCoreOption("dosbox_pure_voodoo", layout.dosVoodoo)
             engine.setCoreOption("dosbox_pure_force60fps", layout.dosForce60fps)
-            engine.setCoreOption("dosbox_pure_time_announce", layout.dosTimeAnnounce)
+            // CPU / memory / video (真正存在于本核心的选项)
+            engine.setCoreOption("dosbox_pure_cpu_core", layout.dosCpuCore)
+            engine.setCoreOption("dosbox_pure_cpu_type", layout.dosCpuType)
+            engine.setCoreOption("dosbox_pure_memory_size", layout.dosMemorySize)
+            engine.setCoreOption("dosbox_pure_cga", layout.dosCgaMode)
+            engine.setCoreOption("dosbox_pure_aspect_correction", layout.dosAspectCorrection)
+            // NOTE: dosMachine/dosCycles 等旧字段里 "none"/"custom" 等无效值已从 UI 移除。
+            // 以下键在本预编译核心中不存在，不再发送：
+            //   time_announce / keyboard_delay / keyboard_rate / mouse_timeout /
+            //   dim_screen / resolution / scale / aspect_ratio / cga_colors
         }
         GamePlatform.ARCADE -> {
             // FBNeo core options — keys match libretro_core_options.h.
@@ -2514,29 +2540,71 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("melonds_hybrid_small_screen", layout.ndsHybridSmallScreen)
         }
         GamePlatform.PSX -> {
-            // PCSX-ReARMed core options — keys match libretro_core_options.h.
+            // PCSX-ReARMed core options — keys/values verified against the
+            // shipped libpcsx_rearmed_libretro_android.so AND upstream
+            // notaz/pcsx_rearmed frontend/libretro_core_options.h.
+            // 注意: 之前的实现里有几个键名是错的，导致设置完全不生效:
+            //   pcsx_rearmed_frameskip   (legacy, 改用 frameskip_interval)
+            //   pcsx_rearmed_pad1type/2type (不存在! 手柄类型要用
+            //       retro_set_controller_port_device — 见下方 setPadTypes)
+            //   pcsx_rearmed_cpu_clock   → pcsx_rearmed_psxclock
+            //   pcsx_rearmed_rgb32       → pcsx_rearmed_rgb32_output
+            //   pcsx_rearmed_gpu_odd_even→ pcsx_rearmed_gpu_peops_odd_even_bit
+            //   pcsx_rearmed_analog_axis → pcsx_rearmed_analog_axis_modifier
+
+            // --- 系统 / BIOS ---
             engine.setCoreOption("pcsx_rearmed_bios", layout.pscxBios)
             engine.setCoreOption("pcsx_rearmed_region", layout.pscxRegion)
-            engine.setCoreOption("pcsx_rearmed_frameskip_type", layout.pscxFrameskipType)
-            engine.setCoreOption("pcsx_rearmed_frameskip", layout.pscxFrameskip)
-            engine.setCoreOption("pcsx_rearmed_pad1type", layout.pscxPad1Type)
-            engine.setCoreOption("pcsx_rearmed_pad2type", layout.pscxPad2Type)
-            engine.setCoreOption("pcsx_rearmed_vibration", layout.pscxVibration)
-            engine.setCoreOption("pcsx_rearmed_dithering", layout.pscxDithering)
-            engine.setCoreOption("pcsx_rearmed_spu_interpolation", layout.pscxSpuInterp)
-            engine.setCoreOption("pcsx_rearmed_spu_reverb", layout.pscxSpuReverb)
             engine.setCoreOption("pcsx_rearmed_show_bios_bootlogo", layout.pscxShowBootlogo)
-            engine.setCoreOption("pcsx_rearmed_cd_readahead", layout.pscxCdReadahead)
             engine.setCoreOption("pcsx_rearmed_memcard1", layout.pscxMemcard1)
             engine.setCoreOption("pcsx_rearmed_memcard2", layout.pscxMemcard2)
-            engine.setCoreOption("pcsx_rearmed_drc", layout.pscxDrc)
-            engine.setCoreOption("pcsx_rearmed_cpu_clock", layout.pscxClock)
-            engine.setCoreOption("pcsx_rearmed_rgb32", layout.pscxRgb32)
+            engine.setCoreOption("pcsx_rearmed_cd_readahead", layout.pscxCdReadahead)
+
+            // --- CPU / 性能 ---
+            engine.setCoreOption("pcsx_rearmed_drc", layout.pscxDrc)              // 动态重编译(性能关键)
+            engine.setCoreOption("pcsx_rearmed_drc_thread", layout.pscxDrcThread) // 编译器线程化
+            engine.setCoreOption("pcsx_rearmed_psxclock", layout.pscxClock)       // PSX CPU 频率 %
+            engine.setCoreOption("pcsx_rearmed_icache_emulation", layout.pscxIcache)
+            engine.setCoreOption("pcsx_rearmed_cd_turbo", layout.pscxCdTurbo)
+            engine.setCoreOption("pcsx_rearmed_nocompathacks", "disabled")
+
+            // --- GPU / 显示 ---
+            engine.setCoreOption("pcsx_rearmed_gpu_thread_rendering", layout.pscxGpuThreadRendering) // GPU 渲染线程化(性能关键)
+            engine.setCoreOption("pcsx_rearmed_dithering", layout.pscxDithering)
+            engine.setCoreOption("pcsx_rearmed_gpu_slow_llists", "auto")
+            engine.setCoreOption("pcsx_rearmed_rgb32_output", layout.pscxRgb32)
             engine.setCoreOption("pcsx_rearmed_scale_hires", layout.pscxScaleHires)
             engine.setCoreOption("pcsx_rearmed_show_overscan", layout.pscxShowOverscan)
+            engine.setCoreOption("pcsx_rearmed_fractional_framerate", layout.pscxFractionalFps)
+            engine.setCoreOption("pcsx_rearmed_alt_flip", layout.pscxAltFlip)
+            engine.setCoreOption("pcsx_rearmed_neon_interlace_enable_v2", layout.pscxNeonInterlace)
+            engine.setCoreOption("pcsx_rearmed_neon_enhancement_enable", layout.pscxNeonEnhance)
+            engine.setCoreOption("pcsx_rearmed_screen_centering", layout.pscxCentering)
+
+            // --- 跳帧 (注意: 类型值必须是 disabled/auto/auto_threshold/fixed_interval) ---
+            engine.setCoreOption("pcsx_rearmed_frameskip_type", layout.pscxFrameskipType)
+            engine.setCoreOption("pcsx_rearmed_frameskip_threshold", layout.pscxFrameskipThreshold)
+            engine.setCoreOption("pcsx_rearmed_frameskip_interval", layout.pscxFrameskip)
+
+            // --- SPU / 音频 ---
+            engine.setCoreOption("pcsx_rearmed_spu_interpolation", layout.pscxSpuInterp)
+            engine.setCoreOption("pcsx_rearmed_spu_reverb", layout.pscxSpuReverb)
+            // 反向逻辑: enabled = 播放 CD-DA/XA 音轨; disabled = 关闭(提速)
+            engine.setCoreOption("pcsx_rearmed_nocdaudio", layout.pscxCdAudio)
+            engine.setCoreOption("pcsx_rearmed_noxadecoding", layout.pscxXaAudio)
+            engine.setCoreOption("pcsx_rearmed_spu_thread", layout.pscxSpuThread)
+
+            // --- 手柄 / 输入 ---
+            // pad1/pad2 类型不是 core option! 通过控制器端口设备来设置
+            // (standard = 数字手柄 JOYPAD, analog = DualShock 模拟手柄)
+            (engine as? com.nesstation.app.core.engine.PsxEngine)?.setPadTypes(
+                layout.pscxPad1Type, layout.pscxPad2Type)
+            engine.setCoreOption("pcsx_rearmed_vibration", layout.pscxVibration)
+            engine.setCoreOption("pcsx_rearmed_analog_axis_modifier", layout.pscxAnalogAxis)
             engine.setCoreOption("pcsx_rearmed_multitap", layout.pscxMultitap)
-            engine.setCoreOption("pcsx_rearmed_gpu_odd_even", layout.pscxGpuOddEven)
-            engine.setCoreOption("pcsx_rearmed_analog_axis", layout.pscxAnalogAxis)
+            engine.setCoreOption("pcsx_rearmed_negcon_response", layout.pscxNegconResponse)
+            engine.setCoreOption("pcsx_rearmed_negcon_deadzone", layout.pscxNegconDeadzone)
+            engine.setCoreOption("pcsx_rearmed_gpu_peops_odd_even_bit", layout.pscxGpuOddEven)
         }
         GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
@@ -6967,10 +7035,27 @@ private fun SettingsPanel(
                     padLayout.dosMouseInput
                 ) { onLayoutChange(padLayout.copy {dosMouseInput = it}) }
 
-                DropdownSetting("鼠标超时",
-                    listOf("off" to "关闭", "3" to "3秒", "5" to "5秒", "10" to "10秒"),
-                    padLayout.dosMouseTimeout
-                ) { onLayoutChange(padLayout.copy {dosMouseTimeout = it}) }
+
+                DropdownSetting("音频输出模式",
+                    listOf(
+                        "core_native" to "核心自带输出 (推荐·无杂音)",
+                        "resample_48k" to "重采样到 48kHz (兼容)"
+                    ),
+                    padLayout.dosAudioMode
+                ) { onLayoutChange(padLayout.copy {dosAudioMode = it}) }
+
+                DropdownSetting("混音器采样率(核心)",
+                    listOf(
+                        "48000" to "48000 Hz (推荐)",
+                        "44100" to "44100 Hz",
+                        "32000" to "32000 Hz",
+                        "22050" to "22050 Hz",
+                        "11025" to "11025 Hz",
+                        "8000" to "8000 Hz",
+                        "49716" to "49716 Hz (OPL 完美还原)"
+                    ),
+                    padLayout.dosAudiorate
+                ) { onLayoutChange(padLayout.copy {dosAudiorate = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("键盘", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -6984,50 +7069,24 @@ private fun SettingsPanel(
                     padLayout.dosKeyboardLayout
                 ) { onLayoutChange(padLayout.copy {dosKeyboardLayout = it}) }
 
-                DropdownSetting("按键延迟",
-                    listOf("100" to "100ms", "200" to "200ms", "300" to "300ms",
-                           "400" to "400ms", "500" to "500ms"),
-                    padLayout.dosKeyboardDelay
-                ) { onLayoutChange(padLayout.copy {dosKeyboardDelay = it}) }
-
-                DropdownSetting("按键重复率",
-                    listOf("5" to "5/s", "10" to "10/s", "15" to "15/s",
-                           "20" to "20/s", "30" to "30/s"),
-                    padLayout.dosKeyboardRate
-                ) { onLayoutChange(padLayout.copy {dosKeyboardRate = it}) }
-
                 Spacer(Modifier.size(8.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
-                DropdownSetting("分辨率",
+                DropdownSetting("宽高比修正(CRT)",
+                    listOf("false" to "关闭", "true" to "开启"),
+                    padLayout.dosAspectCorrection
+                ) { onLayoutChange(padLayout.copy {dosAspectCorrection = it}) }
+
+                DropdownSetting("CGA 模式",
                     listOf(
-                        "original" to "原始(推荐)",
-                        "640x480" to "640×480",
-                        "800x600" to "800×600",
-                        "1024x768" to "1024×768",
-                        "1280x720" to "1280×720 (HD)",
-                        "1600x900" to "1600×900 (HD+)",
-                        "1920x1080" to "1920×1080 (FHD)",
-                        "custom" to "自定义"
+                        "early_auto" to "早期型 · 复合自动 (默认)",
+                        "early_on" to "早期型 · 复合开",
+                        "early_off" to "早期型 · 复合关",
+                        "late_auto" to "后期型 · 复合自动",
+                        "late_on" to "后期型 · 复合开",
+                        "late_off" to "后期型 · 复合关"
                     ),
-                    padLayout.dosResolution
-                ) { onLayoutChange(padLayout.copy {dosResolution = it}) }
-
-                DropdownSetting("缩放倍数",
-                    listOf("1" to "1×", "2" to "2×", "3" to "3×", "4" to "4×", "5" to "5×"),
-                    padLayout.dosScale
-                ) { onLayoutChange(padLayout.copy {dosScale = it}) }
-
-                DropdownSetting("画面比例",
-                    listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9",
-                           "16:10" to "16:10", "stretch" to "拉伸"),
-                    padLayout.dosAspectRatio
-                ) { onLayoutChange(padLayout.copy {dosAspectRatio = it}) }
-
-                DropdownSetting("CGA 配色",
-                    listOf("default" to "默认", "amber" to "琥珀色",
-                           "green" to "绿色", "white" to "白色", "bright" to "高亮"),
-                    padLayout.dosCgaColors
-                ) { onLayoutChange(padLayout.copy {dosCgaColors = it}) }
+                    padLayout.dosCgaMode
+                ) { onLayoutChange(padLayout.copy {dosCgaMode = it}) }
 
                 Spacer(Modifier.size(8.dp))
                 Text("高级", color = Color(0xFF8899AA), fontSize = 11.sp)
@@ -7045,17 +7104,6 @@ private fun SettingsPanel(
                     listOf("on" to "开启(推荐)", "off" to "关闭"),
                     padLayout.dosForce60fps
                 ) { onLayoutChange(padLayout.copy {dosForce60fps = it}) }
-
-                DropdownSetting("时间播报",
-                    listOf("none" to "关闭", "boot" to "启动时", "quiet" to "静默"),
-                    padLayout.dosTimeAnnounce
-                ) { onLayoutChange(padLayout.copy {dosTimeAnnounce = it}) }
-
-                DropdownSetting("暗屏超时",
-                    listOf("off" to "关闭", "5" to "5秒", "10" to "10秒",
-                           "20" to "20秒", "30" to "30秒", "60" to "60秒"),
-                    padLayout.dosDimScreen
-                ) { onLayoutChange(padLayout.copy {dosDimScreen = it}) }
 
                 DropdownSetting("存档大小",
                     listOf("on" to "默认", "500" to "500MB", "1000" to "1GB",
@@ -7507,22 +7555,21 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("存档", color = Color(0xFF8899AA), fontSize = 11.sp)
-                // NDS 存档方式切换：
-                //   nesstation   → NesStation 统一存档目录：<filesDir>/saves/<gameId>.sav
+                // 全局存档方式切换（所有核心通用，与 设置→存储 里的全局选项是同一份配置）：
+                //   nesstation   → NesStation 统一存档目录：saves/<gameId>.sav(.srm)
                 //                  每游戏独立文件，content:// URI 复制到 temp_rom.<ext>
                 //                  也不会被覆盖。
-                //   core_builtin → ROM 同目录同名 .sav（与官方 melonDS APK 行为一致）：
-                //                  直接读取并回写 ROM 旁边的 <ROM文件名>.sav。
+                //   core_builtin → ROM 同目录同名存档（NDS = 官方 melonDS APK 的
+                //                  <ROM名>.sav；其他核心 = <ROM名>.srm）。
                 //                  ROM 目录不可写时自动回退到应用内部目录。
-                //                  注意：切换后需重进游戏生效。
-                DropdownSetting("存档方式",
+                DropdownSetting("存档方式(全局)",
                     listOf(
                         "nesstation" to "NesStation (统一存档目录)",
-                        "core_builtin" to "ROM 同目录同名 .sav (兼容官方 melonDS)"
+                        "core_builtin" to "ROM 同目录同名 (.sav/.srm)"
                     ),
-                    padLayout.ndsSaveMode
-                ) { onLayoutChange(padLayout.copy {ndsSaveMode = it}) }
-                Text("「ROM 同目录」模式直接读写 ROM 旁边的同名 .sav 文件（如 game.nds → game.sav），与官方 melonDS APK 完全兼容；切换存档方式后需重进游戏。",
+                    padLayout.globalSaveMode
+                ) { onLayoutChange(padLayout.copy {globalSaveMode = it}) }
+                Text("对全部核心生效（NDS 写 .sav 兼容官方 melonDS，其他核心写 .srm）。切换后需重进游戏。",
                     color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp)
 
                 Spacer(Modifier.size(4.dp))

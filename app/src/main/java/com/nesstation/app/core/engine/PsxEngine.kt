@@ -51,6 +51,9 @@ class PsxEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    /** Core-reported refresh rate; used for pacing (NTSC 59.82614 / PAL 50). */
+    @Volatile private var _targetHz: Int = 60
+
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
     @Volatile private var _netFrame: Long = 0L
@@ -84,6 +87,16 @@ class PsxEngine private constructor() : EmulatorEngine {
         isLoaded = true
 
         PsxNative.setFastForward(_ffSpeed)
+
+        // Controller-port devices (standard digital vs DualShock analog) may
+        // already have been queued by applyCoreOptions — they will be applied
+        // on the emu thread at the first stepFrame().
+
+        // Pace to the core's own refresh rate: NTSC games run at 59.826 fps,
+        // PAL games at 50.0. The old hard-coded 60 caused PAL titles to play
+        // ~20% too fast with crackling audio and caused subtle judder on NTSC.
+        val coreFps = PsxNative.videoFps()
+        _targetHz = if (coreFps > 10.0 && coreFps < 500.0) Math.round(coreFps).toInt() else 60
 
         val rate = PsxNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
         startAudio(rate)
@@ -129,16 +142,17 @@ class PsxEngine private constructor() : EmulatorEngine {
 
                     onFrame()
 
-                    // Pacing — melonDS-style fast-forward:
-                    //  - Normal: ~60 fps (NTSC; PAL cores report their own
-                    //    rate via audio but the historical behavior is 60).
+                    // Pacing — melonDS-style fast-forward, paced to the CORE
+                    // refresh rate (not a hard-coded 60):
+                    //  - Normal:   target Hz as reported by PCSX-ReARMed
+                    //    (59.82614 NTSC / 50 PAL) → correct speed + audio pitch.
                     //  - Fast-forward (_ffSpeed > 0): divide the frame budget
                     //    by the multiplier so emulation runs up to N× speed.
                     //    Native applySpeed() also skips blits on non-presented
                     //    frames, keeping ANativeWindow_lock off the hot path.
                     val ff = _ffSpeed
-                    val paced = if (ff > 0) FramePacer.pace(t0, 60 * ff)
-                                else FramePacer.pace(t0, 60)
+                    val hz = if (ff > 0) _targetHz * ff else _targetHz
+                    val paced = FramePacer.pace(t0, hz.coerceIn(30, 600))
                     if (!paced) break
                 }
             } catch (t: Throwable) {
@@ -272,12 +286,29 @@ class PsxEngine private constructor() : EmulatorEngine {
         _paused = false
         _ffSpeed = 0
         hasSurface = false
+        _targetHz = 60
     }
 
     override fun setPad1(bits: Int) = PsxNative.setPad1(bits)
     override fun setPad2(bits: Int) = PsxNative.setPad2(bits)
     fun setPad3(bits: Int) = PsxNative.setPad3(bits)
     fun setPad4(bits: Int) = PsxNative.setPad4(bits)
+
+    /**
+     * Switch controller ports between the standard digital pad and the
+     * DualShock (analog). Values map to libretro device ids:
+     *   RETRO_DEVICE_NONE = 0, RETRO_DEVICE_JOYPAD = 1, RETRO_DEVICE_ANALOG = 5.
+     * Thread-safe: queued natively and applied before the next emulated frame.
+     */
+    fun setControllerDevice(port: Int, device: Int) = PsxNative.setControllerDevice(port, device)
+
+    /** Convenience: configure ports 0+1 from the settings panel pad types
+     *  ("standard" -> JOYPAD, anything else -> DualShock ANALOG). */
+    fun setPadTypes(type1: String, type2: String) {
+        setControllerDevice(0, if (type1 == "standard") 1 else 5)
+        setControllerDevice(1, if (type2 == "standard") 1 else 5)
+    }
+
     override fun setRegion(region: Int) = PsxNative.setRegion(region)
     override fun setSampleRate(rate: Int) = PsxNative.setSampleRate(rate)
     override fun saveState(slot: Int, dst: File): Boolean = PsxNative.saveState(slot, dst.absolutePath)

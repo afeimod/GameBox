@@ -71,6 +71,16 @@ class DosEngine private constructor() : EmulatorEngine {
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
 
+    /**
+     * 音频输出模式（由 EmulatorScreen 在启动游戏前按设置注入）：
+     *   "core_native"  → 以核心自带的混音器采样率直接打开 AudioTrack，
+     *                    本地重采样器旁路（ratio=1），DOSBox-Pure 的音频
+     *                    原样输出，彻底消除重采样杂音。
+     *   "resample_48k" → 强制重采样到 48000 Hz（老电视 HDMI 兼容模式）。
+     * 修改后需重新进入游戏生效。
+     */
+    @Volatile var audioOutputMode: String = "core_native"
+
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
     @Volatile private var _netFrame: Long = 0L
@@ -112,8 +122,14 @@ class DosEngine private constructor() : EmulatorEngine {
         // This lets the on-screen overlay dispatch all three input types.
         DosNative.setInputDeviceMode(3)
 
-        val rate = DosNative.audioTargetSampleRate().takeIf { it > 0 } ?: 48000
-        startAudio(rate)
+        // === 音频：核心自带音频输出 ===
+        // retro_load_game 之后核心已报告它自己的混音器速率 (通常 48000，
+        // 与 dosbox_pure_audiorate 一致)。核心原生模式下 AudioTrack 直接
+        // 按该速率打开并把本地重采样器旁路 → 无线性插值损耗、无杂音。
+        val coreRate = DosNative.audioSampleRate().takeIf { it > 8000 } ?: 48000
+        val targetRate = if (audioOutputMode != "resample_48k") coreRate else 48000
+        DosNative.setSampleRate(targetRate)
+        startAudio(targetRate)
 
         running.set(true)
         thread = thread(name = "doscore-loop", isDaemon = true) {
@@ -235,16 +251,11 @@ class DosEngine private constructor() : EmulatorEngine {
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
-            // LOW-LATENCY: Use the smallest buffer Android will allow.
-            // Previously this was `minBuf * 4` which introduced ~80-150ms of
-            // latency on top of the ring buffer. For DOS games (especially
-            // games with sound effects tied to gameplay like PAL, StarControl,
-            // etc.) this made audio feel noticeably delayed.
-            //
-            // We now use `minBuf` directly (clamped to a safe lower bound of
-            // 2048 samples = ~21ms at 48kHz stereo). Combined with the smaller
-            // read buffer below, total round-trip latency drops to <30ms.
-            val bufSize = minBuf.coerceIn(2048, 8192)
+            // 2× 最小缓冲（≈40-80ms）：足够吸收模拟线程抖动、又不会引入
+            // 可感知延迟。此前 tiny buffer + WRITE_NON_BLOCKING 组合会丢弃
+            // 已消费的样本 —— 这是「滋滋」爆音的根本原因之一；配合下方
+            // BLOCKING 写入后线程间天然限流，环形缓冲不再溢出丢样。
+            val bufSize = (minBuf * 2).coerceIn(4096, 16384)
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -266,17 +277,20 @@ class DosEngine private constructor() : EmulatorEngine {
 
         audioRunning.set(true)
         audioThread = thread(name = "dos-audio-loop", isDaemon = true) {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            // Smaller read buffer = lower latency. 512 stereo frames = ~10ms
-            // at 48kHz. The native ring buffer can supply this without
-            // underrunning as long as the emulation thread keeps up.
-            val buf = ShortArray(1024)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            // ~21ms per chunk @48kHz stereo — smooth drain without hot spinning.
+            val buf = ShortArray(2048)
             try {
                 while (audioRunning.get()) {
                     try {
                         val n = DosNative.readAudio(buf)
                         if (n > 0) {
-                            audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING)
+                            // 关键修复：BLOCKING 写入。AudioTrack 缓冲满时会
+                            // 挂起音频线程直到有空间，样本一个都不会丢。
+                            // 旧实现用 NON_BLOCKING 且忽略返回值 + 立刻继续从
+                            // 环形缓冲读出下一批样本 → 装不下的样本被永久丢弃，
+                            // 表现为持续的「滋滋」电流声 / 爆音。
+                            audioTrack?.write(buf, 0, n * 2, AudioTrack.WRITE_BLOCKING)
                         } else {
                             Thread.sleep(1)
                         }

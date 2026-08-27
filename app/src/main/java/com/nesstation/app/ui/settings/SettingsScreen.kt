@@ -260,10 +260,10 @@ fun SettingsScreen(
                             SettingsRow("GB / GBA", "mGBA 核心 · 型号/色彩/跳帧", trailing = { Arrow() }) { selectedCore = GamePlatform.GB }
                             SettingsRow("MD / SEGA", "Genesis-Plus-GX 核心 · 区域/画面/手柄", trailing = { Arrow() }) { selectedCore = GamePlatform.MD }
                             SettingsRow("PCE / TG16", "Geargrafx 核心 · 主机/画面/CD", trailing = { Arrow() }) { selectedCore = GamePlatform.PCE }
-                            SettingsRow("DOS", "DOSBox-Pure 核心 · CPU/声卡/键盘/画面", trailing = { Arrow() }) { selectedCore = GamePlatform.DOS }
+                            SettingsRow("DOS", "DOSBox-Pure 核心 · 音频/CPU/内存/画面", trailing = { Arrow() }) { selectedCore = GamePlatform.DOS }
                             SettingsRow("街机 Arcade", "FBNeo 核心 · 旋转/跳帧/NeoGeo", trailing = { Arrow() }) { selectedCore = GamePlatform.ARCADE }
-                            SettingsRow("NDS / DSi", "melonDS 核心 · 屏幕/分辨率/触摸/DSi", trailing = { Arrow() }) { selectedCore = GamePlatform.NDS }
-                            SettingsRow("PSX", "PCSX-ReARMed 核心 · BIOS/手柄/SPU/CD", trailing = { Arrow() }) { selectedCore = GamePlatform.PSX }
+                            SettingsRow("NDS / DSi", "melonDS 核心 · 屏幕/OpenGL/JIT/触摸", trailing = { Arrow() }) { selectedCore = GamePlatform.NDS }
+                            SettingsRow("PSX", "PCSX-ReARMed 核心 · DRC/GPU线程/超频/SPU/手柄", trailing = { Arrow() }) { selectedCore = GamePlatform.PSX }
                         }
                     }
 
@@ -347,6 +347,22 @@ fun SettingsScreen(
                     // === 存储 ===
                     item {
                         SettingsSection("存储") {
+                            // 全局存档方式：所有核心通用（不再只是 NDS 独有）。
+                            // NES/SFC/GB/GBA/PCE/DOS/街机/MD/PSX 写 .srm，NDS 写 .sav。
+                            DropdownRow("存档方式",
+                                listOf(
+                                    "nesstation" to "统一存档目录 (推荐)",
+                                    "core_builtin" to "ROM 同目录同名 (.srm/.sav)"
+                                ),
+                                padLayout.globalSaveMode
+                            ) { updateLayout(padLayout.copy {globalSaveMode = it}) }
+                            Text(
+                                "「统一存档目录」把存档集中在应用内部 saves 目录（NDS 为 <游戏ID>.sav，其他核心为 .srm），content:// 导入的游戏互不干扰。" +
+                                "「ROM 同目录」直接读写 ROM 旁的同名存档（与官方 melonDS APK / RetroArch 习惯一致，便于和电脑交换存档）。切换后需重进游戏。",
+                                color = Color(0xFF4A5568), fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
                             SettingsRow("存储权限", "点击授权", trailing = { Arrow() }) { requestStoragePermission() }
                             SettingsRow("应用详情", "系统设置", trailing = { Arrow() }) { openAppSettings() }
                             SettingsRow("扫描ROM", "去游戏库导入", trailing = { Arrow() }) {
@@ -358,11 +374,11 @@ fun SettingsScreen(
                     // === 关于 ===
                     item {
                         SettingsSection("关于") {
-                            SettingsRow("版本", "3.0.0", trailing = { ValueText("3.0.0") })
-                            SettingsRow("核心", "FCEUmm + Snes9x + mGBA + Genesis-Plus-GX + Geargrafx + DOSBox-Pure + FBNeo",
-                                trailing = { ValueText("7 个模拟核心") })
+                            SettingsRow("版本", "3.1.0", trailing = { ValueText("3.1.0") })
+                            SettingsRow("核心", "FCEUmm · Snes9x · mGBA · Genesis-Plus-GX · Geargrafx · DOSBox-Pure · FBNeo · melonDS · PCSX-ReARMed",
+                                trailing = { ValueText("10 个模拟核心") })
                             SettingsRow("开源许可", "MIT License", trailing = { Arrow() }) {
-                                dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、Genesis-Plus-GX (MD/SEGA)、Geargrafx (PCE)、DOSBox-Pure (DOS)、FBNeo (Arcade) 核心，遵循 MIT 许可证"
+                                dialogText = "GameBox 基于 FCEUmm (NES)、Snes9x (SFC)、mGBA (GB/GBC/GBA)、Genesis-Plus-GX (MD)、Geargrafx (PCE)、DOSBox-Pure (DOS)、FBNeo (Arcade)、melonDS (NDS)、PCSX-ReARMed (PSX) 核心构建，遵循各自开源许可证"
                             }
                         }
                     }

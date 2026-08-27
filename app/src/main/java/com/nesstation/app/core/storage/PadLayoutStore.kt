@@ -182,28 +182,33 @@ class PadLayout {
     var gbSgbBorders: String = "ON"                  // ON | OFF
     var gbaFrameskipThreshold: String = "33"         // 0-100 (audio buffer threshold for auto frameskip)
     // --- DOSBox-Pure (DOS) specific options ---
-    var dosMachine: String = "svga_s3"               // svga_s3 | hercules | cga | tandy | pcjr | ega | vgaonly | none
+    var dosMachine: String = "svga_s3"               // svga_s3 | vesa_nolfb | vesa_oldvbe | svga_et3000 | svga_et4000 | svga_paradise | vgaonly | ega | cga | tandy | pcjr | hercules（注意 "none" 非法已移除）
     var dosCycles: String = "auto"                    // auto | max | 6000 | 10000 | 20000 | 40000 | 80000 | custom
     var dosCyclesMax: String = "50000"                // string (used when dosCycles = custom)
     var dosSbType: String = "sb16"                    // sb1 | sb2 | sbpro1 | sbpro2 | sb16 | gb | none
     var dosSbAdlibMode: String = "off"                // on | off
     var dosSbAdlibEmu: String = "default"             // default | cms | dual
     var dosGus: String = "off"                        // off | on
+    // === 音频：核心自带混音器相关（修复滋滋爆音 + 核心音频输出速率）===
+    // "core_native"  = AudioTrack 直接按核心采样率打开，重采样器旁路（推荐）
+    // "resample_48k" = 本地线性插值到 48000 Hz（老电视 HDMI 兼容）
+    var dosAudioMode: String = "core_native"          // core_native | resample_48k
+    var dosAudiorate: String = "48000"                // dosbox_pure_audiorate: 48000 | 44100 | 32000 | 22050 | 11025 | 8000 | 49716
+    var dosSwapStereo: String = "false"               // false | true (立体声反转)
+    var dosTandySound: String = "auto"                // auto | on | off (Tandy 声卡)
+    // === CPU / 内存（本预编译核心真实支持的选项）===
+    var dosCpuCore: String = "auto"                   // auto | dynamic | normal | simple
+    var dosCpuType: String = "auto"                   // auto | 386 | 386_slow | 386_prefetch | 486_slow | pentium_slow
+    var dosMemorySize: String = "16"                  // 4 | 8 | 16 | 24 | 32 (MB)
     var dosMouseInput: String = "touchpad"            // touchpad | auto | virtual | direct | off
-    var dosMouseTimeout: String = "off"               // off | 3 | 5 | 10
     var dosKeyboardLayout: String = "us"              // us | uk | br | de | it | fr | ru | es | ...
-    var dosKeyboardDelay: String = "300"              // 100 | 200 | 300 | 400 | 500
-    var dosKeyboardRate: String = "10"                // 5 | 10 | 15 | 20 | 30
     var dosAutoMapping: String = "on"                 // on | off
     var dosSavestate: String = "on"                   // on | 500 | 1000 | 2000 | 4000 | 8000 | 0
-    var dosDimScreen: String = "off"                  // off | 5 | 10 | 20 | 30 | 60
-    var dosResolution: String = "original"            // custom | 640x480 | 800x600 | 1024x768 | 1280x720 | 1600x900 | 1920x1080 | original
-    var dosScale: String = "2"                        // 1 | 2 | 3 | 4 | 5
-    var dosAspectRatio: String = "auto"               // auto | 4:3 | 16:9 | 16:10 | stretch
-    var dosCgaColors: String = "default"              // default | amber | green | white | bright
+    // === 视频补充（dosbox_pure_aspect_correction / cga 真实键）===
+    var dosAspectCorrection: String = "false"         // false | true (CRT 宽高比修正)
+    var dosCgaMode: String = "early_auto"             // early_auto | early_on | early_off | late_auto | late_on | late_off
     var dosVoodoo: String = "off"                     // off | on
     var dosForce60fps: String = "on"                  // off | on
-    var dosTimeAnnounce: String = "none"              // none | boot | quiet
     // DOS on-screen controller mode: "gamepad" (circular buttons, transparent)
     // or "keyboard" (full QWERTY layout). Switchable at runtime via a button.
     var dosInputMode: String = "gamepad"              // gamepad | keyboard
@@ -361,7 +366,7 @@ class PadLayout {
     var ndsAudioInterpolation: String = "Cosine"       // Cosine | Linear | Sinc | None
     var ndsUseFwSettings: String = "disabled"          // enabled | disabled (use firmware settings)
     var ndsScreenGap: String = "0"                     // 0..20 两屏间距
-    // NDS 存档方式切换：
+    // NDS 存档方式切换（旧版仅 NDS；已升级为下方全局 globalSaveMode）：
     //   "nesstation"  → 用 NesStation 自带统一存档目录 (<filesDir>/saves/<gameId>.sav)
     //                    saveName = game.id，每个游戏独立 .sav 文件，content:// URI
     //                    复制到 temp_rom.<ext> 也不会被覆盖。
@@ -369,7 +374,14 @@ class PadLayout {
     //                    与官方 melonDS APK 的存档行为完全一致——直接读取并回写
     //                    ROM 旁边的同名 .sav。若 ROM 目录不可写（未授权所有文件
     //                    访问），自动回退到应用内部目录，仍按 ROM 文件名命名。
+    // ⚠ 已废弃（仅保留存储兼容）：UI 已改用全局 globalSaveMode，加载时自动迁移。
     var ndsSaveMode: String = "nesstation"             // nesstation | core_builtin
+
+    // === 全局存档方式（适用于所有带电池存档的核心）===
+    // 其他核心也有 .sav / .srm 存档，所以该开关放在全局设置：
+    //   "nesstation"  → 统一存档目录 <filesDir>/saves/<gameId>.srm（NDS 为 .sav）
+    //   "core_builtin" → ROM 同目录同名 .srm/.sav（与常见模拟器/RetroArch 交换兼容）
+    var globalSaveMode: String = "nesstation"           // nesstation | core_builtin
     var ndsSwapscreenMode: String = "Toggle"            // Toggle | Hold (换屏按钮模式)
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
@@ -400,12 +412,14 @@ class PadLayout {
     var ndsBottomLayoutBottomP: Float = 0.98f
 
     // === PSX (PCSX-ReARMed) core options ===
-    // Keys must match PCSX-ReARMed libretro_core_options.h.
+    // Keys AND values verified against the shipped libpcsx_rearmed_libretro_android.so
+    // and upstream notaz/pcsx_rearmed frontend/libretro_core_options.h.
     var pscxBios: String = "auto"                      // auto | HLE | scph1000 | scph1001 | scph1002 | scph5500 | scph5501 | scph5502 | psxonpsp660
     var pscxRegion: String = "auto"                    // auto | ntsc | pal
-    var pscxFrameskipType: String = "disabled"        // disabled | auto | fixed
-    var pscxFrameskip: String = "0"                    // 0..10 (only when frameskip_type=fixed)
-    var pscxPad1Type: String = "standard"              // standard | analog | negcon | gun
+    var pscxFrameskipType: String = "disabled"        // disabled | auto | auto_threshold | fixed_interval
+    var pscxFrameskip: String = "3"                    // 1..10 (frameskip_interval, only fixed_interval)
+    var pscxFrameskipThreshold: String = "33"          // 15..80 % (only auto_threshold)
+    var pscxPad1Type: String = "standard"              // standard(数字手柄) | analog(DualShock) | negcon | gun
     var pscxPad2Type: String = "standard"              // standard | analog | negcon | gun
     var pscxVibration: String = "enabled"              // enabled | disabled
     var pscxDithering: String = "enabled"              // enabled | disabled
@@ -413,16 +427,30 @@ class PadLayout {
     var pscxSpuReverb: String = "enabled"              // enabled | disabled
     var pscxShowBootlogo: String = "disabled"          // disabled | enabled (show PSX BIOS boot logo)
     var pscxCdReadahead: String = "12"                 // 0..30 (CD read-ahead in sectors)
-    var pscxMemcard1: String = "libretro"              // libretro | shared | disabled
-    var pscxMemcard2: String = "shared"                // libretro | shared | disabled
+    var pscxMemcard1: String = "libretro"              // libretro | serial | shared | none
+    var pscxMemcard2: String = "shared"                // libretro | shared | none
     // === Additional PSX/PCSX-ReARMed options ===
-    var pscxDrc: String = "enabled"                 // enabled | disabled (dynarec JIT compiler)
-    var pscxClock: String = "auto"                  // auto | 30..100 (CPU overclock %)
+    var pscxDrc: String = "enabled"                 // enabled | disabled (dynarec JIT compiler — 性能关键)
+    var pscxDrcThread: String = "auto"              // auto | disabled | enabled (DynaRec 线程化)
+    var pscxClock: String = "auto"                  // auto | 30..100 (PSX CPU overclock %)
+    var pscxGpuThreadRendering: String = "auto"     // auto | disabled | enabled (GPU 渲染线程化 — 性能关键)
+    var pscxIcache: String = "enabled"              // enabled | disabled (iCache 模拟, F1 系列需要)
+    var pscxCdTurbo: String = "disabled"            // disabled | enabled (CD 加速, 不安全)
+    var pscxFractionalFps: String = "auto"          // auto | disabled | enabled (小数帧率, PAL 准确)
+    var pscxAltFlip: String = "auto"                // auto | early | late
     var pscxRgb32: String = "disabled"              // disabled | enabled (32-bit color output)
     var pscxScaleHires: String = "disabled"         // disabled | enabled (downscale 480i/512i to 320x240)
     var pscxShowOverscan: String = "disabled"       // disabled | enabled (show overscan area)
-    var pscxMultitap: String = "disabled"           // disabled | port1 | port2 | both
-    var pscxGpuOddEven: String = "disabled"         // disabled | enabled (Peops odd/even GPU hack)
+    var pscxNeonInterlace: String = "disabled"      // auto | disabled | enabled (隔行扫描优化)
+    var pscxNeonEnhance: String = "disabled"        // disabled | enabled (NEON 2倍分辨率增强, 慢)
+    var pscxCentering: String = "auto"              // auto | game | borderless | manual
+    var pscxMultitap: String = "disabled"           // disabled | port 1 | port 2 | ports 1 and 2
+    var pscxNegconResponse: String = "linear"       // linear | quadratic | cubic
+    var pscxNegconDeadzone: String = "0"            // 0..30% neGcon 扭转死区
+    var pscxCdAudio: String = "enabled"             // enabled=播放 CD 音轨 | disabled=关闭(提速)
+    var pscxXaAudio: String = "enabled"             // enabled=播放 XA 音频 | disabled=关闭(提速)
+    var pscxSpuThread: String = "disabled"          // disabled | enabled (SPU 线程化)
+    var pscxGpuOddEven: String = "disabled"         // disabled | enabled (Peops odd/even GPU hack — Chrono Cross)
     var pscxAnalogAxis: String = "square"           // circle | square (analog stick bounds)
 
     // === Arcade (FBNeo) on-screen pad extras ===
@@ -598,21 +626,23 @@ class PadLayout {
         dosSbAdlibMode = another.dosSbAdlibMode
         dosSbAdlibEmu = another.dosSbAdlibEmu
         dosGus = another.dosGus
+        // 音频（核心自带混音器）
+        dosAudioMode = another.dosAudioMode
+        dosAudiorate = another.dosAudiorate
+        dosSwapStereo = another.dosSwapStereo
+        dosTandySound = another.dosTandySound
+        // CPU / 内存 / 视频补充
+        dosCpuCore = another.dosCpuCore
+        dosCpuType = another.dosCpuType
+        dosMemorySize = another.dosMemorySize
+        dosAspectCorrection = another.dosAspectCorrection
+        dosCgaMode = another.dosCgaMode
         dosMouseInput = another.dosMouseInput
-        dosMouseTimeout = another.dosMouseTimeout
         dosKeyboardLayout = another.dosKeyboardLayout
-        dosKeyboardDelay = another.dosKeyboardDelay
-        dosKeyboardRate = another.dosKeyboardRate
         dosAutoMapping = another.dosAutoMapping
         dosSavestate = another.dosSavestate
-        dosDimScreen = another.dosDimScreen
-        dosResolution = another.dosResolution
-        dosScale = another.dosScale
-        dosAspectRatio = another.dosAspectRatio
-        dosCgaColors = another.dosCgaColors
         dosVoodoo = another.dosVoodoo
         dosForce60fps = another.dosForce60fps
-        dosTimeAnnounce = another.dosTimeAnnounce
         dosInputMode = another.dosInputMode
         dosDpad = another.dosDpad
         dosBtnEsc = another.dosBtnEsc
@@ -754,7 +784,22 @@ class PadLayout {
         pscxMemcard1 = another.pscxMemcard1
         pscxMemcard2 = another.pscxMemcard2
         pscxDrc = another.pscxDrc
+        pscxDrcThread = another.pscxDrcThread
         pscxClock = another.pscxClock
+        pscxGpuThreadRendering = another.pscxGpuThreadRendering
+        pscxIcache = another.pscxIcache
+        pscxCdTurbo = another.pscxCdTurbo
+        pscxFractionalFps = another.pscxFractionalFps
+        pscxAltFlip = another.pscxAltFlip
+        pscxNeonInterlace = another.pscxNeonInterlace
+        pscxNeonEnhance = another.pscxNeonEnhance
+        pscxCentering = another.pscxCentering
+        pscxNegconResponse = another.pscxNegconResponse
+        pscxNegconDeadzone = another.pscxNegconDeadzone
+        pscxCdAudio = another.pscxCdAudio
+        pscxXaAudio = another.pscxXaAudio
+        pscxSpuThread = another.pscxSpuThread
+        pscxFrameskipThreshold = another.pscxFrameskipThreshold
         pscxRgb32 = another.pscxRgb32
         pscxScaleHires = another.pscxScaleHires
         pscxShowOverscan = another.pscxShowOverscan
@@ -1143,20 +1188,22 @@ object PadLayoutStore {
                 val v = p.getString("dos_mouse_input", "touchpad") ?: "touchpad"
                 if (v in setOf("emulated", "absolute", "ps2", "none")) "touchpad" else v
             }
-            dosMouseTimeout = p.getString("dos_mouse_timeout", "off") ?: "off"
+            // 音频（核心自带混音器）+ CPU/内存/视频补充选项
+            dosAudioMode = p.getString("dos_audio_mode", "core_native") ?: "core_native"
+            dosAudiorate = p.getString("dos_audiorate", "48000") ?: "48000"
+            dosSwapStereo = p.getString("dos_swap_stereo", "false") ?: "false"
+            dosTandySound = p.getString("dos_tandysound", "auto") ?: "auto"
+            dosCpuCore = p.getString("dos_cpu_core", "auto") ?: "auto"
+            dosCpuType = p.getString("dos_cpu_type", "auto") ?: "auto"
+            dosMemorySize = p.getString("dos_memory_size", "16") ?: "16"
+            dosAspectCorrection = p.getString("dos_aspect_correction", "false") ?: "false"
+            // 迁移旧的无效键 dos_cga_colors → 新 cga 模式值
+            dosCgaMode = p.getString("dos_cga_mode", "early_auto") ?: "early_auto"
             dosKeyboardLayout = p.getString("dos_keyboard_layout", "us") ?: "us"
-            dosKeyboardDelay = p.getString("dos_keyboard_delay", "300") ?: "300"
-            dosKeyboardRate = p.getString("dos_keyboard_rate", "10") ?: "10"
             dosAutoMapping = p.getString("dos_auto_mapping", "on") ?: "on"
             dosSavestate = p.getString("dos_savestate", "on") ?: "on"
-            dosDimScreen = p.getString("dos_dim_screen", "off") ?: "off"
-            dosResolution = p.getString("dos_resolution", "original") ?: "original"
-            dosScale = p.getString("dos_scale", "2") ?: "2"
-            dosAspectRatio = p.getString("dos_aspect_ratio", "auto") ?: "auto"
-            dosCgaColors = p.getString("dos_cga_colors", "default") ?: "default"
             dosVoodoo = p.getString("dos_voodoo", "off") ?: "off"
             dosForce60fps = p.getString("dos_force60fps", "on") ?: "on"
-            dosTimeAnnounce = p.getString("dos_time_announce", "none") ?: "none"
             dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad"
             // DOS gamepad overlay button positions (landscape)
             dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
@@ -1311,6 +1358,11 @@ object PadLayoutStore {
             ndsAudioInterpolation = p.getString("nds_audio_interpolation", "Cosine") ?: "Cosine"
             ndsUseFwSettings = p.getString("nds_use_fw_settings", "disabled") ?: "disabled"
             ndsSaveMode = p.getString("nds_save_mode", "nesstation") ?: "nesstation"
+            // 全局存档方式迁移：老版本只有 nds_save_mode（NDS 独有），
+            // 升级后继承用户已选的 NDS 存档方式作为全局默认。
+            globalSaveMode = p.getString("global_save_mode", null)
+                ?: p.getString("nds_save_mode", "nesstation")
+                ?: "nesstation"
             ndsTopLayoutLeft = p.getFloat(KEY_NDS_TOP_LEFT, ndsTopLayoutLeft)
             ndsTopLayoutTop = p.getFloat(KEY_NDS_TOP_TOP, ndsTopLayoutTop)
             ndsTopLayoutRight = p.getFloat(KEY_NDS_TOP_RIGHT, ndsTopLayoutRight)
@@ -1330,8 +1382,30 @@ object PadLayoutStore {
             // PSX (PCSX-ReARMed) options
             pscxBios = p.getString("psx_bios", "auto") ?: "auto"
             pscxRegion = p.getString("psx_region", "auto") ?: "auto"
-            pscxFrameskipType = p.getString("psx_frameskip_type", "disabled") ?: "disabled"
-            pscxFrameskip = p.getString("psx_frameskip", "0") ?: "0"
+            pscxFrameskipType = run {
+                val v = p.getString("psx_frameskip_type", "disabled") ?: "disabled"
+                // 修复旧版值: "fixed" → 规范的 "fixed_interval" (核心真实枚举)
+                if (v == "fixed") "fixed_interval" else v
+            }
+            pscxFrameskipThreshold = p.getString("psx_frameskip_threshold", "33") ?: "33"
+            pscxFrameskip = run {
+                val v = p.getString("psx_frameskip", "3") ?: "3"
+                if (v == "0" || v.isBlank()) "3" else v   // 旧默认 0 对 fixed_interval 无意义
+            }
+            pscxDrcThread = p.getString("psx_drc_thread", "auto") ?: "auto"
+            pscxGpuThreadRendering = p.getString("psx_gpu_thread_rendering", "auto") ?: "auto"
+            pscxIcache = p.getString("psx_icache", "enabled") ?: "enabled"
+            pscxCdTurbo = p.getString("psx_cd_turbo", "disabled") ?: "disabled"
+            pscxFractionalFps = p.getString("psx_fractional_fps", "auto") ?: "auto"
+            pscxAltFlip = p.getString("psx_alt_flip", "auto") ?: "auto"
+            pscxNeonInterlace = p.getString("psx_neon_interlace", "disabled") ?: "disabled"
+            pscxNeonEnhance = p.getString("psx_neon_enhance", "disabled") ?: "disabled"
+            pscxCentering = p.getString("psx_centering", "auto") ?: "auto"
+            pscxCdAudio = p.getString("psx_cd_audio", "enabled") ?: "enabled"
+            pscxXaAudio = p.getString("psx_xa_audio", "enabled") ?: "enabled"
+            pscxSpuThread = p.getString("psx_spu_thread", "disabled") ?: "disabled"
+            pscxNegconResponse = p.getString("psx_negcon_response", "linear") ?: "linear"
+            pscxNegconDeadzone = p.getString("psx_negcon_deadzone", "0") ?: "0"
             pscxPad1Type = p.getString("psx_pad1_type", "standard") ?: "standard"
             pscxPad2Type = p.getString("psx_pad2_type", "standard") ?: "standard"
             pscxVibration = p.getString("psx_vibration", "enabled") ?: "enabled"
@@ -1347,7 +1421,11 @@ object PadLayoutStore {
             pscxRgb32 = p.getString("psx_rgb32", "disabled") ?: "disabled"
             pscxScaleHires = p.getString("psx_scale_hires", "disabled") ?: "disabled"
             pscxShowOverscan = p.getString("psx_show_overscan", "disabled") ?: "disabled"
-            pscxMultitap = p.getString("psx_multitap", "disabled") ?: "disabled"
+            pscxMultitap = run {
+                val v = p.getString("psx_multitap", "disabled") ?: "disabled"
+                // 修复旧版无效值 port1/port2/both → 核心枚举
+                when (v) { "port1" -> "port 1"; "port2" -> "port 2"; "both" -> "ports 1 and 2"; else -> v }
+            }
             pscxGpuOddEven = p.getString("psx_gpu_odd_even", "disabled") ?: "disabled"
             pscxAnalogAxis = p.getString("psx_analog_axis", "square") ?: "square"
             // === Arcade extras ===
@@ -1558,20 +1636,21 @@ object PadLayoutStore {
             putString("dos_sb_adlib_emu", layout.dosSbAdlibEmu)
             putString("dos_gus", layout.dosGus)
             putString("dos_mouse_input", layout.dosMouseInput)
-            putString("dos_mouse_timeout", layout.dosMouseTimeout)
+            // 音频（核心自带混音器）+ CPU/内存/视频补充
+            putString("dos_audio_mode", layout.dosAudioMode)
+            putString("dos_audiorate", layout.dosAudiorate)
+            putString("dos_swap_stereo", layout.dosSwapStereo)
+            putString("dos_tandysound", layout.dosTandySound)
+            putString("dos_cpu_core", layout.dosCpuCore)
+            putString("dos_cpu_type", layout.dosCpuType)
+            putString("dos_memory_size", layout.dosMemorySize)
+            putString("dos_aspect_correction", layout.dosAspectCorrection)
+            putString("dos_cga_mode", layout.dosCgaMode)
             putString("dos_keyboard_layout", layout.dosKeyboardLayout)
-            putString("dos_keyboard_delay", layout.dosKeyboardDelay)
-            putString("dos_keyboard_rate", layout.dosKeyboardRate)
             putString("dos_auto_mapping", layout.dosAutoMapping)
             putString("dos_savestate", layout.dosSavestate)
-            putString("dos_dim_screen", layout.dosDimScreen)
-            putString("dos_resolution", layout.dosResolution)
-            putString("dos_scale", layout.dosScale)
-            putString("dos_aspect_ratio", layout.dosAspectRatio)
-            putString("dos_cga_colors", layout.dosCgaColors)
             putString("dos_voodoo", layout.dosVoodoo)
             putString("dos_force60fps", layout.dosForce60fps)
-            putString("dos_time_announce", layout.dosTimeAnnounce)
             putString("dos_input_mode", layout.dosInputMode)
             // DOS gamepad overlay button positions (landscape)
             saveBtn("dos_dpad", layout.dosDpad)
@@ -1681,7 +1760,8 @@ object PadLayoutStore {
             putString("nds_jit_enable", layout.ndsJitEnable)
             putString("nds_audio_interpolation", layout.ndsAudioInterpolation)
             putString("nds_use_fw_settings", layout.ndsUseFwSettings)
-            putString("nds_save_mode", layout.ndsSaveMode)
+            putString("nds_save_mode", layout.ndsSaveMode)   // legacy (NDS-only), 迁移到 global_save_mode
+            putString("global_save_mode", layout.globalSaveMode)
             putFloat(KEY_NDS_TOP_LEFT, layout.ndsTopLayoutLeft)
             putFloat(KEY_NDS_TOP_TOP, layout.ndsTopLayoutTop)
             putFloat(KEY_NDS_TOP_RIGHT, layout.ndsTopLayoutRight)
@@ -1702,7 +1782,22 @@ object PadLayoutStore {
             putString("psx_bios", layout.pscxBios)
             putString("psx_region", layout.pscxRegion)
             putString("psx_frameskip_type", layout.pscxFrameskipType)
+            putString("psx_frameskip_threshold", layout.pscxFrameskipThreshold)
             putString("psx_frameskip", layout.pscxFrameskip)
+            putString("psx_drc_thread", layout.pscxDrcThread)
+            putString("psx_gpu_thread_rendering", layout.pscxGpuThreadRendering)
+            putString("psx_icache", layout.pscxIcache)
+            putString("psx_cd_turbo", layout.pscxCdTurbo)
+            putString("psx_fractional_fps", layout.pscxFractionalFps)
+            putString("psx_alt_flip", layout.pscxAltFlip)
+            putString("psx_neon_interlace", layout.pscxNeonInterlace)
+            putString("psx_neon_enhance", layout.pscxNeonEnhance)
+            putString("psx_centering", layout.pscxCentering)
+            putString("psx_cd_audio", layout.pscxCdAudio)
+            putString("psx_xa_audio", layout.pscxXaAudio)
+            putString("psx_spu_thread", layout.pscxSpuThread)
+            putString("psx_negcon_response", layout.pscxNegconResponse)
+            putString("psx_negcon_deadzone", layout.pscxNegconDeadzone)
             putString("psx_pad1_type", layout.pscxPad1Type)
             putString("psx_pad2_type", layout.pscxPad2Type)
             putString("psx_vibration", layout.pscxVibration)

@@ -50,6 +50,12 @@ void unload();
 void resetEmulation(bool hard);
 void stepFrame();
 
+// Queue a libretro controller-port device switch (RETRO_DEVICE_JOYPAD /
+// RETRO_DEVICE_ANALOG ...). Applied on the emulation thread at the next
+// stepFrame() — never directly from the caller thread.
+void setPortDevice(int port, int device);
+double videoRefreshRate();
+
 bool copyFramebufferARGB(uint32_t* out, int w, int h);
 int  readAudio(int16_t* out, int maxFrames);
 

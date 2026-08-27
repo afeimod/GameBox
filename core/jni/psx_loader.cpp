@@ -135,6 +135,7 @@ static retro_set_input_state_t           s_retro_set_input_state = nullptr;
 static bool s_loaded = false;
 static bool s_gameLoaded = false;
 static int  s_sampleRate = 0;
+static double s_refreshRate = 60.0;
 static int  s_region = 0;
 static std::string s_systemDir;
 static std::string s_saveDir;
@@ -189,6 +190,14 @@ static std::mutex s_windowMtx;
 static std::mutex s_optMtx;
 static std::map<std::string, std::string> s_options;
 static std::atomic<bool> s_optionsChanged{false};
+
+// Controller-port device switching requested from the UI thread.
+// retro_set_controller_port_device() touches core internals, so instead of
+// calling it directly off the emulation thread we park the request in an
+// atomic and apply it at the top of the next stepFrame() — same thread
+// that calls retro_run(). Layout: bits [3..0] = device id for ports 0..3,
+// 0xFF = no pending request.
+static std::atomic<uint32_t> s_pendingPortDevices{0xFFu << 24};
 
 // ---------------------------------------------------------------------------
 // Initialize PCSX-ReARMed core options with sensible defaults.
@@ -278,6 +287,17 @@ static void initDefaultOptions() {
     s_options["pcsx_rearmed_nocdaudio"]              = "enabled";   // enabled = play CD-DA (note inverted logic)
     s_options["pcsx_rearmed_noxadecoding"]           = "enabled";   // enabled = play XA audio (inverted logic)
     s_options["pcsx_rearmed_spu_thread"]             = "disabled";  // threaded SPU (USE_ASYNC_SPU only)
+
+    // --- Performance / threading ---
+    // pcsx_rearmed_gpu_thread_rendering: runs GPU commands on a worker thread.
+    //   'auto' enables it when ≥2 CPU cores are detected — a large win on all
+    //   modern Android devices. Same for drc_thread (dynarec runs in its own
+    //   thread). Both default to upstream 'auto'.
+    s_options["pcsx_rearmed_drc_thread"]              = "auto";      // auto | disabled | enabled
+    s_options["pcsx_rearmed_gpu_thread_rendering"]    = "auto";      // auto | disabled | enabled
+
+    // --- Display geometry / misc ---
+    s_options["pcsx_rearmed_screen_centering"]        = "auto";      // auto | game | borderless | manual
 
     // --- Input ---
     s_options["pcsx_rearmed_show_input_settings"]    = "disabled";  // hide advanced input options
@@ -441,6 +461,17 @@ static bool cb_environment(unsigned cmd, void* data) {
             return true;
 
         case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+            if (data) {
+                auto* av2 = static_cast<retro_system_av_info*>(data);
+                if (av2->timing.sample_rate > 8000) {
+                    s_sampleRate = (int)av2->timing.sample_rate;
+                    s_resampler.init(s_sampleRate, TARGET_SAMPLE_RATE);
+                }
+                if (av2->timing.fps > 10.0) {
+                    s_refreshRate = av2->timing.fps;
+                }
+                LOGI("SET_SYSTEM_AV_INFO: %d Hz, %.4f fps", s_sampleRate, s_refreshRate);
+            }
             return true;
 
         case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
@@ -593,7 +624,17 @@ static size_t cb_audio_batch(const int16_t* data, size_t frames) {
 static void cb_input_poll() { /* state is read on demand */ }
 
 static int16_t cb_input_state(unsigned port, unsigned device,
-                              unsigned /*index*/, unsigned id) {
+                              unsigned index, unsigned id) {
+    // RETRO_DEVICE_ANALOG (DualShock): report stick axes. The on-screen UI
+    // feeds digital pad bits only, so both sticks rest at center (0).
+    // Games probe the DualShock via this device type — reporting neutral
+    // axes is enough for them to enable analog-only features.
+    if (device == RETRO_DEVICE_ANALOG) {
+        if (id <= 3) return 0;          // LX / LY / RX / RY neutral
+        // Fall through for joypad-style ids (start/select/etc.) so Start+Select
+        // analog-mode combos still work.
+        device = RETRO_DEVICE_JOYPAD;
+    }
     if (device != RETRO_DEVICE_JOYPAD) return 0;
     // PS1 supports up to 4 players via standard ports (8 with dual Multitap).
     const uint16_t bits = (port == 0) ? s_pad1.load(std::memory_order_relaxed)
@@ -603,6 +644,22 @@ static int16_t cb_input_state(unsigned port, unsigned device,
                                        : 0;
     if (id >= 16) return 0;
     return (bits >> id) & 1;
+}
+
+// ---------------------------------------------------------------------------
+// Apply any controller-port device switch queued by setPortDevice() before
+// running the next frame. Executed on the emulation thread only.
+// ---------------------------------------------------------------------------
+static void applyPendingPortDevicesLockedStep() {
+    uint32_t pending = s_pendingPortDevices.load(std::memory_order_acq_rel);
+    if ((pending >> 24) == 0xFF || !s_retro_set_controller_port_device) return;
+    for (int port = 0; port < 4; ++port) {
+        unsigned dev = (pending >> (port * 8)) & 0xFFu;
+        if (dev == 0xFF) dev = RETRO_DEVICE_JOYPAD;
+        s_retro_set_controller_port_device((unsigned)port, dev);
+        LOGI("Controller port %d -> device %u", port, dev);
+    }
+    s_pendingPortDevices.store(0xFFu << 24, std::memory_order_release);
 }
 
 // ---------------------------------------------------------------------------
@@ -780,6 +837,7 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     retro_system_av_info av{};
     s_retro_get_system_av_info(&av);
     s_sampleRate = (int)av.timing.sample_rate;
+    s_refreshRate = (av.timing.fps > 10.0) ? av.timing.fps : 60.0;
     s_region = (av.timing.fps < 55.0) ? 1 : 0;
     regionOut = s_region;
     s_videoW = av.geometry.base_width;
@@ -827,6 +885,7 @@ void unload() {
         s_loaded = false;
     }
     s_sampleRate = 0;
+    s_refreshRate = 60.0;
     s_region = 0;
     s_audio.reset();
     s_resampler.reset();
@@ -854,8 +913,20 @@ void resetEmulation(bool /*hard*/) {
 
 void stepFrame() {
     if (!s_loaded || !s_gameLoaded) return;
+    applyPendingPortDevicesLockedStep();
     s_retro_run();
 }
+
+void setPortDevice(int port, int device) {
+    if (port < 0 || port > 3) return;
+    uint32_t next = s_pendingPortDevices.load(std::memory_order_relaxed);
+    next = (next & ~(0xFFu << (port * 8))) |
+           ((uint32_t)(device & 0xFF) << (port * 8));
+    next &= 0x00FFFFFFu;                    // clear "no pending" flag byte
+    s_pendingPortDevices.store(next, std::memory_order_acq_rel);
+}
+
+double videoRefreshRate() { return s_refreshRate; }
 
 bool copyFramebufferARGB(uint32_t* out, int w, int h) {
     if (!out) return false;

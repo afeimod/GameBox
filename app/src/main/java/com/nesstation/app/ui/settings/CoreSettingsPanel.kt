@@ -3,10 +3,15 @@ package com.nesstation.app.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayout
 
@@ -416,20 +421,56 @@ fun CoreSettingsPanel(
                 }
             }
             GamePlatform.DOS -> item {
+                // 键名/取值均已对照预编译 libdosbox_pure_libretro_android.so 与
+                // 上游 dosbox-pure core_options.h 校验，无效旧项已移除。
                 SettingsSection("DOS (DOSBox-Pure)") {
                     DropdownRow("显示芯片",
                         listOf(
                             "svga_s3" to "SVGA (S3 Trio64, 推荐)",
+                            "vesa_nolfb" to "S3 Trio64 VESA 1.3",
+                            "vesa_oldvbe" to "S3 Trio64 VESA 旧版",
+                            "svga_et3000" to "Tseng ET3000",
+                            "svga_et4000" to "Tseng ET4000",
+                            "svga_paradise" to "Paradise PVGA1A",
                             "vgaonly" to "VGA Only",
                             "ega" to "EGA",
                             "cga" to "CGA",
                             "tandy" to "Tandy",
                             "pcjr" to "PCjr",
-                            "hercules" to "Hercules",
-                            "none" to "无(仅文本模式)"
+                            "hercules" to "Hercules"
                         ),
                         padLayout.dosMachine
                     ) { updateLayout(padLayout.copy {dosMachine = it}) }
+
+                    DropdownRow("CPU 核心(性能)",
+                        listOf(
+                            "auto" to "自动(推荐)",
+                            "dynamic" to "动态重编译(最快)",
+                            "normal" to "普通解释器",
+                            "simple" to "简化解释器(老游戏)"
+                        ),
+                        padLayout.dosCpuCore
+                    ) { updateLayout(padLayout.copy {dosCpuCore = it}) }
+
+                    DropdownRow("CPU 类型",
+                        listOf(
+                            "auto" to "自动 (推荐)",
+                            "386" to "386 (快速)",
+                            "386_slow" to "386 (带特权检查)",
+                            "386_prefetch" to "386 (预取队列, 兼容老游戏)",
+                            "486_slow" to "486 (慢速)",
+                            "pentium_slow" to "Pentium (慢速)"
+                        ),
+                        padLayout.dosCpuType
+                    ) { updateLayout(padLayout.copy {dosCpuType = it}) }
+
+                    DropdownRow("内存大小(重启生效)",
+                        listOf(
+                            "4" to "4 MB", "8" to "8 MB", "16" to "16 MB (推荐)",
+                            "24" to "24 MB", "32" to "32 MB"
+                        ),
+                        padLayout.dosMemorySize
+                    ) { updateLayout(padLayout.copy {dosMemorySize = it}) }
 
                     DropdownRow("CPU 周期",
                         listOf(
@@ -465,6 +506,41 @@ fun CoreSettingsPanel(
                         padLayout.dosSbType
                     ) { updateLayout(padLayout.copy {dosSbType = it}) }
 
+                    DropdownRow("音频输出模式",
+                        listOf(
+                            "core_native" to "核心自带输出 (推荐·无杂音)",
+                            "resample_48k" to "重采样到 48kHz (兼容模式)"
+                        ),
+                        padLayout.dosAudioMode
+                    ) { updateLayout(padLayout.copy {dosAudioMode = it}) }
+                    Text(
+                        "「核心自带输出」直接使用 DOSBox-Pure 混音器的原始采样率播放，不经任何重采样；若仍有个别设备杂音可切到兼容模式。切换后需重进游戏。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp
+                    )
+
+                    DropdownRow("混音器采样率(核心)",
+                        listOf(
+                            "48000" to "48000 Hz (推荐)",
+                            "44100" to "44100 Hz",
+                            "32000" to "32000 Hz",
+                            "22050" to "22050 Hz",
+                            "11025" to "11025 Hz",
+                            "8000" to "8000 Hz",
+                            "49716" to "49716 Hz (OPL 完美还原)"
+                        ),
+                        padLayout.dosAudiorate
+                    ) { updateLayout(padLayout.copy {dosAudiorate = it}) }
+
+                    DropdownRow("立体声反转",
+                        listOf("false" to "关闭", "true" to "开启"),
+                        padLayout.dosSwapStereo
+                    ) { updateLayout(padLayout.copy {dosSwapStereo = it}) }
+
+                    DropdownRow("Tandy 声卡",
+                        listOf("auto" to "自动", "on" to "开启", "off" to "关闭"),
+                        padLayout.dosTandySound
+                    ) { updateLayout(padLayout.copy {dosTandySound = it}) }
+
                     DropdownRow("鼠标输入模式",
                         listOf(
                             "touchpad" to "触控板(推荐·默认)",
@@ -476,11 +552,6 @@ fun CoreSettingsPanel(
                         padLayout.dosMouseInput
                     ) { updateLayout(padLayout.copy {dosMouseInput = it}) }
 
-                    DropdownRow("鼠标超时",
-                        listOf("off" to "关闭", "3" to "3秒", "5" to "5秒", "10" to "10秒"),
-                        padLayout.dosMouseTimeout
-                    ) { updateLayout(padLayout.copy {dosMouseTimeout = it}) }
-
                     DropdownRow("键盘布局",
                         listOf(
                             "us" to "US (美式)", "uk" to "UK (英式)",
@@ -491,48 +562,22 @@ fun CoreSettingsPanel(
                         padLayout.dosKeyboardLayout
                     ) { updateLayout(padLayout.copy {dosKeyboardLayout = it}) }
 
-                    DropdownRow("按键延迟",
-                        listOf("100" to "100ms", "200" to "200ms", "300" to "300ms",
-                               "400" to "400ms", "500" to "500ms"),
-                        padLayout.dosKeyboardDelay
-                    ) { updateLayout(padLayout.copy {dosKeyboardDelay = it}) }
+                    DropdownRow("宽高比修正(CRT)",
+                        listOf("false" to "关闭", "true" to "开启"),
+                        padLayout.dosAspectCorrection
+                    ) { updateLayout(padLayout.copy {dosAspectCorrection = it}) }
 
-                    DropdownRow("按键重复率",
-                        listOf("5" to "5/s", "10" to "10/s", "15" to "15/s",
-                               "20" to "20/s", "30" to "30/s"),
-                        padLayout.dosKeyboardRate
-                    ) { updateLayout(padLayout.copy {dosKeyboardRate = it}) }
-
-                    DropdownRow("分辨率",
+                    DropdownRow("CGA 模式",
                         listOf(
-                            "original" to "原始(推荐)",
-                            "640x480" to "640×480",
-                            "800x600" to "800×600",
-                            "1024x768" to "1024×768",
-                            "1280x720" to "1280×720 (HD)",
-                            "1600x900" to "1600×900 (HD+)",
-                            "1920x1080" to "1920×1080 (FHD)",
-                            "custom" to "自定义"
+                            "early_auto" to "早期型 · 复合自动 (默认)",
+                            "early_on" to "早期型 · 复合开",
+                            "early_off" to "早期型 · 复合关",
+                            "late_auto" to "后期型 · 复合自动",
+                            "late_on" to "后期型 · 复合开",
+                            "late_off" to "后期型 · 复合关"
                         ),
-                        padLayout.dosResolution
-                    ) { updateLayout(padLayout.copy {dosResolution = it}) }
-
-                    DropdownRow("缩放倍数",
-                        listOf("1" to "1×", "2" to "2×", "3" to "3×", "4" to "4×", "5" to "5×"),
-                        padLayout.dosScale
-                    ) { updateLayout(padLayout.copy {dosScale = it}) }
-
-                    DropdownRow("画面比例",
-                        listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9",
-                               "16:10" to "16:10", "stretch" to "拉伸"),
-                        padLayout.dosAspectRatio
-                    ) { updateLayout(padLayout.copy {dosAspectRatio = it}) }
-
-                    DropdownRow("CGA 配色",
-                        listOf("default" to "默认", "amber" to "琥珀色",
-                               "green" to "绿色", "white" to "白色", "bright" to "高亮"),
-                        padLayout.dosCgaColors
-                    ) { updateLayout(padLayout.copy {dosCgaColors = it}) }
+                        padLayout.dosCgaMode
+                    ) { updateLayout(padLayout.copy {dosCgaMode = it}) }
 
                     DropdownRow("自动键位映射",
                         listOf("on" to "开启(推荐)", "off" to "关闭"),
@@ -548,17 +593,6 @@ fun CoreSettingsPanel(
                         listOf("on" to "开启(推荐)", "off" to "关闭"),
                         padLayout.dosForce60fps
                     ) { updateLayout(padLayout.copy {dosForce60fps = it}) }
-
-                    DropdownRow("时间播报",
-                        listOf("none" to "关闭", "boot" to "启动时", "quiet" to "静默"),
-                        padLayout.dosTimeAnnounce
-                    ) { updateLayout(padLayout.copy {dosTimeAnnounce = it}) }
-
-                    DropdownRow("暗屏超时",
-                        listOf("off" to "关闭", "5" to "5秒", "10" to "10秒",
-                               "20" to "20秒", "30" to "30秒", "60" to "60秒"),
-                        padLayout.dosDimScreen
-                    ) { updateLayout(padLayout.copy {dosDimScreen = it}) }
 
                     DropdownRow("存档大小",
                         listOf("on" to "默认", "500" to "500MB", "1000" to "1GB",
@@ -692,16 +726,15 @@ fun CoreSettingsPanel(
                         listOf("Toggle" to "切换", "Hold" to "按住"),
                         padLayout.ndsSwapscreenMode
                     ) { updateLayout(padLayout.copy {ndsSwapscreenMode = it}) }
-                    // NDS 存档方式：
-                    //   nesstation  → 统一存档目录 <filesDir>/saves/<gameId>.sav
-                    //   core_builtin → ROM 同目录同名 .sav（官方 melonDS APK 兼容）
-                    DropdownRow("存档方式",
-                        listOf(
-                            "nesstation" to "NesStation (统一存档目录)",
-                            "core_builtin" to "ROM 同目录同名 .sav (兼容官方 melonDS)"
-                        ),
-                        padLayout.ndsSaveMode
-                    ) { updateLayout(padLayout.copy {ndsSaveMode = it}) }
+                    // NDS 存档方式已升级为全局设置（所有核心通用）：
+                    // 位于 设置 → 存储 → 存档方式。
+                    Text(
+                        "存档方式现已移至「设置 → 存储 → 存档方式」，对所有核心生效" +
+                        "（NDS 写 .sav 兼容官方 melonDS，其他核心写 .srm）。",
+                        color = Color(0xFF4A5568), fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
                     DropdownRow("OpenGL 渲染器",
                         listOf("enabled" to "开启(硬件加速,推荐)", "disabled" to "关闭(软件渲染)"),
                         padLayout.ndsOpenGlRenderer
@@ -776,7 +809,12 @@ fun CoreSettingsPanel(
                 }
             }
             GamePlatform.PSX -> item {
-                SettingsSection("PSX (PCSX-ReARMed)") {
+                // 键名/取值已对照预编译 libpcsx_rearmed_libretro_android.so
+                // 与 notaz/pcsx_rearmed 上游 libretro_core_options.h 校验。
+                // 说明: PCSX-ReARMed 的 libretro 核心只有软件 GPU 插件
+                // (gpu_neon/gpu_unai/gpu_peops)，没有 Vulkan/OpenGL 硬件渲染；
+                // 性能主要靠 动态重编译(DRC)、DRC/GPU 线程化、跳帧 与 CPU 频率。
+                SettingsSection("PSX (PCSX-ReARMed) · 系统") {
                     DropdownRow("BIOS",
                         listOf("auto" to "自动", "HLE" to "HLE(无 BIOS)",
                                "scph1000" to "SCPH-1000(日)", "scph1001" to "SCPH-1001(美)",
@@ -789,56 +827,195 @@ fun CoreSettingsPanel(
                         listOf("auto" to "自动", "ntsc" to "NTSC", "pal" to "PAL"),
                         padLayout.pscxRegion
                     ) { updateLayout(padLayout.copy {pscxRegion = it}) }
-                    DropdownRow("跳帧类型",
-                        listOf("disabled" to "关闭", "auto" to "自动", "fixed" to "固定"),
-                        padLayout.pscxFrameskipType
-                    ) { updateLayout(padLayout.copy {pscxFrameskipType = it}) }
-                    DropdownRow("固定跳帧数",
-                        listOf("1" to "1", "2" to "2", "3" to "3", "4" to "4", "5" to "5", "6" to "6", "8" to "8", "10" to "10"),
-                        padLayout.pscxFrameskip
-                    ) { updateLayout(padLayout.copy {pscxFrameskip = it}) }
-                    DropdownRow("1P 手柄类型",
-                        listOf("standard" to "标准(D-Pad)", "analog" to "模拟摇杆",
-                               "negcon" to "NeGcon", "gun" to "光枪"),
-                        padLayout.pscxPad1Type
-                    ) { updateLayout(padLayout.copy {pscxPad1Type = it}) }
-                    DropdownRow("2P 手柄类型",
-                        listOf("standard" to "标准(D-Pad)", "analog" to "模拟摇杆",
-                               "negcon" to "NeGcon", "gun" to "光枪"),
-                        padLayout.pscxPad2Type
-                    ) { updateLayout(padLayout.copy {pscxPad2Type = it}) }
-                    DropdownRow("震动",
-                        listOf("enabled" to "开启", "disabled" to "关闭"),
-                        padLayout.pscxVibration
-                    ) { updateLayout(padLayout.copy {pscxVibration = it}) }
-                    DropdownRow("抖动",
-                        listOf("enabled" to "开启", "disabled" to "关闭"),
-                        padLayout.pscxDithering
-                    ) { updateLayout(padLayout.copy {pscxDithering = it}) }
-                    DropdownRow("SPU 插值",
-                        listOf("simple" to "简单", "gaussian" to "高斯", "cubic" to "立方", "off" to "关闭"),
-                        padLayout.pscxSpuInterp
-                    ) { updateLayout(padLayout.copy {pscxSpuInterp = it}) }
-                    DropdownRow("SPU 混响",
-                        listOf("enabled" to "开启", "disabled" to "关闭"),
-                        padLayout.pscxSpuReverb
-                    ) { updateLayout(padLayout.copy {pscxSpuReverb = it}) }
                     DropdownRow("显示 BIOS 启动画面",
                         listOf("disabled" to "关闭", "enabled" to "开启"),
                         padLayout.pscxShowBootlogo
                     ) { updateLayout(padLayout.copy {pscxShowBootlogo = it}) }
-                    DropdownRow("CD 预读扇区",
-                        listOf("0" to "0", "4" to "4", "8" to "8", "12" to "12(默认)", "16" to "16", "20" to "20", "30" to "30"),
-                        padLayout.pscxCdReadahead
-                    ) { updateLayout(padLayout.copy {pscxCdReadahead = it}) }
                     DropdownRow("记忆卡 1",
-                        listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                        listOf("libretro" to "Libretro (每游戏独立)", "serial" to "串行槽位",
+                               "shared" to "共享 (全部游戏共用)", "none" to "关闭"),
                         padLayout.pscxMemcard1
                     ) { updateLayout(padLayout.copy {pscxMemcard1 = it}) }
                     DropdownRow("记忆卡 2",
-                        listOf("libretro" to "Libretro", "shared" to "共享", "disabled" to "关闭"),
+                        listOf("shared" to "共享 (默认)", "libretro" to "Libretro",
+                               "none" to "关闭"),
                         padLayout.pscxMemcard2
                     ) { updateLayout(padLayout.copy {pscxMemcard2 = it}) }
+                    DropdownRow("CD 预读扇区",
+                        listOf("0" to "0", "4" to "4", "8" to "8", "12" to "12(默认)",
+                               "16" to "16", "20" to "20", "30" to "30"),
+                        padLayout.pscxCdReadahead
+                    ) { updateLayout(padLayout.copy {pscxCdReadahead = it}) }
+                    DropdownRow("屏幕居中",
+                        listOf("auto" to "自动(推荐)", "game" to "游戏内容",
+                               "borderless" to "无边框"),
+                        padLayout.pscxCentering
+                    ) { updateLayout(padLayout.copy {pscxCentering = it}) }
+                }
+
+                SettingsSection("PSX · 性能") {
+                    DropdownRow("动态重编译 DRC",
+                        listOf("enabled" to "开启 (推荐·性能关键)", "disabled" to "关闭(慢速解释器)"),
+                        padLayout.pscxDrc
+                    ) { updateLayout(padLayout.copy {pscxDrc = it}) }
+                    DropdownRow("DRC 线程化",
+                        listOf("auto" to "自动 (推荐)", "enabled" to "开启",
+                               "disabled" to "关闭"),
+                        padLayout.pscxDrcThread
+                    ) { updateLayout(padLayout.copy {pscxDrcThread = it}) }
+                    DropdownRow("GPU 渲染线程化",
+                        listOf("auto" to "自动 (推荐·多核提速明显)", "enabled" to "开启",
+                               "disabled" to "关闭"),
+                        padLayout.pscxGpuThreadRendering
+                    ) { updateLayout(padLayout.copy {pscxGpuThreadRendering = it}) }
+                    DropdownRow("PSX CPU 频率",
+                        listOf(
+                            "auto" to "自动 (推荐)",
+                            "50" to "50%", "57" to "57% (标准实测值)",
+                            "60" to "60%", "70" to "70%", "80" to "80%",
+                            "90" to "90%", "100" to "100%"
+                        ),
+                        padLayout.pscxClock
+                    ) { updateLayout(padLayout.copy {pscxClock = it}) }
+                    Text(
+                        "超频可减少部分游戏慢动作，但过高容易死机/花屏；一般保持「自动」。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                    DropdownRow("跳帧类型",
+                        listOf("disabled" to "关闭", "auto" to "自动",
+                               "auto_threshold" to "自动(按阈值)", "fixed_interval" to "固定间隔"),
+                        padLayout.pscxFrameskipType
+                    ) { updateLayout(padLayout.copy {pscxFrameskipType = it}) }
+                    if (padLayout.pscxFrameskipType == "fixed_interval") {
+                        DropdownRow("固定跳帧数",
+                            (1..10).map { it.toString() to it.toString() },
+                            padLayout.pscxFrameskip
+                        ) { updateLayout(padLayout.copy {pscxFrameskip = it}) }
+                    }
+                    if (padLayout.pscxFrameskipType == "auto_threshold") {
+                        DropdownRow("跳帧阈值 %",
+                            listOf("15","18","21","24","27","30","33","36","39","42",
+                                   "45","48","51","54","57","60","65","70","75","80")
+                                .map {
+                                    v -> v to if (v=="33") "33 (默认)" else v },
+                            padLayout.pscxFrameskipThreshold
+                        ) { updateLayout(padLayout.copy {pscxFrameskipThreshold = it}) }
+                    }
+                    Text(
+                        "跳帧可在弱设备上保证声音流畅（避免缓冲欠载的爆音），代价是画面不连贯。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                    DropdownRow("小数帧率(PAL 准确速度)",
+                        listOf("auto" to "自动", "enabled" to "强制开", "disabled" to "禁用"),
+                        padLayout.pscxFractionalFps
+                    ) { updateLayout(padLayout.copy {pscxFractionalFps = it}) }
+                    DropdownRow("CD 加速(不安全)",
+                        listOf("disabled" to "关闭", "enabled" to "开启(提速·兼容性风险)"),
+                        padLayout.pscxCdTurbo
+                    ) { updateLayout(padLayout.copy {pscxCdTurbo = it}) }
+                }
+
+                SettingsSection("PSX · 画面") {
+                    DropdownRow("抖动(色彩过渡)",
+                        listOf("enabled" to "开启(原始效果)", "disabled" to "关闭"),
+                        padLayout.pscxDithering
+                    ) { updateLayout(padLayout.copy {pscxDithering = it}) }
+                    DropdownRow("32 位色彩输出",
+                        listOf("disabled" to "关闭 (16位·更快)", "enabled" to "开启 (32位·更准)"),
+                        padLayout.pscxRgb32
+                    ) { updateLayout(padLayout.copy {pscxRgb32 = it}) }
+                    DropdownRow("高分辨率降采样",
+                        listOf("disabled" to "关闭", "enabled" to "开启 (480i→240p, 提速)"),
+                        padLayout.pscxScaleHires
+                    ) { updateLayout(padLayout.copy {pscxScaleHires = it}) }
+                    DropdownRow("过扫描区域",
+                        listOf("disabled" to "隐藏", "enabled" to "显示"),
+                        padLayout.pscxShowOverscan
+                    ) { updateLayout(padLayout.copy {pscxShowOverscan = it}) }
+                    DropdownRow("NEON 隔行优化",
+                        listOf("auto" to "自动", "enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.pscxNeonInterlace
+                    ) { updateLayout(padLayout.copy {pscxNeonInterlace = it}) }
+                    DropdownRow("NEON 高分辨率增强(慢)",
+                        listOf("disabled" to "关闭", "enabled" to "开启 (2倍分辨率)"),
+                        padLayout.pscxNeonEnhance
+                    ) { updateLayout(padLayout.copy {pscxNeonEnhance = it}) }
+                    DropdownRow("交替翻转方式",
+                        listOf("auto" to "自动", "early" to "早翻转", "late" to "晚翻转"),
+                        padLayout.pscxAltFlip
+                    ) { updateLayout(padLayout.copy {pscxAltFlip = it}) }
+                }
+
+                SettingsSection("PSX · 音频 SPU") {
+                    DropdownRow("SPU 插值",
+                        listOf("simple" to "简单 (推荐·最快)", "gaussian" to "高斯(最接近原机)",
+                               "cubic" to "立方 (高质量·较慢)", "off" to "关闭 (最快·音质差)"),
+                        padLayout.pscxSpuInterp
+                    ) { updateLayout(padLayout.copy {pscxSpuInterp = it}) }
+                    DropdownRow("SPU 混响",
+                        listOf("enabled" to "开启 (原机效果)", "disabled" to "关闭 (提速)"),
+                        padLayout.pscxSpuReverb
+                    ) { updateLayout(padLayout.copy {pscxSpuReverb = it}) }
+                    DropdownRow("CD 音轨 (CDDA)",
+                        listOf("enabled" to "播放 (默认)", "disabled" to "关闭 (提速)"),
+                        padLayout.pscxCdAudio
+                    ) { updateLayout(padLayout.copy {pscxCdAudio = it}) }
+                    DropdownRow("XA 音频解码",
+                        listOf("enabled" to "播放 (默认)", "disabled" to "关闭 (提速)"),
+                        padLayout.pscxXaAudio
+                    ) { updateLayout(padLayout.copy {pscxXaAudio = it}) }
+                    DropdownRow("SPU 线程化",
+                        listOf("disabled" to "关闭 (默认)", "enabled" to "开启"),
+                        padLayout.pscxSpuThread
+                    ) { updateLayout(padLayout.copy {pscxSpuThread = it}) }
+                }
+
+                SettingsSection("PSX · 手柄 / 输入") {
+                    DropdownRow("1P 手柄类型",
+                        listOf("standard" to "标准数字手柄", "analog" to "DualShock 模拟手柄",
+                               "negcon" to "neGcon 旋柄", "gun" to "光枪 G-Con"),
+                        padLayout.pscxPad1Type
+                    ) { updateLayout(padLayout.copy {pscxPad1Type = it}) }
+                    DropdownRow("2P 手柄类型",
+                        listOf("standard" to "标准数字手柄", "analog" to "DualShock 模拟手柄",
+                               "negcon" to "neGcon 旋柄", "gun" to "光枪 G-Con"),
+                        padLayout.pscxPad2Type
+                    ) { updateLayout(padLayout.copy {pscxPad2Type = it}) }
+                    Text(
+                        "DualShock 模式面向需要摇杆的游戏 (如 Ape Escape)；切换后需重进游戏。",
+                        color = Color(0xFF4A5568), fontSize = 10.sp, lineHeight = 14.sp)
+                    DropdownRow("震动反馈",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        padLayout.pscxVibration
+                    ) { updateLayout(padLayout.copy {pscxVibration = it}) }
+                    DropdownRow("多重手柄 Multitap",
+                        listOf("disabled" to "关闭", "port 1" to "接口 1 (最多5人)",
+                               "port 2" to "接口 2 (最多5人)", "ports 1 and 2" to "双接口 (最多8人)"),
+                        padLayout.pscxMultitap
+                    ) { updateLayout(padLayout.copy {pscxMultitap = it}) }
+                    DropdownRow("模拟摇杆边界",
+                        listOf("square" to "方形 (推荐)", "circle" to "圆形"),
+                        padLayout.pscxAnalogAxis
+                    ) { updateLayout(padLayout.copy {pscxAnalogAxis = it}) }
+                    DropdownRow("neGcon 扭转响应",
+                        listOf("linear" to "线性", "quadratic" to "二次 (推荐)",
+                               "cubic" to "三次"),
+                        padLayout.pscxNegconResponse
+                    ) { updateLayout(padLayout.copy {pscxNegconResponse = it}) }
+                    DropdownRow("neGcon 死区 %",
+                        listOf("0","3","5","7","10","13","15","17","20","23","25","27","30")
+                            .map { v -> v to if (v=="0") "0 (默认)" else v },
+                        padLayout.pscxNegconDeadzone
+                    ) { updateLayout(padLayout.copy {pscxNegconDeadzone = it}) }
+                }
+
+                SettingsSection("PSX · 游戏兼容修正") {
+                    DropdownRow("Peops 奇偶位 Hack",
+                        listOf("disabled" to "关闭", "enabled" to "开启 (时空之轮需要)"),
+                        padLayout.pscxGpuOddEven
+                    ) { updateLayout(padLayout.copy {pscxGpuOddEven = it}) }
+                    DropdownRow("iCache 模拟",
+                        listOf("enabled" to "开启 (F1 系列需要)", "disabled" to "关闭 (稍快)"),
+                        padLayout.pscxIcache
+                    ) { updateLayout(padLayout.copy {pscxIcache = it}) }
                 }
             }
         }

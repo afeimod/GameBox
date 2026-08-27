@@ -58,6 +58,12 @@ public:
     void setSampleRate(int hz);
     void setFastForward(int speed);
 
+    // Switch a controller port between RETRO_DEVICE_JOYPAD (standard digital)
+    // and RETRO_DEVICE_ANALOG (DualShock). Queued; applied on the emu thread.
+    void setPortDevice(int port, int device);
+    // Core-reported refresh rate (59.82614 NTSC / 50.0 PAL / ...).
+    double videoRefreshRate();
+
     void saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);
 

@@ -99,6 +99,18 @@ object PsxNative {
     @JvmStatic external fun setSampleRate(rate: Int)
     @JvmStatic external fun setFastForward(speed: Int)
 
+    /**
+     * Switch a controller port between digital and DualShock (analog).
+     * @param port 0..3
+     * @param device RETRO_DEVICE_JOYPAD (1) or RETRO_DEVICE_ANALOG (5).
+     *        Queued natively; applied on the emulation thread before the next
+     *        frame — safe to call from the UI thread at any time.
+     */
+    @JvmStatic external fun setControllerDevice(port: Int, device: Int)
+
+    /** Core-reported refresh rate in Hz (59.82614 NTSC / 50.0 PAL). */
+    @JvmStatic external fun videoFps(): Double
+
     @JvmStatic external fun saveState(slot: Int, path: String): Boolean
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean
 
@@ -114,24 +126,26 @@ object PsxNative {
 
     /**
      * Set a core option by key and value.
-     * Common PCSX-ReARMed keys (must match libretro_core_options.h):
-     *   "pcsx_rearmed_bios"              -> "auto" | "HLE" | "scph1000" | "scph1001" | ...
-     *   "pcsx_rearmed_region"            -> "auto" | "ntsc" | "pal"
-     *   "pcsx_rearmed_frameskip_type"    -> "disabled" | "auto" | "fixed"
-     *   "pcsx_rearmed_frameskip"         -> "0".."10"
-     *   "pcsx_rearmed_pad1type"          -> "standard" | "analog" | "negcon" | "gun"
-     *   "pcsx_rearmed_pad2type"          -> "standard" | "analog" | "negcon" | "gun"
-     *   "pcsx_rearmed_vibration"         -> "enabled" | "disabled"
-     *   "pcsx_rearmed_dithering"         -> "enabled" | "disabled"
-     *   "pcsx_rearmed_spu_interpolation" -> "simple" | "gaussian" | "cubic" | "off"
-     *   "pcsx_rearmed_spu_reverb"        -> "enabled" | "disabled"
-     *   "pcsx_rearmed_show_bios_bootlogo"-> "disabled" | "enabled"
-     *   "pcsx_rearmed_cd_readahead"      -> "0".."30"
-     *   "pcsx_rearmed_memcard1"          -> "libretro" | "shared" | "disabled"
-     *   "pcsx_rearmed_memcard2"          -> "libretro" | "shared" | "disabled"
-     *   "pcsx_rearmed_psxclock"          -> "auto" | "50".."200"
-     *   "pcsx_rearmed_icache_emulation"  -> "disabled" | "enabled"
-     *   "pcsx_rearmed_nocompathacks"      -> "disabled" | "enabled"
+     * Common PCSX-ReARMed keys (must match libretro_core_options.h —
+     * verified against the shipped libpcsx_rearmed_libretro_android.so):
+     *   "pcsx_rearmed_bios"                -> "auto" | "HLE" | "scph1000" | ...
+     *   "pcsx_rearmed_region"              -> "auto" | "ntsc" | "pal"
+     *   "pcsx_rearmed_frameskip_type"      -> "disabled" | "auto" | "auto_threshold" | "fixed_interval"
+     *   "pcsx_rearmed_frameskip_threshold" -> "15".."80"  (auto_threshold mode)
+     *   "pcsx_rearmed_frameskip_interval"  -> "1".."10"   (fixed_interval mode)
+     *   "pcsx_rearmed_drc"                 -> "enabled" | "disabled"  (dynarec)
+     *   "pcsx_rearmed_drc_thread"          -> "auto" | "disabled" | "enabled"
+     *   "pcsx_rearmed_psxclock"            -> "auto" | "30".."100"
+     *   "pcsx_rearmed_gpu_thread_rendering"-> "auto" | "disabled" | "enabled"
+     *   "pcsx_rearmed_vibration"           -> "enabled" | "disabled"
+     *   "pcsx_rearmed_dithering"           -> "enabled" | "disabled"
+     *   "pcsx_rearmed_spu_interpolation"   -> "simple" | "gaussian" | "cubic" | "off"
+     *   "pcsx_rearmed_spu_reverb"          -> "enabled" | "disabled"
+     *   "pcsx_rearmed_nocdaudio"           -> "enabled"(play) | "disabled"(mute)  [inverted]
+     *   "pcsx_rearmed_noxadecoding"        -> "enabled"(play) | "disabled"(skip)  [inverted]
+     *   "pcsx_rearmed_rgb32_output"        -> "disabled" | "enabled"
+     *   "pcsx_rearmed_memcard1/2"          -> "libretro" | "serial" | "shared" | "none"
+     * Controller types are NOT core options — use [setControllerDevice].
      */
     @JvmStatic external fun setCoreOption(key: String, value: String)
 

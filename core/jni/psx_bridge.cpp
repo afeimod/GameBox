@@ -53,6 +53,9 @@ void Engine::setRegion(int region)    { rom::applyRegion(region); }
 void Engine::setSampleRate(int hz)    { rom::applySampleRate(hz); }
 void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)speed : 1.0f); }
 
+void Engine::setPortDevice(int port, int device) { rom::setPortDevice(port, device); }
+double Engine::videoRefreshRate() { return rom::videoRefreshRate(); }
+
 void Engine::saveState(int slot, const std::string& path) {
     rom::saveStateToPath(slot, path);
 }
@@ -169,6 +172,16 @@ Java_com_nesstation_app_core_jni_PsxNative_setSampleRate(JNIEnv*, jclass, jint r
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_PsxNative_setFastForward(JNIEnv*, jclass, jint speed) {
     psxcore::Engine::instance().setFastForward(speed);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_PsxNative_setControllerDevice(JNIEnv*, jclass, jint port, jint device) {
+    psxcore::Engine::instance().setPortDevice((int)port, (int)device);
+}
+
+JNIEXPORT jdouble JNICALL
+Java_com_nesstation_app_core_jni_PsxNative_videoFps(JNIEnv*, jclass) {
+    return (jdouble)psxcore::Engine::instance().videoRefreshRate();
 }
 
 JNIEXPORT jboolean JNICALL
