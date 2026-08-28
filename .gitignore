@@ -2,6 +2,12 @@
 .gradle/
 build/
 **/build/
+# Vendored zstd/lz4 CMake build scripts must stay tracked: their top-level
+# CMakeLists.txt does add_subdirectory(build/cmake).
+!ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/zstd/build/
+!ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/zstd/build/**
+!ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/lz4/build/
+!ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/lz4/build/**
 local.properties
 gradle-app.setting
 .gradletasknamecache
