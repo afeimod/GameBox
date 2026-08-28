@@ -40,6 +40,147 @@
 #endif
 #endif
 
+#if defined(__ANDROID__) && (!defined(__ANDROID_API__) || __ANDROID_API__ < 24)
+// Android < 24（Android 7.0）的 bionic 不提供 getifaddrs()/freeifaddrs()（只定义
+// ifaddrs 结构体）。这里用 ioctl(SIOCGIFCONF) 提供最小实现，保证 DEV9 的适配器枚举
+// 在旧设备上可用。DEV9 sockets 模式在 Android 上只消费 AF_INET 接口，因此这里仅
+// 报告 IPv4 地址即可。
+#include <errno.h>
+#include <stdlib.h>
+
+extern "C" void freeifaddrs(struct ifaddrs* ifa)
+{
+	while (ifa)
+	{
+		struct ifaddrs* const next = ifa->ifa_next;
+		free(ifa->ifa_name);
+		free(ifa->ifa_addr);
+		free(ifa->ifa_netmask);
+		free(ifa->ifa_data);
+		free(ifa);
+		ifa = next;
+	}
+}
+
+extern "C" int getifaddrs(struct ifaddrs** result)
+{
+	if (result == nullptr)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	*result = nullptr;
+
+	const int sd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sd < 0)
+		return -1;
+
+	// 查询接口表：不断增大缓冲区，直到某次调用不再填满整个缓冲区。
+	size_t bufSize = 4096;
+	char* buf = static_cast<char*>(malloc(bufSize));
+	if (buf == nullptr)
+	{
+		close(sd);
+		errno = ENOMEM;
+		return -1;
+	}
+
+	struct ifconf ifc;
+	for (;;)
+	{
+		ifc.ifc_len = static_cast<int>(bufSize);
+		ifc.ifc_buf = buf;
+		if (ioctl(sd, SIOCGIFCONF, &ifc) < 0)
+		{
+			free(buf);
+			close(sd);
+			return -1;
+		}
+		if (static_cast<size_t>(ifc.ifc_len) < bufSize)
+			break;
+
+		bufSize *= 2;
+		if (bufSize > (1u << 20))
+		{
+			free(buf);
+			close(sd);
+			errno = ENOBUFS;
+			return -1;
+		}
+		char* const bigger = static_cast<char*>(realloc(buf, bufSize));
+		if (bigger == nullptr)
+		{
+			free(buf);
+			close(sd);
+			errno = ENOMEM;
+			return -1;
+		}
+		buf = bigger;
+	}
+
+	struct ifaddrs* list = nullptr;
+	struct ifaddrs** tail = &list;
+	bool oom = false;
+
+	const size_t len = static_cast<size_t>(ifc.ifc_len);
+	size_t off = 0;
+	while (off + sizeof(struct ifreq) <= len)
+	{
+		const struct ifreq* const ifr = reinterpret_cast<const struct ifreq*>(buf + off);
+		// SIOCGIFCONF 返回的 AF_INET 项大小为 sizeof(struct ifreq)；若内核未来返回
+		// 其他协议族，则按更大的 sockaddr_* 计算该项大小。
+		size_t entrySize = sizeof(struct ifreq);
+		if (ifr->ifr_addr.sa_family == AF_INET)
+			entrySize = sizeof(ifr->ifr_name) + sizeof(struct sockaddr_in);
+		off += entrySize;
+
+		if (ifr->ifr_addr.sa_family != AF_INET)
+			continue;
+
+		struct ifaddrs* const cur = static_cast<struct ifaddrs*>(calloc(1, sizeof(struct ifaddrs)));
+		if (cur == nullptr)
+		{
+			oom = true;
+			break;
+		}
+
+		cur->ifa_name = strdup(ifr->ifr_name);
+		cur->ifa_addr = static_cast<struct sockaddr*>(malloc(sizeof(struct sockaddr_in)));
+		if (cur->ifa_name == nullptr || cur->ifa_addr == nullptr)
+		{
+			free(cur->ifa_name);
+			free(cur->ifa_addr);
+			free(cur);
+			oom = true;
+			break;
+		}
+		memcpy(cur->ifa_addr, &ifr->ifr_addr, sizeof(struct sockaddr_in));
+
+		// IFF_UP / IFF_LOOPBACK 标志来自单独的 SIOCGIFFLAGS 查询。
+		struct ifreq flags_req{};
+		memcpy(flags_req.ifr_name, ifr->ifr_name, sizeof(flags_req.ifr_name));
+		if (ioctl(sd, SIOCGIFFLAGS, &flags_req) == 0)
+			cur->ifa_flags = flags_req.ifr_flags;
+
+		*tail = cur;
+		tail = &cur->ifa_next;
+	}
+
+	free(buf);
+	close(sd);
+
+	if (oom)
+	{
+		freeifaddrs(list);
+		errno = ENOMEM;
+		return -1;
+	}
+
+	*result = list;
+	return 0;
+}
+#endif
+
 using namespace PacketReader;
 using namespace PacketReader::IP;
 

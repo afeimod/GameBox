@@ -12,6 +12,14 @@
 #include <ifaddrs.h>
 #endif
 
+// bionic 的 <ifaddrs.h> 仅从 API 24（Android 7.0）起声明 getifaddrs()/freeifaddrs()，
+// 更低 API 级别完全没有这两个函数。此处补充声明使下方 IfAdaptersDeleter 能够编译，
+// 具体实现在 AdapterUtils.cpp（基于 ioctl(SIOCGIFCONF)）。
+#if defined(__ANDROID__) && (!defined(__ANDROID_API__) || __ANDROID_API__ < 24)
+extern "C" int getifaddrs(struct ifaddrs** __list_ptr);
+extern "C" void freeifaddrs(struct ifaddrs* __ptr);
+#endif
+
 #include <string>
 #include <memory>
 #include <optional>

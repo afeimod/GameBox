@@ -10,7 +10,10 @@ android {
 
     defaultConfig {
         applicationId = "com.nesstation.app"
-        minSdk = 21
+        // API 24 (Android 7.0)：bionic 从 24 起才提供 getifaddrs()/freeifaddrs()，
+        // DEV9 的适配器枚举依赖它（见 pcsx2/DEV9/AdapterUtils）。低于 24 只能靠
+        // ioctl(SIOCGIFCONF) 兼容实现，在 Android 沙箱里拿不到 wlan0 等接口。
+        minSdk = 24
         targetSdk = 34
         versionCode = 4
         versionName = "3.3.0"
@@ -54,7 +57,8 @@ android {
                 // 导致其标准库 C++20 符号(如 lexicographical_compare_three_way)不可用。
                 arguments += listOf(
                     "-DANDROID_STL=c++_static",
-                    "-DANDROID_PLATFORM=android-21"
+                    // 与 minSdk=24 保持一致：保证 bionic 声明 getifaddrs()/freeifaddrs()。
+                    "-DANDROID_PLATFORM=android-24"
                 )
             }
         }
