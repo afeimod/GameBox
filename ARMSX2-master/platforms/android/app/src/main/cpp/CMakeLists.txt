@@ -299,12 +299,17 @@ target_link_libraries(${ARMSX2_EMUCORE_LIBRARY_NAME} PRIVATE
 	imgui
 	libzip::zip
 	SDL3::SDL3
-	shaderc
 	vixl
 	adrenotools
 	android
 	log
 )
+
+# shaderc exists only in USE_VULKAN builds (SearchForStuff.cmake), and VKShaderCache.cpp — its
+# only consumer — is not compiled when Vulkan is off, so a plain -lshaderc would fail to link.
+if(USE_VULKAN)
+	target_link_libraries(${ARMSX2_EMUCORE_LIBRARY_NAME} PRIVATE shaderc)
+endif()
 
 # ★ AFTER the emucore target exists — add_dependencies needs a target that has already been
 # created, and stating this next to the flurry target itself (which is defined earlier in this

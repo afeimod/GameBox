@@ -27,8 +27,10 @@
 #include "GS/GSPerfMon.h"
 #include "GS/GSUtil.h" // GSUtil::AndroidAutoPrefersVulkan (Auto renderer steering)
 #include "GS/Renderers/Common/GSDevice.h" // GSDevice::SetShaderChainParams (shader chain params)
+#if defined(ENABLE_VULKAN)
 #include "GS/Renderers/Vulkan/VKShaderCache.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h" // LSFG availability query (JNI)
+#endif
 #include "GSDumpReplayer.h"
 #include "ImGui/ImGuiManager.h"
 #include "ImGui/ImGuiOverlays.h"
@@ -51,7 +53,9 @@
 #include "SIO/Pad/PadDualshock2.h"
 #include "MTGS.h"
 #include "SPU2/spu2.h"
+#if defined(ENABLE_VULKAN)
 #include "GS/Renderers/Vulkan/VKLoader.h"
+#endif
 #include "GS/Renderers/HW/GSTextureReplacements.h"
 #include "GS/Renderers/Common/GSRenderer.h"
 #include "SDL3/SDL.h"
@@ -818,6 +822,7 @@ Java_kr_co_iefriends_pcsx2_NativeApp_isHardwareRenderer(JNIEnv *env, jclass claz
     return GSIsHardwareRenderer() ? JNI_TRUE : JNI_FALSE;
 }
 
+#if defined(ENABLE_VULKAN)
 // Custom Vulkan driver pin. Called from Main.applyRendererPrefs BEFORE the
 // VM starts so the first MTGS::Open (which triggers Vulkan::LoadVulkanLibrary)
 // picks up the custom driver. Empty strings revert to the system loader.
@@ -835,6 +840,7 @@ Java_kr_co_iefriends_pcsx2_NativeApp_setCustomVulkanDriver(
     Vulkan::SetCustomDriverPath(
         dir.c_str(), name.c_str(), redir.c_str(), hook.c_str());
 }
+#endif
 
 extern "C"
 JNIEXPORT jfloat JNICALL
@@ -2926,6 +2932,11 @@ Java_kr_co_iefriends_pcsx2_NativeApp_setOutputPauseSuppressed(JNIEnv *env, jclas
     SPU2::SetOutputPauseSuppressed(suppressed == JNI_TRUE);
 }
 
+#if defined(ENABLE_VULKAN)
+// The three JNI entries below (lsfgAvailability / lsfgDllChanged / flushShaderCache) touch
+// Vulkan-only subsystems (GSLsfg / VKShaderCache) that are not compiled in USE_VULKAN=OFF
+// builds (GameBox disables Vulkan because shaderc's third_party sources aren't bundled).
+// GameBox's Kotlin layer never calls them, so compile them out entirely in that configuration.
 extern "C"
 JNIEXPORT jint JNICALL
 Java_kr_co_iefriends_pcsx2_NativeApp_lsfgAvailability(JNIEnv *env, jclass clazz, jstring dll_path) {
@@ -3005,6 +3016,7 @@ Java_kr_co_iefriends_pcsx2_NativeApp_flushShaderCache(JNIEnv *env, jclass clazz)
         });
     });
 }
+#endif // ENABLE_VULKAN
 
 extern "C"
 JNIEXPORT void JNICALL
