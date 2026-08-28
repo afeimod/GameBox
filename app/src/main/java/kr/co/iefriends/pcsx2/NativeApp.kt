@@ -149,4 +149,117 @@ object NativeApp {
 
     @JvmStatic external fun getGameTitle(): String
     @JvmStatic external fun getGameSerial(): String
+
+    // ------------------------------------------------------------------
+    // Host callbacks invoked FROM the native emulation thread.
+    //
+    // The emucore caches these static method IDs at initialize() via
+    // GetStaticMethodID with NO exception guard — a missing method throws
+    // NoSuchMethodError at boot and aborts the app (SIGABRT, seen as "PS2
+    // startup crash"). They MUST exist with these exact JNI signatures.
+    // All are called on a non-Java thread (EE/IOP/GS) attached via JNI, so
+    // they must never throw and must not touch UI state directly.
+    // ------------------------------------------------------------------
+
+    /**
+     * Core reports the VM paused/resumed (Host::OnVMPaused / OnVMResumed).
+     * GameBox drives pause from the UI via [pause]/[resume] and tracks the
+     * state itself (Psx2Engine / EmulatorScreen), so this echo is
+     * intentionally a no-op — forwarding it could race the UI's own
+     * pause/resume/shutdown and flip a closing screen back to running.
+     */
+    @JvmStatic
+    fun vmSetPaused(paused: Boolean) {
+        // Intentionally empty — see KDoc.
+    }
+
+    /**
+     * PS2 pad motor intensity changed (unified slot: 0=Player1, 1=Player2);
+     * large/small are 0..255. Best-effort: drive the device's built-in
+     * vibrator with the same weighted blend the reference frontend uses
+     * (0.6*large + 0.4*small) so a small-motor-only pulse stays light and
+     * distinct. Gated upstream by the core's "Pad1/ForceFeedback" setting
+     * (pcsx2_rumble option). Must never throw — called from the IOP thread.
+     */
+    @JvmStatic
+    fun onPadRumble(pad: Int, largeMotor: Int, smallMotor: Int) {
+        try {
+            if (pad < 0 || largeMotor < 0 || smallMotor < 0) return
+            val intensity = (largeMotor / 255f * 0.6f + smallMotor / 255f * 0.4f)
+                .coerceIn(0f, 1f)
+            if (intensity <= 0f) return
+            val ctx = com.nesstation.app.core.jni.Psx2Native.appContext ?: return
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                (ctx.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE)
+                    as? android.os.VibratorManager)?.defaultVibrator
+            } else {
+                ctx.getSystemService(android.content.Context.VIBRATOR_SERVICE)
+                    as? android.os.Vibrator
+            } ?: return
+            if (!vibrator.hasVibrator()) return
+            val amp = Math.round(intensity * 255f).coerceIn(1, 255)
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(80, amp))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(80)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("NativeApp", "onPadRumble", t)
+        }
+    }
+
+    /**
+     * RetroAchievements unlock/info/leaderboard sound — GameBox has no RA
+     * audio integration, so this is a no-op. Must exist (cached at init).
+     */
+    @JvmStatic
+    fun playSound(path: String?) {
+        // Intentionally empty — GameBox doesn't play RA sounds.
+    }
+
+    /** Open a content:// URI, returning an owned fd (or -1). Used by the core
+     *  for SAF-picked disc images. */
+    @JvmStatic
+    fun openContentUri(uriString: String?): Int {
+        if (uriString.isNullOrEmpty()) return -1
+        return try {
+            val ctx = com.nesstation.app.core.jni.Psx2Native.appContext ?: return -1
+            ctx.contentResolver
+                .openFileDescriptor(android.net.Uri.parse(uriString), "r")
+                ?.detachFd() ?: -1
+        } catch (t: Throwable) {
+            android.util.Log.w("NativeApp", "openContentUri($uriString)", t)
+            -1
+        }
+    }
+
+    /** java.io.File.mkdirs fallback for FUSE-emulated external storage
+     *  (folder memory cards), where a raw libc mkdir() can be denied. */
+    @JvmStatic
+    fun createDirectoryPath(path: String?): Boolean {
+        if (path.isNullOrEmpty()) return false
+        return try {
+            val dir = java.io.File(path)
+            if (dir.isDirectory()) true else { dir.mkdirs(); dir.isDirectory() }
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    /** java.io.File.createNewFile fallback for FUSE-emulated external storage
+     *  (new folder-card saves), where libc fopen(O_CREAT) can be denied. */
+    @JvmStatic
+    fun createFilePath(path: String?): Boolean {
+        if (path.isNullOrEmpty()) return false
+        return try {
+            val file = java.io.File(path)
+            if (file.isFile()) true else {
+                file.parentFile?.let { if (!it.isDirectory) it.mkdirs() }
+                file.createNewFile() || file.isFile()
+            }
+        } catch (t: Throwable) {
+            false
+        }
+    }
 }
