@@ -252,11 +252,24 @@ target_link_libraries(common PUBLIC
 )
 
 fixup_file_properties(common)
-target_compile_features(common PUBLIC cxx_std_17)
+# Must be C++20: HeapArray.h (and other common headers) use C++20 library
+# facilities such as std::lexicographical_compare_three_way, which libc++
+# only exposes when the *minimum* language level of this target is >= 20.
+# Declaring cxx_std_17 here lets CMake settle on C++17 for this target's
+# precompiled header, freezing _LIBCPP_STD_VER (and other libc++ macros) at
+# 17 inside the PCH -- later TUs then fail with e.g.
+#   error: no member named 'lexicographical_compare_three_way' in namespace 'std'
+# even though the TU itself is compiled with -std=gnu++20.
+target_compile_features(common PUBLIC cxx_std_20)
 target_include_directories(common PUBLIC ../3rdparty/include ../)
 target_compile_definitions(common PUBLIC "${PCSX2_DEFS}")
 target_compile_options(common PRIVATE "${PCSX2_WARNINGS}")
 
-if(COMMAND target_precompile_headers)
-	target_precompile_headers(common PRIVATE PrecompiledHeader.h)
-endif()
+# PCH disabled: compiling PrecompiledHeader.h at C++17 bakes libc++ macros
+# (_LIBCPP_STD_VER etc.) into cmake_pch.hxx.pch, which then poison the
+# standard library for every TU that includes it. Removing it forces each
+# source to parse <algorithm> at the real command-line standard (gnu++20).
+# (See comment above; revisit only once the tree is consistently C++20.)
+# if(COMMAND target_precompile_headers)
+# 	target_precompile_headers(common PRIVATE PrecompiledHeader.h)
+# endif()

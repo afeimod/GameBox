@@ -9,7 +9,12 @@ else()
 endif()
 target_link_libraries(PCSX2 PRIVATE PCSX2_FLAGS)
 
-target_compile_features(PCSX2_FLAGS INTERFACE cxx_std_17)
+# Must be C++20: PCSX2 core sources (via common/HeapArray.h and elsewhere)
+# use C++20-only libc++ symbols such as std::lexicographical_compare_three_way.
+# Declaring cxx_std_17 freezes _LIBCPP_STD_VER=17 into the INTERFACE PCH baked
+# below, so TUs that ARE compiled with -std=gnu++20 still cannot find the
+# C++20-only symbols (error: no member named 'lexicographical_compare_three_way').
+target_compile_features(PCSX2_FLAGS INTERFACE cxx_std_20)
 target_compile_definitions(PCSX2_FLAGS INTERFACE "${PCSX2_DEFS}")
 target_compile_options(PCSX2_FLAGS INTERFACE "${PCSX2_WARNINGS}")
 
@@ -1462,10 +1467,17 @@ set_source_files_properties(PrecompiledHeader.cpp PROPERTIES HEADER_FILE_ONLY TR
 if(NOT MSVC)
 	set_source_files_properties(VUops.cpp FPU.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
-if(COMMAND target_precompile_headers)
-	message("Using precompiled headers.")
-	target_precompile_headers(PCSX2_FLAGS INTERFACE PrecompiledHeader.h)
-endif()
+# PCH disabled: the INTERFACE precompiled header bakes libc++ macros
+# (_LIBCPP_STD_VER etc.) at the language level used when cmake_pch was built.
+# With a mixed C++17/20 tree this freezes C++17 into the PCH, so TUs compiled
+# with -std=gnu++20 still fail on C++20-only libc++ symbols (e.g.
+# std::lexicographical_compare_three_way in common/HeapArray.h). Removing it
+# makes every TU parse <algorithm> at its real command-line standard.
+# (Re-enable once the whole tree is consistently C++20.)
+# if(COMMAND target_precompile_headers)
+# 	message("Using precompiled headers.")
+# 	target_precompile_headers(PCSX2_FLAGS INTERFACE PrecompiledHeader.h)
+# endif()
 
 # Copy resource files if needed
 function(pcsx2_resource target path basedir)
