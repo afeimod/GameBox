@@ -81,12 +81,19 @@ class Psx2Engine private constructor() : EmulatorEngine {
 
         Psx2Native.setPaths(systemDir, saveDir)
 
+        // Apply the fast-forward state BEFORE starting the VM thread.
+        // setFastForward -> commitSettings -> Host::RunOnCPUThread(block=true)
+        // blocks the caller until the CPU/VM thread drains its queue. Called
+        // after loadRom() (which already spun the VM thread up) it would wait
+        // on a VM thread that is still waiting for the Surface / busy booting
+        // harness threads and never drains -> UI thread blocks forever -> ANR.
+        // Before the VM thread exists the call runs inline and is safe.
+        Psx2Native.setFastForward(_ffSpeed)
+
         if (!Psx2Native.loadRom(rom.absolutePath)) {
             return false
         }
         isLoaded = true
-
-        Psx2Native.setFastForward(_ffSpeed)
 
         // Pace the HUD heartbeat to the core's own refresh rate
         // (NTSC 59.94 / PAL 50) — the core itself handles game pacing.

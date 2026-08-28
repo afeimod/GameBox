@@ -192,7 +192,22 @@ object Psx2Native {
             } else {
                 NativeApp.setSetting("EmuCore/GS", "FrameLimitEnable", "bool", "true")
             }
-            NativeApp.commitSettings()
+            commitSettingsIfVmActive()
+        } catch (t: Throwable) { /* best-effort */ }
+    }
+
+    /**
+     * Pushes queued settings into the running VM — but only when a VM is
+     * actually up. native commitSettings() blocks on the UI thread
+     * (Host::RunOnCPUThread(block=true)) until the CPU thread drains its
+     * queue; during VM bring-up the vm thread is busy in
+     * while(!s_window)/Initialize and never drains, which would hang the
+     * caller until ANR. Before the VM runs, writes to the base settings
+     * layer are enough — VMManager::Initialize reads them at boot.
+     */
+    private fun commitSettingsIfVmActive() {
+        try {
+            if (NativeApp.hasActiveVM()) NativeApp.commitSettings()
         } catch (t: Throwable) { /* best-effort */ }
     }
 
@@ -320,7 +335,7 @@ object Psx2Native {
                 else -> android.util.Log.w("Psx2Native", "unmapped core option: $key=$value")
             }
             // Persist to the core's ini layer; read at next VM boot.
-            NativeApp.commitSettings()
+            commitSettingsIfVmActive()
         } catch (t: Throwable) {
             android.util.Log.w("Psx2Native", "setCoreOption($key=$value)", t)
         }
