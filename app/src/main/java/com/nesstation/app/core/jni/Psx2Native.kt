@@ -47,6 +47,18 @@ object Psx2Native {
     @Volatile private var vmThread: Thread? = null
 
     /**
+     * True once NativeApp.initialize() has run. The native side only creates
+     * the settings layer (Host::LAYER_BASE) inside initialize() — every
+     * render/setting JNI (renderVulkan, setSetting, ...) dereferences that
+     * layer and would segfault if called before it exists. EmulatorScreen's
+     * core-options LaunchedEffect fires during first composition, BEFORE
+     * loadRom()/initialize() (NesApp already preloads the .so), so calls made
+     * while this is false are queued and replayed once initialize() has run.
+     */
+    @Volatile private var initialized = false
+    private val pendingOptions = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String>>()
+
+    /**
      * GameBox 16-bit layout (bit0=Cross .. bit15=R3) → ARMSX2 Android
      * KeyEvent keycodes accepted by NativeApp.setPadButtonForPort.
      */
@@ -87,6 +99,9 @@ object Psx2Native {
     @JvmStatic fun loadRom(path: String): Boolean {
         if (!ensureLoaded()) return false
         stopVmThread()
+        // Core is initialized (Psx2Engine calls setPaths → initialize before
+        // loadRom) — now safe to replay options queued by the UI pre-boot.
+        flushPendingOptions()
         vmThread = thread(name = "armsx2-vm", isDaemon = true) {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
@@ -212,6 +227,7 @@ object Psx2Native {
     @JvmStatic fun setPaths(systemDir: String, saveDir: String) {
         try {
             NativeApp.initialize(systemDir, File(systemDir, "pcsx2/bios").absolutePath, 1)
+            initialized = true
         } catch (t: Throwable) {
             android.util.Log.e("Psx2Native", "initialize failed", t)
         }
@@ -235,6 +251,20 @@ object Psx2Native {
 
     @JvmStatic fun setCoreOption(key: String, value: String) {
         if (!loaded) return
+        if (!initialized) {
+            // Core .so is loaded (NesApp preloads it) but initialize() has not
+            // run yet — EmulatorScreen's core-options LaunchedEffect fires
+            // before loadRom during first composition, and the native settings
+            // layer (Host::LAYER_BASE) does not exist until initialize(). Any
+            // renderVulkan()/setSetting() here would crash on a null layer.
+            // Queue and replay right after setPaths()/initialize() in loadRom.
+            pendingOptions.add(key to value)
+            return
+        }
+        applyCoreOption(key, value)
+    }
+
+    private fun applyCoreOption(key: String, value: String) {
         try {
             when (key) {
                 "pcsx2_renderer" -> when (value) {
@@ -293,6 +323,14 @@ object Psx2Native {
             NativeApp.commitSettings()
         } catch (t: Throwable) {
             android.util.Log.w("Psx2Native", "setCoreOption($key=$value)", t)
+        }
+    }
+
+    /** Replays core options queued before initialize() (see [setCoreOption]). */
+    private fun flushPendingOptions() {
+        while (true) {
+            val entry = pendingOptions.poll() ?: break
+            applyCoreOption(entry.first, entry.second)
         }
     }
 
