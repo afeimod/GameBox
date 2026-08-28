@@ -1,0 +1,1701 @@
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
+
+#include "Config.h"
+#include "Counters.h"
+#include "ImGui/FullscreenUI.h"
+#include "ImGui/ImGuiManager.h"
+#include "GS/GS.h"
+#include "GS/GSCapture.h"
+#include "GS/GSExtra.h"
+#include "GS/GSGL.h"
+#include "GS/GSLzma.h"
+#include "GS/GSPerfMon.h"
+#include "GS/GSUtil.h"
+#include "GS/MultiISA.h"
+#include "Host.h"
+#include "Input/InputManager.h"
+#include "MTGS.h"
+#include "pcsx2/GS.h"
+#include "GS/Renderers/Null/GSDeviceNone.h"
+#include "GS/Renderers/Null/GSRendererNull.h"
+#include "GS/Renderers/HW/GSRendererHW.h"
+#include "GS/Renderers/HW/GSHwHack.h"
+#include "GS/Renderers/HW/GSDrawLog.h"
+#include "GS/Renderers/HW/GSTextureReplacements.h"
+#include "VMManager.h"
+
+#ifdef ENABLE_OPENGL
+#include "GS/Renderers/OpenGL/GSDeviceOGL.h"
+#endif
+
+#ifdef __APPLE__
+#include "GS/Renderers/Metal/GSMetalCPPAccessible.h"
+#endif
+
+#ifdef ENABLE_VULKAN
+#include "GS/Renderers/Vulkan/GSDeviceVK.h"
+#endif
+
+#ifdef _WIN32
+
+#include "GS/Renderers/DX11/GSDevice11.h"
+#include "GS/Renderers/DX12/GSDevice12.h"
+#include "GS/Renderers/DX11/D3D.h"
+
+#endif
+
+#include "common/Console.h"
+#include "common/FileSystem.h"
+#include "common/HostSys.h"
+#include "common/Path.h"
+#include "common/SmallString.h"
+#include "common/StringUtil.h"
+
+#include "IconsFontAwesome.h"
+
+#include "fmt/format.h"
+
+#include <atomic>
+#include <fstream>
+#include <algorithm>
+#include <array>
+#include <string_view>
+
+Pcsx2Config::GSOptions GSConfig;
+
+static GSRendererType GSCurrentRenderer;
+
+GSRendererType GSGetCurrentRenderer()
+{
+	return GSCurrentRenderer;
+}
+
+bool GSIsHardwareRenderer()
+{
+	// Null gets flagged as hw.
+	return (GSCurrentRenderer != GSRendererType::SW);
+}
+
+std::string GetDefaultAdapter()
+{
+	// Will be treated as empty.
+	return "(Default)";
+}
+
+static RenderAPI GetAPIForRenderer(GSRendererType renderer)
+{
+	switch (renderer)
+	{
+		// Null renderer pairs with the deviceless None host device — headless runs
+		// (eerunner A/B, CI) must not require a working Vulkan/GL context.
+		case GSRendererType::Null:
+			return RenderAPI::None;
+
+		case GSRendererType::OGL:
+			return RenderAPI::OpenGL;
+
+		case GSRendererType::VK:
+			return RenderAPI::Vulkan;
+
+#ifdef _WIN32
+		case GSRendererType::DX11:
+			return RenderAPI::D3D11;
+
+		case GSRendererType::DX12:
+			return RenderAPI::D3D12;
+#endif
+
+#ifdef __APPLE__
+		case GSRendererType::Metal:
+			return RenderAPI::Metal;
+#endif
+
+			// We could end up here if we ever removed a renderer.
+		default:
+			return GetAPIForRenderer(GSUtil::GetPreferredRenderer());
+	}
+}
+
+static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool recreate_window,
+	GSVSyncMode vsync_mode, bool allow_present_throttle)
+{
+	const RenderAPI new_api = GetAPIForRenderer(renderer);
+	switch (new_api)
+	{
+		case RenderAPI::None:
+			g_gs_device = std::make_unique<GSDeviceNone>();
+			break;
+
+#ifdef _WIN32
+		case RenderAPI::D3D11:
+			g_gs_device = std::make_unique<GSDevice11>();
+			break;
+		case RenderAPI::D3D12:
+			g_gs_device = std::make_unique<GSDevice12>();
+			break;
+#endif
+#ifdef __APPLE__
+		case RenderAPI::Metal:
+			g_gs_device = std::unique_ptr<GSDevice>(MakeGSDeviceMTL());
+			break;
+#endif
+#ifdef ENABLE_OPENGL
+		case RenderAPI::OpenGL:
+			g_gs_device = std::make_unique<GSDeviceOGL>();
+			break;
+#endif
+
+#ifdef ENABLE_VULKAN
+		case RenderAPI::Vulkan:
+			g_gs_device = std::make_unique<GSDeviceVK>();
+			break;
+#endif
+
+		default:
+			Console.Error("Unsupported render API %s", GSDevice::RenderAPIToString(new_api));
+			return false;
+	}
+
+	bool okay = g_gs_device->Create(vsync_mode, allow_present_throttle);
+	if (okay)
+	{
+		okay = ImGuiManager::Initialize();
+		if (!okay)
+			Console.Error("Failed to initialize ImGuiManager");
+	}
+	else
+	{
+		Console.Error("Failed to create GS device");
+	}
+
+	if (!okay)
+	{
+		ImGuiManager::Shutdown(clear_state_on_fail);
+		g_gs_device->Destroy();
+		g_gs_device.reset();
+		Host::ReleaseRenderWindow();
+		return false;
+	}
+
+	if (!g_gs_device->SetGPUTimingEnabled(true))
+		GSConfig.OsdShowGPU = false;
+	if (GSConfig.OsdShowGPUStats && !g_gs_device->SetGPUPipelineStatisticsEnabled(true))
+		GSConfig.OsdShowGPUStats = false;
+
+	Console.WriteLn(Color_StrongGreen, "%s Graphics Driver Info:", GSDevice::RenderAPIToString(new_api));
+	Console.WriteLn(g_gs_device->GetDriverInfo());
+
+	return true;
+}
+
+static void CloseGSDevice(bool clear_state)
+{
+	if (!g_gs_device)
+		return;
+
+	ImGuiManager::Shutdown(clear_state);
+	g_gs_device->Destroy();
+	g_gs_device.reset();
+}
+
+static void GSClampUpscaleMultiplier(Pcsx2Config::GSOptions& config)
+{
+	const u32 max_upscale_multiplier = GSGetMaxUpscaleMultiplier(g_gs_device->GetMaxTextureSize());
+	if (config.UpscaleMultiplier <= static_cast<float>(max_upscale_multiplier))
+	{
+		// Shouldn't happen, but just in case.
+		if (config.UpscaleMultiplier < 0.0f)
+			config.UpscaleMultiplier = 0.0f;
+		return;
+	}
+
+	Host::AddIconOSDMessage("GSUpscaleMultiplierInvalid", ICON_FA_TRIANGLE_EXCLAMATION,
+		fmt::format(TRANSLATE_FS("GS", "Configured upscale multiplier {}x is above your GPU's supported multiplier of {}x."),
+			config.UpscaleMultiplier, max_upscale_multiplier),
+		Host::OSD_WARNING_DURATION);
+	config.UpscaleMultiplier = static_cast<float>(max_upscale_multiplier);
+}
+
+#ifdef __ANDROID__
+// Some MediaTek Mali drivers render duplicated horizontal framebuffer regions in Tekken 5
+// when the GameDB's Native half-pixel-offset mode (value 4) is active. Force the offset Off
+// there — and ONLY there — preserving Native for every other GPU and game and respecting a
+// user's manual hacks. Ported from sashkinbro/EmuCoreX. Reachable only while the Tekken 5
+// GameDB entries keep halfPixelOffset: Native.
+static bool IsTekken5Serial(const std::string_view serial)
+{
+	static constexpr std::array<std::string_view, 11> k_tekken5_serials = {
+		"SCAJ-20125", "SCAJ-20126", "SCAJ-20199", "SCED-53538", "SCES-53202",
+		"SCKA-20049", "SCKA-20081", "SLPS-25510", "SLPS-73223", "SLUS-21059", "SLUS-21160"};
+	return std::find(k_tekken5_serials.begin(), k_tekken5_serials.end(), serial) != k_tekken5_serials.end();
+}
+
+static void ApplyAndroidGameDBOverrides()
+{
+	if (!g_gs_device || !g_gs_device->IsMaliGPUProfile() || !g_gs_device->IsMediaTekSoC() ||
+		GSConfig.ManualUserHacks || GSConfig.UserHacks_HalfPixelOffset != GSHalfPixelOffset::Native)
+		return;
+	if (!IsTekken5Serial(VMManager::GetDiscSerial()))
+		return;
+	GSConfig.UserHacks_HalfPixelOffset = GSHalfPixelOffset::Off;
+	Console.WriteLn("Android: Tekken 5 on MediaTek Mali — forcing HalfPixelOffset Off (duplicated-framebuffer fix).");
+}
+#endif
+
+// GV7-1d-ii: the front parser object of the two-object split (GSState.h).
+// Non-null only when GSBackThreadMode::Pipelined engaged; all GIF-parse entry
+// points below route to it, while draw/present/TC stay on g_gs_renderer.
+std::unique_ptr<GSFrontState> g_gs_front;
+
+// The object GIF data, parse-side resets, readbacks, and savestates route to.
+static __fi GSState* GSParseTarget()
+{
+	return g_gs_front ? static_cast<GSState*>(g_gs_front.get()) : static_cast<GSState*>(g_gs_renderer.get());
+}
+
+static bool OpenGSRenderer(GSRendererType renderer, u8* basemem)
+{
+	// Must be done first, initialization routines in GSState use GSIsHardwareRenderer().
+	GSCurrentRenderer = renderer;
+
+	GSVertexSW::InitStatic();
+
+	if (renderer == GSRendererType::Null)
+	{
+		g_gs_renderer = std::make_unique<GSRendererNull>();
+	}
+	else if (renderer != GSRendererType::SW)
+	{
+		GSClampUpscaleMultiplier(GSConfig);
+		g_gs_renderer = std::make_unique<GSRendererHW>();
+	}
+	else
+	{
+		g_gs_renderer = std::unique_ptr<GSRenderer>(MULTI_ISA_SELECT(makeGSRendererSW)(GSConfig.SWExtraThreads));
+	}
+
+	g_gs_renderer->SetRegsMem(basemem);
+	g_gs_renderer->ResetPCRTC();
+	g_gs_renderer->UpdateRenderFixes();
+
+	// GV7-1d-ii: instantiate the front parser only when the back thread really
+	// engaged (the renderer ctor falls back to inline records on a non-Vulkan
+	// HW device). An EE-thread read of *live* local memory forces single-object
+	// (lockstep) — see below for why that is not every EE-thread read.
+	if (GSConfig.BackThreadMode == GSBackThreadMode::Pipelined && g_gs_renderer->IsBackThreadRunning())
+	{
+		// Which thread performs the readback is the wrong question here; what it reads is the
+		// right one. Unsynchronized takes GS local memory directly, with no lock and no drain,
+		// so a queued back thread leaves it arbitrarily far behind what the EE expects.
+		// Asynchronous instead takes the CPU shadow under m_async_readback_mutex, and that
+		// mutex is the synchronization point: the shadow only moves when the GS thread
+		// publishes a completed GPU download, never when a record is queued or executed. Queue
+		// depth therefore cannot change what the EE sees, and every shadow accessor already
+		// routes through m_mem_target, so a front object reaches the back's authoritative copy.
+		//
+		// The one exception is a shadow that never came up — ReadLocalMemoryUnsync then falls
+		// back to live local memory, which is exactly the Unsynchronized hazard, now against a
+		// concurrently drawing back thread. The renderer is already constructed at this point,
+		// so its shadow state is the thing to ask.
+		const bool ee_thread_reads_live_memory =
+			GSConfig.HWDownloadMode == GSHardwareDownloadMode::Unsynchronized ||
+			(GSConfig.HWDownloadMode == GSHardwareDownloadMode::Asynchronous &&
+				!g_gs_renderer->IsAsyncReadbackReady());
+
+		if (ee_thread_reads_live_memory && GSConfig.UseHardwareRenderer())
+		{
+			Console.Warning("GS: pipelined mode is unsupported with EE-thread reads of live GS memory — running lockstep.");
+		}
+		else
+		{
+			g_gs_front = std::make_unique<GSFrontState>(g_gs_renderer.get());
+			g_gs_front->SetRegsMem(basemem);
+			g_gs_front->ResetPCRTC();
+			Console.WriteLn("GS: front parser object active (two-object split, pipelined).");
+		}
+	}
+
+	g_perfmon.Reset();
+	return true;
+}
+
+static void CloseGSRenderer()
+{
+	GSTextureReplacements::Shutdown();
+
+	// The front must go first: its destructor drains the shared channel, and
+	// the back object owns that channel and the pooled arrays.
+	g_gs_front.reset();
+
+	if (g_gs_renderer)
+	{
+		g_gs_renderer->Destroy();
+		g_gs_renderer.reset();
+	}
+}
+
+// GV7-2, same hazard GSUpdateConfig documents: the back thread executes draws
+// against g_gs_device, so mutating that device from the MTGS thread — swapchain
+// resize, window recreate, vsync change — races it. Drain first. The front only
+// parses on this thread, so one drain up front quiesces the back thread for the
+// whole call. No-op when the back thread is off (the default), and g_gs_renderer
+// can legitimately be null while g_gs_device exists: the device is created first.
+static void DrainBackQueueBeforeDeviceMutation()
+{
+	if (g_gs_renderer)
+		g_gs_renderer->DrainBackQueue();
+}
+
+bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_renderer,
+	std::optional<const Pcsx2Config::GSOptions*> old_config)
+{
+	Console.WriteLn("Reopening GS with %s device", recreate_device ? "new" : "existing");
+
+	GSParseTarget()->Flush(GSState::GSFlushReason::GSREOPEN);
+
+	// The Flush above only flushes FRONT parse state — it queues the resulting
+	// draw, it does not execute it. Everything below then hands the back thread's
+	// textures to the shredder: the device-loss arm purges the texture cache and
+	// the device pool outright, and the readback arm reads the texture cache. So
+	// drain between the two.
+	//
+	// This is safe on the device-loss path, which is the one that looks alarming.
+	// The back thread cannot be wedged in the driver here: BeginPresent only
+	// reports DeviceLost off m_last_submit_failed, i.e. the driver has ALREADY
+	// declared the loss, and post-loss calls return VK_ERROR_DEVICE_LOST rather
+	// than blocking. Nor is there a backlog to chew through — SubmitVsync drains
+	// before ExecVsyncRecord and present never queues, so the queue is empty on
+	// entry and the Flush above is the only producer.
+	DrainBackQueueBeforeDeviceMutation();
+
+	if (recreate_device && !recreate_renderer)
+	{
+		// Keeping the renderer around, this probably means we lost the device, so toss everything.
+		g_gs_renderer->PurgeTextureCache(true, true, true);
+		g_gs_device->ClearCurrent();
+		g_gs_device->PurgePool();
+	}
+	else if (GSConfig.UserHacks_ReadTCOnClose)
+	{
+		g_gs_renderer->ReadbackTextureCache();
+	}
+
+	std::string capture_filename;
+	GSVector2i capture_size;
+	if (GSCapture::IsCapturing())
+	{
+		capture_filename = GSCapture::GetNextCaptureFileName();
+		capture_size = GSCapture::GetSize();
+		Console.Warning(fmt::format("Restarting video capture to {}.", capture_filename));
+		g_gs_renderer->EndCapture();
+	}
+
+	u8* basemem = g_gs_renderer->GetRegsMem();
+
+	freezeData fd = {};
+	std::unique_ptr<u8[]> fd_data;
+	if (recreate_renderer)
+	{
+		if (GSParseTarget()->Freeze(&fd, true) != 0)
+		{
+			Console.Error("(GSreopen) Failed to get GS freeze size");
+			return false;
+		}
+
+		fd_data = std::make_unique<u8[]>(fd.size);
+		fd.data = fd_data.get();
+		if (GSParseTarget()->Freeze(&fd, false) != 0)
+		{
+			Console.Error("(GSreopen) Failed to freeze GS");
+			return false;
+		}
+
+		CloseGSRenderer();
+	}
+
+	if (recreate_device)
+	{
+		// We need a new render window when changing APIs.
+		const bool recreate_window = (g_gs_device->GetRenderAPI() != GetAPIForRenderer(GSConfig.Renderer));
+		const GSVSyncMode vsync_mode = g_gs_device->GetVSyncMode();
+		const bool allow_present_throttle = g_gs_device->IsPresentThrottleAllowed();
+		CloseGSDevice(false);
+
+		if (!OpenGSDevice(new_renderer, false, recreate_window, vsync_mode, allow_present_throttle))
+		{
+			Host::AddKeyedOSDMessage("GSReopenFailed",
+				TRANSLATE_STR("GS", "Failed to reopen, restoring old configuration."),
+				Host::OSD_CRITICAL_ERROR_DURATION);
+
+			CloseGSDevice(false);
+
+			if (old_config.has_value())
+				GSConfig = *old_config.value();
+
+			if (!OpenGSDevice(GSConfig.Renderer, false, recreate_window, vsync_mode, allow_present_throttle))
+			{
+				pxFailRel("Failed to reopen GS on old config");
+				Host::ReleaseRenderWindow();
+				return false;
+			}
+		}
+	}
+
+	if (recreate_renderer)
+	{
+#ifdef __ANDROID__
+		ApplyAndroidGameDBOverrides();
+#endif
+		if (!OpenGSRenderer(new_renderer, basemem))
+		{
+			Console.Error("(GSreopen) Failed to create new renderer");
+			return false;
+		}
+
+		if (GSParseTarget()->Defrost(&fd) != 0)
+		{
+			Console.Error("(GSreopen) Failed to defrost");
+			return false;
+		}
+	}
+
+	if (!capture_filename.empty())
+		g_gs_renderer->BeginCapture(std::move(capture_filename), capture_size);
+
+	return true;
+}
+
+bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem,
+	GSVSyncMode vsync_mode, bool allow_present_throttle)
+{
+	GSConfig = config;
+
+	if (renderer == GSRendererType::Auto)
+		renderer = GSUtil::GetPreferredRenderer();
+
+	bool res = OpenGSDevice(renderer, true, false, vsync_mode, allow_present_throttle);
+	if (res)
+	{
+#ifdef __ANDROID__
+		ApplyAndroidGameDBOverrides();
+#endif
+		res = OpenGSRenderer(renderer, basemem);
+		if (!res)
+			CloseGSDevice(true);
+	}
+
+	if (!res)
+	{
+		Host::ReportErrorAsync("Error",
+			fmt::format(TRANSLATE_FS("GS", "Failed to create render device. This may be due to your GPU not supporting the "
+			                               "chosen renderer ({}), or because your graphics drivers need to be updated."),
+			            Pcsx2Config::GSOptions::GetRendererName(GSConfig.Renderer)));
+		return false;
+	}
+
+	return true;
+}
+
+void GSclose()
+{
+	if (GSCapture::IsCapturing())
+		GSCapture::EndCapture();
+
+	CloseGSRenderer();
+	CloseGSDevice(true);
+	Host::ReleaseRenderWindow();
+}
+
+void GSreset(bool hardware_reset)
+{
+	// Front first: its Reset flushes pending buffered draws into records; the
+	// back's Reset then drains (executing them, like serial pre-reset draws)
+	// before resetting memory/TC.
+	if (g_gs_front)
+		g_gs_front->Reset(hardware_reset);
+	g_gs_renderer->Reset(hardware_reset);
+
+	// Restart video capture if it's been started.
+	// Otherwise we get a buildup of audio frames from the CPU thread.
+	if (hardware_reset && GSCapture::IsCapturing())
+	{
+		std::string next_filename = GSCapture::GetNextCaptureFileName();
+		const GSVector2i size = GSCapture::GetSize();
+		Console.Warning(fmt::format("Restarting video capture to {}.", next_filename));
+		g_gs_renderer->EndCapture();
+		g_gs_renderer->BeginCapture(std::move(next_filename), size);
+	}
+}
+
+void GSgifSoftReset(u32 mask)
+{
+	GSParseTarget()->SoftReset(mask);
+}
+
+void GSwriteCSR(u32 csr)
+{
+	GSParseTarget()->WriteCSR(csr);
+}
+
+void GSInitAndReadFIFO(u8* mem, u32 size)
+{
+	GL_PERF("Init and read FIFO %u qwc", size);
+	GSParseTarget()->InitReadFIFO(mem, size);
+	GSParseTarget()->ReadFIFO(mem, size);
+}
+
+void GSReadLocalMemoryUnsync(u8* mem, u32 qwc, u64 BITBLITBUF, u64 TRXPOS, u64 TRXREG)
+{
+	GSParseTarget()->ReadLocalMemoryUnsync(mem, qwc, GIFRegBITBLTBUF{BITBLITBUF}, GIFRegTRXPOS{TRXPOS}, GIFRegTRXREG{TRXREG});
+}
+
+void GSgifTransfer(const u8* mem, u32 size)
+{
+	GSParseTarget()->Transfer<3>(mem, size);
+}
+
+void GSgifTransfer1(u8* mem, u32 addr)
+{
+	GSParseTarget()->Transfer<0>(const_cast<u8*>(mem) + addr, (0x4000 - addr) / 16);
+}
+
+void GSgifTransfer2(u8* mem, u32 size)
+{
+	GSParseTarget()->Transfer<1>(const_cast<u8*>(mem), size);
+}
+
+void GSgifTransfer3(u8* mem, u32 size)
+{
+	GSParseTarget()->Transfer<2>(const_cast<u8*>(mem), size);
+}
+
+// Manual frameskip target (Android). Set from the UI thread via the JNI
+// setFrameSkip, read on the GS thread in GSRenderer::VSync. Relaxed atomic — a
+// stale read at most mis-skips a single frame, which is harmless.
+static std::atomic<u32> s_manual_frameskip{0};
+void GSSetManualFrameSkip(u32 frames)
+{
+	s_manual_frameskip.store(frames, std::memory_order_relaxed);
+}
+u32 GSGetManualFrameSkip()
+{
+	return s_manual_frameskip.load(std::memory_order_relaxed);
+}
+
+// Caps display presentation without slowing emulation. The interval controls the
+// exact cadence while milli-FPS preserves fractional targets for the OSD.
+static std::atomic<u32> s_max_present_fps{0};
+static std::atomic<u32> s_max_present_milli_fps{0};
+static std::atomic<u64> s_max_present_interval{0};
+static std::atomic<bool> s_present_cap_render_skip{false};
+// Fast-forward (Turbo) bypasses the present cap so the speed-up is visible. Set
+// from the limiter-mode JNI (Turbo → true, anything else → false) and read on
+// the GS thread in GSRenderer::VSync. Unlimited (frame-limit-off steady state)
+// deliberately does NOT set this — there the present cap is still wanted.
+static std::atomic<bool> s_present_cap_suspended{false};
+void GSSetMaxPresentFps(u32 fps, u64 present_interval, u32 milli_fps)
+{
+	s_max_present_fps.store(fps, std::memory_order_relaxed);
+	s_max_present_milli_fps.store(present_interval == 0 ? 0 : (milli_fps != 0 ? milli_fps : fps * 1000),
+		std::memory_order_relaxed);
+	s_max_present_interval.store(present_interval, std::memory_order_relaxed);
+}
+u32 GSGetMaxPresentFps()
+{
+	return s_max_present_fps.load(std::memory_order_relaxed);
+}
+u32 GSGetMaxPresentMilliFps()
+{
+	return s_max_present_milli_fps.load(std::memory_order_relaxed);
+}
+u64 GSGetMaxPresentInterval()
+{
+	return s_max_present_interval.load(std::memory_order_relaxed);
+}
+void GSSetPresentCapRenderSkip(bool enabled)
+{
+	s_present_cap_render_skip.store(enabled, std::memory_order_relaxed);
+}
+bool GSGetPresentCapRenderSkip()
+{
+	return s_present_cap_render_skip.load(std::memory_order_relaxed);
+}
+void GSSetPresentCapSuspended(bool suspended)
+{
+	s_present_cap_suspended.store(suspended, std::memory_order_relaxed);
+}
+bool GSGetPresentCapSuspended()
+{
+	return s_present_cap_suspended.load(std::memory_order_relaxed);
+}
+
+void GSvsync(u32 field, bool registers_written)
+{
+	// Update this here because we need to check if the pending draw affects the current frame, so our regs need to be updated.
+	GSState* const front = GSParseTarget();
+	front->PCRTCDisplays.SetVideoMode(front->GetVideoMode());
+	front->PCRTCDisplays.EnableDisplays(front->m_regs->PMODE, front->m_regs->SMODE2, front->isReallyInterlaced());
+	front->PCRTCDisplays.SetRects(0, front->m_regs->DISP[0].DISPLAY, front->m_regs->DISP[0].DISPFB);
+	front->PCRTCDisplays.SetRects(1, front->m_regs->DISP[1].DISPLAY, front->m_regs->DISP[1].DISPFB);
+	front->PCRTCDisplays.CheckSameSource();
+	front->PCRTCDisplays.CalculateDisplayOffset(front->m_scanmask_used);
+	front->PCRTCDisplays.CalculateFramebufferOffset(front->m_scanmask_used, front->m_regs->DISP[0].DISPFB, front->m_regs->DISP[1].DISPFB);
+
+	// The PCRTC record must precede the vsync-flushed draw records — those draws
+	// see the fresh display state, mid-frame draws saw the previous frame's.
+	front->SubmitPcrtcSync();
+
+	// Do not move the flush into the VSync() method. It's here because EE transfers
+	// get cleared in HW VSync, and may be needed for a buffered draw (FFX FMVs).
+	front->Flush(GSState::VSYNC);
+	g_gs_renderer->SubmitVsync(field, registers_written);
+	if (g_gs_front)
+		g_gs_front->MirrorPostVsyncState();
+}
+
+int GSfreeze(FreezeAction mode, freezeData* data)
+{
+	if (mode == FreezeAction::Save)
+	{
+		return GSParseTarget()->Freeze(data, false);
+	}
+	else if (mode == FreezeAction::Size)
+	{
+		return GSParseTarget()->Freeze(data, true);
+	}
+	else // if (mode == FreezeAction::Load)
+	{
+		// Since Defrost doesn't do a hardware reset (since it would be clearing
+		// local memory just before it's overwritten), we have to manually wipe
+		// out the current textures.
+		g_gs_device->ClearCurrent();
+
+		// Dump audio frames in video capture if it's been started, otherwise we get
+		// a buildup of audio frames from the CPU thread.
+		if (GSCapture::IsCapturing())
+			GSCapture::Flush();
+
+		return GSParseTarget()->Defrost(data);
+	}
+}
+
+bool GSQueueSnapshot(const std::string& path, u32 gsdump_frames)
+{
+	return g_gs_renderer && g_gs_renderer->QueueSnapshot(path, gsdump_frames);
+}
+
+void GSStopGSDump()
+{
+	if (g_gs_renderer)
+		g_gs_renderer->StopGSDump();
+}
+
+bool GSIsDumpRecording()
+{
+	return g_gs_renderer && g_gs_renderer->IsDumpRecording();
+}
+
+bool GSHasFrontParser()
+{
+	return static_cast<bool>(g_gs_front);
+}
+
+bool GSBeginCapture(std::string filename)
+{
+	if (g_gs_renderer)
+		return g_gs_renderer->BeginCapture(std::move(filename));
+	else
+		return false;
+}
+
+void GSEndCapture()
+{
+	if (g_gs_renderer)
+		g_gs_renderer->EndCapture();
+}
+
+void GSPresentCurrentFrame()
+{
+	// Presenting records into the device's command buffer and begins a render pass, so it is a
+	// device mutation exactly like the four sites above -- this was the one that did not drain.
+	//
+	// It matters most while PAUSED. MTGS's idle loop re-presents the frame on a spin whenever the
+	// VM is not Running (MTGS.cpp, the s_run_idle_flag branch), so the moment the user pauses, this
+	// runs concurrently with a back thread that may still be executing queued draws. Both then call
+	// vkCmdBeginRenderPass on the same VkCommandBuffer, which Vulkan requires the caller to
+	// externally synchronize; Adreno's driver faults inside vkCmdBeginRenderPass rather than
+	// erroring, and both threads abort. Reproduced on an Adreno 740 by pausing with the GS back
+	// thread enabled.
+	DrainBackQueueBeforeDeviceMutation();
+
+	g_gs_renderer->PresentCurrentFrame();
+}
+
+void GSThrottlePresentation()
+{
+	if (g_gs_device->GetVSyncMode() == GSVSyncMode::FIFO)
+	{
+		// Let vsync take care of throttling.
+		return;
+	}
+
+	g_gs_device->ThrottlePresentation();
+}
+
+void GSGameChanged()
+{
+	if (GSIsHardwareRenderer())
+	{
+		GSHwHack::ResetState();
+		GSTextureReplacements::GameChanged();
+	}
+
+	if (!VMManager::HasValidVM() && GSCapture::IsCapturing())
+		GSCapture::EndCapture();
+}
+
+bool GSHasDisplayWindow()
+{
+	pxAssert(g_gs_device);
+	return (g_gs_device->GetWindowInfo().type != WindowInfo::Type::Surfaceless);
+}
+
+void GSResizeDisplayWindow(u32 width, u32 height, float scale)
+{
+	DrainBackQueueBeforeDeviceMutation();
+
+	g_gs_device->ResizeWindow(width, height, scale);
+	ImGuiManager::WindowResized();
+}
+
+void GSUpdateDisplayWindow()
+{
+	DrainBackQueueBeforeDeviceMutation();
+
+	if (!g_gs_device->UpdateWindow())
+	{
+		Host::ReportErrorAsync("Error", TRANSLATE_SV("GS", "Failed to change window after update. The log may contain more information."));
+		return;
+	}
+
+	ImGuiManager::WindowResized();
+}
+
+void GSSetVSyncMode(GSVSyncMode mode, bool allow_present_throttle)
+{
+	static constexpr std::array<const char*, static_cast<size_t>(GSVSyncMode::Count)> modes = {{
+		"Disabled",
+		"FIFO",
+		"Mailbox",
+	}};
+	Console.WriteLnFmt(Color_StrongCyan, "Setting vsync mode: {}{}", modes[static_cast<size_t>(mode)],
+		allow_present_throttle ? " (throttle allowed)" : "");
+
+	DrainBackQueueBeforeDeviceMutation();
+
+	g_gs_device->SetVSyncMode(mode, allow_present_throttle);
+}
+
+bool GSWantsExclusiveFullscreen()
+{
+	if (!g_gs_device || !g_gs_device->SupportsExclusiveFullscreen())
+		return false;
+
+	u32 width, height;
+	float refresh_rate;
+	return GSDevice::GetRequestedExclusiveFullscreenMode(&width, &height, &refresh_rate);
+}
+
+std::optional<float> GSGetHostRefreshRate()
+{
+	if (!g_gs_device)
+		return std::nullopt;
+
+	const float surface_refresh_rate = g_gs_device->GetWindowInfo().surface_refresh_rate;
+	if (surface_refresh_rate == 0.0f)
+		return std::nullopt;
+	else
+		return surface_refresh_rate;
+}
+
+std::vector<GSAdapterInfo> GSGetAdapterInfo(GSRendererType renderer)
+{
+	std::vector<GSAdapterInfo> ret;
+	switch (renderer)
+	{
+#ifdef _WIN32
+		case GSRendererType::DX11:
+		case GSRendererType::DX12:
+		{
+			auto factory = D3D::CreateFactory(false);
+			if (factory)
+				ret = D3D::GetAdapterInfo(factory.get());
+		}
+		break;
+#endif
+
+#ifdef ENABLE_OPENGL
+		case GSRendererType::OGL:
+		{
+			ret = GSDeviceOGL::GetAdapterInfo();
+		}
+		break;
+#endif
+
+#ifdef ENABLE_VULKAN
+		case GSRendererType::VK:
+		{
+			ret = GSDeviceVK::GetAdapterInfo();
+		}
+		break;
+#endif
+
+#ifdef __APPLE__
+		case GSRendererType::Metal:
+		{
+			ret = GetMetalAdapterList();
+		}
+		break;
+#endif
+
+		default:
+			break;
+	}
+
+	return ret;
+}
+
+u32 GSGetMaxUpscaleMultiplier(u32 max_texture_size)
+{
+	// Maximum GS target size is 1280x1280. Assume we want to upscale the max size target.
+	return std::max(max_texture_size / 1280, 1u);
+}
+
+GSVideoMode GSgetDisplayMode()
+{
+	GSRenderer* gs = g_gs_renderer.get();
+
+	return gs->GetVideoMode();
+}
+
+void GSgetInternalResolution(int* width, int* height)
+{
+	GSRenderer* gs = g_gs_renderer.get();
+	if (!gs)
+	{
+		*width = 0;
+		*height = 0;
+		return;
+	}
+
+	const GSVector2i res(gs->GetInternalResolution());
+	*width = res.x;
+	*height = res.y;
+}
+
+void GSgetStats(SmallStringBase& info)
+{
+	GSPerfMon& pm = g_perfmon;
+	const char* api_name = GSDevice::RenderAPIToString(g_gs_device->GetRenderAPI());
+	if (GSCurrentRenderer == GSRendererType::SW)
+	{
+		const double fps = GetVerticalFrequency();
+		const double fillrate = pm.Get(GSPerfMon::Fillrate);
+		double pps = fps * fillrate;
+		char prefix = '\0';
+
+		if (pps >= 170000000)
+		{
+			pps /= _1gb; // Gpps
+			prefix = 'G';
+		}
+		else if (pps >= 35000000)
+		{
+			pps /= _1mb; // Mpps
+			prefix = 'M';
+		}
+		else if (pps >= _1kb)
+		{
+			pps /= _1kb; // kpps
+			prefix = 'k';
+		}
+
+		info.format("{} SW | {} SYNP | {} PRIM | {} DRW | {:.2f} SWIZ | {:.2f} UNSWIZ | {:.2f} {}pps",
+			api_name,
+			(int)pm.Get(GSPerfMon::SyncPoint),
+			(int)pm.Get(GSPerfMon::Prim),
+			(int)pm.Get(GSPerfMon::Draw),
+			pm.Get(GSPerfMon::Swizzle) / _1kb,
+			pm.Get(GSPerfMon::Unswizzle) / _1kb,
+			pps, prefix);
+	}
+	else if (GSCurrentRenderer == GSRendererType::Null)
+	{
+		info.format("{} Null", api_name);
+	}
+	else
+	{
+		if (!GSConfig.HWROV)
+		{
+			info.format("{} HW | {} PRIM | {} DRW | {} DRWC | {} BAR | {} RP | {} RB | {} TC | {} TU",
+				api_name,
+				(int)pm.Get(GSPerfMon::Prim),
+				(int)pm.Get(GSPerfMon::Draw),
+				(int)std::ceil(pm.Get(GSPerfMon::DrawCalls)),
+				(int)std::ceil(pm.Get(GSPerfMon::Barriers)),
+				(int)std::ceil(pm.Get(GSPerfMon::RenderPasses)),
+				(int)std::ceil(pm.Get(GSPerfMon::Readbacks)),
+				(int)std::ceil(pm.Get(GSPerfMon::TextureCopies)),
+				(int)std::ceil(pm.Get(GSPerfMon::TextureUploads)));
+		}
+		else
+		{
+			// Add ROV stats along standard stats.
+			info.format("{} HW | {} PRIM | {} DRW | {}/{} DRWC | {}/{} BAR | {} RP | {} RB | {}/{} TC | {} TU",
+				api_name,
+				(int)pm.Get(GSPerfMon::Prim),
+				(int)pm.Get(GSPerfMon::Draw),
+				(int)std::ceil(pm.Get(GSPerfMon::DrawCalls)),
+				(int)std::ceil(pm.Get(GSPerfMon::DrawCallsROV)),
+				(int)std::ceil(pm.Get(GSPerfMon::Barriers)),
+				(int)std::ceil(pm.Get(GSPerfMon::BarriersROV)),
+				(int)std::ceil(pm.Get(GSPerfMon::RenderPasses)),
+				(int)std::ceil(pm.Get(GSPerfMon::Readbacks)),
+				(int)std::ceil(pm.Get(GSPerfMon::TextureCopies)),
+				(int)std::ceil(pm.Get(GSPerfMon::TextureCopiesROV)),
+				(int)std::ceil(pm.Get(GSPerfMon::TextureUploads)));
+		}
+	}
+}
+
+void GSgetMemoryStats(SmallStringBase& info)
+{
+	if (!g_texture_cache)
+	{
+		info.assign("");
+		return;
+	}
+
+	// Get megabyte values. Round negligible values to 0.1 MB to avoid swamping.
+	const auto get_MB = [](const double bytes) {
+		return (bytes <= 0.0 ? bytes : std::max(0.1, bytes / static_cast<double>(_1mb)));
+	};
+
+	const auto format_precision = [](const double megabytes) -> std::string {
+		return (megabytes < 10.0 ?
+			fmt::format("{:.1f}", megabytes) :
+			fmt::format("{:.0f}", std::round(megabytes)));
+	};
+
+	const double targets_MB = get_MB(static_cast<double>(g_texture_cache->GetTargetMemoryUsage()));
+	const double sources_MB = get_MB(static_cast<double>(g_texture_cache->GetSourceMemoryUsage()));
+	const double pool_MB = get_MB(static_cast<double>(g_gs_device->GetPoolMemoryUsage()));
+
+	if (GSConfig.TexturePreloading == TexturePreloadingLevel::Full)
+	{
+		const double hashcache_MB = get_MB(static_cast<double>(g_texture_cache->GetHashCacheMemoryUsage()));
+		const double total_MB = targets_MB + sources_MB + hashcache_MB + pool_MB;
+		info.format("VRAM: {} MB | TGT: {} MB | SRC: {} MB | HC: {} MB | PL: {} MB",
+			format_precision(total_MB),
+			format_precision(targets_MB),
+			format_precision(sources_MB),
+			format_precision(hashcache_MB),
+			format_precision(pool_MB));
+	}
+	else
+	{
+		const double total_MB = targets_MB + sources_MB + pool_MB;
+		info.format("VRAM: {} MB | TGT: {} MB | SRC: {} MB | PL: {} MB",
+			format_precision(total_MB),
+			format_precision(targets_MB),
+			format_precision(sources_MB),
+			format_precision(pool_MB));
+	}
+}
+
+void GSgetTitleStats(std::string& info)
+{
+	static constexpr const char* deinterlace_modes[] = {
+		"Automatic", "None", "Weave tff", "Weave bff", "Bob tff", "Bob bff", "Blend tff", "Blend bff", "Adaptive tff", "Adaptive bff"};
+
+	const char* api_name = GSDevice::RenderAPIToString(g_gs_device->GetRenderAPI());
+	const char* hw_sw_name = (GSCurrentRenderer == GSRendererType::Null) ? " Null" : (GSIsHardwareRenderer() ? " HW" : " SW");
+	const char* deinterlace_mode = deinterlace_modes[static_cast<int>(GSConfig.InterlaceMode)];
+
+	const char* interlace_mode = ReportInterlaceMode();
+	const char* video_mode = ReportVideoMode();
+	info = StringUtil::StdStringFromFormat("%s%s | %s | %s | %s", api_name, hw_sw_name, video_mode, interlace_mode, deinterlace_mode);
+}
+
+void GSUpdateConfig(const Pcsx2Config::GSOptions& new_config)
+{
+	Pcsx2Config::GSOptions old_config(std::move(GSConfig));
+	GSConfig = new_config;
+	if (!g_gs_renderer)
+		return;
+
+	// GV7-2: everything below mutates renderer/device state the back thread may
+	// be reading mid-draw (settings, ImGui font textures, TC purges). The front
+	// only parses on this (MTGS) thread, so a single drain up front quiesces the
+	// back thread for the whole apply.
+	g_gs_renderer->DrainBackQueue();
+
+	// Handle OSD scale changes by pushing a window resize through.
+	if (new_config.OsdScale != old_config.OsdScale)
+		ImGuiManager::RequestScaleUpdate();
+
+	if (new_config.OsdFontPath != old_config.OsdFontPath)
+		ImGuiManager::ReloadFonts();
+
+	// Options which need a full teardown/recreate.
+	if (!GSConfig.RestartOptionsAreEqual(old_config))
+	{
+		if (!GSreopen(true, true, GSConfig.Renderer, &old_config))
+			pxFailRel("Failed to do full GS reopen");
+		return;
+	}
+
+	// Ensure upscale multiplier is in range.
+	GSClampUpscaleMultiplier(GSConfig);
+
+	// Options which aren't using the global struct yet, so we need to recreate all GS objects.
+	if (GSConfig.SWExtraThreads != old_config.SWExtraThreads ||
+		GSConfig.SWExtraThreadsHeight != old_config.SWExtraThreadsHeight)
+	{
+		if (!GSreopen(false, true, GSConfig.Renderer, &old_config))
+			pxFailRel("Failed to do quick GS reopen");
+
+		return;
+	}
+
+	if (GSConfig.UserHacks_DisableRenderFixes != old_config.UserHacks_DisableRenderFixes ||
+		GSConfig.UpscaleMultiplier != old_config.UpscaleMultiplier ||
+		GSConfig.GetSkipCountFunctionId != old_config.GetSkipCountFunctionId ||
+		GSConfig.BeforeDrawFunctionId != old_config.BeforeDrawFunctionId ||
+		GSConfig.MoveHandlerFunctionId != old_config.MoveHandlerFunctionId)
+	{
+		g_gs_renderer->UpdateRenderFixes();
+	}
+
+	// renderer-specific options (e.g. auto flush, TC offset)
+	g_gs_renderer->UpdateSettings(old_config);
+	if (g_gs_front)
+		g_gs_front->UpdateSettings(old_config);
+
+	// reload texture cache when trilinear filtering or TC options change
+	if (
+		(GSIsHardwareRenderer() && GSConfig.HWMipmap != old_config.HWMipmap) ||
+		GSConfig.TexturePreloading != old_config.TexturePreloading ||
+		GSConfig.TriFilter != old_config.TriFilter ||
+		GSConfig.GPUPaletteConversion != old_config.GPUPaletteConversion ||
+		GSConfig.PreloadFrameWithGSData != old_config.PreloadFrameWithGSData ||
+		GSConfig.UserHacks_CPUFBConversion != old_config.UserHacks_CPUFBConversion ||
+		GSConfig.UserHacks_DisableDepthSupport != old_config.UserHacks_DisableDepthSupport ||
+		GSConfig.UserHacks_DisablePartialInvalidation != old_config.UserHacks_DisablePartialInvalidation ||
+		GSConfig.UserHacks_TextureInsideRt != old_config.UserHacks_TextureInsideRt ||
+		GSConfig.UserHacks_CPUSpriteRenderBW != old_config.UserHacks_CPUSpriteRenderBW ||
+		GSConfig.UserHacks_CPUCLUTRender != old_config.UserHacks_CPUCLUTRender ||
+		GSConfig.UserHacks_GPUTargetCLUTMode != old_config.UserHacks_GPUTargetCLUTMode ||
+		// The geometry hacks below all outlive the draw, because what they move ends up
+		// baked into a cached target: native scaling swaps a target's texture for a
+		// downscaled one and pins m_scale to 1, the rest shift vertices or texture
+		// coordinates on the way in. Switch one off and a target the game doesn't redraw
+		// keeps the old pixels — that's the ghosting people report as a stuck setting.
+		GSConfig.UserHacks_NativeScaling != old_config.UserHacks_NativeScaling ||
+		GSConfig.UserHacks_AlignSpriteX != old_config.UserHacks_AlignSpriteX ||
+		GSConfig.UserHacks_MergePPSprite != old_config.UserHacks_MergePPSprite ||
+		GSConfig.UserHacks_RoundSprite != old_config.UserHacks_RoundSprite ||
+		GSConfig.UserHacks_HalfPixelOffset != old_config.UserHacks_HalfPixelOffset ||
+		GSConfig.UserHacks_ForceEvenSpritePosition != old_config.UserHacks_ForceEvenSpritePosition ||
+		GSConfig.UserHacks_NativePaletteDraw != old_config.UserHacks_NativePaletteDraw ||
+		GSConfig.UserHacks_BilinearHack != old_config.UserHacks_BilinearHack ||
+		GSConfig.UserHacks_TCOffsetX != old_config.UserHacks_TCOffsetX ||
+		GSConfig.UserHacks_TCOffsetY != old_config.UserHacks_TCOffsetY)
+	{
+		if (GSConfig.UserHacks_ReadTCOnClose)
+			g_gs_renderer->ReadbackTextureCache();
+		g_gs_renderer->PurgeTextureCache(true, true, true);
+		g_gs_device->ClearCurrent();
+		g_gs_device->PurgePool();
+	}
+
+	// clear out the sampler cache when AF options change, since the anisotropy gets baked into them
+	if (GSConfig.MaxAnisotropy != old_config.MaxAnisotropy)
+		g_gs_device->ClearSamplerCache();
+
+	// texture dumping/replacement options
+	if (GSIsHardwareRenderer())
+		GSTextureReplacements::UpdateConfig(old_config);
+
+	// clear the hash texture cache since we might have replacements now
+	// also clear it when dumping changes, since we want to dump everything being used
+	if (GSConfig.LoadTextureReplacements != old_config.LoadTextureReplacements ||
+		GSConfig.DumpReplaceableTextures != old_config.DumpReplaceableTextures)
+	{
+		g_gs_renderer->PurgeTextureCache(true, false, true);
+	}
+
+	// Per-draw ledger. Writing on the true->false edge means a live capture is just
+	// "turn it on, play the slow bit, turn it off" -- both edges drivable over PINE.
+	if (GSConfig.DumpDrawLog != old_config.DumpDrawLog)
+	{
+		if (GSConfig.DumpDrawLog)
+		{
+			GSDrawLog::Reset();
+			GSDrawLog::Start();
+			Console.WriteLn("GSDrawLog: recording started.");
+		}
+		else
+		{
+			GSDrawLog::Stop();
+			if (GSDrawLog::GetRecordCount() > 0)
+				GSDrawLog::WriteCSV(Path::Combine(EmuFolders::Logs, "gs_drawlog.csv"));
+		}
+	}
+
+	if (GSConfig.OsdShowGPU && !old_config.OsdShowGPU)
+	{
+		if (!g_gs_device->SetGPUTimingEnabled(true))
+			GSConfig.OsdShowGPU = false;
+	}
+
+	if (GSConfig.OsdShowGPUStats != old_config.OsdShowGPUStats)
+	{
+		if (!g_gs_device->SetGPUPipelineStatisticsEnabled(GSConfig.OsdShowGPUStats))
+			GSConfig.OsdShowGPUStats = false;
+	}
+}
+
+void GSSetSoftwareRendering(bool software_renderer, GSInterlaceMode new_interlace)
+{
+	if (!g_gs_renderer)
+		return;
+
+	GSConfig.InterlaceMode = new_interlace;
+
+	if (!GSIsHardwareRenderer() != software_renderer)
+	{
+		// Config might be SW, and we're switching to HW -> use Auto.
+		const GSRendererType renderer = (software_renderer ? GSRendererType::SW :
+			(GSConfig.Renderer == GSRendererType::SW ? GSRendererType::Auto : GSConfig.Renderer));
+		if (!GSreopen(false, true, renderer, std::nullopt))
+			pxFailRel("Failed to reopen GS for renderer switch.");
+	}
+}
+
+bool GSSaveSnapshotToMemory(u32 window_width, u32 window_height, bool apply_aspect, bool crop_borders,
+	u32* width, u32* height, std::vector<u32>* pixels)
+{
+	if (!g_gs_renderer)
+		return false;
+
+	return g_gs_renderer->SaveSnapshotToMemory(window_width, window_height, apply_aspect, crop_borders,
+		width, height, pixels);
+}
+
+#ifdef _WIN32
+
+void* GSAllocateWrappedMemory(size_t size, size_t repeat)
+{
+	// No static handle: the mapped views keep the section alive, so the handle
+	// closes before returning and multiple wrapped allocations can coexist
+	// (the GV7 two-object split runs two GSStates, each with a wrapped vm).
+	const HANDLE fh = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, size, nullptr);
+	if (fh == NULL)
+	{
+		Console.Error("Failed to create file mapping of size %zu. WIN API ERROR:%u", size, GetLastError());
+		return nullptr;
+	}
+
+	// Reserve the whole area with repeats.
+	u8* base = static_cast<u8*>(VirtualAlloc2(
+		GetCurrentProcess(), nullptr, repeat * size,
+		MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS,
+		nullptr, 0));
+	if (base)
+	{
+		bool okay = true;
+		for (size_t i = 0; i < repeat; i++)
+		{
+			// Everything except the last needs the placeholders split to map over them. Then map the same file over the region.
+			u8* addr = base + i * size;
+			if ((i != (repeat - 1) && !VirtualFreeEx(GetCurrentProcess(), addr, size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) ||
+				!MapViewOfFile3(fh, GetCurrentProcess(), addr, 0, size, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0))
+			{
+				Console.Error("Failed to map repeat %zu of size %zu.", i, size);
+				okay = false;
+
+				for (size_t j = 0; j < i; j++)
+					UnmapViewOfFile2(GetCurrentProcess(), addr, MEM_PRESERVE_PLACEHOLDER);
+			}
+		}
+
+		if (okay)
+		{
+			DbgCon.WriteLn("fifo_alloc(): Mapped %zu repeats of %zu bytes at %p.", repeat, size, base);
+			CloseHandle(fh);
+			return base;
+		}
+
+		VirtualFreeEx(GetCurrentProcess(), base, 0, MEM_RELEASE);
+	}
+
+	Console.Error("Failed to reserve VA space of size %zu. WIN API ERROR:%u", size, GetLastError());
+	CloseHandle(fh);
+	return nullptr;
+}
+
+void GSFreeWrappedMemory(void* ptr, size_t size, size_t repeat)
+{
+	for (size_t i = 0; i < repeat; i++)
+	{
+		u8* addr = (u8*)ptr + i * size;
+		UnmapViewOfFile2(GetCurrentProcess(), addr, MEM_PRESERVE_PLACEHOLDER);
+	}
+
+	VirtualFreeEx(GetCurrentProcess(), ptr, 0, MEM_RELEASE);
+}
+
+#else
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+void* GSAllocateWrappedMemory(size_t size, size_t repeat)
+{
+	// No static fd: the mappings keep the shm object alive, so the descriptor
+	// closes before returning and multiple wrapped allocations can coexist
+	// (the GV7 two-object split runs two GSStates, each with a wrapped vm).
+	// Creation routes through HostSys::CreateSharedMemory so iOS gets the
+	// file-backed fallback (the bare shm_open the prior implementation used
+	// is rejected by the iOS sandbox); the helper unlinks the name (or uses
+	// memfd) immediately, so coexisting allocations never collide on it, and
+	// it ftruncates to the requested size before returning.
+	const std::string file_name = HostSys::GetFileMappingName("GS.mem");
+	void* const handle = HostSys::CreateSharedMemory(file_name.c_str(), repeat * size);
+	if (!handle)
+	{
+		std::fprintf(stderr,
+			"GSAllocateWrappedMemory: HostSys::CreateSharedMemory failed "
+			"(size=%zu repeat=%zu total=%zu)\n",
+			size, repeat, repeat * size);
+		return nullptr;
+	}
+	const int fd = static_cast<int>(reinterpret_cast<intptr_t>(handle));
+
+	void* fifo = mmap(nullptr, size * repeat, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+	for (size_t i = 1; i < repeat; i++)
+	{
+		void* base = (u8*)fifo + size * i;
+		u8* next = (u8*)mmap(base, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
+		if (next != base)
+			fprintf(stderr, "Fail to mmap contiguous segment\n");
+	}
+
+	close(fd);
+
+	return fifo;
+}
+
+void GSFreeWrappedMemory(void* ptr, size_t size, size_t repeat)
+{
+	munmap(ptr, size * repeat);
+}
+
+#endif
+
+std::pair<u8, u8> GSGetRGBA8AlphaMinMax(const void* data, u32 width, u32 height, u32 stride)
+{
+	GSVector4i minc = GSVector4i::xffffffff();
+	GSVector4i maxc = GSVector4i::zero();
+
+	const u8* ptr = static_cast<const u8*>(data);
+	if ((width % 4) == 0)
+	{
+		for (u32 r = 0; r < height; r++)
+		{
+			const u8* rptr = ptr;
+			for (u32 c = 0; c < width; c += 4)
+			{
+				const GSVector4i v = GSVector4i::load<false>(rptr);
+				rptr += sizeof(GSVector4i);
+				minc = minc.min_u32(v);
+				maxc = maxc.max_u32(v);
+			}
+
+			ptr += stride;
+		}
+	}
+	else
+	{
+		const u32 aligned_width = Common::AlignDownPow2(width, 4);
+		static constexpr const GSVector4i masks[3][2] = {
+			{GSVector4i::cxpr(0xFFFFFFFF, 0, 0, 0), GSVector4i::cxpr(0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF)},
+			{GSVector4i::cxpr(0xFFFFFFFF, 0xFFFFFFFF, 0, 0), GSVector4i::cxpr(0, 0, 0xFFFFFFFF, 0xFFFFFFFF)},
+			{GSVector4i::cxpr(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0), GSVector4i::cxpr(0, 0, 0, 0xFFFFFFFF)},
+		};
+		const u32 unaligned_pixels = width & 3;
+		const GSVector4i last_mask_and = masks[unaligned_pixels - 1][0];
+		const GSVector4i last_mask_or = masks[unaligned_pixels - 1][1];
+
+		for (u32 r = 0; r < height; r++)
+		{
+			const u8* rptr = ptr;
+			for (u32 c = 0; c < aligned_width; c += 4)
+			{
+				const GSVector4i v = GSVector4i::load<false>(rptr);
+				rptr += sizeof(GSVector4i);
+				minc = minc.min_u32(v);
+				maxc = maxc.max_u32(v);
+			}
+
+			GSVector4i v;
+			u32 vu;
+			if (unaligned_pixels == 3)
+			{
+				v = GSVector4i::loadl(rptr);
+				std::memcpy(&vu, rptr + sizeof(u32) * 2, sizeof(vu));
+				v = v.insert32<2>(vu);
+			}
+			else if (unaligned_pixels == 2)
+			{
+				v = GSVector4i::loadl(rptr);
+			}
+			else
+			{
+				std::memcpy(&vu, rptr, sizeof(vu));
+				v = GSVector4i::load(vu);
+			}
+
+			minc = minc.min_u32(v | last_mask_or);
+			maxc = maxc.max_u32(v & last_mask_and);
+
+			ptr += stride;
+		}
+	}
+
+	return std::make_pair<u8, u8>(static_cast<u8>(minc.minv_u32() >> 24),
+		static_cast<u8>(maxc.maxv_u32() >> 24));
+}
+
+static void HotkeyAdjustUpscaleMultiplier(const float delta)
+{
+	if (!g_gs_renderer)
+		return;
+
+	if (GSCurrentRenderer == GSRendererType::SW || GSCurrentRenderer == GSRendererType::Null)
+	{
+		Host::AddIconOSDMessage("UpscaleMultiplierChanged", ICON_FA_ARROW_UP_RIGHT_FROM_SQUARE,
+								TRANSLATE_STR("GS", "Upscaling can only be changed while using the Hardware Renderer."), Host::OSD_QUICK_DURATION);
+		return;
+	}
+
+	// Clamp logic mirrors GraphicsSettingsWidget::populateUpscaleMultipliers().
+	float candidate_multiplier = EmuConfig.GS.UpscaleMultiplier + delta;
+	const float max_multiplier = static_cast<float>(std::clamp(GSGetMaxUpscaleMultiplier(g_gs_device->GetMaxTextureSize()),
+													10u, EmuConfig.GS.ExtendedUpscalingMultipliers ? 25u : 12u));
+
+	std::string osd_message;
+	if (candidate_multiplier <= 1)
+	{
+		candidate_multiplier = 1;
+		osd_message = TRANSLATE_STR("GS", "Upscale multiplier set to native resolution.");
+	}
+	else if (candidate_multiplier >= max_multiplier)
+	{
+		candidate_multiplier = max_multiplier;
+		osd_message = fmt::format(TRANSLATE_FS("GS", "Upscale multiplier maximized to {}x."), max_multiplier);
+	}
+	else
+	{
+		osd_message = fmt::format(TRANSLATE_FS("GS", "Upscale multiplier {} to {}x."),
+							  delta > 0 ? TRANSLATE_STR("GS", "increased") : TRANSLATE_STR("GS", "decreased"), candidate_multiplier);
+	}
+
+	// Need to calculate our own target resolution. Reading after applying settings is a race condition.
+	const GSVector2i base_resolution = g_gs_renderer ? g_gs_renderer->PCRTCDisplays.GetResolution() : GSVector2i(0, 0);
+	const int target_iwidth = static_cast<int>(std::round(static_cast<float>(base_resolution.x) * candidate_multiplier));
+	const int target_iheight = static_cast<int>(std::round(static_cast<float>(base_resolution.y) * candidate_multiplier));
+
+	//: Leftmost value is an OSD message about the upscale multiplier. Values in parentheses are a resolution width (left) and height (right).
+	Host::AddIconOSDMessage("UpscaleMultiplierChanged", ICON_FA_ARROW_UP_RIGHT_FROM_SQUARE,
+							fmt::format(TRANSLATE_FS("GS", "{} ({} x {})"), osd_message, target_iwidth, target_iheight), Host::OSD_QUICK_DURATION);
+
+	// This is pretty slow. We only really need to flush the TC and recompile shaders.
+	// TODO(Stenzek): Make it faster at some point in the future.
+	EmuConfig.GS.UpscaleMultiplier = candidate_multiplier;
+	MTGS::ApplySettings();
+}
+
+static bool s_osd_hotkey_forced_simple = false;
+
+static bool HasConfiguredOSD()
+{
+	return EmuConfig.GS.OsdShowSpeed || EmuConfig.GS.OsdShowFPS || EmuConfig.GS.OsdShowVPS ||
+		   EmuConfig.GS.OsdShowResolution || EmuConfig.GS.OsdShowGSStats || EmuConfig.GS.OsdShowCPU ||
+		   EmuConfig.GS.OsdShowGPU || EmuConfig.GS.OsdShowGPUDebug || EmuConfig.GS.OsdShowIndicators ||
+		   EmuConfig.GS.OsdShowFrameTimes || EmuConfig.GS.OsdShowHardwareInfo || EmuConfig.GS.OsdShowVersion ||
+		   EmuConfig.GS.OsdShowSettings || EmuConfig.GS.OsdshowPatches || EmuConfig.GS.OsdShowInputs ||
+		   EmuConfig.GS.OsdShowInputRec || EmuConfig.GS.OsdShowVideoCapture || EmuConfig.GS.OsdShowTextureReplacements;
+}
+
+static void SetForcedSimpleOSD(bool enabled)
+{
+	s_osd_hotkey_forced_simple = enabled;
+	GSConfig.OsdShowFPS = enabled;
+	GSConfig.OsdShowVPS = enabled;
+	GSConfig.OsdShowSpeed = enabled;
+	GSConfig.OsdShowVersion = enabled;
+	GSConfig.OsdShowIndicators = enabled;
+	GSConfig.OsdMessagesPos = enabled ? OsdOverlayPos::TopLeft : OsdOverlayPos::None;
+	GSConfig.OsdPerformancePos = enabled ? OsdOverlayPos::TopRight : OsdOverlayPos::None;
+}
+
+static void HotkeyToggleOSD()
+{
+	if (!HasConfiguredOSD())
+	{
+		SetForcedSimpleOSD(!s_osd_hotkey_forced_simple || GSConfig.OsdPerformancePos == OsdOverlayPos::None);
+		return;
+	}
+
+	s_osd_hotkey_forced_simple = false;
+
+	GSConfig.OsdShowSettings ^= EmuConfig.GS.OsdShowSettings;
+	GSConfig.OsdshowPatches ^= EmuConfig.GS.OsdshowPatches;
+	GSConfig.OsdShowInputs ^= EmuConfig.GS.OsdShowInputs;
+	GSConfig.OsdShowInputRec ^= EmuConfig.GS.OsdShowInputRec;
+	GSConfig.OsdShowVideoCapture ^= EmuConfig.GS.OsdShowVideoCapture;
+	GSConfig.OsdShowTextureReplacements ^= EmuConfig.GS.OsdShowTextureReplacements;
+
+	GSConfig.OsdMessagesPos =
+		GSConfig.OsdMessagesPos == OsdOverlayPos::None ? EmuConfig.GS.OsdMessagesPos : OsdOverlayPos::None;
+	GSConfig.OsdPerformancePos =
+		GSConfig.OsdPerformancePos == OsdOverlayPos::None ? EmuConfig.GS.OsdPerformancePos : OsdOverlayPos::None;
+}
+
+BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+	TRANSLATE_NOOP("Hotkeys", "Save Screenshot"),
+	[](s32 pressed) {
+		if (!pressed)
+		{
+			MTGS::RunOnGSThread([]() { GSQueueSnapshot(std::string(), 0); });
+		}
+	}},
+	{"ToggleVideoCapture", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Video Capture"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				if (GSCapture::IsCapturing())
+				{
+					MTGS::RunOnGSThread([]() { g_gs_renderer->EndCapture(); });
+					MTGS::WaitGS(false, false, false);
+					return;
+				}
+
+				MTGS::RunOnGSThread([]() {
+					std::string filename(fmt::format("{}.{}", GSGetBaseVideoFilename(), GSConfig.CaptureContainer));
+					g_gs_renderer->BeginCapture(std::move(filename));
+				});
+
+				// Sync GS thread. We want to start adding audio at the same time as video.
+				MTGS::WaitGS(false, false, false);
+			}
+		}},
+	{"GSDumpSingleFrame", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Save Single Frame GS Dump"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				MTGS::RunOnGSThread([]() { GSQueueSnapshot(std::string(), 1); });
+			}
+		}},
+	{"GSDumpMultiFrame", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Save Multi Frame GS Dump"),
+		[](s32 pressed) {
+			MTGS::RunOnGSThread([pressed]() {
+				if (pressed > 0)
+					GSQueueSnapshot(std::string(), std::numeric_limits<u32>::max());
+				else
+					GSStopGSDump();
+			});
+		}},
+	{"ToggleSoftwareRendering", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+		TRANSLATE_NOOP("Hotkeys", "Toggle Software Rendering"),
+		[](s32 pressed) {
+			if (!pressed)
+				MTGS::ToggleSoftwareRendering();
+		}},
+	{"IncreaseUpscaleMultiplier", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+		TRANSLATE_NOOP("Hotkeys", "Increase Upscale Multiplier"),
+		[](s32 pressed) {
+			if (!pressed)
+				HotkeyAdjustUpscaleMultiplier(1.0f);
+		}},
+	{"DecreaseUpscaleMultiplier", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+		TRANSLATE_NOOP("Hotkeys", "Decrease Upscale Multiplier"),
+		[](s32 pressed) {
+			if (!pressed)
+				HotkeyAdjustUpscaleMultiplier(-1.0f);
+		}},
+	{"ToggleOSD", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle On-Screen Display"),
+		[](s32 pressed) {
+			if (!pressed)
+				HotkeyToggleOSD();
+		}},
+	{"CycleAspectRatio", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Aspect Ratio"),
+		[](s32 pressed) {
+			if (pressed)
+				return;
+
+			// technically this races, but the worst that'll happen is one frame uses the old AR.
+			EmuConfig.CurrentAspectRatio = static_cast<AspectRatioType>(
+				(static_cast<int>(EmuConfig.CurrentAspectRatio) + 1) % static_cast<int>(AspectRatioType::MaxCount));
+			Host::AddKeyedOSDMessage("CycleAspectRatio",
+				fmt::format(TRANSLATE_FS("Hotkeys", "Aspect ratio set to '{}'."),
+					Pcsx2Config::GSOptions::AspectRatioNames[static_cast<int>(EmuConfig.CurrentAspectRatio)]),
+				Host::OSD_QUICK_DURATION);
+		}},
+	{"ToggleMipmapMode", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Hardware Mipmapping"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				EmuConfig.GS.HWMipmap = !EmuConfig.GS.HWMipmap;
+				Host::AddKeyedOSDMessage("ToggleMipmapMode",
+					EmuConfig.GS.HWMipmap ?
+						TRANSLATE_STR("Hotkeys", "Hardware mipmapping is now enabled.") :
+						TRANSLATE_STR("Hotkeys", "Hardware mipmapping is now disabled."),
+					Host::OSD_INFO_DURATION);
+				MTGS::ApplySettings();
+			}
+		}},
+	{"CycleInterlaceMode", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Deinterlace Mode"),
+		[](s32 pressed) {
+			if (pressed)
+				return;
+
+			static constexpr std::array<const char*, static_cast<int>(GSInterlaceMode::Count)> option_names = {{
+				TRANSLATE_NOOP("Hotkeys", "Automatic"),
+				TRANSLATE_NOOP("Hotkeys", "Off"),
+				TRANSLATE_NOOP("Hotkeys", "Weave (Top Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Weave (Bottom Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Bob (Top Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Bob (Bottom Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Blend (Top Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Blend (Bottom Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Adaptive (Top Field First)"),
+				TRANSLATE_NOOP("Hotkeys", "Adaptive (Bottom Field First)"),
+			}};
+
+			const GSInterlaceMode new_mode = static_cast<GSInterlaceMode>(
+				(static_cast<s32>(EmuConfig.GS.InterlaceMode) + 1) % static_cast<s32>(GSInterlaceMode::Count));
+			Host::AddKeyedOSDMessage("CycleInterlaceMode",
+				fmt::format(
+					TRANSLATE_FS("Hotkeys", "Deinterlace mode set to '{}'."), option_names[static_cast<s32>(new_mode)]),
+				Host::OSD_QUICK_DURATION);
+
+			EmuConfig.GS.InterlaceMode = new_mode;
+			MTGS::RunOnGSThread([new_mode]() { GSConfig.InterlaceMode = new_mode; });
+		}},
+	{"CycleTVShader", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle TV Shader"),
+		[](s32 pressed) {
+			if (pressed)
+				return;
+
+			static constexpr std::array<const char*, 8> option_names = {{
+				TRANSLATE_NOOP("Hotkeys", "None (Default)"),
+				TRANSLATE_NOOP("Hotkeys", "Scanline Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Diagonal Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Triangular Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Wave Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Lottes CRT"),
+				TRANSLATE_NOOP("Hotkeys", "4xRGSS"),
+				TRANSLATE_NOOP("Hotkeys", "NxAGSS"),
+			}};
+
+			const u32 new_shader = (EmuConfig.GS.TVShader + 1) % 8;
+			Host::AddKeyedOSDMessage("CycleTVShader",
+				fmt::format(
+					TRANSLATE_FS("Hotkeys", "TV shader set to '{}'."), option_names[new_shader]),
+				Host::OSD_QUICK_DURATION);
+
+			EmuConfig.GS.TVShader = new_shader;
+			MTGS::RunOnGSThread([new_shader]() { GSConfig.TVShader = new_shader; });
+		}},
+		{"CycleBlendingAccuracy", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Blending Accuracy"),
+			[](s32 pressed) {
+				if (pressed)
+					return;
+
+				static constexpr std::array<const char*, static_cast<u8>(AccBlendLevel::MaxCount)> s_blending_option_names = {{
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "Minimum"),
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "Basic"),
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "Medium"),
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "High"),
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "Full"),
+					TRANSLATE_NOOP("Hotkeys_BlendAcc", "Maximum"),
+				}};
+
+				const AccBlendLevel new_blend_mode = static_cast<AccBlendLevel>(
+					(static_cast<u8>(EmuConfig.GS.AccurateBlendingUnit) + 1) % static_cast<u8>(AccBlendLevel::MaxCount));
+				Host::AddKeyedOSDMessage("CycleBlendingAccuracy",
+					fmt::format(
+						TRANSLATE_FS("Hotkeys", "Blending Accuracy set to {}."), s_blending_option_names[static_cast<u8>(new_blend_mode)]),
+					Host::OSD_QUICK_DURATION);
+
+				EmuConfig.GS.AccurateBlendingUnit = new_blend_mode;
+				MTGS::RunOnGSThread([new_blend_mode]() { GSConfig.AccurateBlendingUnit = new_blend_mode; });
+			}},
+	{"ToggleTextureDumping", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Texture Dumping"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				EmuConfig.GS.DumpReplaceableTextures = !EmuConfig.GS.DumpReplaceableTextures;
+				Host::AddKeyedOSDMessage("ToggleTextureReplacements",
+					EmuConfig.GS.DumpReplaceableTextures ? TRANSLATE_STR("Hotkeys", "Texture dumping is now enabled.") :
+														   TRANSLATE_STR("Hotkeys", "Texture dumping is now disabled."),
+					Host::OSD_INFO_DURATION);
+				MTGS::ApplySettings();
+			}
+		}},
+	{"ToggleTextureReplacements", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+		TRANSLATE_NOOP("Hotkeys", "Toggle Texture Replacements"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				EmuConfig.GS.LoadTextureReplacements = !EmuConfig.GS.LoadTextureReplacements;
+				Host::AddKeyedOSDMessage("ToggleTextureReplacements",
+					EmuConfig.GS.LoadTextureReplacements ?
+						TRANSLATE_STR("Hotkeys", "Texture replacements are now enabled.") :
+						TRANSLATE_STR("Hotkeys", "Texture replacements are now disabled."),
+					Host::OSD_INFO_DURATION);
+				MTGS::ApplySettings();
+			}
+		}},
+	{"ReloadTextureReplacements", TRANSLATE_NOOP("Hotkeys", "Graphics"),
+		TRANSLATE_NOOP("Hotkeys", "Reload Texture Replacements"),
+		[](s32 pressed) {
+			if (!pressed)
+			{
+				if (!EmuConfig.GS.LoadTextureReplacements)
+				{
+					Host::AddKeyedOSDMessage("ReloadTextureReplacements",
+						TRANSLATE_STR("Hotkeys", "Texture replacements are not enabled."), Host::OSD_INFO_DURATION);
+				}
+				else
+				{
+					Host::AddKeyedOSDMessage("ReloadTextureReplacements",
+						TRANSLATE_STR("Hotkeys", "Reloading texture replacements..."), Host::OSD_INFO_DURATION);
+					MTGS::RunOnGSThread([]() {
+						if (!g_gs_renderer)
+							return;
+
+						GSTextureReplacements::ReloadReplacementMap();
+						g_gs_renderer->PurgeTextureCache(true, false, true);
+					});
+				}
+			}
+		}},
+	END_HOTKEY_LIST()
