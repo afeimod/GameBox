@@ -13,6 +13,14 @@
 #     System.loadLibrary("emucore_4k") 时抛 ClassNotFoundException 崩溃。
 -keep class org.libsdl.app.** { *; }
 
+# ─── NativeApp JNI 回调方法: 核心在 initialize() 里用 GetStaticMethodID 按名字
+#     查找 vmSetPaused/onPadRumble/playSound/openContentUri/createDirectoryPath/
+#     createFilePath 这 6 个静态方法(native-lib.cpp:459-461, 2601-2664)，它们只被
+#     原生字符串引用、无 Kotlin 调用方，R8 看不到引用会当作死代码裁剪。
+#     不 keep 时 release 构建抛 NoSuchMethodError → ART SIGABRT（PS2 启动闪退）。
+#     注意 -keepclasseswithmembernames 只保护 native 方法，保护不了这些普通静态方法。
+-keep class kr.co.iefriends.pcsx2.NativeApp { *; }
+
 # ─── Engine + its companion (singleton pattern) ───────────────────────────
 -keep class com.nesstation.app.core.engine.NesEngine { *; }
 -keep class com.nesstation.app.core.engine.NesEngine$Companion { *; }
