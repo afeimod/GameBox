@@ -43,7 +43,11 @@ android {
         }
         externalNativeBuild {
             cmake {
-                cppFlags += "-std=c++17"
+                // 不要在此注入 -std：CMake 层按目标统一管理。
+                // GameBox 各核心(core/cmake/CMakeLists.txt)为 C++17，
+                // ARMSX2 子树(platforms/android/.../BuildParameters.cmake)为
+                // C++20。全局注入 -std=c++17 会与 ARMSX2 的 C++20 冲突，
+                // 导致其标准库 C++20 符号(如 lexicographical_compare_three_way)不可用。
                 arguments += listOf(
                     "-DANDROID_STL=c++_static",
                     "-DANDROID_PLATFORM=android-21"
