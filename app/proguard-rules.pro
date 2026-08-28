@@ -8,6 +8,11 @@
     native <methods>;
 }
 
+# ─── SDL bridge: libemucore_4k.so 的 JNI_OnLoad 通过 FindClass("org/libsdl/app/SDLActivity")
+#     按名称查找 SDL 桥接类（R8 看不到这个原生引用）。不 keep 会在 release 构建被裁剪，
+#     System.loadLibrary("emucore_4k") 时抛 ClassNotFoundException 崩溃。
+-keep class org.libsdl.app.** { *; }
+
 # ─── Engine + its companion (singleton pattern) ───────────────────────────
 -keep class com.nesstation.app.core.engine.NesEngine { *; }
 -keep class com.nesstation.app.core.engine.NesEngine$Companion { *; }
