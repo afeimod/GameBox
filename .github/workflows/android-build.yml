@@ -78,6 +78,24 @@ jobs:
           ls "$ANDROID_HOME/platforms/" 2>/dev/null
           ls "$ANDROID_HOME/build-tools/" 2>/dev/null
 
+      # ---------- 3.4. 安装 Rust Android 交叉编译目标 ----------
+      # ARMSX2 的 librashader（RetroArch .slangp 着色器链）通过 cargo 为 Android
+      # 目标交叉编译 Rust 代码；runner 的 rustup 默认只带宿主机 std，不装目标会报
+      # "error[E0463]: can't find crate for 'core'"。
+      # 四个目标覆盖全部可选 ABI：arm64-v8a / armeabi-v7a / x86_64 / x86。
+      - name: Set up Rust Android targets
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            source "$HOME/.cargo/env"
+          fi
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android \
+            i686-linux-android
+          rustup target list --installed
+
       # ---------- 3.5. 获取 ARMSX2 (PS2) 核心源码 ----------
       # ARMSX2 以 add_subdirectory 方式编译进 PS2 核心（libemucore_4k.so，
       # 见 core/cmake/CMakeLists.txt）。其源码未纳入本仓库（体积大），
