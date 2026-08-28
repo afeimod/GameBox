@@ -636,6 +636,17 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     # and drop the line below.
     set(USE_VULKAN OFF CACHE BOOL "ARMSX2 Vulkan renderer (disabled: shaderc third_party not bundled)" FORCE)
     add_subdirectory("${ARMSX2_ANDROID_CPP}" "${CMAKE_BINARY_DIR}/armsx2")
+
+    # ARMSX2's vendored 7-Zip lzma (pcsx2-lzma) compiles AesOpt.c with ARMv8
+    # hardware-AES intrinsics (vaeseq_u8/vaesmcq_u8), but BuildParameters.cmake
+    # adds -march=armv8-a for android/arm64 (no crypto). Clang ignores
+    # per-function __attribute__((target("crypto"))) on AArch64, so the
+    # always_inline intrinsics fail with "requires target feature 'aes'".
+    # Enable crypto for this target only; target-level options land after the
+    # directory-level -march above, so clang takes the last one.
+    if(TARGET pcsx2-lzma)
+        target_compile_options(pcsx2-lzma PRIVATE "-march=armv8-a+crypto")
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
