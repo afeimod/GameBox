@@ -587,57 +587,46 @@ target_compile_options(psxcore PRIVATE
 target_link_libraries(psxcore log android dl)
 
 # ---------------------------------------------------------------------------
-# PCEE2 (Sony PlayStation 2, upstream PCSX2 v2.7.523) — built as
-# libpsx2core.so, which dlopen()s the prebuilt libpcee2_libretro_android.so
-# from app/src/main/jniLibs/<abi>/. Same dlopen pattern as PSX-ReARMed /
-# FBNeo / Genesis-Plus-GX / Geargrafx.
+# ARMSX2 (Sony PlayStation 2) — source-compiled emucore (PCSX2 fork with
+# ARM64 JIT via vixl). Replaces the previous PCEE2 dlopen approach.
 #
-# The prebuilt .so comes from the libretro buildbot
-# (https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/).
-# NOTE: PCEE2 replaced Play! as this app's PS2 core (better game
-# compatibility — it tracks modern PCSX2 instead of an old snapshot).
+# Built from ARMSX2-master/platforms/android/app/src/main/cpp via
+# add_subdirectory, producing libemucore_4k.so — a self-contained push-model
+# JNI core (kr.co.iefriends.pcsx2.NativeApp) that:
+#   - runs its own VM thread (runVMThread — blocking until VM exit)
+#   - renders directly to the ANativeWindow passed via onNativeSurfaceChanged
+#   - plays audio internally via Oboe (no external audio pull)
+#   - takes input via setPadButtonForPort (PadKeyCode + analog range)
+#   - takes settings via setSetting("EmuCore/GS/Renderer",...) + commitSettings()
+#   - saves/loads state via saveStateToSlot/loadStateFromSlot
 #
-# Our JNI bridge (pcsx2_bridge.cpp) + libretro frontend (pcsx2_loader.cpp)
-# drive the core through the standard retro_* API. Supports the HQX library
-# for video filter upscalers. PS2 BIOS files go in <systemDir>/pcsx2/bios/
-# (e.g. scph10000.bin); a legacy <systemDir>/bios/ folder is auto-migrated
-# by the loader on first load.
+# ABI limitation: PCSX2 + vixl JIT requires arm64-v8a (aarch64).
+# armeabi-v7a and x86_64 are skipped — no PS2 core on those ABIs.
+#
+# PS2 BIOS files go in <systemDir>/pcsx2/bios/ (e.g. scph10000.bin).
 # ---------------------------------------------------------------------------
-set(PSX2_JNI_SOURCES
-    "${APP_JNI_DIR}/pcsx2_bridge.cpp"
-    "${APP_JNI_DIR}/pcsx2_loader.cpp"
-    ${HQX_SOURCES}
-)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(ARMSX2_ANDROID_CPP
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../ARMSX2-master/platforms/android/app/src/main/cpp"
+        CACHE PATH "ARMSX2 Android native build root")
 
-add_library(psx2core SHARED ${PSX2_JNI_SOURCES})
-
-target_include_directories(psx2core PRIVATE
-    "${APP_JNI_DIR}"
-    "${APP_JNI_DIR}/shared"
-    "${HQX_DIR}"
-)
-
-target_compile_definitions(psx2core PRIVATE
-    __LIBRETRO__
-    ANDROID
-    NDEBUG
-)
-
-target_compile_options(psx2core PRIVATE
-    -O2
-    -fvisibility=hidden
-    -ffunction-sections -fdata-sections
-    -fno-rtti
-    -fno-exceptions
-    -Wno-unused-parameter
-    -Wno-unused-variable
-    -Wno-sign-compare
-    -Wno-write-strings
-    -Wno-deprecated-declarations
-)
-
-# `dl` is required for dlopen() / dlsym() on the prebuilt Play! .so.
-target_link_libraries(psx2core log android dl)
+    # ARMSX2's cpp/CMakeLists.txt is a self-contained project that
+    # add_subdirectory's common/, pcsx2/, 3rdparty/ from the ARMSX2 repo
+    # root. It defines the emucore_4k shared library target (JNI SDK).
+    # Placed last so ARMSX2's compile options (C++20, -fno-exceptions, etc.)
+    # only affect its own subtree, not the GameBox targets above.
+    #
+    # Vulkan renderer: ARMSX2's Vulkan GS backend needs the shaderc
+    # submodule deps (3rdparty/shaderc/third_party/{spirv-tools,spirv-headers,
+    # glslang}) which are NOT packed in the source download — enabling it
+    # fails the build inside shaderc. Force USE_VULKAN=OFF here and render
+    # with OpenGL ES instead (USE_OPENGL=ON is the default; glad ships).
+    # To re-enable Vulkan later: populate shaderc's third_party (e.g.
+    # `git submodule update --init 3rdparty/shaderc` from ARMSX2's repo)
+    # and drop the line below.
+    set(USE_VULKAN OFF CACHE BOOL "ARMSX2 Vulkan renderer (disabled: shaderc third_party not bundled)" FORCE)
+    add_subdirectory("${ARMSX2_ANDROID_CPP}" "${CMAKE_BINARY_DIR}/armsx2")
+endif()
 
 # ---------------------------------------------------------------------------
 # melonDS (Nintendo DS / DSi) — built as libndscore.so, which links the

@@ -3465,6 +3465,10 @@ fun OnScreenController(
     var lStickTY by remember { mutableStateOf(0f) }
     var rStickTX by remember { mutableStateOf(0f) }
     var rStickTY by remember { mutableStateOf(0f) }
+    // 摇杆自身的方向位（仅用于摇杆箭头高亮，独立于 visualState 的 D-pad 数字位）。
+    // 摇杆只输出模拟轴（LX/LY、RX/RY），数字方向由十字键独占 —— 三者互不串联。
+    var lStickDirs by remember { mutableIntStateOf(0) }
+    var rStickDirs by remember { mutableIntStateOf(0) }
     // 回调用 rememberUpdatedState 包装，手势协程重启期间始终拿到最新 lambda
     val currentOnAnalogAxes by rememberUpdatedState(onAnalogAxes)
 
@@ -3747,6 +3751,8 @@ fun OnScreenController(
                     if (btnType != null) {
                         var bits = 0
                         var turboBits = 0
+                        // 摇杆只输出模拟轴，不写 D-pad 数字位（避免与十字键串联）
+                        var stickOnly = false
                         when (btnType) {
                             BtnType.DPAD -> {
                                 val (b, tx, ty) = computeDirection(pos)
@@ -3758,17 +3764,19 @@ fun OnScreenController(
                             }
                             BtnType.LSTICK -> {
                                 val (b, tx, ty) = computeStickDirection(pos, lStickRect!!)
-                                bits = b
+                                lStickDirs = b
                                 lStickTX = tx
                                 lStickTY = ty
                                 pushAnalog()
+                                stickOnly = true
                             }
                             BtnType.RSTICK -> {
                                 val (b, tx, ty) = computeStickDirection(pos, rStickRect!!)
-                                bits = b
+                                rStickDirs = b
                                 rStickTX = tx
                                 rStickTY = ty
                                 pushAnalog()
+                                stickOnly = true
                             }
                             BtnType.A -> bits = BTN_A
                             BtnType.B -> bits = BTN_B
@@ -3790,7 +3798,10 @@ fun OnScreenController(
                             BtnType.GAME_AREA -> {}
                         }
                         activePointers[pid] = btnType to (if (turboBits != 0) turboBits else bits)
-                        if (turboBits != 0) {
+                        if (stickOnly) {
+                            // 摇杆只推模拟轴（已在上面 pushAnalog()），数字方向由
+                            // 十字键独占 —— 不写 visualState，避免三者串联。
+                        } else if (turboBits != 0) {
                             turboState = turboState or turboBits
                             sendStateNow(visualState, turboState)
                         } else {
@@ -3852,19 +3863,17 @@ fun OnScreenController(
                                                 }
                                             }
                                             BtnType.LSTICK -> {
-                                                // 松手：拇指回中 + 清方向位 + 轴归零
-                                                visualState = visualState and heldBits.inv()
+                                                // 松手：拇指回中 + 清摇杆方向位 + 轴归零
+                                                lStickDirs = 0
                                                 lStickTX = 0f
                                                 lStickTY = 0f
                                                 pushAnalog()
-                                                sendStateNow(visualState, turboState)
                                             }
                                             BtnType.RSTICK -> {
-                                                visualState = visualState and heldBits.inv()
+                                                rStickDirs = 0
                                                 rStickTX = 0f
                                                 rStickTY = 0f
                                                 pushAnalog()
-                                                sendStateNow(visualState, turboState)
                                             }
                                             BtnType.TURBO_A, BtnType.TURBO_B -> {
                                                 turboState = turboState and heldBits.inv()
@@ -3886,27 +3895,20 @@ fun OnScreenController(
                                         }
                                         sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.LSTICK) {
-                                        // PS2 左摇杆拖动：更新拇指位置 + 轴回调 +
-                                        // 数字方向位（超阈值方向）
-                                        val oldBits = entry.second
-                                        visualState = visualState and oldBits.inv()
+                                        // PS2 左摇杆拖动：更新拇指位置 + 轴回调（不写 D-pad 数字位）
                                         val (newBits, tx, ty) = computeStickDirection(change.position, lStickRect!!)
-                                        visualState = visualState or newBits
+                                        lStickDirs = newBits
                                         activePointers[pid] = BtnType.LSTICK to newBits
                                         lStickTX = tx
                                         lStickTY = ty
                                         pushAnalog()
-                                        sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.RSTICK) {
-                                        val oldBits = entry.second
-                                        visualState = visualState and oldBits.inv()
                                         val (newBits, tx, ty) = computeStickDirection(change.position, rStickRect!!)
-                                        visualState = visualState or newBits
+                                        rStickDirs = newBits
                                         activePointers[pid] = BtnType.RSTICK to newBits
                                         rStickTX = tx
                                         rStickTY = ty
                                         pushAnalog()
-                                        sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.GAME_AREA) {
                                         // Drag on the game area — forward as
                                         // ACTION_MOVE (continuous NDS touch tracking).
@@ -4073,7 +4075,7 @@ fun OnScreenController(
                 layout = ps2LStick,
                 surfaceSize = surfaceSize,
                 opacity = opacity,
-                pressedDirs = visualState and 0xF0,
+                pressedDirs = lStickDirs,
                 thumbX = lStickTX,
                 thumbY = lStickTY
             )

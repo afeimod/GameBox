@@ -76,6 +76,22 @@ jobs:
           ls "$ANDROID_HOME/platforms/" 2>/dev/null
           ls "$ANDROID_HOME/build-tools/" 2>/dev/null
 
+      # ---------- 3.5. 获取 ARMSX2 (PS2) 核心源码 ----------
+      # ARMSX2 以 add_subdirectory 方式编译进 PS2 核心（libemucore_4k.so，
+      # 见 core/cmake/CMakeLists.txt）。其源码未纳入本仓库（体积大），
+      # 在此单独下载。若将来把 ARMSX2-master 作为 git submodule 提交，
+      # 上面的 Checkout 已带下源码，此步自动跳过。
+      - name: Fetch ARMSX2 PS2 core source
+        run: |
+          if [ -d ARMSX2-master ] && [ -n "$(ls -A ARMSX2-master 2>/dev/null)" ]; then
+            echo "ARMSX2-master 已存在，跳过下载"
+          else
+            git clone --depth 1 --branch master \
+              https://github.com/ARMSX2/ARMSX2.git ARMSX2-master
+          fi
+          test -f ARMSX2-master/platforms/android/app/src/main/cpp/CMakeLists.txt \
+            || { echo "ARMSX2 源码获取失败"; exit 1; }
+
       # ---------- 4. 生成 Gradle Wrapper ----------
       # 说明：ubuntu-latest 镜像通过系统级 init 脚本把 AGP 8.1.0 注入 buildscript classpath，
       # 改 GRADLE_USER_HOME 无法绕过。因此项目已锁定 AGP 8.1.0（见 libs.versions.toml），
