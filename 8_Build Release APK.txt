@@ -1,0 +1,2037 @@
+﻿2026-08-28T03:45:31.7965887Z ##[group]Run if [ -n "" ]; then
+2026-08-28T03:45:31.7966216Z [36;1mif [ -n "" ]; then[0m
+2026-08-28T03:45:31.7966612Z [36;1m  ./gradlew assembleRelease -PuseStubCore=false -PabiFilter="" --stacktrace[0m
+2026-08-28T03:45:31.7967040Z [36;1melse[0m
+2026-08-28T03:45:31.7967724Z [36;1m  ./gradlew assembleRelease -PuseStubCore=false --stacktrace[0m
+2026-08-28T03:45:31.7968096Z [36;1mfi[0m
+2026-08-28T03:45:31.8008054Z shell: /usr/bin/bash -e {0}
+2026-08-28T03:45:31.8008315Z env:
+2026-08-28T03:45:31.8008651Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-08-28T03:45:31.8009146Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-08-28T03:45:31.8009601Z   ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.3.11579264
+2026-08-28T03:45:31.8010008Z   ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/26.3.11579264
+2026-08-28T03:45:31.8010326Z ##[endgroup]
+2026-08-28T03:45:32.4078833Z Starting a Gradle Daemon (subsequent builds will be faster)
+2026-08-28T03:46:30.2083858Z 
+2026-08-28T03:46:30.2112344Z > Configure project :app
+2026-08-28T03:46:30.2113399Z Checking the license for package NDK (Side by side) 26.3.11579264 in /usr/local/lib/android/sdk/licenses
+2026-08-28T03:46:30.2114424Z License for package NDK (Side by side) 26.3.11579264 accepted.
+2026-08-28T03:46:30.2115274Z Preparing "Install NDK (Side by side) 26.3.11579264 v.26.3.11579264".
+2026-08-28T03:46:43.3068627Z "Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" ready.
+2026-08-28T03:46:43.3069688Z Installing NDK (Side by side) 26.3.11579264 in /usr/local/lib/android/sdk/ndk/26.3.11579264
+2026-08-28T03:46:43.3070630Z "Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" complete.
+2026-08-28T03:46:43.6071661Z "Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" finished.
+2026-08-28T03:46:46.5065324Z Checking the license for package Android SDK Build-Tools 33.0.1 in /usr/local/lib/android/sdk/licenses
+2026-08-28T03:46:46.5066172Z License for package Android SDK Build-Tools 33.0.1 accepted.
+2026-08-28T03:46:46.5066665Z Preparing "Install Android SDK Build-Tools 33.0.1 v.33.0.1".
+2026-08-28T03:46:47.5066428Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" ready.
+2026-08-28T03:46:47.5067933Z Installing Android SDK Build-Tools 33.0.1 in /usr/local/lib/android/sdk/build-tools/33.0.1
+2026-08-28T03:46:47.5069066Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" complete.
+2026-08-28T03:46:47.5069936Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" finished.
+2026-08-28T03:46:48.2077782Z 
+2026-08-28T03:46:48.2078370Z > Task :dexlib:preBuild UP-TO-DATE
+2026-08-28T03:46:48.2078757Z > Task :dexlib:preReleaseBuild UP-TO-DATE
+2026-08-28T03:46:48.3066101Z > Task :app:buildKotlinToolingMetadata
+2026-08-28T03:46:48.3066851Z > Task :app:preBuild UP-TO-DATE
+2026-08-28T03:46:48.3067633Z > Task :app:preReleaseBuild UP-TO-DATE
+2026-08-28T03:46:48.4071423Z > Task :dexlib:mergeReleaseJniLibFolders
+2026-08-28T03:46:48.4074588Z > Task :dexlib:mergeReleaseNativeLibs NO-SOURCE
+2026-08-28T03:46:48.4075598Z > Task :dexlib:stripReleaseDebugSymbols NO-SOURCE
+2026-08-28T03:46:48.5064939Z > Task :dexlib:generateReleaseResValues
+2026-08-28T03:46:48.5067071Z > Task :dexlib:extractDeepLinksForAarRelease
+2026-08-28T03:46:48.5068071Z > Task :dexlib:generateReleaseResources
+2026-08-28T03:46:48.5068769Z > Task :dexlib:packageReleaseResources
+2026-08-28T03:46:49.7088475Z > Task :dexlib:processReleaseManifest
+2026-08-28T03:46:49.8070921Z > Task :dexlib:parseReleaseLocalResources
+2026-08-28T03:46:49.8091165Z > Task :dexlib:javaPreCompileRelease
+2026-08-28T03:46:49.8091991Z > Task :dexlib:mergeReleaseShaders FROM-CACHE
+2026-08-28T03:46:49.8092605Z > Task :dexlib:compileReleaseShaders NO-SOURCE
+2026-08-28T03:46:49.8093243Z > Task :dexlib:generateReleaseAssets UP-TO-DATE
+2026-08-28T03:46:49.8093834Z > Task :dexlib:packageReleaseAssets FROM-CACHE
+2026-08-28T03:46:49.8094450Z > Task :dexlib:copyReleaseJniLibsProjectAndLocalJars
+2026-08-28T03:46:49.8095173Z > Task :dexlib:prepareReleaseArtProfile
+2026-08-28T03:46:49.8095750Z > Task :dexlib:processReleaseJavaRes NO-SOURCE
+2026-08-28T03:46:49.9065265Z > Task :dexlib:prepareLintJarForPublish
+2026-08-28T03:46:49.9066047Z > Task :dexlib:generateReleaseRFile
+2026-08-28T03:46:49.9066582Z > Task :dexlib:mergeReleaseJavaResource
+2026-08-28T03:46:49.9067067Z > Task :dexlib:writeReleaseAarMetadata
+2026-08-28T03:46:55.4065835Z > Task :dexlib:extractReleaseAnnotations
+2026-08-28T03:47:00.8064287Z 
+2026-08-28T03:47:00.8065667Z Note: Some input files use unchecked or unsafe operations.
+2026-08-28T03:47:00.8078213Z > Task :dexlib:compileReleaseJavaWithJavac
+2026-08-28T03:47:00.8088997Z Note: Recompile with -Xlint:unchecked for details.
+2026-08-28T03:47:03.2064008Z 
+2026-08-28T03:47:03.2067841Z > Task :dexlib:mergeReleaseGeneratedProguardFiles
+2026-08-28T03:47:03.2068828Z > Task :dexlib:mergeReleaseConsumerProguardFiles
+2026-08-28T03:47:03.4066960Z > Task :dexlib:syncReleaseLibJars
+2026-08-28T03:47:03.4068084Z > Task :dexlib:bundleReleaseLocalLintAar
+2026-08-28T03:47:03.5067904Z > Task :dexlib:extractDeepLinksRelease
+2026-08-28T03:47:03.8091973Z > Task :dexlib:compileReleaseLibraryResources
+2026-08-28T03:47:03.8128173Z > Task :dexlib:writeReleaseLintModelMetadata
+2026-08-28T03:47:03.9065062Z > Task :dexlib:bundleLibRuntimeToJarRelease
+2026-08-28T03:47:03.9069635Z > Task :dexlib:createFullJarRelease
+2026-08-28T03:47:03.9098052Z > Task :dexlib:bundleLibCompileToJarRelease
+2026-08-28T03:47:04.0098259Z > Task :dexlib:bundleReleaseAar
+2026-08-28T03:47:04.0127943Z > Task :dexlib:mapReleaseSourceSetPaths
+2026-08-28T03:47:04.0128982Z > Task :dexlib:mergeReleaseResources
+2026-08-28T03:47:04.3068211Z > Task :dexlib:verifyReleaseResources
+2026-08-28T03:47:04.3070759Z > Task :dexlib:assembleRelease
+2026-08-28T03:47:04.3071921Z > Task :dexlib:exportReleaseConsumerProguardFiles
+2026-08-28T03:47:04.3073147Z > Task :dexlib:copyReleaseJniLibsProjectOnly
+2026-08-28T03:47:06.7068883Z > Task :app:dataBindingMergeDependencyArtifactsRelease
+2026-08-28T03:47:06.7070295Z > Task :app:generateReleaseResValues FROM-CACHE
+2026-08-28T03:47:06.7071179Z > Task :app:generateReleaseResources UP-TO-DATE
+2026-08-28T03:47:10.4078705Z > Task :app:packageReleaseResources
+2026-08-28T03:47:10.5095668Z > Task :app:generateReleaseBuildConfig
+2026-08-28T03:47:10.8065478Z > Task :app:parseReleaseLocalResources
+2026-08-28T03:47:10.8067654Z > Task :app:checkReleaseAarMetadata
+2026-08-28T03:47:10.9066312Z > Task :app:mapReleaseSourceSetPaths
+2026-08-28T03:47:10.9148402Z > Task :app:createReleaseCompatibleScreenManifests
+2026-08-28T03:47:10.9168220Z > Task :app:extractDeepLinksRelease FROM-CACHE
+2026-08-28T03:47:11.6064416Z 
+2026-08-28T03:47:11.6078739Z > Task :app:processReleaseMainManifest
+2026-08-28T03:47:11.6079720Z /home/runner/work/GameBox/GameBox/app/src/main/AndroidManifest.xml Warning:
+2026-08-28T03:47:11.6081436Z 	provider#org.acra.attachment.AcraContentProvider@android:authorities was tagged at AndroidManifest.xml:0 to replace other declarations but no other declaration present
+2026-08-28T03:47:11.6082758Z 
+2026-08-28T03:47:11.6083109Z > Task :app:processReleaseManifest
+2026-08-28T03:47:11.9064381Z > Task :app:mergeReleaseResources
+2026-08-28T03:47:13.3087973Z > Task :app:javaPreCompileRelease
+2026-08-28T03:47:13.9064183Z > Task :app:dataBindingGenBaseClassesRelease
+2026-08-28T03:47:13.9064616Z > Task :app:extractProguardFiles
+2026-08-28T03:47:15.9063932Z 
+2026-08-28T03:47:15.9064644Z > Task :app:configureCMakeRelWithDebInfo[arm64-v8a]
+2026-08-28T03:47:15.9066436Z Checking the license for package CMake 3.22.1 in /usr/local/lib/android/sdk/licenses
+2026-08-28T03:47:15.9067040Z License for package CMake 3.22.1 accepted.
+2026-08-28T03:47:15.9067703Z Preparing "Install CMake 3.22.1 v.3.22.1".
+2026-08-28T03:47:15.9068120Z "Install CMake 3.22.1 v.3.22.1" ready.
+2026-08-28T03:47:15.9068627Z Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
+2026-08-28T03:47:15.9069142Z "Install CMake 3.22.1 v.3.22.1" complete.
+2026-08-28T03:47:15.9069547Z "Install CMake 3.22.1 v.3.22.1" finished.
+2026-08-28T03:47:34.5064634Z C/C++: Using precompiled headers.
+2026-08-28T03:47:38.9065090Z C/C++: CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:38.9065895Z C/C++: Missing variable is:
+2026-08-28T03:47:38.9068241Z C/C++: CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:38.9069034Z C/C++: CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:38.9069696Z C/C++: Missing variable is:
+2026-08-28T03:47:38.9070237Z C/C++: CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:38.9070936Z C/C++: CMake Generate step failed.  Build files cannot be regenerated correctly.
+2026-08-28T03:47:39.0092088Z 
+2026-08-28T03:47:39.0158297Z FAILURE: Build failed with an exception.
+2026-08-28T03:47:39.0158733Z 
+2026-08-28T03:47:39.0207469Z 
+2026-08-28T03:47:39.0208028Z > Task :app:configureCMakeRelWithDebInfo[arm64-v8a] FAILED
+2026-08-28T03:47:39.0267684Z * What went wrong:
+2026-08-28T03:47:39.0268151Z > Task :app:processReleaseManifestForPackage
+2026-08-28T03:47:39.0327830Z Execution failed for task ':app:configureCMakeRelWithDebInfo[arm64-v8a]'.
+2026-08-28T03:47:39.0398691Z > [CXX1429] error when building with cmake using /home/runner/work/GameBox/GameBox/core/cmake/CMakeLists.txt: -- The C compiler identification is Clang 17.0.2
+2026-08-28T03:47:39.0468137Z   -- The CXX compiler identification is Clang 17.0.2
+2026-08-28T03:47:39.0517826Z   -- Detecting C compiler ABI info
+2026-08-28T03:47:39.0518368Z   -- Detecting C compiler ABI info - done
+2026-08-28T03:47:39.0519386Z   -- Check for working C compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang - skipped
+2026-08-28T03:47:39.0520400Z   -- Detecting C compile features
+2026-08-28T03:47:39.0520844Z   -- Detecting C compile features - done
+2026-08-28T03:47:39.0521315Z   -- Detecting CXX compiler ABI info
+2026-08-28T03:47:39.0521768Z   -- Detecting CXX compiler ABI info - done
+2026-08-28T03:47:39.0522763Z   -- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+2026-08-28T03:47:39.0523781Z   -- Detecting CXX compile features
+2026-08-28T03:47:39.0524224Z   -- Detecting CXX compile features - done
+2026-08-28T03:47:39.0524813Z   -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1") 
+2026-08-28T03:47:39.0525394Z   -- Looking for strdup
+2026-08-28T03:47:39.0525782Z   -- Looking for strdup - found
+2026-08-28T03:47:39.0526173Z   -- Looking for strlcpy
+2026-08-28T03:47:39.0526553Z   -- Looking for strlcpy - found
+2026-08-28T03:47:39.0526952Z   -- Looking for strndup
+2026-08-28T03:47:39.0527489Z   -- Looking for strndup - found
+2026-08-28T03:47:39.0527869Z   -- Looking for vasprintf
+2026-08-28T03:47:39.0528261Z   -- Looking for vasprintf - found
+2026-08-28T03:47:39.0528673Z   -- Looking for freelocale
+2026-08-28T03:47:39.0529065Z   -- Looking for freelocale - found
+2026-08-28T03:47:39.0529490Z   -- Looking for newlocale
+2026-08-28T03:47:39.0529871Z   -- Looking for newlocale - found
+2026-08-28T03:47:39.0530273Z   -- Looking for setlocale
+2026-08-28T03:47:39.0530666Z   -- Looking for setlocale - found
+2026-08-28T03:47:39.0531081Z   -- Looking for snprintf_l
+2026-08-28T03:47:39.0531493Z   -- Looking for snprintf_l - not found
+2026-08-28T03:47:39.0531928Z   -- Looking for uselocale
+2026-08-28T03:47:39.0532301Z   -- Looking for uselocale - found
+2026-08-28T03:47:39.0532711Z   -- Looking for popcount32
+2026-08-28T03:47:39.0533091Z   -- Looking for popcount32 - not found
+2026-08-28T03:47:39.0533512Z   -- Looking for futimens
+2026-08-28T03:47:39.0533879Z   -- Looking for futimens - found
+2026-08-28T03:47:39.0534268Z   -- Looking for futimes
+2026-08-28T03:47:39.0534652Z   -- Looking for futimes - not found
+2026-08-28T03:47:39.0577890Z   -- Looking for localtime_r
+2026-08-28T03:47:39.0617856Z   -- Looking for localtime_r - found
+2026-08-28T03:47:39.0647830Z   -- Looking for realpath
+2026-08-28T03:47:39.0648495Z   -- Looking for realpath - found
+2026-08-28T03:47:39.0687926Z   -- Looking for include file xlocale.h
+2026-08-28T03:47:39.0737747Z   -- Looking for include file xlocale.h - found
+2026-08-28T03:47:39.0738509Z   -- Looking for include file pthread.h
+2026-08-28T03:47:39.0739038Z   -- Looking for include file pthread.h - found
+2026-08-28T03:47:39.0797732Z   -- Performing Test HAVE_PTHREAD
+2026-08-28T03:47:39.0799617Z   -- Performing Test HAVE_PTHREAD - Success
+2026-08-28T03:47:39.0827833Z   -- Looking for pthread_create
+2026-08-28T03:47:39.0847702Z   -- Looking for pthread_create - found
+2026-08-28T03:47:39.0887699Z   -- Looking for include file pthread_np.h
+2026-08-28T03:47:39.0888502Z   -- Looking for include file pthread_np.h - not found
+2026-08-28T03:47:39.0889157Z   -- Looking for pthread_setname_np
+2026-08-28T03:47:39.0937718Z   -- Looking for pthread_setname_np - found
+2026-08-28T03:47:39.0967580Z   -- Looking for pthread_set_name_np
+2026-08-28T03:47:39.0977757Z   -- Looking for pthread_set_name_np - not found
+2026-08-28T03:47:39.1007633Z   -- Looking for crc32
+2026-08-28T03:47:39.1009319Z   -- Looking for crc32 - not found
+2026-08-28T03:47:39.1058286Z   -- CMake Version: 3.22.1-g37088a8
+2026-08-28T03:47:39.1067827Z   -- CMake System Name: Android
+2026-08-28T03:47:39.1096111Z   -- Building for Android.
+2026-08-28T03:47:39.1106726Z   -- Building with Clang/LLVM.
+2026-08-28T03:47:39.1127824Z   -- Building for Android (ARM64).
+2026-08-28T03:47:39.1157742Z   -- Found Git: /usr/bin/git (found version "2.55.0") 
+2026-08-28T03:47:39.1179222Z   -- Looking for pthread.h
+2026-08-28T03:47:39.1204059Z   -- Looking for pthread.h - found
+2026-08-28T03:47:39.1217860Z   -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+2026-08-28T03:47:39.1238235Z   -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+2026-08-28T03:47:39.1257672Z   -- Looking for pthread_create in pthreads
+2026-08-28T03:47:39.1277738Z   -- Looking for pthread_create in pthreads - not found
+2026-08-28T03:47:39.1278511Z   -- Looking for pthread_create in pthread
+2026-08-28T03:47:39.1317509Z   -- Looking for pthread_create in pthread - not found
+2026-08-28T03:47:39.1327663Z   -- Check if compiler accepts -pthread
+2026-08-28T03:47:39.1347888Z   -- Check if compiler accepts -pthread - yes
+2026-08-28T03:47:39.1365332Z   -- Found Threads: TRUE  
+2026-08-28T03:47:39.1378833Z   -- Found ZLIB: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/21/libz.so (found version "1.2.13") 
+2026-08-28T03:47:39.1396942Z   -- ZSTD VERSION: 1.6.0
+2026-08-28T03:47:39.1427753Z   -- CMAKE_INSTALL_PREFIX: /usr/local
+2026-08-28T03:47:39.1437601Z   -- CMAKE_INSTALL_LIBDIR: lib
+2026-08-28T03:47:39.1467681Z   -- ZSTD_LEGACY_SUPPORT disabled
+2026-08-28T03:47:39.1487906Z   -- Configuring for old Android API - disabling fseeko/ftello
+2026-08-28T03:47:39.1500813Z   -- Multi-threading support disabled
+2026-08-28T03:47:39.1527821Z   -- Performing Test C_FLAG_WALL
+2026-08-28T03:47:39.1557762Z   -- Performing Test C_FLAG_WALL - Success
+2026-08-28T03:47:39.1577764Z   -- Performing Test CXX_FLAG_WALL
+2026-08-28T03:47:39.1587680Z   -- Performing Test CXX_FLAG_WALL - Success
+2026-08-28T03:47:39.1617703Z   -- Performing Test C_FLAG_WEXTRA
+2026-08-28T03:47:39.1637802Z   -- Performing Test C_FLAG_WEXTRA - Success
+2026-08-28T03:47:39.1647613Z   -- Performing Test CXX_FLAG_WEXTRA
+2026-08-28T03:47:39.1678213Z   -- Performing Test CXX_FLAG_WEXTRA - Success
+2026-08-28T03:47:39.1717724Z   -- Performing Test C_FLAG_WUNDEF
+2026-08-28T03:47:39.1733691Z   -- Performing Test C_FLAG_WUNDEF - Success
+2026-08-28T03:47:39.1747802Z   -- Performing Test CXX_FLAG_WUNDEF
+2026-08-28T03:47:39.1777744Z   -- Performing Test CXX_FLAG_WUNDEF - Success
+2026-08-28T03:47:39.1782222Z   -- Performing Test C_FLAG_WSHADOW
+2026-08-28T03:47:39.1782835Z   -- Performing Test C_FLAG_WSHADOW - Success
+2026-08-28T03:47:39.1783456Z   -- Performing Test CXX_FLAG_WSHADOW
+2026-08-28T03:47:39.1783988Z   -- Performing Test CXX_FLAG_WSHADOW - Success
+2026-08-28T03:47:39.1784565Z   -- Performing Test C_FLAG_WCAST_ALIGN
+2026-08-28T03:47:39.1785088Z   -- Performing Test C_FLAG_WCAST_ALIGN - Success
+2026-08-28T03:47:39.1786213Z   -- Performing Test CXX_FLAG_WCAST_ALIGN
+2026-08-28T03:47:39.1786801Z   -- Performing Test CXX_FLAG_WCAST_ALIGN - Success
+2026-08-28T03:47:39.1787630Z   -- Performing Test C_FLAG_WCAST_QUAL
+2026-08-28T03:47:39.1788172Z   -- Performing Test C_FLAG_WCAST_QUAL - Success
+2026-08-28T03:47:39.1788799Z   -- Performing Test CXX_FLAG_WCAST_QUAL
+2026-08-28T03:47:39.1789445Z   -- Performing Test CXX_FLAG_WCAST_QUAL - Success
+2026-08-28T03:47:39.1790119Z   -- Performing Test C_FLAG_WSTRICT_PROTOTYPES
+2026-08-28T03:47:39.1790707Z   -- Performing Test C_FLAG_WSTRICT_PROTOTYPES - Success
+2026-08-28T03:47:39.1791331Z   -- Performing Test LD_FLAG_WL_Z_NOEXECSTACK
+2026-08-28T03:47:39.1791885Z   -- Performing Test LD_FLAG_WL_Z_NOEXECSTACK - Success
+2026-08-28T03:47:39.1792498Z   -- Performing Test C_FLAG_QUNUSED_ARGUMENTS
+2026-08-28T03:47:39.1793103Z   -- Performing Test C_FLAG_QUNUSED_ARGUMENTS - Success
+2026-08-28T03:47:39.1793752Z   -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS
+2026-08-28T03:47:39.1794504Z   -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS - Success
+2026-08-28T03:47:39.1795378Z   -- Performing Test C_FLAG_WA_NOEXECSTACK
+2026-08-28T03:47:39.1796045Z   -- Performing Test C_FLAG_WA_NOEXECSTACK - Success
+2026-08-28T03:47:39.1796706Z   -- Performing Test CXX_FLAG_WA_NOEXECSTACK
+2026-08-28T03:47:39.1797548Z   -- Performing Test CXX_FLAG_WA_NOEXECSTACK - Success
+2026-08-28T03:47:39.1798678Z   -- Looking for unistd.h
+2026-08-28T03:47:39.1799112Z   -- Looking for unistd.h - found
+2026-08-28T03:47:39.1799551Z   -- Looking for fcntl.h
+2026-08-28T03:47:39.1799944Z   -- Looking for fcntl.h - found
+2026-08-28T03:47:39.1800368Z   -- Looking for threads.h
+2026-08-28T03:47:39.1800760Z   -- Looking for threads.h - found
+2026-08-28T03:47:39.1801206Z   -- Detecting Target CPU Architecture
+2026-08-28T03:47:39.1812549Z   -- Detecting Target CPU Architecture - ARM64
+2026-08-28T03:47:39.1813094Z   -- Performing Test HAVE_GCC_WALL
+2026-08-28T03:47:39.1813566Z   -- Performing Test HAVE_GCC_WALL - Success
+2026-08-28T03:47:39.1814066Z   -- Performing Test HAVE_GCC_WUNDEF
+2026-08-28T03:47:39.1814542Z   -- Performing Test HAVE_GCC_WUNDEF - Success
+2026-08-28T03:47:39.1815051Z   -- Performing Test HAVE_GCC_WFLOAT_CONVERSION
+2026-08-28T03:47:39.1815612Z   -- Performing Test HAVE_GCC_WFLOAT_CONVERSION - Success
+2026-08-28T03:47:39.1816179Z   -- Performing Test HAVE_GCC_NO_STRICT_ALIASING
+2026-08-28T03:47:39.1816758Z   -- Performing Test HAVE_GCC_NO_STRICT_ALIASING - Success
+2026-08-28T03:47:39.1817501Z   -- Performing Test HAVE_GCC_WDOCUMENTATION
+2026-08-28T03:47:39.1818023Z   -- Performing Test HAVE_GCC_WDOCUMENTATION - Success
+2026-08-28T03:47:39.1818623Z   -- Performing Test HAVE_GCC_WDOCUMENTATION_UNKNOWN_COMMAND
+2026-08-28T03:47:39.1819293Z   -- Performing Test HAVE_GCC_WDOCUMENTATION_UNKNOWN_COMMAND - Success
+2026-08-28T03:47:39.1819960Z   -- Performing Test HAVE_GCC_COMMENT_BLOCK_COMMANDS
+2026-08-28T03:47:39.1820560Z   -- Performing Test HAVE_GCC_COMMENT_BLOCK_COMMANDS - Success
+2026-08-28T03:47:39.1821136Z   -- Performing Test HAVE_GCC_WSHADOW
+2026-08-28T03:47:39.1821616Z   -- Performing Test HAVE_GCC_WSHADOW - Success
+2026-08-28T03:47:39.1822137Z   -- Performing Test HAVE_GCC_WUNUSED_LOCAL_TYPEDEFS
+2026-08-28T03:47:39.1822730Z   -- Performing Test HAVE_GCC_WUNUSED_LOCAL_TYPEDEFS - Success
+2026-08-28T03:47:39.1823327Z   -- Performing Test HAVE_GCC_WIMPLICIT_FALLTHROUGH
+2026-08-28T03:47:39.1823928Z   -- Performing Test HAVE_GCC_WIMPLICIT_FALLTHROUGH - Success
+2026-08-28T03:47:39.1824550Z   -- Performing Test COMPILER_SUPPORTS_FCOLOR_DIAGNOSTICS
+2026-08-28T03:47:39.1825211Z   -- Performing Test COMPILER_SUPPORTS_FCOLOR_DIAGNOSTICS - Success
+2026-08-28T03:47:39.1825777Z   -- Looking for __GLIBC__
+2026-08-28T03:47:39.1826165Z   -- Looking for __GLIBC__ - not found
+2026-08-28T03:47:39.1826601Z   -- Linker identification: GNUlike
+2026-08-28T03:47:39.1827039Z   -- Performing Test HAVE_WL_VERSION_SCRIPT
+2026-08-28T03:47:39.1848022Z   -- Performing Test HAVE_WL_VERSION_SCRIPT - Success
+2026-08-28T03:47:39.1848669Z   -- Performing Test COMPILER_SUPPORTS_GCC_ATOMICS
+2026-08-28T03:47:39.1849613Z   -- Performing Test COMPILER_SUPPORTS_GCC_ATOMICS - Success
+2026-08-28T03:47:39.1850189Z   -- Performing Test HAVE_GCC_FVISIBILITY
+2026-08-28T03:47:39.1850678Z   -- Performing Test HAVE_GCC_FVISIBILITY - Success
+2026-08-28T03:47:39.1851215Z   -- Performing Test LINKER_SUPPORTS_WL_NO_UNDEFINED
+2026-08-28T03:47:39.1851806Z   -- Performing Test LINKER_SUPPORTS_WL_NO_UNDEFINED - Success
+2026-08-28T03:47:39.1852378Z   -- Performing Test COMPILER_SUPPORTS_ARMNEON
+2026-08-28T03:47:39.1852869Z   -- Performing Test COMPILER_SUPPORTS_ARMNEON - Success
+2026-08-28T03:47:39.1853322Z   -- Looking for alloca.h
+2026-08-28T03:47:39.1853672Z   -- Looking for alloca.h - found
+2026-08-28T03:47:39.1854026Z   -- Looking for float.h
+2026-08-28T03:47:39.1854360Z   -- Looking for float.h - found
+2026-08-28T03:47:39.1854740Z   -- Looking for iconv.h
+2026-08-28T03:47:39.1855094Z   -- Looking for iconv.h - found
+2026-08-28T03:47:39.1855487Z   -- Looking for inttypes.h
+2026-08-28T03:47:39.1855900Z   -- Looking for inttypes.h - found
+2026-08-28T03:47:39.1856316Z   -- Looking for limits.h
+2026-08-28T03:47:39.1856654Z   -- Looking for limits.h - found
+2026-08-28T03:47:39.1857002Z   -- Looking for malloc.h
+2026-08-28T03:47:39.1857486Z   -- Looking for malloc.h - found
+2026-08-28T03:47:39.1857837Z   -- Looking for math.h
+2026-08-28T03:47:39.1858354Z   -- Looking for math.h - found
+2026-08-28T03:47:39.1858691Z   -- Looking for memory.h
+2026-08-28T03:47:39.1859017Z   -- Looking for memory.h - found
+2026-08-28T03:47:39.1859365Z   -- Looking for signal.h
+2026-08-28T03:47:39.1859706Z   -- Looking for signal.h - found
+2026-08-28T03:47:39.1860127Z   -- Looking for stdarg.h
+2026-08-28T03:47:39.1860880Z   -- Looking for stdarg.h - found
+2026-08-28T03:47:39.1861272Z   -- Looking for stdbool.h
+2026-08-28T03:47:39.1861647Z   -- Looking for stdbool.h - found
+2026-08-28T03:47:39.1862042Z   -- Looking for stddef.h
+2026-08-28T03:47:39.1862403Z   -- Looking for stddef.h - found
+2026-08-28T03:47:39.1862783Z   -- Looking for stdint.h
+2026-08-28T03:47:39.1863142Z   -- Looking for stdint.h - found
+2026-08-28T03:47:39.1863515Z   -- Looking for stdio.h
+2026-08-28T03:47:39.1863880Z   -- Looking for stdio.h - found
+2026-08-28T03:47:39.1864268Z   -- Looking for stdlib.h
+2026-08-28T03:47:39.1864625Z   -- Looking for stdlib.h - found
+2026-08-28T03:47:39.1865010Z   -- Looking for string.h
+2026-08-28T03:47:39.1865369Z   -- Looking for string.h - found
+2026-08-28T03:47:39.1865757Z   -- Looking for strings.h
+2026-08-28T03:47:39.1866128Z   -- Looking for strings.h - found
+2026-08-28T03:47:39.1866531Z   -- Looking for sys/types.h
+2026-08-28T03:47:39.1866915Z   -- Looking for sys/types.h - found
+2026-08-28T03:47:39.1867478Z   -- Looking for time.h
+2026-08-28T03:47:39.1867818Z   -- Looking for time.h - found
+2026-08-28T03:47:39.1868195Z   -- Looking for wchar.h
+2026-08-28T03:47:39.1868548Z   -- Looking for wchar.h - found
+2026-08-28T03:47:39.1868935Z   -- Looking for pow in m
+2026-08-28T03:47:39.1869336Z   -- Looking for pow in m - found
+2026-08-28T03:47:39.1869743Z   -- Looking for abs
+2026-08-28T03:47:39.1870084Z   -- Looking for abs - found
+2026-08-28T03:47:39.1870453Z   -- Looking for acos
+2026-08-28T03:47:39.1870785Z   -- Looking for acos - found
+2026-08-28T03:47:39.1871144Z   -- Looking for acosf
+2026-08-28T03:47:39.1871492Z   -- Looking for acosf - found
+2026-08-28T03:47:39.1871876Z   -- Looking for asin
+2026-08-28T03:47:39.1872215Z   -- Looking for asin - found
+2026-08-28T03:47:39.1872580Z   -- Looking for asinf
+2026-08-28T03:47:39.1872926Z   -- Looking for asinf - found
+2026-08-28T03:47:39.1873296Z   -- Looking for atan
+2026-08-28T03:47:39.1873637Z   -- Looking for atan - found
+2026-08-28T03:47:39.1873994Z   -- Looking for atan2
+2026-08-28T03:47:39.1874333Z   -- Looking for atan2 - found
+2026-08-28T03:47:39.1874691Z   -- Looking for atan2f
+2026-08-28T03:47:39.1875041Z   -- Looking for atan2f - found
+2026-08-28T03:47:39.1875410Z   -- Looking for atanf
+2026-08-28T03:47:39.1875751Z   -- Looking for atanf - found
+2026-08-28T03:47:39.1876321Z   -- Looking for atof
+2026-08-28T03:47:39.1876645Z   -- Looking for atof - found
+2026-08-28T03:47:39.1877004Z   -- Looking for atoi
+2026-08-28T03:47:39.1906991Z   -- Looking for atoi - found
+2026-08-28T03:47:39.1907625Z   -- Looking for bcopy
+2026-08-28T03:47:39.1907992Z   -- Looking for bcopy - found
+2026-08-28T03:47:39.1908347Z   -- Looking for ceil
+2026-08-28T03:47:39.1908707Z   -- Looking for ceil - found
+2026-08-28T03:47:39.1909074Z   -- Looking for ceilf
+2026-08-28T03:47:39.1909441Z   -- Looking for ceilf - found
+2026-08-28T03:47:39.1909809Z   -- Looking for copysign
+2026-08-28T03:47:39.1910184Z   -- Looking for copysign - found
+2026-08-28T03:47:39.1910559Z   -- Looking for copysignf
+2026-08-28T03:47:39.1910903Z   -- Looking for copysignf - found
+2026-08-28T03:47:39.1911253Z   -- Looking for cos
+2026-08-28T03:47:39.1911586Z   -- Looking for cos - found
+2026-08-28T03:47:39.1911947Z   -- Looking for cosf
+2026-08-28T03:47:39.1912299Z   -- Looking for cosf - found
+2026-08-28T03:47:39.1912670Z   -- Looking for _Exit
+2026-08-28T03:47:39.1913040Z   -- Looking for _Exit - found
+2026-08-28T03:47:39.1913412Z   -- Looking for exp
+2026-08-28T03:47:39.1913762Z   -- Looking for exp - found
+2026-08-28T03:47:39.1914103Z   -- Looking for expf
+2026-08-28T03:47:39.1914427Z   -- Looking for expf - found
+2026-08-28T03:47:39.1914797Z   -- Looking for fabs
+2026-08-28T03:47:39.1915456Z   -- Looking for fabs - found
+2026-08-28T03:47:39.1915804Z   -- Looking for fabsf
+2026-08-28T03:47:39.1916155Z   -- Looking for fabsf - found
+2026-08-28T03:47:39.1916527Z   -- Looking for floor
+2026-08-28T03:47:39.1916881Z   -- Looking for floor - found
+2026-08-28T03:47:39.1917448Z   -- Looking for floorf
+2026-08-28T03:47:39.1917802Z   -- Looking for floorf - found
+2026-08-28T03:47:39.1918153Z   -- Looking for fmod
+2026-08-28T03:47:39.1918513Z   -- Looking for fmod - found
+2026-08-28T03:47:39.1918895Z   -- Looking for fmodf
+2026-08-28T03:47:39.1919260Z   -- Looking for fmodf - found
+2026-08-28T03:47:39.1920196Z   -- Looking for fopen64
+2026-08-28T03:47:39.1920597Z   -- Looking for fopen64 - not found
+2026-08-28T03:47:39.1921024Z   -- Looking for fseeko
+2026-08-28T03:47:39.1921391Z   -- Looking for fseeko - found
+2026-08-28T03:47:39.1921791Z   -- Looking for fseeko64
+2026-08-28T03:47:39.1922197Z   -- Looking for fseeko64 - not found
+2026-08-28T03:47:39.1922630Z   -- Looking for getenv
+2026-08-28T03:47:39.1923013Z   -- Looking for getenv - found
+2026-08-28T03:47:39.1923422Z   -- Looking for _i64toa
+2026-08-28T03:47:39.1923828Z   -- Looking for _i64toa - not found
+2026-08-28T03:47:39.1924252Z   -- Looking for index
+2026-08-28T03:47:39.1924630Z   -- Looking for index - not found
+2026-08-28T03:47:39.1925043Z   -- Looking for itoa
+2026-08-28T03:47:39.1925416Z   -- Looking for itoa - not found
+2026-08-28T03:47:39.1925790Z   -- Looking for log
+2026-08-28T03:47:39.1926095Z   -- Looking for log - found
+2026-08-28T03:47:39.1926415Z   -- Looking for log10
+2026-08-28T03:47:39.1926715Z   -- Looking for log10 - found
+2026-08-28T03:47:39.1927043Z   -- Looking for log10f
+2026-08-28T03:47:39.1927659Z   -- Looking for log10f - found
+2026-08-28T03:47:39.1928007Z   -- Looking for logf
+2026-08-28T03:47:39.1928351Z   -- Looking for logf - found
+2026-08-28T03:47:39.1928723Z   -- Looking for lround
+2026-08-28T03:47:39.1929078Z   -- Looking for lround - found
+2026-08-28T03:47:39.1929457Z   -- Looking for lroundf
+2026-08-28T03:47:39.1929838Z   -- Looking for lroundf - found
+2026-08-28T03:47:39.1930223Z   -- Looking for _ltoa
+2026-08-28T03:47:39.1930583Z   -- Looking for _ltoa - not found
+2026-08-28T03:47:39.1930994Z   -- Looking for malloc
+2026-08-28T03:47:39.1931352Z   -- Looking for malloc - found
+2026-08-28T03:47:39.1931733Z   -- Looking for memcmp
+2026-08-28T03:47:39.1932097Z   -- Looking for memcmp - found
+2026-08-28T03:47:39.1932455Z   -- Looking for memcpy
+2026-08-28T03:47:39.1932785Z   -- Looking for memcpy - found
+2026-08-28T03:47:39.1933138Z   -- Looking for memmove
+2026-08-28T03:47:39.1933494Z   -- Looking for memmove - found
+2026-08-28T03:47:39.1933883Z   -- Looking for memset
+2026-08-28T03:47:39.1934464Z   -- Looking for memset - found
+2026-08-28T03:47:39.1934803Z   -- Looking for modf
+2026-08-28T03:47:39.1935111Z   -- Looking for modf - found
+2026-08-28T03:47:39.1935444Z   -- Looking for modff
+2026-08-28T03:47:39.1935759Z   -- Looking for modff - found
+2026-08-28T03:47:39.1936108Z   -- Looking for pow
+2026-08-28T03:47:39.1936444Z   -- Looking for pow - found
+2026-08-28T03:47:39.1936811Z   -- Looking for powf
+2026-08-28T03:47:39.1967779Z   -- Looking for powf - found
+2026-08-28T03:47:39.1968300Z   -- Looking for putenv
+2026-08-28T03:47:39.1968691Z   -- Looking for putenv - found
+2026-08-28T03:47:39.1969076Z   -- Looking for rindex
+2026-08-28T03:47:39.1969418Z   -- Looking for rindex - not found
+2026-08-28T03:47:39.1969796Z   -- Looking for round
+2026-08-28T03:47:39.1970148Z   -- Looking for round - found
+2026-08-28T03:47:39.1970803Z   -- Looking for roundf
+2026-08-28T03:47:39.1971321Z   -- Looking for roundf - found
+2026-08-28T03:47:39.1971832Z   -- Looking for scalbn
+2026-08-28T03:47:39.1972280Z   -- Looking for scalbn - found
+2026-08-28T03:47:39.1973054Z   -- Looking for scalbnf
+2026-08-28T03:47:39.1973636Z   -- Looking for scalbnf - found
+2026-08-28T03:47:39.1974262Z   -- Looking for setenv
+2026-08-28T03:47:39.1974747Z   -- Looking for setenv - found
+2026-08-28T03:47:39.1975234Z   -- Looking for sin
+2026-08-28T03:47:39.1976182Z   -- Looking for sin - found
+2026-08-28T03:47:39.1976707Z   -- Looking for sinf
+2026-08-28T03:47:39.1977455Z   -- Looking for sinf - found
+2026-08-28T03:47:39.1978006Z   -- Looking for sqr
+2026-08-28T03:47:39.1996114Z   -- Looking for sqr - not found
+2026-08-28T03:47:39.1996509Z   -- Looking for sqrt
+2026-08-28T03:47:39.1996852Z   -- Looking for sqrt - found
+2026-08-28T03:47:39.2027701Z   -- Looking for sqrtf
+2026-08-28T03:47:39.2028133Z   -- Looking for sqrtf - found
+2026-08-28T03:47:39.2028536Z   -- Looking for sscanf
+2026-08-28T03:47:39.2028893Z   -- Looking for sscanf - found
+2026-08-28T03:47:39.2029272Z   -- Looking for strchr
+2026-08-28T03:47:39.2029643Z   -- Looking for strchr - found
+2026-08-28T03:47:39.2030023Z   -- Looking for strcmp
+2026-08-28T03:47:39.2030361Z   -- Looking for strcmp - found
+2026-08-28T03:47:39.2030730Z   -- Looking for strlcat
+2026-08-28T03:47:39.2031085Z   -- Looking for strlcat - found
+2026-08-28T03:47:39.2031486Z   -- Looking for strlcpy
+2026-08-28T03:47:39.2031886Z   -- Looking for strlcpy - found
+2026-08-28T03:47:39.2032297Z   -- Looking for strlen
+2026-08-28T03:47:39.2032674Z   -- Looking for strlen - found
+2026-08-28T03:47:39.2033070Z   -- Looking for strncmp
+2026-08-28T03:47:39.2033439Z   -- Looking for strncmp - found
+2026-08-28T03:47:39.2033836Z   -- Looking for strnlen
+2026-08-28T03:47:39.2034203Z   -- Looking for strnlen - found
+2026-08-28T03:47:39.2034595Z   -- Looking for strpbrk
+2026-08-28T03:47:39.2034961Z   -- Looking for strpbrk - found
+2026-08-28T03:47:39.2035353Z   -- Looking for strrchr
+2026-08-28T03:47:39.2035718Z   -- Looking for strrchr - found
+2026-08-28T03:47:39.2036104Z   -- Looking for strstr
+2026-08-28T03:47:39.2036480Z   -- Looking for strstr - found
+2026-08-28T03:47:39.2036864Z   -- Looking for strnstr
+2026-08-28T03:47:39.2037474Z   -- Looking for strnstr - not found
+2026-08-28T03:47:39.2037898Z   -- Looking for strtod
+2026-08-28T03:47:39.2038274Z   -- Looking for strtod - found
+2026-08-28T03:47:39.2038670Z   -- Looking for strtok_r
+2026-08-28T03:47:39.2039055Z   -- Looking for strtok_r - found
+2026-08-28T03:47:39.2039447Z   -- Looking for strtol
+2026-08-28T03:47:39.2039793Z   -- Looking for strtol - found
+2026-08-28T03:47:39.2040178Z   -- Looking for strtoll
+2026-08-28T03:47:39.2040540Z   -- Looking for strtoll - found
+2026-08-28T03:47:39.2040922Z   -- Looking for strtoul
+2026-08-28T03:47:39.2041277Z   -- Looking for strtoul - found
+2026-08-28T03:47:39.2041663Z   -- Looking for strtoull
+2026-08-28T03:47:39.2042031Z   -- Looking for strtoull - found
+2026-08-28T03:47:39.2042437Z   -- Looking for tan
+2026-08-28T03:47:39.2042787Z   -- Looking for tan - found
+2026-08-28T03:47:39.2043167Z   -- Looking for tanf
+2026-08-28T03:47:39.2043818Z   -- Looking for tanf - found
+2026-08-28T03:47:39.2044203Z   -- Looking for trunc
+2026-08-28T03:47:39.2044557Z   -- Looking for trunc - found
+2026-08-28T03:47:39.2044946Z   -- Looking for truncf
+2026-08-28T03:47:39.2045298Z   -- Looking for truncf - found
+2026-08-28T03:47:39.2045679Z   -- Looking for unsetenv
+2026-08-28T03:47:39.2046059Z   -- Looking for unsetenv - found
+2026-08-28T03:47:39.2046466Z   -- Looking for vsnprintf
+2026-08-28T03:47:39.2046859Z   -- Looking for vsnprintf - found
+2026-08-28T03:47:39.2047418Z   -- Looking for vsscanf
+2026-08-28T03:47:39.2047792Z   -- Looking for vsscanf - found
+2026-08-28T03:47:39.2048187Z   -- Looking for wcsnlen
+2026-08-28T03:47:39.2048554Z   -- Looking for wcsnlen - found
+2026-08-28T03:47:39.2048941Z   -- Looking for wcscmp
+2026-08-28T03:47:39.2049303Z   -- Looking for wcscmp - found
+2026-08-28T03:47:39.2049692Z   -- Looking for wcsdup
+2026-08-28T03:47:39.2050043Z   -- Looking for wcsdup - found
+2026-08-28T03:47:39.2050433Z   -- Looking for wcslcat
+2026-08-28T03:47:39.2050811Z   -- Looking for wcslcat - found
+2026-08-28T03:47:39.2051198Z   -- Looking for wcslcpy
+2026-08-28T03:47:39.2051558Z   -- Looking for wcslcpy - found
+2026-08-28T03:47:39.2051944Z   -- Looking for wcslen
+2026-08-28T03:47:39.2052296Z   -- Looking for wcslen - found
+2026-08-28T03:47:39.2052884Z   -- Looking for wcsncmp
+2026-08-28T03:47:39.2053253Z   -- Looking for wcsncmp - found
+2026-08-28T03:47:39.2053639Z   -- Looking for wcsstr
+2026-08-28T03:47:39.2053997Z   -- Looking for wcsstr - found
+2026-08-28T03:47:39.2054378Z   -- Looking for wcstol
+2026-08-28T03:47:39.2054718Z   -- Looking for wcstol - found
+2026-08-28T03:47:39.2055089Z   -- Looking for strcasestr
+2026-08-28T03:47:39.2055471Z   -- Looking for strcasestr - found
+2026-08-28T03:47:39.2055891Z   -- Performing Test LIBC_HAS_ISINF
+2026-08-28T03:47:39.2056329Z   -- Performing Test LIBC_HAS_ISINF - Success
+2026-08-28T03:47:39.2056829Z   -- Performing Test LIBC_ISINF_HANDLES_FLOAT
+2026-08-28T03:47:39.2087790Z   -- Performing Test LIBC_ISINF_HANDLES_FLOAT - Success
+2026-08-28T03:47:39.2088382Z   -- Performing Test LIBC_HAS_ISINFF
+2026-08-28T03:47:39.2088879Z   -- Performing Test LIBC_HAS_ISINFF - Failed
+2026-08-28T03:47:39.2089366Z   -- Performing Test LIBC_HAS_ISNAN
+2026-08-28T03:47:39.2089817Z   -- Performing Test LIBC_HAS_ISNAN - Success
+2026-08-28T03:47:39.2090333Z   -- Performing Test LIBC_ISNAN_HANDLES_FLOAT
+2026-08-28T03:47:39.2090857Z   -- Performing Test LIBC_ISNAN_HANDLES_FLOAT - Success
+2026-08-28T03:47:39.2091354Z   -- Performing Test LIBC_HAS_ISNANF
+2026-08-28T03:47:39.2091798Z   -- Performing Test LIBC_HAS_ISNANF - Success
+2026-08-28T03:47:39.2092265Z   -- Looking for fdatasync
+2026-08-28T03:47:39.2092652Z   -- Looking for fdatasync - found
+2026-08-28T03:47:39.2093063Z   -- Looking for gethostname
+2026-08-28T03:47:39.2093466Z   -- Looking for gethostname - found
+2026-08-28T03:47:39.2093892Z   -- Looking for getpagesize
+2026-08-28T03:47:39.2094288Z   -- Looking for getpagesize - found
+2026-08-28T03:47:39.2094722Z   -- Looking for getresgid
+2026-08-28T03:47:39.2095105Z   -- Looking for getresgid - found
+2026-08-28T03:47:39.2095509Z   -- Looking for getresuid
+2026-08-28T03:47:39.2095888Z   -- Looking for getresuid - found
+2026-08-28T03:47:39.2096284Z   -- Looking for sigaction
+2026-08-28T03:47:39.2096651Z   -- Looking for sigaction - found
+2026-08-28T03:47:39.2097309Z   -- Looking for sigtimedwait
+2026-08-28T03:47:39.2097734Z   -- Looking for sigtimedwait - not found
+2026-08-28T03:47:39.2098180Z   -- Looking for setjmp
+2026-08-28T03:47:39.2098549Z   -- Looking for setjmp - found
+2026-08-28T03:47:39.2098952Z   -- Looking for nanosleep
+2026-08-28T03:47:39.2099337Z   -- Looking for nanosleep - found
+2026-08-28T03:47:39.2099745Z   -- Looking for gmtime_r
+2026-08-28T03:47:39.2100122Z   -- Looking for gmtime_r - found
+2026-08-28T03:47:39.2100529Z   -- Looking for nl_langinfo
+2026-08-28T03:47:39.2100927Z   -- Looking for nl_langinfo - not found
+2026-08-28T03:47:39.2101351Z   -- Looking for sysconf
+2026-08-28T03:47:39.2102035Z   -- Looking for sysconf - found
+2026-08-28T03:47:39.2102440Z   -- Looking for sysctlbyname
+2026-08-28T03:47:39.2102845Z   -- Looking for sysctlbyname - not found
+2026-08-28T03:47:39.2103289Z   -- Looking for getauxval
+2026-08-28T03:47:39.2103672Z   -- Looking for getauxval - found
+2026-08-28T03:47:39.2104083Z   -- Looking for elf_aux_info
+2026-08-28T03:47:39.2104495Z   -- Looking for elf_aux_info - not found
+2026-08-28T03:47:39.2104933Z   -- Looking for ppoll
+2026-08-28T03:47:39.2105301Z   -- Looking for ppoll - found
+2026-08-28T03:47:39.2105693Z   -- Looking for memfd_create
+2026-08-28T03:47:39.2106093Z   -- Looking for memfd_create - not found
+2026-08-28T03:47:39.2106525Z   -- Looking for posix_fallocate
+2026-08-28T03:47:39.2106945Z   -- Looking for posix_fallocate - found
+2026-08-28T03:47:39.2137680Z   -- Looking for posix_spawn_file_actions_addchdir
+2026-08-28T03:47:39.2138306Z   -- Looking for posix_spawn_file_actions_addchdir - not found
+2026-08-28T03:47:39.2138880Z   -- Looking for posix_spawn_file_actions_addchdir_np
+2026-08-28T03:47:39.2139477Z   -- Looking for posix_spawn_file_actions_addchdir_np - not found
+2026-08-28T03:47:39.2140046Z   -- Performing Test ICONV_IN_LIBC
+2026-08-28T03:47:39.2140515Z   -- Performing Test ICONV_IN_LIBC - Failed
+2026-08-28T03:47:39.2140970Z   -- Performing Test ICONV_IN_LIBICONV
+2026-08-28T03:47:39.2141702Z   -- Performing Test ICONV_IN_LIBICONV - Failed
+2026-08-28T03:47:39.2142192Z   -- Performing Test HAVE_SA_SIGACTION
+2026-08-28T03:47:39.2142661Z   -- Performing Test HAVE_SA_SIGACTION - Success
+2026-08-28T03:47:39.2143161Z   -- Performing Test HAVE_ST_MTIM
+2026-08-28T03:47:39.2143615Z   -- Performing Test HAVE_ST_MTIM - Success
+2026-08-28T03:47:39.2144069Z   -- Looking for dlopen
+2026-08-28T03:47:39.2144458Z   -- Looking for dlopen - found
+2026-08-28T03:47:39.2144877Z   -- Performing Test HAVE_O_CLOEXEC
+2026-08-28T03:47:39.2145371Z   -- Performing Test HAVE_O_CLOEXEC - Success
+2026-08-28T03:47:39.2145842Z   -- Performing Test HAVE_ARM_MODE
+2026-08-28T03:47:39.2146271Z   -- Performing Test HAVE_ARM_MODE - Failed
+2026-08-28T03:47:39.2146744Z   -- Checking for module 'libusb-1.0>=1.0.16'
+2026-08-28T03:47:39.2147485Z   --   Package 'libusb-1.0', required by 'virtual:world', not found
+2026-08-28T03:47:39.2148406Z   -- Could NOT find LibUSB (missing: LibUSB_LIBRARY LibUSB_INCLUDE_PATH) (found version "LibUSB_VERSION-NOTFOUND")
+2026-08-28T03:47:39.2149289Z   -- Performing Test VULKAN_PASSED_ANDROID_CHECKS
+2026-08-28T03:47:39.2149866Z   -- Performing Test VULKAN_PASSED_ANDROID_CHECKS - Success
+2026-08-28T03:47:39.2150435Z   -- Performing Test HAVE_PTHREADS
+2026-08-28T03:47:39.2150882Z   -- Performing Test HAVE_PTHREADS - Success
+2026-08-28T03:47:39.2151367Z   -- Performing Test HAVE_RECURSIVE_MUTEXES
+2026-08-28T03:47:39.2151882Z   -- Performing Test HAVE_RECURSIVE_MUTEXES - Success
+2026-08-28T03:47:39.2152411Z   -- Performing Test HAVE_PTHREADS_SEM
+2026-08-28T03:47:39.2152888Z   -- Performing Test HAVE_PTHREADS_SEM - Success
+2026-08-28T03:47:39.2153412Z   -- Performing Test COMPILER_HAS_SEM_TIMEDWAIT
+2026-08-28T03:47:39.2153977Z   -- Performing Test COMPILER_HAS_SEM_TIMEDWAIT - Success
+2026-08-28T03:47:39.2154476Z   -- 
+2026-08-28T03:47:39.2154837Z   -- SDL3 was configured with the following options:
+2026-08-28T03:47:39.2155301Z   -- 
+2026-08-28T03:47:39.2155600Z   -- Platform: Android-1
+2026-08-28T03:47:39.2155962Z   -- 64-bit:   TRUE
+2026-08-28T03:47:39.2197899Z   -- Compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+2026-08-28T03:47:39.2198841Z   -- Revision: SDL-3.5.0-HEAD-HASH-NOTFOUND
+2026-08-28T03:47:39.2199277Z   -- Vendor:   
+2026-08-28T03:47:39.2199563Z   -- 
+2026-08-28T03:47:39.2199836Z   -- Subsystems:
+2026-08-28T03:47:39.2200140Z   --   Audio:    ON
+2026-08-28T03:47:39.2200463Z   --   Video:    ON
+2026-08-28T03:47:39.2200775Z   --   GPU:      ON
+2026-08-28T03:47:39.2201087Z   --   Render:   ON
+2026-08-28T03:47:39.2201392Z   --   Camera:   ON
+2026-08-28T03:47:39.2201702Z   --   Joystick: ON
+2026-08-28T03:47:39.2202424Z   --   Haptic:   ON
+2026-08-28T03:47:39.2202736Z   --   Hidapi:   ON
+2026-08-28T03:47:39.2203043Z   --   Power:    ON
+2026-08-28T03:47:39.2203355Z   --   Sensor:   ON
+2026-08-28T03:47:39.2203657Z   --   Dialog:   ON
+2026-08-28T03:47:39.2203965Z   --   Tray:     ON
+2026-08-28T03:47:39.2204262Z   -- 
+2026-08-28T03:47:39.2204543Z   -- Options:
+2026-08-28T03:47:39.2204928Z   --   SDL_ALSA                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2205453Z   --   SDL_ALSA_SHARED             (Wanted: OFF): OFF
+2026-08-28T03:47:39.2205948Z   --   SDL_ALTIVEC                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2206442Z   --   SDL_ARMNEON                 (Wanted: ON): ON
+2026-08-28T03:47:39.2206939Z   --   SDL_ASAN                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2207603Z   --   SDL_ASSEMBLY                (Wanted: ON): ON
+2026-08-28T03:47:39.2208114Z   --   SDL_ASSERTIONS              (Wanted: auto): auto
+2026-08-28T03:47:39.2208628Z   --   SDL_AVX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2209133Z   --   SDL_AVX2                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2209621Z   --   SDL_AVX512F                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2210128Z   --   SDL_BACKGROUNDING_SIGNAL    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2210626Z   --   SDL_CCACHE                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2211364Z   --   SDL_CLANG_TIDY              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2211867Z   --   SDL_CLOCK_GETTIME           (Wanted: ON): ON
+2026-08-28T03:47:39.2212369Z   --   SDL_COCOA                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.2212858Z   --   SDL_DBUS                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2213357Z   --   SDL_DEPS_SHARED             (Wanted: ON): OFF
+2026-08-28T03:47:39.2213857Z   --   SDL_DIRECTX                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2214347Z   --   SDL_DISKAUDIO               (Wanted: ON): ON
+2026-08-28T03:47:39.2214851Z   --   SDL_DLOPEN_NOTES            (Wanted: OFF): OFF
+2026-08-28T03:47:39.2215364Z   --   SDL_DUMMYAUDIO              (Wanted: ON): ON
+2026-08-28T03:47:39.2215857Z   --   SDL_DUMMYCAMERA             (Wanted: ON): ON
+2026-08-28T03:47:39.2216342Z   --   SDL_DUMMYVIDEO              (Wanted: ON): ON
+2026-08-28T03:47:39.2216814Z   --   SDL_EXAMPLES                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2287978Z   --   SDL_EXAMPLES_LINK_SHARED    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2288685Z   --   SDL_FOREGROUNDING_SIGNAL    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2289233Z   --   SDL_FRIBIDI                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2289757Z   --   SDL_FRIBIDI_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.2290269Z   --   SDL_GCC_ATOMICS             (Wanted: ON): ON
+2026-08-28T03:47:39.2290766Z   --   SDL_GPU_OPENXR              (Wanted: ON): ON
+2026-08-28T03:47:39.2291250Z   --   SDL_HIDAPI                  (Wanted: ON): ON
+2026-08-28T03:47:39.2291748Z   --   SDL_HIDAPI_JOYSTICK         (Wanted: ON): ON
+2026-08-28T03:47:39.2292246Z   --   SDL_HIDAPI_LIBUSB           (Wanted: ON): OFF
+2026-08-28T03:47:39.2292765Z   --   SDL_HIDAPI_LIBUSB_SHARED    (Wanted: ON): OFF
+2026-08-28T03:47:39.2293267Z   --   SDL_IBUS                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2293754Z   --   SDL_INSTALL                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2294245Z   --   SDL_INSTALL_TESTS           (Wanted: OFF): OFF
+2026-08-28T03:47:39.2294738Z   --   SDL_JACK                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2295201Z   --   SDL_JACK_SHARED             (Wanted: OFF): OFF
+2026-08-28T03:47:39.2295796Z   --   SDL_KMSDRM                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2296279Z   --   SDL_KMSDRM_SHARED           (Wanted: OFF): OFF
+2026-08-28T03:47:39.2296744Z   --   SDL_LASX                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2297365Z   --   SDL_LIBC                    (Wanted: ON): ON
+2026-08-28T03:47:39.2297861Z   --   SDL_LIBICONV                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2298372Z   --   SDL_LIBTHAI                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2299278Z   --   SDL_LIBTHAI_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.2299793Z   --   SDL_LIBUDEV                 (Wanted: ON): OFF
+2026-08-28T03:47:39.2300300Z   --   SDL_LIBURING                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2300791Z   --   SDL_LSX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2301290Z   --   SDL_METAL                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.2301786Z   --   SDL_MMX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2302282Z   --   SDL_OFFSCREEN               (Wanted: ON): ON
+2026-08-28T03:47:39.2302800Z   --   SDL_OPENGL                  (Wanted: ON): OFF
+2026-08-28T03:47:39.2303296Z   --   SDL_OPENGLES                (Wanted: ON): ON
+2026-08-28T03:47:39.2303790Z   --   SDL_OPENVR                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2304279Z   --   SDL_OSS                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2304772Z   --   SDL_PIPEWIRE                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2305268Z   --   SDL_PIPEWIRE_SHARED         (Wanted: OFF): OFF
+2026-08-28T03:47:39.2305774Z   --   SDL_PTHREADS                (Wanted: ON): ON
+2026-08-28T03:47:39.2306251Z   --   SDL_PTHREADS_SEM            (Wanted: ON): ON
+2026-08-28T03:47:39.2306740Z   --   SDL_PULSEAUDIO              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2307396Z   --   SDL_PULSEAUDIO_SHARED       (Wanted: OFF): OFF
+2026-08-28T03:47:39.2308109Z   --   SDL_RENDER_D3D              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2308605Z   --   SDL_RENDER_D3D11            (Wanted: OFF): OFF
+2026-08-28T03:47:39.2309094Z   --   SDL_RENDER_D3D12            (Wanted: OFF): OFF
+2026-08-28T03:47:39.2309577Z   --   SDL_RENDER_GPU              (Wanted: ON): ON
+2026-08-28T03:47:39.2310082Z   --   SDL_RENDER_METAL            (Wanted: OFF): OFF
+2026-08-28T03:47:39.2310579Z   --   SDL_RENDER_VULKAN           (Wanted: ON): ON
+2026-08-28T03:47:39.2311081Z   --   SDL_ROCKCHIP                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2311599Z   --   SDL_RPATH                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.2312124Z   --   SDL_RPI                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2312624Z   --   SDL_SNDIO                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.2313120Z   --   SDL_SNDIO_SHARED            (Wanted: OFF): OFF
+2026-08-28T03:47:39.2313607Z   --   SDL_SSE                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2314076Z   --   SDL_SSE2                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2314571Z   --   SDL_SSE3                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.2315047Z   --   SDL_SSE4_1                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2315524Z   --   SDL_SSE4_2                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2316016Z   --   SDL_SYSTEM_ICONV            (Wanted: ON): OFF
+2026-08-28T03:47:39.2316518Z   --   SDL_TESTS                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.2317020Z   --   SDL_TESTS_LINK_SHARED       (Wanted: OFF): OFF
+2026-08-28T03:47:39.2398173Z   --   SDL_UNINSTALL               (Wanted: OFF): OFF
+2026-08-28T03:47:39.2398801Z   --   SDL_VIRTUAL_JOYSTICK        (Wanted: ON): ON
+2026-08-28T03:47:39.2399361Z   --   SDL_VIVANTE                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2399887Z   --   SDL_VULKAN                  (Wanted: ON): ON
+2026-08-28T03:47:39.2400394Z   --   SDL_WASAPI                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2400899Z   --   SDL_WAYLAND                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.2401418Z   --   SDL_WAYLAND_LIBDECOR        (Wanted: OFF): OFF
+2026-08-28T03:47:39.2401927Z   --   SDL_WAYLAND_LIBDECOR_SHARED (Wanted: OFF): OFF
+2026-08-28T03:47:39.2402428Z   --   SDL_WAYLAND_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.2402914Z   --   SDL_X11                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.2403388Z   --   SDL_X11_SHARED              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2403867Z   --   SDL_X11_XCURSOR             (Wanted: OFF): OFF
+2026-08-28T03:47:39.2404361Z   --   SDL_X11_XDBE                (Wanted: OFF): OFF
+2026-08-28T03:47:39.2404850Z   --   SDL_X11_XFIXES              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2405710Z   --   SDL_X11_XINPUT              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2406208Z   --   SDL_X11_XRANDR              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2406720Z   --   SDL_X11_XSCRNSAVER          (Wanted: OFF): OFF
+2026-08-28T03:47:39.2407449Z   --   SDL_X11_XSHAPE              (Wanted: OFF): OFF
+2026-08-28T03:47:39.2407970Z   --   SDL_X11_XSYNC               (Wanted: OFF): OFF
+2026-08-28T03:47:39.2408466Z   --   SDL_X11_XTEST               (Wanted: OFF): OFF
+2026-08-28T03:47:39.2408969Z   --   SDL_XINPUT                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.2409414Z   -- 
+2026-08-28T03:47:39.2409734Z   --  Build Shared Library: OFF
+2026-08-28T03:47:39.2410138Z   --  Build Static Library: ON
+2026-08-28T03:47:39.2410512Z   -- 
+2026-08-28T03:47:39.2410804Z   -- Enabled backends:
+2026-08-28T03:47:39.2411211Z   --   Video drivers: android dummy offscreen
+2026-08-28T03:47:39.2411716Z   --   Render drivers: gpu ogl_es2 vulkan
+2026-08-28T03:47:39.2412180Z   --   GPU drivers: openxr vulkan
+2026-08-28T03:47:39.2412647Z   --   Audio drivers: aaudio disk dummy opensles
+2026-08-28T03:47:39.2413154Z   --   Joystick drivers: android hidapi virtual
+2026-08-28T03:47:39.2413616Z   --   Camera drivers: android dummy
+2026-08-28T03:47:39.2414016Z   -- 
+2026-08-28T03:47:39.2414413Z   -- If something was not detected, although the libraries
+2026-08-28T03:47:39.2415210Z   -- were installed, then make sure you have set the
+2026-08-28T03:47:39.2415831Z   -- CMAKE_C_FLAGS and CMAKE_PREFIX_PATH CMake variables correctly.
+2026-08-28T03:47:39.2416375Z   -- 
+2026-08-28T03:47:39.2416689Z   -- CMAKE_BUILD_TYPE = RelWithDebInfo
+2026-08-28T03:47:39.2417252Z   -- VERSION = 3.1.90, BUILD = 20260828
+2026-08-28T03:47:39.2417662Z   -- 64-bit build (arm64)
+2026-08-28T03:47:39.2418071Z   -- CMAKE_INSTALL_PREFIX = /opt/nesstation-core
+2026-08-28T03:47:39.2418639Z   -- CMAKE_INSTALL_BINDIR = bin (/opt/nesstation-core/bin)
+2026-08-28T03:47:39.2419295Z   -- CMAKE_INSTALL_DATAROOTDIR = share (/opt/nesstation-core/share)
+2026-08-28T03:47:39.2420154Z   -- CMAKE_INSTALL_DOCDIR = share/doc/ARMSX2Android (/opt/nesstation-core/share/doc/ARMSX2Android)
+2026-08-28T03:47:39.2421012Z   -- CMAKE_INSTALL_INCLUDEDIR = include (/opt/nesstation-core/include)
+2026-08-28T03:47:39.2421641Z   -- CMAKE_INSTALL_LIBDIR = lib (/opt/nesstation-core/lib)
+2026-08-28T03:47:39.2422273Z   -- CMAKE_INSTALL_MANDIR = share/man (/opt/nesstation-core/share/man)
+2026-08-28T03:47:39.2422870Z   -- Shared libraries disabled (ENABLE_SHARED = 0)
+2026-08-28T03:47:39.2423381Z   -- Static libraries enabled (ENABLE_STATIC = 1)
+2026-08-28T03:47:39.2423945Z   -- Arithmetic decoding support enabled (WITH_ARITH_DEC = 1)
+2026-08-28T03:47:39.2424555Z   -- Arithmetic encoding support enabled (WITH_ARITH_ENC = 1)
+2026-08-28T03:47:39.2425170Z   -- TurboJPEG API library disabled (WITH_TURBOJPEG = 0)
+2026-08-28T03:47:39.2425835Z   -- TurboJPEG Java Native Access interfaces (TurboJPEG/JNA) disabled
+2026-08-28T03:47:39.2426426Z      (WITH_JNA = )
+2026-08-28T03:47:39.2426825Z   -- Command-line tools enabled (WITH_TOOLS = 1)
+2026-08-28T03:47:39.2487943Z   -- Regression tests enabled (WITH_TESTS = 1)
+2026-08-28T03:47:39.2488685Z   -- Emulating libjpeg API/ABI v6.2 (WITH_JPEG7 = 0, WITH_JPEG8 = 0)
+2026-08-28T03:47:39.2489373Z   -- libjpeg API shared library version = 62.4.0
+2026-08-28T03:47:39.2490935Z   -- Compiler flags = -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG
+2026-08-28T03:47:39.2493201Z   -- Linker flags = -static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments   -Wl,--gc-sections 
+2026-08-28T03:47:39.2494472Z   -- Looking for sys/types.h
+2026-08-28T03:47:39.2494914Z   -- Looking for sys/types.h - found
+2026-08-28T03:47:39.2495358Z   -- Looking for stdint.h
+2026-08-28T03:47:39.2495744Z   -- Looking for stdint.h - found
+2026-08-28T03:47:39.2496160Z   -- Looking for stddef.h
+2026-08-28T03:47:39.2496950Z   -- Looking for stddef.h - found
+2026-08-28T03:47:39.2497510Z   -- Check size of size_t
+2026-08-28T03:47:39.2497891Z   -- Check size of size_t - done
+2026-08-28T03:47:39.2498295Z   -- Check size of unsigned long
+2026-08-28T03:47:39.2498714Z   -- Check size of unsigned long - done
+2026-08-28T03:47:39.2499200Z   -- Performing Test HAVE_BUILTIN_CTZL
+2026-08-28T03:47:39.2499717Z   -- Performing Test HAVE_BUILTIN_CTZL - Success
+2026-08-28T03:47:39.2500221Z   -- Performing Test HIDDEN_WORKS
+2026-08-28T03:47:39.2500672Z   -- Performing Test HIDDEN_WORKS - Success
+2026-08-28T03:47:39.2501186Z   -- HIDDEN = __attribute__((visibility("hidden")))
+2026-08-28T03:47:39.2501709Z   -- Performing Test INLINE_WORKS
+2026-08-28T03:47:39.2502153Z   -- Performing Test INLINE_WORKS - Success
+2026-08-28T03:47:39.2502763Z   -- INLINE = __inline__ __attribute__((always_inline)) (FORCE_INLINE = 1)
+2026-08-28T03:47:39.2503384Z   -- Performing Test HAVE_THREAD_LOCAL
+2026-08-28T03:47:39.2503883Z   -- Performing Test HAVE_THREAD_LOCAL - Success
+2026-08-28T03:47:39.2504363Z   -- THREAD_LOCAL = __thread
+2026-08-28T03:47:39.2504777Z   -- Performing Test HAVE_VERSION_SCRIPT
+2026-08-28T03:47:39.2505278Z   -- Performing Test HAVE_VERSION_SCRIPT - Success
+2026-08-28T03:47:39.2505826Z   -- Linker supports GNU-style version scripts
+2026-08-28T03:47:39.2506522Z   -- CMAKE_EXECUTABLE_SUFFIX = 
+2026-08-28T03:47:39.2506941Z   -- Performing Test HAVE_VLD1_S16_X3
+2026-08-28T03:47:39.2507568Z   -- Performing Test HAVE_VLD1_S16_X3 - Success
+2026-08-28T03:47:39.2508051Z   -- Performing Test HAVE_VLD1_U16_X2
+2026-08-28T03:47:39.2508501Z   -- Performing Test HAVE_VLD1_U16_X2 - Success
+2026-08-28T03:47:39.2508977Z   -- Performing Test HAVE_VLD1Q_U8_X4
+2026-08-28T03:47:39.2509432Z   -- Performing Test HAVE_VLD1Q_U8_X4 - Success
+2026-08-28T03:47:39.2509930Z   -- SIMD extensions: ARM64 (WITH_SIMD = 1)
+2026-08-28T03:47:39.2510493Z   -- System-supplied libspng disabled (WITH_SYSTEM_SPNG = 0)
+2026-08-28T03:47:39.2511143Z   -- System-supplied zlib disabled (WITH_SYSTEM_ZLIB = 0)
+2026-08-28T03:47:39.2511668Z   -- Looking for fmemopen
+2026-08-28T03:47:39.2512050Z   -- Looking for fmemopen - not found
+2026-08-28T03:47:39.2512494Z   -- FLOATTEST8 = fp-contract
+2026-08-28T03:47:39.2512893Z   -- FLOATTEST12 = fp-contract
+2026-08-28T03:47:39.2513332Z   -- Building for target architecture: aarch64
+2026-08-28T03:47:39.2513819Z   -- Looking for pow in m
+2026-08-28T03:47:39.2514210Z   -- Looking for pow in m - found
+2026-08-28T03:47:39.2515349Z   -- Using standard libconf header: /home/runner/work/GameBox/GameBox/ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/libpng/pnglibconf.h.prebuilt
+2026-08-28T03:47:39.2516516Z   -- Performing Test HAVE_BUILTIN_BSWAP16
+2026-08-28T03:47:39.2517021Z   -- Performing Test HAVE_BUILTIN_BSWAP16 - Success
+2026-08-28T03:47:39.2578183Z   -- Performing Test HAVE_BUILTIN_BSWAP32
+2026-08-28T03:47:39.2578775Z   -- Performing Test HAVE_BUILTIN_BSWAP32 - Success
+2026-08-28T03:47:39.2579308Z   -- Performing Test HAVE_BUILTIN_BSWAP64
+2026-08-28T03:47:39.2579865Z   -- Performing Test HAVE_BUILTIN_BSWAP64 - Success
+2026-08-28T03:47:39.2580666Z   -- Could NOT find OpenGL (missing: OPENGL_opengl_LIBRARY OPENGL_glx_LIBRARY OPENGL_INCLUDE_DIR) 
+2026-08-28T03:47:39.2581423Z   -- Performing Test HAVE_MATH_LIBRARY
+2026-08-28T03:47:39.2581890Z   -- Performing Test HAVE_MATH_LIBRARY - Success
+2026-08-28T03:47:39.2582389Z   -- Looking for include file GLUT/glut.h
+2026-08-28T03:47:39.2582879Z   -- Looking for include file GLUT/glut.h - not found
+2026-08-28T03:47:39.2583381Z   -- Looking for include file GL/glut.h
+2026-08-28T03:47:39.2583845Z   -- Looking for include file GL/glut.h - not found
+2026-08-28T03:47:39.2584335Z   -- Looking for include file OpenGL/glut.h
+2026-08-28T03:47:39.2584827Z   -- Looking for include file OpenGL/glut.h - not found
+2026-08-28T03:47:39.2585324Z   -- Looking for include file shlwapi.h
+2026-08-28T03:47:39.2585871Z   -- Looking for include file shlwapi.h - not found
+2026-08-28T03:47:39.2586824Z   -- Looking for include file wincodec.h
+2026-08-28T03:47:39.2587452Z   -- Looking for include file wincodec.h - not found
+2026-08-28T03:47:39.2587948Z   -- Looking for include file windows.h
+2026-08-28T03:47:39.2588409Z   -- Looking for include file windows.h - not found
+2026-08-28T03:47:39.2588899Z   -- Performing Test WEBP_HAVE_FLAG_AVX2
+2026-08-28T03:47:39.2589374Z   -- Performing Test WEBP_HAVE_FLAG_AVX2 - Failed
+2026-08-28T03:47:39.2589853Z   -- Performing Test WEBP_HAVE_FLAG_AVX2
+2026-08-28T03:47:39.2590319Z   -- Performing Test WEBP_HAVE_FLAG_AVX2 - Failed
+2026-08-28T03:47:39.2590800Z   -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.2591282Z   -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.2591754Z   -- Performing Test FLAG_-mno-avx2
+2026-08-28T03:47:39.2592216Z   -- Performing Test FLAG_-mno-avx2 - Failed
+2026-08-28T03:47:39.2592689Z   -- Performing Test WEBP_HAVE_FLAG_SSE41
+2026-08-28T03:47:39.2593175Z   -- Performing Test WEBP_HAVE_FLAG_SSE41 - Failed
+2026-08-28T03:47:39.2593672Z   -- Performing Test WEBP_HAVE_FLAG_SSE41
+2026-08-28T03:47:39.2594150Z   -- Performing Test WEBP_HAVE_FLAG_SSE41 - Failed
+2026-08-28T03:47:39.2594620Z   -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.2595068Z   -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.2595553Z   -- Performing Test FLAG_-mno-sse4.1
+2026-08-28T03:47:39.2596194Z   -- Performing Test FLAG_-mno-sse4.1 - Failed
+2026-08-28T03:47:39.2596651Z   -- Performing Test WEBP_HAVE_FLAG_SSE2
+2026-08-28T03:47:39.2597250Z   -- Performing Test WEBP_HAVE_FLAG_SSE2 - Failed
+2026-08-28T03:47:39.2597727Z   -- Performing Test WEBP_HAVE_FLAG_SSE2
+2026-08-28T03:47:39.2598158Z   -- Performing Test WEBP_HAVE_FLAG_SSE2 - Failed
+2026-08-28T03:47:39.2598612Z   -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.2599034Z   -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.2599481Z   -- Performing Test FLAG_-mno-sse2
+2026-08-28T03:47:39.2599921Z   -- Performing Test FLAG_-mno-sse2 - Failed
+2026-08-28T03:47:39.2600405Z   -- Performing Test WEBP_HAVE_FLAG_MIPS32
+2026-08-28T03:47:39.2600896Z   -- Performing Test WEBP_HAVE_FLAG_MIPS32 - Failed
+2026-08-28T03:47:39.2601395Z   -- Performing Test WEBP_HAVE_FLAG_MIPS32
+2026-08-28T03:47:39.2601871Z   -- Performing Test WEBP_HAVE_FLAG_MIPS32 - Failed
+2026-08-28T03:47:39.2602366Z   -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2
+2026-08-28T03:47:39.2602910Z   -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2 - Failed
+2026-08-28T03:47:39.2603428Z   -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2
+2026-08-28T03:47:39.2603955Z   -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2 - Failed
+2026-08-28T03:47:39.2604448Z   -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.2604909Z   -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.2605381Z   -- Performing Test FLAG_-mno-dspr2
+2026-08-28T03:47:39.2605822Z   -- Performing Test FLAG_-mno-dspr2 - Failed
+2026-08-28T03:47:39.2606292Z   -- Performing Test WEBP_HAVE_FLAG_NEON
+2026-08-28T03:47:39.2606760Z   -- Performing Test WEBP_HAVE_FLAG_NEON - Success
+2026-08-28T03:47:39.2683997Z   -- Performing Test WEBP_HAVE_FLAG_MSA
+2026-08-28T03:47:39.2684641Z   -- Performing Test WEBP_HAVE_FLAG_MSA - Failed
+2026-08-28T03:47:39.2685160Z   -- Performing Test WEBP_HAVE_FLAG_MSA
+2026-08-28T03:47:39.2685760Z   -- Performing Test WEBP_HAVE_FLAG_MSA - Failed
+2026-08-28T03:47:39.2686246Z   -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.2686757Z   -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.2687424Z   -- Performing Test FLAG_-mno-msa
+2026-08-28T03:47:39.2687866Z   -- Performing Test FLAG_-mno-msa - Failed
+2026-08-28T03:47:39.2688366Z   -- Creating build script for LZ4 version: 1.10.0
+2026-08-28T03:47:39.2688873Z   -- Performing Test CFLAG_pedantic_errors
+2026-08-28T03:47:39.2689387Z   -- Performing Test CFLAG_pedantic_errors - Success
+2026-08-28T03:47:39.2689885Z   -- Performing Test CFLAG_Wall
+2026-08-28T03:47:39.2690307Z   -- Performing Test CFLAG_Wall - Success
+2026-08-28T03:47:39.2690767Z   -- Performing Test CFLAG_Wextra
+2026-08-28T03:47:39.2691674Z   -- Performing Test CFLAG_Wextra - Success
+2026-08-28T03:47:39.2692120Z   -- Performing Test CFLAG_Wundef
+2026-08-28T03:47:39.2692544Z   -- Performing Test CFLAG_Wundef - Success
+2026-08-28T03:47:39.2693004Z   -- Performing Test CFLAG_Wcast_qual
+2026-08-28T03:47:39.2693467Z   -- Performing Test CFLAG_Wcast_qual - Success
+2026-08-28T03:47:39.2693970Z   -- Performing Test CFLAG_Wcast_align
+2026-08-28T03:47:39.2694441Z   -- Performing Test CFLAG_Wcast_align - Success
+2026-08-28T03:47:39.2694915Z   -- Performing Test CFLAG_Wshadow
+2026-08-28T03:47:39.2695353Z   -- Performing Test CFLAG_Wshadow - Success
+2026-08-28T03:47:39.2695824Z   -- Performing Test CFLAG_Wswitch_enum
+2026-08-28T03:47:39.2696309Z   -- Performing Test CFLAG_Wswitch_enum - Success
+2026-08-28T03:47:39.2696872Z   -- Performing Test CFLAG_Wdeclaration_after_statement
+2026-08-28T03:47:39.2697663Z   -- Performing Test CFLAG_Wdeclaration_after_statement - Success
+2026-08-28T03:47:39.2698275Z   -- Performing Test CFLAG_Wstrict_prototypes
+2026-08-28T03:47:39.2698825Z   -- Performing Test CFLAG_Wstrict_prototypes - Success
+2026-08-28T03:47:39.2699340Z   -- Performing Test CFLAG_Wpointer_arith
+2026-08-28T03:47:39.2699831Z   -- Performing Test CFLAG_Wpointer_arith - Success
+2026-08-28T03:47:39.2700333Z   -- Oboe: Data conversion is ENABLED.
+2026-08-28T03:47:39.2700961Z   -- Looking for fts_open
+2026-08-28T03:47:39.2701336Z   -- Looking for fts_open - found
+2026-08-28T03:47:39.2701718Z   -- Check size of off_t
+2026-08-28T03:47:39.2702068Z   -- Check size of off_t - done
+2026-08-28T03:47:39.2702435Z   -- Check size of size_t
+2026-08-28T03:47:39.2702785Z   -- Check size of size_t - done
+2026-08-28T03:47:39.2703169Z   -- Performing Test HAVE_NULLABLE
+2026-08-28T03:47:39.2703600Z   -- Performing Test HAVE_NULLABLE - Success
+2026-08-28T03:47:39.2704129Z   -- Looking for include file pulse/pulseaudio.h
+2026-08-28T03:47:39.2704752Z   -- Looking for include file pulse/pulseaudio.h - not found
+2026-08-28T03:47:39.2705369Z   -- Looking for include file alsa/asoundlib.h
+2026-08-28T03:47:39.2705977Z   -- Looking for include file alsa/asoundlib.h - not found
+2026-08-28T03:47:39.2706550Z   -- Looking for include file jack/jack.h
+2026-08-28T03:47:39.2707058Z   -- Looking for include file jack/jack.h - not found
+2026-08-28T03:47:39.2748408Z   -- Looking for include file sndio.h
+2026-08-28T03:47:39.2749092Z   -- Looking for include file sndio.h - not found
+2026-08-28T03:47:39.2749612Z   -- Looking for include file sys/soundcard.h
+2026-08-28T03:47:39.2750149Z   -- Looking for include file sys/soundcard.h - not found
+2026-08-28T03:47:39.2750676Z   -- {fmt} version: 12.1.0
+2026-08-28T03:47:39.2751064Z   -- Build type: RelWithDebInfo
+2026-08-28T03:47:39.2751487Z   -- Performing Test HAS_NULLPTR_WARNING
+2026-08-28T03:47:39.2751978Z   -- Performing Test HAS_NULLPTR_WARNING - Success
+2026-08-28T03:47:39.2752625Z   -- librashader: ENABLED (aarch64-linux-android, api 21, vulkan+opengl)
+2026-08-28T03:47:39.2753888Z   -- Discord Social SDK not supplied (DISCORD_SDK_DIR unset) — presence/friends compiled out
+2026-08-28T03:47:39.2754808Z   -- The ASM compiler identification is Clang with GNU-like command-line
+2026-08-28T03:47:39.2755825Z   -- Found assembler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+2026-08-28T03:47:39.2757286Z   -- melonDS core source dir: /home/runner/work/GameBox/GameBox/core/melonds/../melonds_temp/melonDS-android-lib-master/src
+2026-08-28T03:47:39.2758343Z   -- melonDS libretro dir:   /home/runner/work/GameBox/GameBox/core/melonds/libretro
+2026-08-28T03:47:39.2759018Z   -- melonDS JIT recompiler enabled: ON
+2026-08-28T03:47:39.2759442Z   -- Configuring done
+2026-08-28T03:47:39.2759795Z   -- Generating done
+2026-08-28T03:47:39.2760120Z   
+2026-08-28T03:47:39.2760483Z   C++ build system [configure] failed while executing:
+2026-08-28T03:47:39.2761036Z       /usr/local/lib/android/sdk/cmake/3.22.1/bin/cmake \
+2026-08-28T03:47:39.2761607Z         -H/home/runner/work/GameBox/GameBox/core/cmake \
+2026-08-28T03:47:39.2762613Z         -DCMAKE_SYSTEM_NAME=Android \
+2026-08-28T03:47:39.2763049Z         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+2026-08-28T03:47:39.2763477Z         -DCMAKE_SYSTEM_VERSION=21 \
+2026-08-28T03:47:39.2763890Z         -DANDROID_ABI=arm64-v8a \
+2026-08-28T03:47:39.2764307Z         -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+2026-08-28T03:47:39.2764852Z         -DANDROID_NDK=/usr/local/lib/android/sdk/ndk/26.3.11579264 \
+2026-08-28T03:47:39.2765453Z         -DCMAKE_ANDROID_NDK=/usr/local/lib/android/sdk/ndk/26.3.11579264 \
+2026-08-28T03:47:39.2766276Z         -DCMAKE_TOOLCHAIN_FILE=/usr/local/lib/android/sdk/ndk/26.3.11579264/build/cmake/android.toolchain.cmake \
+2026-08-28T03:47:39.2767386Z         -DCMAKE_MAKE_PROGRAM=/usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+2026-08-28T03:47:39.2768010Z         -DCMAKE_CXX_FLAGS=-std=c++17 \
+2026-08-28T03:47:39.2768993Z         -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/runner/work/GameBox/GameBox/app/build/intermediates/cxx/RelWithDebInfo/12c124g5/obj/arm64-v8a \
+2026-08-28T03:47:39.2770547Z         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/runner/work/GameBox/GameBox/app/build/intermediates/cxx/RelWithDebInfo/12c124g5/obj/arm64-v8a \
+2026-08-28T03:47:39.2771566Z         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+2026-08-28T03:47:39.2772255Z         -B/home/runner/work/GameBox/GameBox/app/.cxx/RelWithDebInfo/12c124g5/arm64-v8a \
+2026-08-28T03:47:39.2773202Z         -GNinja \
+2026-08-28T03:47:39.2773495Z         -DANDROID_STL=c++_static \
+2026-08-28T03:47:39.2773907Z         -DANDROID_PLATFORM=android-21
+2026-08-28T03:47:39.2774379Z     from /home/runner/work/GameBox/GameBox/app
+2026-08-28T03:47:39.2774859Z   Using precompiled headers.
+2026-08-28T03:47:39.2775547Z   CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:39.2776285Z   Missing variable is:
+2026-08-28T03:47:39.2776647Z   CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:39.2807584Z   CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:39.2808398Z   Missing variable is:
+2026-08-28T03:47:39.2808757Z   CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:39.2809305Z   CMake Generate step failed.  Build files cannot be regenerated correctly.
+2026-08-28T03:47:39.2809784Z 
+2026-08-28T03:47:39.2809901Z * Try:
+2026-08-28T03:47:39.2810282Z > Run with --info or --debug option to get more log output.
+2026-08-28T03:47:39.2810813Z > Run with --scan to get full insights.
+2026-08-28T03:47:39.2811295Z > Get more help at https://help.gradle.org.
+2026-08-28T03:47:39.2811605Z 
+2026-08-28T03:47:39.2811740Z * Exception is:
+2026-08-28T03:47:39.2812536Z org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:configureCMakeRelWithDebInfo[arm64-v8a]'.
+2026-08-28T03:47:39.2814094Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+2026-08-28T03:47:39.2815323Z 	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:282)
+2026-08-28T03:47:39.2816524Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+2026-08-28T03:47:39.2818095Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+2026-08-28T03:47:39.2819479Z 	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+2026-08-28T03:47:39.2821019Z 	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+2026-08-28T03:47:39.2822495Z 	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+2026-08-28T03:47:39.2823854Z 	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+2026-08-28T03:47:39.2825236Z 	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+2026-08-28T03:47:39.2827349Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+2026-08-28T03:47:39.2828703Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+2026-08-28T03:47:39.2830010Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+2026-08-28T03:47:39.2831526Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+2026-08-28T03:47:39.2833283Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+2026-08-28T03:47:39.2834854Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.2836233Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.2868036Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.2869516Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.2870878Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+2026-08-28T03:47:39.2872623Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+2026-08-28T03:47:39.2874000Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+2026-08-28T03:47:39.2875215Z 	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+2026-08-28T03:47:39.2876572Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+2026-08-28T03:47:39.2878264Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+2026-08-28T03:47:39.2879892Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+2026-08-28T03:47:39.2881355Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+2026-08-28T03:47:39.2882781Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+2026-08-28T03:47:39.2884547Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+2026-08-28T03:47:39.2885982Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+2026-08-28T03:47:39.2887252Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+2026-08-28T03:47:39.2888288Z 	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:116)
+2026-08-28T03:47:39.2889466Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+2026-08-28T03:47:39.2890758Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+2026-08-28T03:47:39.2891955Z 	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+2026-08-28T03:47:39.2893060Z 	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+2026-08-28T03:47:39.2894423Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+2026-08-28T03:47:39.2896001Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+2026-08-28T03:47:39.2927993Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+2026-08-28T03:47:39.2930270Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+2026-08-28T03:47:39.2931880Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.2933271Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.2934643Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.2936028Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.2937494Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+2026-08-28T03:47:39.2938748Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+2026-08-28T03:47:39.2940216Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+2026-08-28T03:47:39.2941752Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+2026-08-28T03:47:39.2943490Z 	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+2026-08-28T03:47:39.2944828Z 	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+2026-08-28T03:47:39.2946042Z 	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:44)
+2026-08-28T03:47:39.2947464Z 	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+2026-08-28T03:47:39.2948895Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+2026-08-28T03:47:39.2950451Z 	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+2026-08-28T03:47:39.2951844Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+2026-08-28T03:47:39.2953136Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+2026-08-28T03:47:39.2954424Z 	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+2026-08-28T03:47:39.2955621Z 	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+2026-08-28T03:47:39.2956905Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+2026-08-28T03:47:39.2988774Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+2026-08-28T03:47:39.2990138Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+2026-08-28T03:47:39.2991508Z 	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+2026-08-28T03:47:39.2992725Z 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+2026-08-28T03:47:39.2994643Z Caused by: com.android.builder.errors.EvalIssueException: [CXX1429] error when building with cmake using /home/runner/work/GameBox/GameBox/core/cmake/CMakeLists.txt: -- The C compiler identification is Clang 17.0.2
+2026-08-28T03:47:39.2996159Z -- The CXX compiler identification is Clang 17.0.2
+2026-08-28T03:47:39.2996664Z -- Detecting C compiler ABI info
+2026-08-28T03:47:39.2997084Z -- Detecting C compiler ABI info - done
+2026-08-28T03:47:39.2998133Z -- Check for working C compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang - skipped
+2026-08-28T03:47:39.2999016Z -- Detecting C compile features
+2026-08-28T03:47:39.2999816Z -- Detecting C compile features - done
+2026-08-28T03:47:39.3000272Z -- Detecting CXX compiler ABI info
+2026-08-28T03:47:39.3000728Z -- Detecting CXX compiler ABI info - done
+2026-08-28T03:47:39.3001713Z -- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+2026-08-28T03:47:39.3002702Z -- Detecting CXX compile features
+2026-08-28T03:47:39.3003148Z -- Detecting CXX compile features - done
+2026-08-28T03:47:39.3003683Z -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1") 
+2026-08-28T03:47:39.3004203Z -- Looking for strdup
+2026-08-28T03:47:39.3004564Z -- Looking for strdup - found
+2026-08-28T03:47:39.3004955Z -- Looking for strlcpy
+2026-08-28T03:47:39.3005321Z -- Looking for strlcpy - found
+2026-08-28T03:47:39.3005674Z -- Looking for strndup
+2026-08-28T03:47:39.3005980Z -- Looking for strndup - found
+2026-08-28T03:47:39.3006308Z -- Looking for vasprintf
+2026-08-28T03:47:39.3006645Z -- Looking for vasprintf - found
+2026-08-28T03:47:39.3006996Z -- Looking for freelocale
+2026-08-28T03:47:39.3007515Z -- Looking for freelocale - found
+2026-08-28T03:47:39.3007871Z -- Looking for newlocale
+2026-08-28T03:47:39.3008192Z -- Looking for newlocale - found
+2026-08-28T03:47:39.3008556Z -- Looking for setlocale
+2026-08-28T03:47:39.3009182Z -- Looking for setlocale - found
+2026-08-28T03:47:39.3009578Z -- Looking for snprintf_l
+2026-08-28T03:47:39.3009961Z -- Looking for snprintf_l - not found
+2026-08-28T03:47:39.3010330Z -- Looking for uselocale
+2026-08-28T03:47:39.3010769Z -- Looking for uselocale - found
+2026-08-28T03:47:39.3011117Z -- Looking for popcount32
+2026-08-28T03:47:39.3011471Z -- Looking for popcount32 - not found
+2026-08-28T03:47:39.3011846Z -- Looking for futimens
+2026-08-28T03:47:39.3012186Z -- Looking for futimens - found
+2026-08-28T03:47:39.3012537Z -- Looking for futimes
+2026-08-28T03:47:39.3012867Z -- Looking for futimes - not found
+2026-08-28T03:47:39.3013276Z -- Looking for localtime_r
+2026-08-28T03:47:39.3013678Z -- Looking for localtime_r - found
+2026-08-28T03:47:39.3014074Z -- Looking for realpath
+2026-08-28T03:47:39.3014435Z -- Looking for realpath - found
+2026-08-28T03:47:39.3014845Z -- Looking for include file xlocale.h
+2026-08-28T03:47:39.3015294Z -- Looking for include file xlocale.h - found
+2026-08-28T03:47:39.3015756Z -- Looking for include file pthread.h
+2026-08-28T03:47:39.3016197Z -- Looking for include file pthread.h - found
+2026-08-28T03:47:39.3016603Z -- Performing Test HAVE_PTHREAD
+2026-08-28T03:47:39.3016987Z -- Performing Test HAVE_PTHREAD - Success
+2026-08-28T03:47:39.3047891Z -- Looking for pthread_create
+2026-08-28T03:47:39.3048416Z -- Looking for pthread_create - found
+2026-08-28T03:47:39.3048894Z -- Looking for include file pthread_np.h
+2026-08-28T03:47:39.3049413Z -- Looking for include file pthread_np.h - not found
+2026-08-28T03:47:39.3049921Z -- Looking for pthread_setname_np
+2026-08-28T03:47:39.3050382Z -- Looking for pthread_setname_np - found
+2026-08-28T03:47:39.3050865Z -- Looking for pthread_set_name_np
+2026-08-28T03:47:39.3051319Z -- Looking for pthread_set_name_np - not found
+2026-08-28T03:47:39.3051780Z -- Looking for crc32
+2026-08-28T03:47:39.3052129Z -- Looking for crc32 - not found
+2026-08-28T03:47:39.3052541Z -- CMake Version: 3.22.1-g37088a8
+2026-08-28T03:47:39.3052942Z -- CMake System Name: Android
+2026-08-28T03:47:39.3053325Z -- Building for Android.
+2026-08-28T03:47:39.3053878Z -- Building with Clang/LLVM.
+2026-08-28T03:47:39.3054504Z -- Building for Android (ARM64).
+2026-08-28T03:47:39.3055204Z -- Found Git: /usr/bin/git (found version "2.55.0") 
+2026-08-28T03:47:39.3055829Z -- Looking for pthread.h
+2026-08-28T03:47:39.3056474Z -- Looking for pthread.h - found
+2026-08-28T03:47:39.3057422Z -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+2026-08-28T03:47:39.3058095Z -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+2026-08-28T03:47:39.3058775Z -- Looking for pthread_create in pthreads
+2026-08-28T03:47:39.3059446Z -- Looking for pthread_create in pthreads - not found
+2026-08-28T03:47:39.3060516Z -- Looking for pthread_create in pthread
+2026-08-28T03:47:39.3061240Z -- Looking for pthread_create in pthread - not found
+2026-08-28T03:47:39.3061902Z -- Check if compiler accepts -pthread
+2026-08-28T03:47:39.3062511Z -- Check if compiler accepts -pthread - yes
+2026-08-28T03:47:39.3063070Z -- Found Threads: TRUE  
+2026-08-28T03:47:39.3108520Z -- Found ZLIB: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/21/libz.so (found version "1.2.13") 
+2026-08-28T03:47:39.3109769Z -- ZSTD VERSION: 1.6.0
+2026-08-28T03:47:39.3110173Z -- CMAKE_INSTALL_PREFIX: /usr/local
+2026-08-28T03:47:39.3110619Z -- CMAKE_INSTALL_LIBDIR: lib
+2026-08-28T03:47:39.3111036Z -- ZSTD_LEGACY_SUPPORT disabled
+2026-08-28T03:47:39.3111564Z -- Configuring for old Android API - disabling fseeko/ftello
+2026-08-28T03:47:39.3112174Z -- Multi-threading support disabled
+2026-08-28T03:47:39.3112630Z -- Performing Test C_FLAG_WALL
+2026-08-28T03:47:39.3113096Z -- Performing Test C_FLAG_WALL - Success
+2026-08-28T03:47:39.3113577Z -- Performing Test CXX_FLAG_WALL
+2026-08-28T03:47:39.3114028Z -- Performing Test CXX_FLAG_WALL - Success
+2026-08-28T03:47:39.3114538Z -- Performing Test C_FLAG_WEXTRA
+2026-08-28T03:47:39.3114977Z -- Performing Test C_FLAG_WEXTRA - Success
+2026-08-28T03:47:39.3115798Z -- Performing Test CXX_FLAG_WEXTRA
+2026-08-28T03:47:39.3116268Z -- Performing Test CXX_FLAG_WEXTRA - Success
+2026-08-28T03:47:39.3116753Z -- Performing Test C_FLAG_WUNDEF
+2026-08-28T03:47:39.3117372Z -- Performing Test C_FLAG_WUNDEF - Success
+2026-08-28T03:47:39.3117792Z -- Performing Test CXX_FLAG_WUNDEF
+2026-08-28T03:47:39.3118203Z -- Performing Test CXX_FLAG_WUNDEF - Success
+2026-08-28T03:47:39.3118647Z -- Performing Test C_FLAG_WSHADOW
+2026-08-28T03:47:39.3119061Z -- Performing Test C_FLAG_WSHADOW - Success
+2026-08-28T03:47:39.3119490Z -- Performing Test CXX_FLAG_WSHADOW
+2026-08-28T03:47:39.3119917Z -- Performing Test CXX_FLAG_WSHADOW - Success
+2026-08-28T03:47:39.3120405Z -- Performing Test C_FLAG_WCAST_ALIGN
+2026-08-28T03:47:39.3120870Z -- Performing Test C_FLAG_WCAST_ALIGN - Success
+2026-08-28T03:47:39.3121363Z -- Performing Test CXX_FLAG_WCAST_ALIGN
+2026-08-28T03:47:39.3121830Z -- Performing Test CXX_FLAG_WCAST_ALIGN - Success
+2026-08-28T03:47:39.3122305Z -- Performing Test C_FLAG_WCAST_QUAL
+2026-08-28T03:47:39.3122763Z -- Performing Test C_FLAG_WCAST_QUAL - Success
+2026-08-28T03:47:39.3123239Z -- Performing Test CXX_FLAG_WCAST_QUAL
+2026-08-28T03:47:39.3123722Z -- Performing Test CXX_FLAG_WCAST_QUAL - Success
+2026-08-28T03:47:39.3124235Z -- Performing Test C_FLAG_WSTRICT_PROTOTYPES
+2026-08-28T03:47:39.3124753Z -- Performing Test C_FLAG_WSTRICT_PROTOTYPES - Success
+2026-08-28T03:47:39.3125273Z -- Performing Test LD_FLAG_WL_Z_NOEXECSTACK
+2026-08-28T03:47:39.3125774Z -- Performing Test LD_FLAG_WL_Z_NOEXECSTACK - Success
+2026-08-28T03:47:39.3126297Z -- Performing Test C_FLAG_QUNUSED_ARGUMENTS
+2026-08-28T03:47:39.3126804Z -- Performing Test C_FLAG_QUNUSED_ARGUMENTS - Success
+2026-08-28T03:47:39.3152725Z -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS
+2026-08-28T03:47:39.3153303Z -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS - Success
+2026-08-28T03:47:39.3153842Z -- Performing Test C_FLAG_WA_NOEXECSTACK
+2026-08-28T03:47:39.3154322Z -- Performing Test C_FLAG_WA_NOEXECSTACK - Success
+2026-08-28T03:47:39.3154831Z -- Performing Test CXX_FLAG_WA_NOEXECSTACK
+2026-08-28T03:47:39.3155334Z -- Performing Test CXX_FLAG_WA_NOEXECSTACK - Success
+2026-08-28T03:47:39.3155840Z -- Looking for unistd.h
+2026-08-28T03:47:39.3156202Z -- Looking for unistd.h - found
+2026-08-28T03:47:39.3156585Z -- Looking for fcntl.h
+2026-08-28T03:47:39.3156946Z -- Looking for fcntl.h - found
+2026-08-28T03:47:39.3157469Z -- Looking for threads.h
+2026-08-28T03:47:39.3157832Z -- Looking for threads.h - found
+2026-08-28T03:47:39.3158246Z -- Detecting Target CPU Architecture
+2026-08-28T03:47:39.3158705Z -- Detecting Target CPU Architecture - ARM64
+2026-08-28T03:47:39.3159152Z -- Performing Test HAVE_GCC_WALL
+2026-08-28T03:47:39.3159912Z -- Performing Test HAVE_GCC_WALL - Success
+2026-08-28T03:47:39.3160354Z -- Performing Test HAVE_GCC_WUNDEF
+2026-08-28T03:47:39.3160786Z -- Performing Test HAVE_GCC_WUNDEF - Success
+2026-08-28T03:47:39.3161256Z -- Performing Test HAVE_GCC_WFLOAT_CONVERSION
+2026-08-28T03:47:39.3161783Z -- Performing Test HAVE_GCC_WFLOAT_CONVERSION - Success
+2026-08-28T03:47:39.3162332Z -- Performing Test HAVE_GCC_NO_STRICT_ALIASING
+2026-08-28T03:47:39.3162868Z -- Performing Test HAVE_GCC_NO_STRICT_ALIASING - Success
+2026-08-28T03:47:39.3163404Z -- Performing Test HAVE_GCC_WDOCUMENTATION
+2026-08-28T03:47:39.3163909Z -- Performing Test HAVE_GCC_WDOCUMENTATION - Success
+2026-08-28T03:47:39.3164488Z -- Performing Test HAVE_GCC_WDOCUMENTATION_UNKNOWN_COMMAND
+2026-08-28T03:47:39.3165145Z -- Performing Test HAVE_GCC_WDOCUMENTATION_UNKNOWN_COMMAND - Success
+2026-08-28T03:47:39.3165767Z -- Performing Test HAVE_GCC_COMMENT_BLOCK_COMMANDS
+2026-08-28T03:47:39.3166349Z -- Performing Test HAVE_GCC_COMMENT_BLOCK_COMMANDS - Success
+2026-08-28T03:47:39.3166896Z -- Performing Test HAVE_GCC_WSHADOW
+2026-08-28T03:47:39.3167485Z -- Performing Test HAVE_GCC_WSHADOW - Success
+2026-08-28T03:47:39.3167992Z -- Performing Test HAVE_GCC_WUNUSED_LOCAL_TYPEDEFS
+2026-08-28T03:47:39.3168585Z -- Performing Test HAVE_GCC_WUNUSED_LOCAL_TYPEDEFS - Success
+2026-08-28T03:47:39.3169414Z -- Performing Test HAVE_GCC_WIMPLICIT_FALLTHROUGH
+2026-08-28T03:47:39.3170022Z -- Performing Test HAVE_GCC_WIMPLICIT_FALLTHROUGH - Success
+2026-08-28T03:47:39.3170660Z -- Performing Test COMPILER_SUPPORTS_FCOLOR_DIAGNOSTICS
+2026-08-28T03:47:39.3171325Z -- Performing Test COMPILER_SUPPORTS_FCOLOR_DIAGNOSTICS - Success
+2026-08-28T03:47:39.3171907Z -- Looking for __GLIBC__
+2026-08-28T03:47:39.3172304Z -- Looking for __GLIBC__ - not found
+2026-08-28T03:47:39.3172761Z -- Linker identification: GNUlike
+2026-08-28T03:47:39.3173217Z -- Performing Test HAVE_WL_VERSION_SCRIPT
+2026-08-28T03:47:39.3173751Z -- Performing Test HAVE_WL_VERSION_SCRIPT - Success
+2026-08-28T03:47:39.3174331Z -- Performing Test COMPILER_SUPPORTS_GCC_ATOMICS
+2026-08-28T03:47:39.3174896Z -- Performing Test COMPILER_SUPPORTS_GCC_ATOMICS - Success
+2026-08-28T03:47:39.3175453Z -- Performing Test HAVE_GCC_FVISIBILITY
+2026-08-28T03:47:39.3175979Z -- Performing Test HAVE_GCC_FVISIBILITY - Success
+2026-08-28T03:47:39.3176547Z -- Performing Test LINKER_SUPPORTS_WL_NO_UNDEFINED
+2026-08-28T03:47:39.3207494Z -- Performing Test LINKER_SUPPORTS_WL_NO_UNDEFINED - Success
+2026-08-28T03:47:39.3208262Z -- Performing Test COMPILER_SUPPORTS_ARMNEON
+2026-08-28T03:47:39.3208845Z -- Performing Test COMPILER_SUPPORTS_ARMNEON - Success
+2026-08-28T03:47:39.3209353Z -- Looking for alloca.h
+2026-08-28T03:47:39.3209751Z -- Looking for alloca.h - found
+2026-08-28T03:47:39.3210142Z -- Looking for float.h
+2026-08-28T03:47:39.3210505Z -- Looking for float.h - found
+2026-08-28T03:47:39.3210900Z -- Looking for iconv.h
+2026-08-28T03:47:39.3211251Z -- Looking for iconv.h - found
+2026-08-28T03:47:39.3211647Z -- Looking for inttypes.h
+2026-08-28T03:47:39.3212051Z -- Looking for inttypes.h - found
+2026-08-28T03:47:39.3212452Z -- Looking for limits.h
+2026-08-28T03:47:39.3212799Z -- Looking for limits.h - found
+2026-08-28T03:47:39.3213172Z -- Looking for malloc.h
+2026-08-28T03:47:39.3213511Z -- Looking for malloc.h - found
+2026-08-28T03:47:39.3213888Z -- Looking for math.h
+2026-08-28T03:47:39.3214258Z -- Looking for math.h - found
+2026-08-28T03:47:39.3214635Z -- Looking for memory.h
+2026-08-28T03:47:39.3214991Z -- Looking for memory.h - found
+2026-08-28T03:47:39.3215367Z -- Looking for signal.h
+2026-08-28T03:47:39.3215720Z -- Looking for signal.h - found
+2026-08-28T03:47:39.3216107Z -- Looking for stdarg.h
+2026-08-28T03:47:39.3216459Z -- Looking for stdarg.h - found
+2026-08-28T03:47:39.3216842Z -- Looking for stdbool.h
+2026-08-28T03:47:39.3217449Z -- Looking for stdbool.h - found
+2026-08-28T03:47:39.3217849Z -- Looking for stddef.h
+2026-08-28T03:47:39.3218204Z -- Looking for stddef.h - found
+2026-08-28T03:47:39.3218584Z -- Looking for stdint.h
+2026-08-28T03:47:39.3219206Z -- Looking for stdint.h - found
+2026-08-28T03:47:39.3219581Z -- Looking for stdio.h
+2026-08-28T03:47:39.3219941Z -- Looking for stdio.h - found
+2026-08-28T03:47:39.3220319Z -- Looking for stdlib.h
+2026-08-28T03:47:39.3220674Z -- Looking for stdlib.h - found
+2026-08-28T03:47:39.3221043Z -- Looking for string.h
+2026-08-28T03:47:39.3221408Z -- Looking for string.h - found
+2026-08-28T03:47:39.3221788Z -- Looking for strings.h
+2026-08-28T03:47:39.3222175Z -- Looking for strings.h - found
+2026-08-28T03:47:39.3222563Z -- Looking for sys/types.h
+2026-08-28T03:47:39.3222949Z -- Looking for sys/types.h - found
+2026-08-28T03:47:39.3223356Z -- Looking for time.h
+2026-08-28T03:47:39.3223721Z -- Looking for time.h - found
+2026-08-28T03:47:39.3224105Z -- Looking for wchar.h
+2026-08-28T03:47:39.3224476Z -- Looking for wchar.h - found
+2026-08-28T03:47:39.3224870Z -- Looking for pow in m
+2026-08-28T03:47:39.3225240Z -- Looking for pow in m - found
+2026-08-28T03:47:39.3225619Z -- Looking for abs
+2026-08-28T03:47:39.3225977Z -- Looking for abs - found
+2026-08-28T03:47:39.3226356Z -- Looking for acos
+2026-08-28T03:47:39.3226694Z -- Looking for acos - found
+2026-08-28T03:47:39.3227055Z -- Looking for acosf
+2026-08-28T03:47:39.3227585Z -- Looking for acosf - found
+2026-08-28T03:47:39.3227928Z -- Looking for asin
+2026-08-28T03:47:39.3228465Z -- Looking for asin - found
+2026-08-28T03:47:39.3228800Z -- Looking for asinf
+2026-08-28T03:47:39.3229106Z -- Looking for asinf - found
+2026-08-28T03:47:39.3229439Z -- Looking for atan
+2026-08-28T03:47:39.3229728Z -- Looking for atan - found
+2026-08-28T03:47:39.3230055Z -- Looking for atan2
+2026-08-28T03:47:39.3230361Z -- Looking for atan2 - found
+2026-08-28T03:47:39.3230697Z -- Looking for atan2f
+2026-08-28T03:47:39.3231007Z -- Looking for atan2f - found
+2026-08-28T03:47:39.3231351Z -- Looking for atanf
+2026-08-28T03:47:39.3231666Z -- Looking for atanf - found
+2026-08-28T03:47:39.3231995Z -- Looking for atof
+2026-08-28T03:47:39.3232305Z -- Looking for atof - found
+2026-08-28T03:47:39.3232651Z -- Looking for atoi
+2026-08-28T03:47:39.3232963Z -- Looking for atoi - found
+2026-08-28T03:47:39.3233308Z -- Looking for bcopy
+2026-08-28T03:47:39.3233598Z -- Looking for bcopy - found
+2026-08-28T03:47:39.3233916Z -- Looking for ceil
+2026-08-28T03:47:39.3234222Z -- Looking for ceil - found
+2026-08-28T03:47:39.3234586Z -- Looking for ceilf
+2026-08-28T03:47:39.3234918Z -- Looking for ceilf - found
+2026-08-28T03:47:39.3235255Z -- Looking for copysign
+2026-08-28T03:47:39.3235594Z -- Looking for copysign - found
+2026-08-28T03:47:39.3235953Z -- Looking for copysignf
+2026-08-28T03:47:39.3236304Z -- Looking for copysignf - found
+2026-08-28T03:47:39.3236657Z -- Looking for cos
+2026-08-28T03:47:39.3236968Z -- Looking for cos - found
+2026-08-28T03:47:39.3267739Z -- Looking for cosf
+2026-08-28T03:47:39.3268149Z -- Looking for cosf - found
+2026-08-28T03:47:39.3268546Z -- Looking for _Exit
+2026-08-28T03:47:39.3268904Z -- Looking for _Exit - found
+2026-08-28T03:47:39.3269271Z -- Looking for exp
+2026-08-28T03:47:39.3269615Z -- Looking for exp - found
+2026-08-28T03:47:39.3269937Z -- Looking for expf
+2026-08-28T03:47:39.3270239Z -- Looking for expf - found
+2026-08-28T03:47:39.3270573Z -- Looking for fabs
+2026-08-28T03:47:39.3270888Z -- Looking for fabs - found
+2026-08-28T03:47:39.3271235Z -- Looking for fabsf
+2026-08-28T03:47:39.3271566Z -- Looking for fabsf - found
+2026-08-28T03:47:39.3271915Z -- Looking for floor
+2026-08-28T03:47:39.3272234Z -- Looking for floor - found
+2026-08-28T03:47:39.3272580Z -- Looking for floorf
+2026-08-28T03:47:39.3272916Z -- Looking for floorf - found
+2026-08-28T03:47:39.3273271Z -- Looking for fmod
+2026-08-28T03:47:39.3273578Z -- Looking for fmod - found
+2026-08-28T03:47:39.3273915Z -- Looking for fmodf
+2026-08-28T03:47:39.3274233Z -- Looking for fmodf - found
+2026-08-28T03:47:39.3274570Z -- Looking for fopen64
+2026-08-28T03:47:39.3274913Z -- Looking for fopen64 - not found
+2026-08-28T03:47:39.3275283Z -- Looking for fseeko
+2026-08-28T03:47:39.3275597Z -- Looking for fseeko - found
+2026-08-28T03:47:39.3276272Z -- Looking for fseeko64
+2026-08-28T03:47:39.3276621Z -- Looking for fseeko64 - not found
+2026-08-28T03:47:39.3277012Z -- Looking for getenv
+2026-08-28T03:47:39.3277534Z -- Looking for getenv - found
+2026-08-28T03:47:39.3277885Z -- Looking for _i64toa
+2026-08-28T03:47:39.3278207Z -- Looking for _i64toa - not found
+2026-08-28T03:47:39.3278560Z -- Looking for index
+2026-08-28T03:47:39.3278860Z -- Looking for index - not found
+2026-08-28T03:47:39.3279288Z -- Looking for itoa
+2026-08-28T03:47:39.3279606Z -- Looking for itoa - not found
+2026-08-28T03:47:39.3279940Z -- Looking for log
+2026-08-28T03:47:39.3280259Z -- Looking for log - found
+2026-08-28T03:47:39.3280604Z -- Looking for log10
+2026-08-28T03:47:39.3280940Z -- Looking for log10 - found
+2026-08-28T03:47:39.3281308Z -- Looking for log10f
+2026-08-28T03:47:39.3281653Z -- Looking for log10f - found
+2026-08-28T03:47:39.3282010Z -- Looking for logf
+2026-08-28T03:47:39.3282309Z -- Looking for logf - found
+2026-08-28T03:47:39.3282648Z -- Looking for lround
+2026-08-28T03:47:39.3282992Z -- Looking for lround - found
+2026-08-28T03:47:39.3283371Z -- Looking for lroundf
+2026-08-28T03:47:39.3283735Z -- Looking for lroundf - found
+2026-08-28T03:47:39.3284114Z -- Looking for _ltoa
+2026-08-28T03:47:39.3284473Z -- Looking for _ltoa - not found
+2026-08-28T03:47:39.3285123Z -- Looking for malloc
+2026-08-28T03:47:39.3285469Z -- Looking for malloc - found
+2026-08-28T03:47:39.3285608Z -- Looking for memcmp
+2026-08-28T03:47:39.3285750Z -- Looking for memcmp - found
+2026-08-28T03:47:39.3285884Z -- Looking for memcpy
+2026-08-28T03:47:39.3286015Z -- Looking for memcpy - found
+2026-08-28T03:47:39.3286145Z -- Looking for memmove
+2026-08-28T03:47:39.3286274Z -- Looking for memmove - found
+2026-08-28T03:47:39.3286403Z -- Looking for memset
+2026-08-28T03:47:39.3286534Z -- Looking for memset - found
+2026-08-28T03:47:39.3286644Z -- Looking for modf
+2026-08-28T03:47:39.3286770Z -- Looking for modf - found
+2026-08-28T03:47:39.3286883Z -- Looking for modff
+2026-08-28T03:47:39.3287041Z -- Looking for modff - found
+2026-08-28T03:47:39.3287387Z -- Looking for pow
+2026-08-28T03:47:39.3287539Z -- Looking for pow - found
+2026-08-28T03:47:39.3287672Z -- Looking for powf
+2026-08-28T03:47:39.3287811Z -- Looking for powf - found
+2026-08-28T03:47:39.3287947Z -- Looking for putenv
+2026-08-28T03:47:39.3288099Z -- Looking for putenv - found
+2026-08-28T03:47:39.3288232Z -- Looking for rindex
+2026-08-28T03:47:39.3288382Z -- Looking for rindex - not found
+2026-08-28T03:47:39.3288519Z -- Looking for round
+2026-08-28T03:47:39.3288661Z -- Looking for round - found
+2026-08-28T03:47:39.3288798Z -- Looking for roundf
+2026-08-28T03:47:39.3288945Z -- Looking for roundf - found
+2026-08-28T03:47:39.3289074Z -- Looking for scalbn
+2026-08-28T03:47:39.3289219Z -- Looking for scalbn - found
+2026-08-28T03:47:39.3289348Z -- Looking for scalbnf
+2026-08-28T03:47:39.3289501Z -- Looking for scalbnf - found
+2026-08-28T03:47:39.3289631Z -- Looking for setenv
+2026-08-28T03:47:39.3289775Z -- Looking for setenv - found
+2026-08-28T03:47:39.3289912Z -- Looking for sin
+2026-08-28T03:47:39.3290059Z -- Looking for sin - found
+2026-08-28T03:47:39.3290191Z -- Looking for sinf
+2026-08-28T03:47:39.3290327Z -- Looking for sinf - found
+2026-08-28T03:47:39.3290457Z -- Looking for sqr
+2026-08-28T03:47:39.3290599Z -- Looking for sqr - not found
+2026-08-28T03:47:39.3290736Z -- Looking for sqrt
+2026-08-28T03:47:39.3290873Z -- Looking for sqrt - found
+2026-08-28T03:47:39.3291006Z -- Looking for sqrtf
+2026-08-28T03:47:39.3291151Z -- Looking for sqrtf - found
+2026-08-28T03:47:39.3291275Z -- Looking for sscanf
+2026-08-28T03:47:39.3291422Z -- Looking for sscanf - found
+2026-08-28T03:47:39.3291547Z -- Looking for strchr
+2026-08-28T03:47:39.3291692Z -- Looking for strchr - found
+2026-08-28T03:47:39.3291824Z -- Looking for strcmp
+2026-08-28T03:47:39.3291968Z -- Looking for strcmp - found
+2026-08-28T03:47:39.3292101Z -- Looking for strlcat
+2026-08-28T03:47:39.3292253Z -- Looking for strlcat - found
+2026-08-28T03:47:39.3292644Z -- Looking for strlcpy
+2026-08-28T03:47:39.3292780Z -- Looking for strlcpy - found
+2026-08-28T03:47:39.3292915Z -- Looking for strlen
+2026-08-28T03:47:39.3293059Z -- Looking for strlen - found
+2026-08-28T03:47:39.3293197Z -- Looking for strncmp
+2026-08-28T03:47:39.3293339Z -- Looking for strncmp - found
+2026-08-28T03:47:39.3293471Z -- Looking for strnlen
+2026-08-28T03:47:39.3293625Z -- Looking for strnlen - found
+2026-08-28T03:47:39.3293755Z -- Looking for strpbrk
+2026-08-28T03:47:39.3293901Z -- Looking for strpbrk - found
+2026-08-28T03:47:39.3294029Z -- Looking for strrchr
+2026-08-28T03:47:39.3294176Z -- Looking for strrchr - found
+2026-08-28T03:47:39.3294306Z -- Looking for strstr
+2026-08-28T03:47:39.3294456Z -- Looking for strstr - found
+2026-08-28T03:47:39.3294586Z -- Looking for strnstr
+2026-08-28T03:47:39.3294747Z -- Looking for strnstr - not found
+2026-08-28T03:47:39.3294886Z -- Looking for strtod
+2026-08-28T03:47:39.3295027Z -- Looking for strtod - found
+2026-08-28T03:47:39.3295161Z -- Looking for strtok_r
+2026-08-28T03:47:39.3295313Z -- Looking for strtok_r - found
+2026-08-28T03:47:39.3295447Z -- Looking for strtol
+2026-08-28T03:47:39.3295587Z -- Looking for strtol - found
+2026-08-28T03:47:39.3295709Z -- Looking for strtoll
+2026-08-28T03:47:39.3295835Z -- Looking for strtoll - found
+2026-08-28T03:47:39.3295958Z -- Looking for strtoul
+2026-08-28T03:47:39.3296313Z -- Looking for strtoul - found
+2026-08-28T03:47:39.3296445Z -- Looking for strtoull
+2026-08-28T03:47:39.3296594Z -- Looking for strtoull - found
+2026-08-28T03:47:39.3296720Z -- Looking for tan
+2026-08-28T03:47:39.3296869Z -- Looking for tan - found
+2026-08-28T03:47:39.3296993Z -- Looking for tanf
+2026-08-28T03:47:39.3327385Z -- Looking for tanf - found
+2026-08-28T03:47:39.3327585Z -- Looking for trunc
+2026-08-28T03:47:39.3327730Z -- Looking for trunc - found
+2026-08-28T03:47:39.3327851Z -- Looking for truncf
+2026-08-28T03:47:39.3327980Z -- Looking for truncf - found
+2026-08-28T03:47:39.3328113Z -- Looking for unsetenv
+2026-08-28T03:47:39.3328269Z -- Looking for unsetenv - found
+2026-08-28T03:47:39.3328412Z -- Looking for vsnprintf
+2026-08-28T03:47:39.3328551Z -- Looking for vsnprintf - found
+2026-08-28T03:47:39.3328705Z -- Looking for vsscanf
+2026-08-28T03:47:39.3328864Z -- Looking for vsscanf - found
+2026-08-28T03:47:39.3328998Z -- Looking for wcsnlen
+2026-08-28T03:47:39.3329143Z -- Looking for wcsnlen - found
+2026-08-28T03:47:39.3329258Z -- Looking for wcscmp
+2026-08-28T03:47:39.3329398Z -- Looking for wcscmp - found
+2026-08-28T03:47:39.3329520Z -- Looking for wcsdup
+2026-08-28T03:47:39.3329658Z -- Looking for wcsdup - found
+2026-08-28T03:47:39.3329786Z -- Looking for wcslcat
+2026-08-28T03:47:39.3329927Z -- Looking for wcslcat - found
+2026-08-28T03:47:39.3330058Z -- Looking for wcslcpy
+2026-08-28T03:47:39.3330196Z -- Looking for wcslcpy - found
+2026-08-28T03:47:39.3330324Z -- Looking for wcslen
+2026-08-28T03:47:39.3330460Z -- Looking for wcslen - found
+2026-08-28T03:47:39.3330593Z -- Looking for wcsncmp
+2026-08-28T03:47:39.3330732Z -- Looking for wcsncmp - found
+2026-08-28T03:47:39.3330870Z -- Looking for wcsstr
+2026-08-28T03:47:39.3331016Z -- Looking for wcsstr - found
+2026-08-28T03:47:39.3331145Z -- Looking for wcstol
+2026-08-28T03:47:39.3331289Z -- Looking for wcstol - found
+2026-08-28T03:47:39.3331423Z -- Looking for strcasestr
+2026-08-28T03:47:39.3331576Z -- Looking for strcasestr - found
+2026-08-28T03:47:39.3331731Z -- Performing Test LIBC_HAS_ISINF
+2026-08-28T03:47:39.3331904Z -- Performing Test LIBC_HAS_ISINF - Success
+2026-08-28T03:47:39.3332070Z -- Performing Test LIBC_ISINF_HANDLES_FLOAT
+2026-08-28T03:47:39.3332280Z -- Performing Test LIBC_ISINF_HANDLES_FLOAT - Success
+2026-08-28T03:47:39.3332428Z -- Performing Test LIBC_HAS_ISINFF
+2026-08-28T03:47:39.3332592Z -- Performing Test LIBC_HAS_ISINFF - Failed
+2026-08-28T03:47:39.3332754Z -- Performing Test LIBC_HAS_ISNAN
+2026-08-28T03:47:39.3332926Z -- Performing Test LIBC_HAS_ISNAN - Success
+2026-08-28T03:47:39.3333087Z -- Performing Test LIBC_ISNAN_HANDLES_FLOAT
+2026-08-28T03:47:39.3333601Z -- Performing Test LIBC_ISNAN_HANDLES_FLOAT - Success
+2026-08-28T03:47:39.3333749Z -- Performing Test LIBC_HAS_ISNANF
+2026-08-28T03:47:39.3333913Z -- Performing Test LIBC_HAS_ISNANF - Success
+2026-08-28T03:47:39.3334048Z -- Looking for fdatasync
+2026-08-28T03:47:39.3334197Z -- Looking for fdatasync - found
+2026-08-28T03:47:39.3334326Z -- Looking for gethostname
+2026-08-28T03:47:39.3334482Z -- Looking for gethostname - found
+2026-08-28T03:47:39.3334624Z -- Looking for getpagesize
+2026-08-28T03:47:39.3334774Z -- Looking for getpagesize - found
+2026-08-28T03:47:39.3334937Z -- Looking for getresgid
+2026-08-28T03:47:39.3335090Z -- Looking for getresgid - found
+2026-08-28T03:47:39.3335242Z -- Looking for getresuid
+2026-08-28T03:47:39.3335398Z -- Looking for getresuid - found
+2026-08-28T03:47:39.3335545Z -- Looking for sigaction
+2026-08-28T03:47:39.3335708Z -- Looking for sigaction - found
+2026-08-28T03:47:39.3335857Z -- Looking for sigtimedwait
+2026-08-28T03:47:39.3336039Z -- Looking for sigtimedwait - not found
+2026-08-28T03:47:39.3336186Z -- Looking for setjmp
+2026-08-28T03:47:39.3336345Z -- Looking for setjmp - found
+2026-08-28T03:47:39.3336484Z -- Looking for nanosleep
+2026-08-28T03:47:39.3336638Z -- Looking for nanosleep - found
+2026-08-28T03:47:39.3336774Z -- Looking for gmtime_r
+2026-08-28T03:47:39.3336929Z -- Looking for gmtime_r - found
+2026-08-28T03:47:39.3337472Z -- Looking for nl_langinfo
+2026-08-28T03:47:39.3337619Z -- Looking for nl_langinfo - not found
+2026-08-28T03:47:39.3337755Z -- Looking for sysconf
+2026-08-28T03:47:39.3337891Z -- Looking for sysconf - found
+2026-08-28T03:47:39.3338041Z -- Looking for sysctlbyname
+2026-08-28T03:47:39.3338202Z -- Looking for sysctlbyname - not found
+2026-08-28T03:47:39.3338343Z -- Looking for getauxval
+2026-08-28T03:47:39.3338495Z -- Looking for getauxval - found
+2026-08-28T03:47:39.3338632Z -- Looking for elf_aux_info
+2026-08-28T03:47:39.3338809Z -- Looking for elf_aux_info - not found
+2026-08-28T03:47:39.3338942Z -- Looking for ppoll
+2026-08-28T03:47:39.3339092Z -- Looking for ppoll - found
+2026-08-28T03:47:39.3339236Z -- Looking for memfd_create
+2026-08-28T03:47:39.3339404Z -- Looking for memfd_create - not found
+2026-08-28T03:47:39.3339550Z -- Looking for posix_fallocate
+2026-08-28T03:47:39.3339723Z -- Looking for posix_fallocate - found
+2026-08-28T03:47:39.3339920Z -- Looking for posix_spawn_file_actions_addchdir
+2026-08-28T03:47:39.3340176Z -- Looking for posix_spawn_file_actions_addchdir - not found
+2026-08-28T03:47:39.3340380Z -- Looking for posix_spawn_file_actions_addchdir_np
+2026-08-28T03:47:39.3340620Z -- Looking for posix_spawn_file_actions_addchdir_np - not found
+2026-08-28T03:47:39.3340787Z -- Performing Test ICONV_IN_LIBC
+2026-08-28T03:47:39.3340962Z -- Performing Test ICONV_IN_LIBC - Failed
+2026-08-28T03:47:39.3341142Z -- Performing Test ICONV_IN_LIBICONV
+2026-08-28T03:47:39.3341339Z -- Performing Test ICONV_IN_LIBICONV - Failed
+2026-08-28T03:47:39.3341504Z -- Performing Test HAVE_SA_SIGACTION
+2026-08-28T03:47:39.3341708Z -- Performing Test HAVE_SA_SIGACTION - Success
+2026-08-28T03:47:39.3341868Z -- Performing Test HAVE_ST_MTIM
+2026-08-28T03:47:39.3342048Z -- Performing Test HAVE_ST_MTIM - Success
+2026-08-28T03:47:39.3342186Z -- Looking for dlopen
+2026-08-28T03:47:39.3342351Z -- Looking for dlopen - found
+2026-08-28T03:47:39.3342519Z -- Performing Test HAVE_O_CLOEXEC
+2026-08-28T03:47:39.3342702Z -- Performing Test HAVE_O_CLOEXEC - Success
+2026-08-28T03:47:39.3342871Z -- Performing Test HAVE_ARM_MODE
+2026-08-28T03:47:39.3343045Z -- Performing Test HAVE_ARM_MODE - Failed
+2026-08-28T03:47:39.3343231Z -- Checking for module 'libusb-1.0>=1.0.16'
+2026-08-28T03:47:39.3343534Z --   Package 'libusb-1.0', required by 'virtual:world', not found
+2026-08-28T03:47:39.3344034Z -- Could NOT find LibUSB (missing: LibUSB_LIBRARY LibUSB_INCLUDE_PATH) (found version "LibUSB_VERSION-NOTFOUND")
+2026-08-28T03:47:39.3344206Z -- Performing Test VULKAN_PASSED_ANDROID_CHECKS
+2026-08-28T03:47:39.3344438Z -- Performing Test VULKAN_PASSED_ANDROID_CHECKS - Success
+2026-08-28T03:47:39.3344809Z -- Performing Test HAVE_PTHREADS
+2026-08-28T03:47:39.3344985Z -- Performing Test HAVE_PTHREADS - Success
+2026-08-28T03:47:39.3345164Z -- Performing Test HAVE_RECURSIVE_MUTEXES
+2026-08-28T03:47:39.3345371Z -- Performing Test HAVE_RECURSIVE_MUTEXES - Success
+2026-08-28T03:47:39.3345539Z -- Performing Test HAVE_PTHREADS_SEM
+2026-08-28T03:47:39.3345734Z -- Performing Test HAVE_PTHREADS_SEM - Success
+2026-08-28T03:47:39.3345926Z -- Performing Test COMPILER_HAS_SEM_TIMEDWAIT
+2026-08-28T03:47:39.3346158Z -- Performing Test COMPILER_HAS_SEM_TIMEDWAIT - Success
+2026-08-28T03:47:39.3346276Z -- 
+2026-08-28T03:47:39.3346482Z -- SDL3 was configured with the following options:
+2026-08-28T03:47:39.3346597Z -- 
+2026-08-28T03:47:39.3346741Z -- Platform: Android-1
+2026-08-28T03:47:39.3346875Z -- 64-bit:   TRUE
+2026-08-28T03:47:39.3347575Z -- Compiler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+2026-08-28T03:47:39.3347763Z -- Revision: SDL-3.5.0-HEAD-HASH-NOTFOUND
+2026-08-28T03:47:39.3347898Z -- Vendor:   
+2026-08-28T03:47:39.3348022Z -- 
+2026-08-28T03:47:39.3348150Z -- Subsystems:
+2026-08-28T03:47:39.3348288Z --   Audio:    ON
+2026-08-28T03:47:39.3348417Z --   Video:    ON
+2026-08-28T03:47:39.3348551Z --   GPU:      ON
+2026-08-28T03:47:39.3348676Z --   Render:   ON
+2026-08-28T03:47:39.3348807Z --   Camera:   ON
+2026-08-28T03:47:39.3349124Z --   Joystick: ON
+2026-08-28T03:47:39.3349246Z --   Haptic:   ON
+2026-08-28T03:47:39.3349378Z --   Hidapi:   ON
+2026-08-28T03:47:39.3349503Z --   Power:    ON
+2026-08-28T03:47:39.3349636Z --   Sensor:   ON
+2026-08-28T03:47:39.3349764Z --   Dialog:   ON
+2026-08-28T03:47:39.3349899Z --   Tray:     ON
+2026-08-28T03:47:39.3350012Z -- 
+2026-08-28T03:47:39.3350146Z -- Options:
+2026-08-28T03:47:39.3350339Z --   SDL_ALSA                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3350516Z --   SDL_ALSA_SHARED             (Wanted: OFF): OFF
+2026-08-28T03:47:39.3350700Z --   SDL_ALTIVEC                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3350875Z --   SDL_ARMNEON                 (Wanted: ON): ON
+2026-08-28T03:47:39.3351062Z --   SDL_ASAN                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3351230Z --   SDL_ASSEMBLY                (Wanted: ON): ON
+2026-08-28T03:47:39.3351433Z --   SDL_ASSERTIONS              (Wanted: auto): auto
+2026-08-28T03:47:39.3351611Z --   SDL_AVX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3351788Z --   SDL_AVX2                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3351968Z --   SDL_AVX512F                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3352153Z --   SDL_BACKGROUNDING_SIGNAL    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3352331Z --   SDL_CCACHE                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3352506Z --   SDL_CLANG_TIDY              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3352686Z --   SDL_CLOCK_GETTIME           (Wanted: ON): ON
+2026-08-28T03:47:39.3352865Z --   SDL_COCOA                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.3353034Z --   SDL_DBUS                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3353224Z --   SDL_DEPS_SHARED             (Wanted: ON): OFF
+2026-08-28T03:47:39.3353400Z --   SDL_DIRECTX                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3353587Z --   SDL_DISKAUDIO               (Wanted: ON): ON
+2026-08-28T03:47:39.3353759Z --   SDL_DLOPEN_NOTES            (Wanted: OFF): OFF
+2026-08-28T03:47:39.3353937Z --   SDL_DUMMYAUDIO              (Wanted: ON): ON
+2026-08-28T03:47:39.3354122Z --   SDL_DUMMYCAMERA             (Wanted: ON): ON
+2026-08-28T03:47:39.3354293Z --   SDL_DUMMYVIDEO              (Wanted: ON): ON
+2026-08-28T03:47:39.3354476Z --   SDL_EXAMPLES                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3354657Z --   SDL_EXAMPLES_LINK_SHARED    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3354850Z --   SDL_FOREGROUNDING_SIGNAL    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3355023Z --   SDL_FRIBIDI                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3355199Z --   SDL_FRIBIDI_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.3355358Z --   SDL_GCC_ATOMICS             (Wanted: ON): ON
+2026-08-28T03:47:39.3355737Z --   SDL_GPU_OPENXR              (Wanted: ON): ON
+2026-08-28T03:47:39.3355910Z --   SDL_HIDAPI                  (Wanted: ON): ON
+2026-08-28T03:47:39.3356081Z --   SDL_HIDAPI_JOYSTICK         (Wanted: ON): ON
+2026-08-28T03:47:39.3356266Z --   SDL_HIDAPI_LIBUSB           (Wanted: ON): OFF
+2026-08-28T03:47:39.3356456Z --   SDL_HIDAPI_LIBUSB_SHARED    (Wanted: ON): OFF
+2026-08-28T03:47:39.3356637Z --   SDL_IBUS                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3356827Z --   SDL_INSTALL                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3357009Z --   SDL_INSTALL_TESTS           (Wanted: OFF): OFF
+2026-08-28T03:47:39.3387497Z --   SDL_JACK                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3387785Z --   SDL_JACK_SHARED             (Wanted: OFF): OFF
+2026-08-28T03:47:39.3387978Z --   SDL_KMSDRM                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3388154Z --   SDL_KMSDRM_SHARED           (Wanted: OFF): OFF
+2026-08-28T03:47:39.3388307Z --   SDL_LASX                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3388500Z --   SDL_LIBC                    (Wanted: ON): ON
+2026-08-28T03:47:39.3388653Z --   SDL_LIBICONV                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3388805Z --   SDL_LIBTHAI                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3388956Z --   SDL_LIBTHAI_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.3389387Z --   SDL_LIBUDEV                 (Wanted: ON): OFF
+2026-08-28T03:47:39.3389547Z --   SDL_LIBURING                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3389692Z --   SDL_LSX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3389845Z --   SDL_METAL                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.3389993Z --   SDL_MMX                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3390153Z --   SDL_OFFSCREEN               (Wanted: ON): ON
+2026-08-28T03:47:39.3390306Z --   SDL_OPENGL                  (Wanted: ON): OFF
+2026-08-28T03:47:39.3390461Z --   SDL_OPENGLES                (Wanted: ON): ON
+2026-08-28T03:47:39.3390630Z --   SDL_OPENVR                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3390782Z --   SDL_OSS                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3390938Z --   SDL_PIPEWIRE                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3391098Z --   SDL_PIPEWIRE_SHARED         (Wanted: OFF): OFF
+2026-08-28T03:47:39.3391249Z --   SDL_PTHREADS                (Wanted: ON): ON
+2026-08-28T03:47:39.3391402Z --   SDL_PTHREADS_SEM            (Wanted: ON): ON
+2026-08-28T03:47:39.3391562Z --   SDL_PULSEAUDIO              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3391720Z --   SDL_PULSEAUDIO_SHARED       (Wanted: OFF): OFF
+2026-08-28T03:47:39.3391869Z --   SDL_RENDER_D3D              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3392030Z --   SDL_RENDER_D3D11            (Wanted: OFF): OFF
+2026-08-28T03:47:39.3392175Z --   SDL_RENDER_D3D12            (Wanted: OFF): OFF
+2026-08-28T03:47:39.3392334Z --   SDL_RENDER_GPU              (Wanted: ON): ON
+2026-08-28T03:47:39.3392500Z --   SDL_RENDER_METAL            (Wanted: OFF): OFF
+2026-08-28T03:47:39.3392659Z --   SDL_RENDER_VULKAN           (Wanted: ON): ON
+2026-08-28T03:47:39.3392820Z --   SDL_ROCKCHIP                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3392971Z --   SDL_RPATH                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393126Z --   SDL_RPI                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393283Z --   SDL_SNDIO                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393451Z --   SDL_SNDIO_SHARED            (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393594Z --   SDL_SSE                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393744Z --   SDL_SSE2                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3393896Z --   SDL_SSE3                    (Wanted: OFF): OFF
+2026-08-28T03:47:39.3394037Z --   SDL_SSE4_1                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3394189Z --   SDL_SSE4_2                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3394351Z --   SDL_SYSTEM_ICONV            (Wanted: ON): OFF
+2026-08-28T03:47:39.3394518Z --   SDL_TESTS                   (Wanted: OFF): OFF
+2026-08-28T03:47:39.3394894Z --   SDL_TESTS_LINK_SHARED       (Wanted: OFF): OFF
+2026-08-28T03:47:39.3395050Z --   SDL_UNINSTALL               (Wanted: OFF): OFF
+2026-08-28T03:47:39.3395211Z --   SDL_VIRTUAL_JOYSTICK        (Wanted: ON): ON
+2026-08-28T03:47:39.3395363Z --   SDL_VIVANTE                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3395521Z --   SDL_VULKAN                  (Wanted: ON): ON
+2026-08-28T03:47:39.3395670Z --   SDL_WASAPI                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3395827Z --   SDL_WAYLAND                 (Wanted: OFF): OFF
+2026-08-28T03:47:39.3395979Z --   SDL_WAYLAND_LIBDECOR        (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396153Z --   SDL_WAYLAND_LIBDECOR_SHARED (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396313Z --   SDL_WAYLAND_SHARED          (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396451Z --   SDL_X11                     (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396601Z --   SDL_X11_SHARED              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396744Z --   SDL_X11_XCURSOR             (Wanted: OFF): OFF
+2026-08-28T03:47:39.3396901Z --   SDL_X11_XDBE                (Wanted: OFF): OFF
+2026-08-28T03:47:39.3397050Z --   SDL_X11_XFIXES              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3397358Z --   SDL_X11_XINPUT              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3397517Z --   SDL_X11_XRANDR              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3397845Z --   SDL_X11_XSCRNSAVER          (Wanted: OFF): OFF
+2026-08-28T03:47:39.3398010Z --   SDL_X11_XSHAPE              (Wanted: OFF): OFF
+2026-08-28T03:47:39.3398161Z --   SDL_X11_XSYNC               (Wanted: OFF): OFF
+2026-08-28T03:47:39.3398316Z --   SDL_X11_XTEST               (Wanted: OFF): OFF
+2026-08-28T03:47:39.3398458Z --   SDL_XINPUT                  (Wanted: OFF): OFF
+2026-08-28T03:47:39.3398566Z -- 
+2026-08-28T03:47:39.3398703Z --  Build Shared Library: OFF
+2026-08-28T03:47:39.3398829Z --  Build Static Library: ON
+2026-08-28T03:47:39.3398939Z -- 
+2026-08-28T03:47:39.3399054Z -- Enabled backends:
+2026-08-28T03:47:39.3399222Z --   Video drivers: android dummy offscreen
+2026-08-28T03:47:39.3399370Z --   Render drivers: gpu ogl_es2 vulkan
+2026-08-28T03:47:39.3399508Z --   GPU drivers: openxr vulkan
+2026-08-28T03:47:39.3399676Z --   Audio drivers: aaudio disk dummy opensles
+2026-08-28T03:47:39.3399834Z --   Joystick drivers: android hidapi virtual
+2026-08-28T03:47:39.3399997Z --   Camera drivers: android dummy
+2026-08-28T03:47:39.3400109Z -- 
+2026-08-28T03:47:39.3400354Z -- If something was not detected, although the libraries
+2026-08-28T03:47:39.3400537Z -- were installed, then make sure you have set the
+2026-08-28T03:47:39.3400810Z -- CMAKE_C_FLAGS and CMAKE_PREFIX_PATH CMake variables correctly.
+2026-08-28T03:47:39.3400925Z -- 
+2026-08-28T03:47:39.3401067Z -- CMAKE_BUILD_TYPE = RelWithDebInfo
+2026-08-28T03:47:39.3401211Z -- VERSION = 3.1.90, BUILD = 20260828
+2026-08-28T03:47:39.3401336Z -- 64-bit build (arm64)
+2026-08-28T03:47:39.3401513Z -- CMAKE_INSTALL_PREFIX = /opt/nesstation-core
+2026-08-28T03:47:39.3401735Z -- CMAKE_INSTALL_BINDIR = bin (/opt/nesstation-core/bin)
+2026-08-28T03:47:39.3402016Z -- CMAKE_INSTALL_DATAROOTDIR = share (/opt/nesstation-core/share)
+2026-08-28T03:47:39.3402452Z -- CMAKE_INSTALL_DOCDIR = share/doc/ARMSX2Android (/opt/nesstation-core/share/doc/ARMSX2Android)
+2026-08-28T03:47:39.3402734Z -- CMAKE_INSTALL_INCLUDEDIR = include (/opt/nesstation-core/include)
+2026-08-28T03:47:39.3402958Z -- CMAKE_INSTALL_LIBDIR = lib (/opt/nesstation-core/lib)
+2026-08-28T03:47:39.3403220Z -- CMAKE_INSTALL_MANDIR = share/man (/opt/nesstation-core/share/man)
+2026-08-28T03:47:39.3403404Z -- Shared libraries disabled (ENABLE_SHARED = 0)
+2026-08-28T03:47:39.3403573Z -- Static libraries enabled (ENABLE_STATIC = 1)
+2026-08-28T03:47:39.3403817Z -- Arithmetic decoding support enabled (WITH_ARITH_DEC = 1)
+2026-08-28T03:47:39.3404060Z -- Arithmetic encoding support enabled (WITH_ARITH_ENC = 1)
+2026-08-28T03:47:39.3404277Z -- TurboJPEG API library disabled (WITH_TURBOJPEG = 0)
+2026-08-28T03:47:39.3404548Z -- TurboJPEG Java Native Access interfaces (TurboJPEG/JNA) disabled
+2026-08-28T03:47:39.3404845Z    (WITH_JNA = )
+2026-08-28T03:47:39.3405035Z -- Command-line tools enabled (WITH_TOOLS = 1)
+2026-08-28T03:47:39.3405202Z -- Regression tests enabled (WITH_TESTS = 1)
+2026-08-28T03:47:39.3405465Z -- Emulating libjpeg API/ABI v6.2 (WITH_JPEG7 = 0, WITH_JPEG8 = 0)
+2026-08-28T03:47:39.3405652Z -- libjpeg API shared library version = 62.4.0
+2026-08-28T03:47:39.3406725Z -- Compiler flags = -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG
+2026-08-28T03:47:39.3407787Z -- Linker flags = -static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments   -Wl,--gc-sections 
+2026-08-28T03:47:39.3407931Z -- Looking for sys/types.h
+2026-08-28T03:47:39.3408091Z -- Looking for sys/types.h - found
+2026-08-28T03:47:39.3408224Z -- Looking for stdint.h
+2026-08-28T03:47:39.3408381Z -- Looking for stdint.h - found
+2026-08-28T03:47:39.3408516Z -- Looking for stddef.h
+2026-08-28T03:47:39.3408650Z -- Looking for stddef.h - found
+2026-08-28T03:47:39.3408786Z -- Check size of size_t
+2026-08-28T03:47:39.3408925Z -- Check size of size_t - done
+2026-08-28T03:47:39.3409072Z -- Check size of unsigned long
+2026-08-28T03:47:39.3409404Z -- Check size of unsigned long - done
+2026-08-28T03:47:39.3409564Z -- Performing Test HAVE_BUILTIN_CTZL
+2026-08-28T03:47:39.3409754Z -- Performing Test HAVE_BUILTIN_CTZL - Success
+2026-08-28T03:47:39.3409893Z -- Performing Test HIDDEN_WORKS
+2026-08-28T03:47:39.3410052Z -- Performing Test HIDDEN_WORKS - Success
+2026-08-28T03:47:39.3410229Z -- HIDDEN = __attribute__((visibility("hidden")))
+2026-08-28T03:47:39.3410377Z -- Performing Test INLINE_WORKS
+2026-08-28T03:47:39.3410532Z -- Performing Test INLINE_WORKS - Success
+2026-08-28T03:47:39.3410810Z -- INLINE = __inline__ __attribute__((always_inline)) (FORCE_INLINE = 1)
+2026-08-28T03:47:39.3410972Z -- Performing Test HAVE_THREAD_LOCAL
+2026-08-28T03:47:39.3411147Z -- Performing Test HAVE_THREAD_LOCAL - Success
+2026-08-28T03:47:39.3411283Z -- THREAD_LOCAL = __thread
+2026-08-28T03:47:39.3411438Z -- Performing Test HAVE_VERSION_SCRIPT
+2026-08-28T03:47:39.3411624Z -- Performing Test HAVE_VERSION_SCRIPT - Success
+2026-08-28T03:47:39.3411803Z -- Linker supports GNU-style version scripts
+2026-08-28T03:47:39.3411950Z -- CMAKE_EXECUTABLE_SUFFIX = 
+2026-08-28T03:47:39.3412099Z -- Performing Test HAVE_VLD1_S16_X3
+2026-08-28T03:47:39.3412261Z -- Performing Test HAVE_VLD1_S16_X3 - Success
+2026-08-28T03:47:39.3412410Z -- Performing Test HAVE_VLD1_U16_X2
+2026-08-28T03:47:39.3412562Z -- Performing Test HAVE_VLD1_U16_X2 - Success
+2026-08-28T03:47:39.3412705Z -- Performing Test HAVE_VLD1Q_U8_X4
+2026-08-28T03:47:39.3412855Z -- Performing Test HAVE_VLD1Q_U8_X4 - Success
+2026-08-28T03:47:39.3413014Z -- SIMD extensions: ARM64 (WITH_SIMD = 1)
+2026-08-28T03:47:39.3413252Z -- System-supplied libspng disabled (WITH_SYSTEM_SPNG = 0)
+2026-08-28T03:47:39.3413477Z -- System-supplied zlib disabled (WITH_SYSTEM_ZLIB = 0)
+2026-08-28T03:47:39.3413615Z -- Looking for fmemopen
+2026-08-28T03:47:39.3413754Z -- Looking for fmemopen - not found
+2026-08-28T03:47:39.3413900Z -- FLOATTEST8 = fp-contract
+2026-08-28T03:47:39.3414031Z -- FLOATTEST12 = fp-contract
+2026-08-28T03:47:39.3414211Z -- Building for target architecture: aarch64
+2026-08-28T03:47:39.3414350Z -- Looking for pow in m
+2026-08-28T03:47:39.3414489Z -- Looking for pow in m - found
+2026-08-28T03:47:39.3415286Z -- Using standard libconf header: /home/runner/work/GameBox/GameBox/ARMSX2-master/platforms/android/app/src/main/cpp/3rdparty/libpng/pnglibconf.h.prebuilt
+2026-08-28T03:47:39.3415452Z -- Performing Test HAVE_BUILTIN_BSWAP16
+2026-08-28T03:47:39.3415650Z -- Performing Test HAVE_BUILTIN_BSWAP16 - Success
+2026-08-28T03:47:39.3415803Z -- Performing Test HAVE_BUILTIN_BSWAP32
+2026-08-28T03:47:39.3415992Z -- Performing Test HAVE_BUILTIN_BSWAP32 - Success
+2026-08-28T03:47:39.3416305Z -- Performing Test HAVE_BUILTIN_BSWAP64
+2026-08-28T03:47:39.3416478Z -- Performing Test HAVE_BUILTIN_BSWAP64 - Success
+2026-08-28T03:47:39.3416894Z -- Could NOT find OpenGL (missing: OPENGL_opengl_LIBRARY OPENGL_glx_LIBRARY OPENGL_INCLUDE_DIR) 
+2026-08-28T03:47:39.3417049Z -- Performing Test HAVE_MATH_LIBRARY
+2026-08-28T03:47:39.3446201Z -- Performing Test HAVE_MATH_LIBRARY - Success
+2026-08-28T03:47:39.3446439Z -- Looking for include file GLUT/glut.h
+2026-08-28T03:47:39.3446646Z -- Looking for include file GLUT/glut.h - not found
+2026-08-28T03:47:39.3446811Z -- Looking for include file GL/glut.h
+2026-08-28T03:47:39.3447001Z -- Looking for include file GL/glut.h - not found
+2026-08-28T03:47:39.3447361Z -- Looking for include file OpenGL/glut.h
+2026-08-28T03:47:39.3447548Z -- Looking for include file OpenGL/glut.h - not found
+2026-08-28T03:47:39.3447701Z -- Looking for include file shlwapi.h
+2026-08-28T03:47:39.3447877Z -- Looking for include file shlwapi.h - not found
+2026-08-28T03:47:39.3448036Z -- Looking for include file wincodec.h
+2026-08-28T03:47:39.3448242Z -- Looking for include file wincodec.h - not found
+2026-08-28T03:47:39.3448388Z -- Looking for include file windows.h
+2026-08-28T03:47:39.3448574Z -- Looking for include file windows.h - not found
+2026-08-28T03:47:39.3448730Z -- Performing Test WEBP_HAVE_FLAG_AVX2
+2026-08-28T03:47:39.3449164Z -- Performing Test WEBP_HAVE_FLAG_AVX2 - Failed
+2026-08-28T03:47:39.3449315Z -- Performing Test WEBP_HAVE_FLAG_AVX2
+2026-08-28T03:47:39.3449488Z -- Performing Test WEBP_HAVE_FLAG_AVX2 - Failed
+2026-08-28T03:47:39.3449641Z -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.3449808Z -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.3449965Z -- Performing Test FLAG_-mno-avx2
+2026-08-28T03:47:39.3450125Z -- Performing Test FLAG_-mno-avx2 - Failed
+2026-08-28T03:47:39.3450286Z -- Performing Test WEBP_HAVE_FLAG_SSE41
+2026-08-28T03:47:39.3450464Z -- Performing Test WEBP_HAVE_FLAG_SSE41 - Failed
+2026-08-28T03:47:39.3450620Z -- Performing Test WEBP_HAVE_FLAG_SSE41
+2026-08-28T03:47:39.3450807Z -- Performing Test WEBP_HAVE_FLAG_SSE41 - Failed
+2026-08-28T03:47:39.3450955Z -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.3451131Z -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.3451277Z -- Performing Test FLAG_-mno-sse4.1
+2026-08-28T03:47:39.3451446Z -- Performing Test FLAG_-mno-sse4.1 - Failed
+2026-08-28T03:47:39.3451607Z -- Performing Test WEBP_HAVE_FLAG_SSE2
+2026-08-28T03:47:39.3451786Z -- Performing Test WEBP_HAVE_FLAG_SSE2 - Failed
+2026-08-28T03:47:39.3451946Z -- Performing Test WEBP_HAVE_FLAG_SSE2
+2026-08-28T03:47:39.3452117Z -- Performing Test WEBP_HAVE_FLAG_SSE2 - Failed
+2026-08-28T03:47:39.3452273Z -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.3452441Z -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.3452596Z -- Performing Test FLAG_-mno-sse2
+2026-08-28T03:47:39.3452754Z -- Performing Test FLAG_-mno-sse2 - Failed
+2026-08-28T03:47:39.3452928Z -- Performing Test WEBP_HAVE_FLAG_MIPS32
+2026-08-28T03:47:39.3453128Z -- Performing Test WEBP_HAVE_FLAG_MIPS32 - Failed
+2026-08-28T03:47:39.3453286Z -- Performing Test WEBP_HAVE_FLAG_MIPS32
+2026-08-28T03:47:39.3453475Z -- Performing Test WEBP_HAVE_FLAG_MIPS32 - Failed
+2026-08-28T03:47:39.3453646Z -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2
+2026-08-28T03:47:39.3453856Z -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2 - Failed
+2026-08-28T03:47:39.3454033Z -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2
+2026-08-28T03:47:39.3454240Z -- Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2 - Failed
+2026-08-28T03:47:39.3454395Z -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.3454563Z -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.3454723Z -- Performing Test FLAG_-mno-dspr2
+2026-08-28T03:47:39.3454889Z -- Performing Test FLAG_-mno-dspr2 - Failed
+2026-08-28T03:47:39.3455051Z -- Performing Test WEBP_HAVE_FLAG_NEON
+2026-08-28T03:47:39.3455233Z -- Performing Test WEBP_HAVE_FLAG_NEON - Success
+2026-08-28T03:47:39.3455393Z -- Performing Test WEBP_HAVE_FLAG_MSA
+2026-08-28T03:47:39.3455787Z -- Performing Test WEBP_HAVE_FLAG_MSA - Failed
+2026-08-28T03:47:39.3455940Z -- Performing Test WEBP_HAVE_FLAG_MSA
+2026-08-28T03:47:39.3456118Z -- Performing Test WEBP_HAVE_FLAG_MSA - Failed
+2026-08-28T03:47:39.3456268Z -- Performing Test HAS_COMPILE_FLAG
+2026-08-28T03:47:39.3456440Z -- Performing Test HAS_COMPILE_FLAG - Success
+2026-08-28T03:47:39.3456596Z -- Performing Test FLAG_-mno-msa
+2026-08-28T03:47:39.3456766Z -- Performing Test FLAG_-mno-msa - Failed
+2026-08-28T03:47:39.3456962Z -- Creating build script for LZ4 version: 1.10.0
+2026-08-28T03:47:39.3457317Z -- Performing Test CFLAG_pedantic_errors
+2026-08-28T03:47:39.3457523Z -- Performing Test CFLAG_pedantic_errors - Success
+2026-08-28T03:47:39.3457664Z -- Performing Test CFLAG_Wall
+2026-08-28T03:47:39.3457831Z -- Performing Test CFLAG_Wall - Success
+2026-08-28T03:47:39.3457980Z -- Performing Test CFLAG_Wextra
+2026-08-28T03:47:39.3458150Z -- Performing Test CFLAG_Wextra - Success
+2026-08-28T03:47:39.3458292Z -- Performing Test CFLAG_Wundef
+2026-08-28T03:47:39.3458470Z -- Performing Test CFLAG_Wundef - Success
+2026-08-28T03:47:39.3458626Z -- Performing Test CFLAG_Wcast_qual
+2026-08-28T03:47:39.3458790Z -- Performing Test CFLAG_Wcast_qual - Success
+2026-08-28T03:47:39.3458946Z -- Performing Test CFLAG_Wcast_align
+2026-08-28T03:47:39.3459119Z -- Performing Test CFLAG_Wcast_align - Success
+2026-08-28T03:47:39.3459463Z -- Performing Test CFLAG_Wshadow
+2026-08-28T03:47:39.3459630Z -- Performing Test CFLAG_Wshadow - Success
+2026-08-28T03:47:39.3459791Z -- Performing Test CFLAG_Wswitch_enum
+2026-08-28T03:47:39.3459977Z -- Performing Test CFLAG_Wswitch_enum - Success
+2026-08-28T03:47:39.3460187Z -- Performing Test CFLAG_Wdeclaration_after_statement
+2026-08-28T03:47:39.3460456Z -- Performing Test CFLAG_Wdeclaration_after_statement - Success
+2026-08-28T03:47:39.3460621Z -- Performing Test CFLAG_Wstrict_prototypes
+2026-08-28T03:47:39.3460828Z -- Performing Test CFLAG_Wstrict_prototypes - Success
+2026-08-28T03:47:39.3460981Z -- Performing Test CFLAG_Wpointer_arith
+2026-08-28T03:47:39.3461187Z -- Performing Test CFLAG_Wpointer_arith - Success
+2026-08-28T03:47:39.3461344Z -- Oboe: Data conversion is ENABLED.
+2026-08-28T03:47:39.3461480Z -- Looking for fts_open
+2026-08-28T03:47:39.3461630Z -- Looking for fts_open - found
+2026-08-28T03:47:39.3461761Z -- Check size of off_t
+2026-08-28T03:47:39.3461924Z -- Check size of off_t - done
+2026-08-28T03:47:39.3462050Z -- Check size of size_t
+2026-08-28T03:47:39.3462201Z -- Check size of size_t - done
+2026-08-28T03:47:39.3462352Z -- Performing Test HAVE_NULLABLE
+2026-08-28T03:47:39.3462518Z -- Performing Test HAVE_NULLABLE - Success
+2026-08-28T03:47:39.3462706Z -- Looking for include file pulse/pulseaudio.h
+2026-08-28T03:47:39.3462946Z -- Looking for include file pulse/pulseaudio.h - not found
+2026-08-28T03:47:39.3463128Z -- Looking for include file alsa/asoundlib.h
+2026-08-28T03:47:39.3463346Z -- Looking for include file alsa/asoundlib.h - not found
+2026-08-28T03:47:39.3463511Z -- Looking for include file jack/jack.h
+2026-08-28T03:47:39.3463716Z -- Looking for include file jack/jack.h - not found
+2026-08-28T03:47:39.3463862Z -- Looking for include file sndio.h
+2026-08-28T03:47:39.3464073Z -- Looking for include file sndio.h - not found
+2026-08-28T03:47:39.3464239Z -- Looking for include file sys/soundcard.h
+2026-08-28T03:47:39.3464456Z -- Looking for include file sys/soundcard.h - not found
+2026-08-28T03:47:39.3464595Z -- {fmt} version: 12.1.0
+2026-08-28T03:47:39.3464750Z -- Build type: RelWithDebInfo
+2026-08-28T03:47:39.3464909Z -- Performing Test HAS_NULLPTR_WARNING
+2026-08-28T03:47:39.3465094Z -- Performing Test HAS_NULLPTR_WARNING - Success
+2026-08-28T03:47:39.3465396Z -- librashader: ENABLED (aarch64-linux-android, api 21, vulkan+opengl)
+2026-08-28T03:47:39.3466143Z -- Discord Social SDK not supplied (DISCORD_SDK_DIR unset) — presence/friends compiled out
+2026-08-28T03:47:39.3466450Z -- The ASM compiler identification is Clang with GNU-like command-line
+2026-08-28T03:47:39.3466955Z -- Found assembler: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+2026-08-28T03:47:39.3498371Z -- melonDS core source dir: /home/runner/work/GameBox/GameBox/core/melonds/../melonds_temp/melonDS-android-lib-master/src
+2026-08-28T03:47:39.3498800Z -- melonDS libretro dir:   /home/runner/work/GameBox/GameBox/core/melonds/libretro
+2026-08-28T03:47:39.3499019Z -- melonDS JIT recompiler enabled: ON
+2026-08-28T03:47:39.3499160Z -- Configuring done
+2026-08-28T03:47:39.3499280Z -- Generating done
+2026-08-28T03:47:39.3499289Z 
+2026-08-28T03:47:39.3499512Z C++ build system [configure] failed while executing:
+2026-08-28T03:47:39.3499725Z     /usr/local/lib/android/sdk/cmake/3.22.1/bin/cmake \
+2026-08-28T03:47:39.3499930Z       -H/home/runner/work/GameBox/GameBox/core/cmake \
+2026-08-28T03:47:39.3500087Z       -DCMAKE_SYSTEM_NAME=Android \
+2026-08-28T03:47:39.3500255Z       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+2026-08-28T03:47:39.3500409Z       -DCMAKE_SYSTEM_VERSION=21 \
+2026-08-28T03:47:39.3500563Z       -DANDROID_ABI=arm64-v8a \
+2026-08-28T03:47:39.3500727Z       -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+2026-08-28T03:47:39.3500993Z       -DANDROID_NDK=/usr/local/lib/android/sdk/ndk/26.3.11579264 \
+2026-08-28T03:47:39.3501280Z       -DCMAKE_ANDROID_NDK=/usr/local/lib/android/sdk/ndk/26.3.11579264 \
+2026-08-28T03:47:39.3501793Z       -DCMAKE_TOOLCHAIN_FILE=/usr/local/lib/android/sdk/ndk/26.3.11579264/build/cmake/android.toolchain.cmake \
+2026-08-28T03:47:39.3502311Z       -DCMAKE_MAKE_PROGRAM=/usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+2026-08-28T03:47:39.3502467Z       -DCMAKE_CXX_FLAGS=-std=c++17 \
+2026-08-28T03:47:39.3503158Z       -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/runner/work/GameBox/GameBox/app/build/intermediates/cxx/RelWithDebInfo/12c124g5/obj/arm64-v8a \
+2026-08-28T03:47:39.3503916Z       -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/runner/work/GameBox/GameBox/app/build/intermediates/cxx/RelWithDebInfo/12c124g5/obj/arm64-v8a \
+2026-08-28T03:47:39.3504111Z       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+2026-08-28T03:47:39.3504512Z       -B/home/runner/work/GameBox/GameBox/app/.cxx/RelWithDebInfo/12c124g5/arm64-v8a \
+2026-08-28T03:47:39.3504651Z       -GNinja \
+2026-08-28T03:47:39.3504801Z       -DANDROID_STL=c++_static \
+2026-08-28T03:47:39.3504962Z       -DANDROID_PLATFORM=android-21
+2026-08-28T03:47:39.3505148Z   from /home/runner/work/GameBox/GameBox/app
+2026-08-28T03:47:39.3505309Z Using precompiled headers.
+2026-08-28T03:47:39.3505746Z CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:39.3505880Z Missing variable is:
+2026-08-28T03:47:39.3506027Z CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:39.3506438Z CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+2026-08-28T03:47:39.3506576Z Missing variable is:
+2026-08-28T03:47:39.3506717Z CMAKE_ASM_COMPILE_OBJECT
+2026-08-28T03:47:39.3507032Z CMake Generate step failed.  Build files cannot be regenerated correctly.
+2026-08-28T03:47:39.3507534Z 	at com.android.builder.errors.IssueReporter.reportError(IssueReporter.kt:114)
+2026-08-28T03:47:39.3507892Z 	at com.android.builder.errors.IssueReporter.reportError$default(IssueReporter.kt:110)
+2026-08-28T03:47:39.3508554Z 	at com.android.build.gradle.internal.cxx.logging.IssueReporterLoggingEnvironment.log(IssueReporterLoggingEnvironment.kt:114)
+2026-08-28T03:47:39.3509317Z 	at com.android.build.gradle.internal.cxx.logging.ThreadLoggingEnvironment$Companion.reportFormattedErrorToCurrentLogger(LoggingEnvironment.kt:227)
+2026-08-28T03:47:39.3509843Z 	at com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.errorln(LoggingEnvironment.kt:60)
+2026-08-28T03:47:39.3510379Z 	at com.android.build.gradle.tasks.ExternalNativeJsonGenerator.configure(ExternalNativeJsonGenerator.kt:110)
+2026-08-28T03:47:39.3511014Z 	at com.android.build.gradle.tasks.ExternalNativeBuildJsonTask.doTaskAction(ExternalNativeBuildJsonTask.kt:90)
+2026-08-28T03:47:39.3511640Z 	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask$taskAction$$inlined$recordTaskAction$1.invoke(BaseTask.kt:65)
+2026-08-28T03:47:39.3512242Z 	at com.android.build.gradle.internal.tasks.Blocks.recordSpan(Blocks.java:51)
+2026-08-28T03:47:39.3512732Z 	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask.taskAction(UnsafeOutputsTask.kt:63)
+2026-08-28T03:47:39.3513118Z 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+2026-08-28T03:47:39.3513583Z 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+2026-08-28T03:47:39.3514128Z 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+2026-08-28T03:47:39.3514428Z 	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
+2026-08-28T03:47:39.3514960Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
+2026-08-28T03:47:39.3515453Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
+2026-08-28T03:47:39.3515939Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
+2026-08-28T03:47:39.3516344Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:244)
+2026-08-28T03:47:39.3516913Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:29)
+2026-08-28T03:47:39.3517971Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:26)
+2026-08-28T03:47:39.3518510Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.3519024Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3519563Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.3520105Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3520647Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:47)
+2026-08-28T03:47:39.3521178Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExecutor.java:68)
+2026-08-28T03:47:39.3521641Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+2026-08-28T03:47:39.3522154Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+2026-08-28T03:47:39.3522804Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+2026-08-28T03:47:39.3523218Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+2026-08-28T03:47:39.3523623Z 	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+2026-08-28T03:47:39.3524004Z 	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+2026-08-28T03:47:39.3524357Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+2026-08-28T03:47:39.3524696Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+2026-08-28T03:47:39.3525419Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+2026-08-28T03:47:39.3526159Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+2026-08-28T03:47:39.3526701Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.3557946Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3558676Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.3559617Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3560186Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+2026-08-28T03:47:39.3560762Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+2026-08-28T03:47:39.3561160Z 	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+2026-08-28T03:47:39.3561527Z 	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+2026-08-28T03:47:39.3562006Z 	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:41)
+2026-08-28T03:47:39.3562473Z 	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:74)
+2026-08-28T03:47:39.3562838Z 	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+2026-08-28T03:47:39.3563444Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+2026-08-28T03:47:39.3564023Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+2026-08-28T03:47:39.3564614Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+2026-08-28T03:47:39.3565376Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+2026-08-28T03:47:39.3566011Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+2026-08-28T03:47:39.3566628Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+2026-08-28T03:47:39.3567492Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:67)
+2026-08-28T03:47:39.3568184Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:45)
+2026-08-28T03:47:39.3568755Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+2026-08-28T03:47:39.3569297Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+2026-08-28T03:47:39.3569823Z 	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+2026-08-28T03:47:39.3570283Z 	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:75)
+2026-08-28T03:47:39.3570534Z 	at org.gradle.internal.Either$Right.fold(Either.java:175)
+2026-08-28T03:47:39.3570936Z 	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+2026-08-28T03:47:39.3571357Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+2026-08-28T03:47:39.3571767Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+2026-08-28T03:47:39.3572325Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+2026-08-28T03:47:39.3572887Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+2026-08-28T03:47:39.3573403Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:76)
+2026-08-28T03:47:39.3573901Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:54)
+2026-08-28T03:47:39.3574360Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:54)
+2026-08-28T03:47:39.3574792Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:36)
+2026-08-28T03:47:39.3575596Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+2026-08-28T03:47:39.3576485Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+2026-08-28T03:47:39.3607436Z 	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+2026-08-28T03:47:39.3608464Z 	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+2026-08-28T03:47:39.3609204Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+2026-08-28T03:47:39.3609915Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+2026-08-28T03:47:39.3610421Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+2026-08-28T03:47:39.3610904Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+2026-08-28T03:47:39.3611324Z 	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:106)
+2026-08-28T03:47:39.3611747Z 	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:55)
+2026-08-28T03:47:39.3612592Z 	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+2026-08-28T03:47:39.3613754Z 	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+2026-08-28T03:47:39.3614538Z 	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+2026-08-28T03:47:39.3615157Z 	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:56)
+2026-08-28T03:47:39.3615745Z 	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+2026-08-28T03:47:39.3616552Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+2026-08-28T03:47:39.3618234Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+2026-08-28T03:47:39.3618963Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+2026-08-28T03:47:39.3619573Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+2026-08-28T03:47:39.3620153Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+2026-08-28T03:47:39.3620843Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+2026-08-28T03:47:39.3621315Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+2026-08-28T03:47:39.3621918Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+2026-08-28T03:47:39.3622534Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+2026-08-28T03:47:39.3623015Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+2026-08-28T03:47:39.3623500Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+2026-08-28T03:47:39.3624326Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+2026-08-28T03:47:39.3625092Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+2026-08-28T03:47:39.3625857Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+2026-08-28T03:47:39.3626336Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+2026-08-28T03:47:39.3627300Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+2026-08-28T03:47:39.3627700Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+2026-08-28T03:47:39.3628077Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+2026-08-28T03:47:39.3628630Z 	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+2026-08-28T03:47:39.3629319Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+2026-08-28T03:47:39.3629950Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+2026-08-28T03:47:39.3630676Z 	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+2026-08-28T03:47:39.3631426Z 	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+2026-08-28T03:47:39.3632118Z 	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+2026-08-28T03:47:39.3632705Z 	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+2026-08-28T03:47:39.3633562Z 	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+2026-08-28T03:47:39.3634187Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+2026-08-28T03:47:39.3634746Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+2026-08-28T03:47:39.3635306Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+2026-08-28T03:47:39.3636099Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+2026-08-28T03:47:39.3636901Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+2026-08-28T03:47:39.3637662Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.3638282Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3638890Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.3639544Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3640119Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+2026-08-28T03:47:39.3640759Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+2026-08-28T03:47:39.3641378Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+2026-08-28T03:47:39.3641868Z 	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+2026-08-28T03:47:39.3642589Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+2026-08-28T03:47:39.3643338Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+2026-08-28T03:47:39.3644216Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+2026-08-28T03:47:39.3644760Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+2026-08-28T03:47:39.3645595Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+2026-08-28T03:47:39.3646636Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+2026-08-28T03:47:39.3678300Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+2026-08-28T03:47:39.3678938Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+2026-08-28T03:47:39.3679397Z 	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:116)
+2026-08-28T03:47:39.3680076Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+2026-08-28T03:47:39.3680655Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+2026-08-28T03:47:39.3681188Z 	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+2026-08-28T03:47:39.3681694Z 	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+2026-08-28T03:47:39.3682478Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+2026-08-28T03:47:39.3683244Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+2026-08-28T03:47:39.3684349Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+2026-08-28T03:47:39.3685146Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+2026-08-28T03:47:39.3685759Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+2026-08-28T03:47:39.3686349Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3686973Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+2026-08-28T03:47:39.3687858Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+2026-08-28T03:47:39.3688431Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+2026-08-28T03:47:39.3689051Z 	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+2026-08-28T03:47:39.3689782Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+2026-08-28T03:47:39.3690500Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+2026-08-28T03:47:39.3691074Z 	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+2026-08-28T03:47:39.3691695Z 	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+2026-08-28T03:47:39.3692154Z 	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:44)
+2026-08-28T03:47:39.3692743Z 	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+2026-08-28T03:47:39.3693421Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+2026-08-28T03:47:39.3694176Z 	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+2026-08-28T03:47:39.3694705Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+2026-08-28T03:47:39.3695306Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+2026-08-28T03:47:39.3695821Z 	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+2026-08-28T03:47:39.3696546Z 	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+2026-08-28T03:47:39.3727471Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+2026-08-28T03:47:39.3728083Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+2026-08-28T03:47:39.3728685Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+2026-08-28T03:47:39.3729230Z 	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+2026-08-28T03:47:39.3729719Z 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+2026-08-28T03:47:39.3729729Z 
+2026-08-28T03:47:39.3729750Z 
+2026-08-28T03:47:39.3729823Z 
+2026-08-28T03:47:39.3729966Z BUILD FAILED in 2m 7s
+2026-08-28T03:47:39.3730370Z Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+2026-08-28T03:47:39.3730399Z 
+2026-08-28T03:47:39.3731053Z You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+2026-08-28T03:47:39.3731063Z 
+2026-08-28T03:47:39.3731826Z For more on this, please refer to https://docs.gradle.org/8.7/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+2026-08-28T03:47:39.3732263Z 51 actionable tasks: 47 executed, 4 from cache
+2026-08-28T03:47:39.6910976Z ##[error]Process completed with exit code 1.

@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.22.1)
-project("nesstation-core" C CXX)
+project("nesstation-core" C CXX ASM)
+
+# ASM 必须在顶层 configure 时启用：melonDS / mGBA 等子工程通过
+# add_subdirectory 加入并各自 enable_language(ASM)，CMake 3.22 + Ninja
+# 在生成阶段会因未注册 ASM 编译规则而报
+# "required internal CMake variable not set: CMAKE_ASM_COMPILE_OBJECT"。
+# 这里提前声明 ASM 让规则完整注册，并兜底补上编译对象规则。
+if(NOT CMAKE_ASM_COMPILE_OBJECT)
+    set(CMAKE_ASM_COMPILE_OBJECT
+        "<CMAKE_ASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> -c <SOURCE>")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
