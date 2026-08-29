@@ -45,6 +45,17 @@ class Psx2Engine private constructor() : EmulatorEngine {
     private val running = AtomicBoolean(false)
     private var heartbeatThread: Thread? = null
 
+    /**
+     * PS2 data root (the directory passed to setPaths, i.e. <files>/ps2).
+     * The core writes its lossless file log here (logs/emulog.txt) — the
+     * only record of how far the VM got that logcat's lossy stdout pipe does
+     * not drop. Mirrored to public Downloads while running for diagnosis.
+     */
+    @Volatile private var _systemDir: String? = null
+
+    /** Periodically mirrors logs/emulog.txt to Downloads (see [mirrorEmulog]). */
+    private var emulogThread: Thread? = null
+
     @Volatile override var isLoaded = false
         private set
 
@@ -94,6 +105,27 @@ class Psx2Engine private constructor() : EmulatorEngine {
             return false
         }
         isLoaded = true
+        _systemDir = systemDir
+
+        // Mirror the core's file log (logs/emulog.txt) to public Downloads
+        // every second. The stdout->logcat pipe used for console output is
+        // lossy (lines get dropped), so emulog is the only reliable record of
+        // where a boot hangs (e.g. a black-screen boot stuck in GS open).
+        // Daemon + best-effort: never affects the emulation thread.
+        emulogThread = thread(name = "ps2-emulog-mirror", isDaemon = true) {
+            try {
+                while (running.get()) {
+                    mirrorEmulog()
+                    try {
+                        Thread.sleep(1000)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("Psx2Engine", "emulog mirror thread crashed", t)
+            }
+        }
 
         // Pace the HUD heartbeat to the core's own refresh rate
         // (NTSC 59.94 / PAL 50) — the core itself handles game pacing.
@@ -192,6 +224,19 @@ class Psx2Engine private constructor() : EmulatorEngine {
     }
 
     private fun cleanup() {
+        // Stop the periodic mirror first (avoid two writers on the same dst),
+        // then capture one final snapshot BEFORE tearing anything down — if the
+        // VM is wedged (black-screen boot), unload below may block, and emulog
+        // is the only lossless record of how far the boot got.
+        emulogThread?.let { t ->
+            t.interrupt()
+            for (attempt in 0 until 6) {
+                try { t.join(500) } catch (_: InterruptedException) { break }
+                if (!t.isAlive) break
+            }
+        }
+        emulogThread = null
+        mirrorEmulog()
         try { setSurface(null) } catch (_: Throwable) {}
         running.set(false)
         heartbeatThread?.let { t ->
@@ -209,6 +254,29 @@ class Psx2Engine private constructor() : EmulatorEngine {
         _paused = false
         _ffSpeed = 0
         _targetHz = 60
+    }
+
+    /**
+     * Copies <systemDir>/logs/emulog.txt to Downloads/GameBox/ps2-emulog.txt
+     * (best-effort). The core flushes emulog as it boots, so this snapshot
+     * shows the exact last boot milestone even when the VM hangs — useful for
+     * diagnosing black-screen boots that leave logcat without a tail.
+     */
+    private fun mirrorEmulog() {
+        val systemDir = _systemDir ?: return
+        val src = File(systemDir, "logs/emulog.txt")
+        if (!src.exists() || !src.isFile) return
+        try {
+            val base = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
+            )
+            val dir = File(base, "GameBox")
+            if (!dir.exists()) dir.mkdirs()
+            val dst = File(dir, "ps2-emulog.txt")
+            src.copyTo(dst, overwrite = true)
+        } catch (t: Throwable) {
+            android.util.Log.w("Psx2Engine", "mirrorEmulog failed", t)
+        }
     }
 
     override fun setPad1(bits: Int) = Psx2Native.setPad1(bits)
