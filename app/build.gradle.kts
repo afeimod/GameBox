@@ -4,6 +4,21 @@ plugins {
     id("kotlin-kapt")
 }
 
+// ARMSX2 (PS2) core resources — shaders, GameIndex.yaml, fonts, fullscreenui,
+// icons, sounds, controller DB. They live in the ARMSX2 subtree and are staged
+// into the APK as assets/resources so the runtime can seed <DataRoot>/resources
+// (EmuFolders::Resources). Without them the GS fails to read
+// shaders/opengl/convert.glsl and PS2 games boot to a black screen.
+val armsx2ResourcesSrc = rootProject.file("ARMSX2-master/bin/resources")
+val armsx2AssetsStaging = layout.buildDirectory.dir("generated/assets/armsx2_resources")
+val stageArmsx2Resources = tasks.register<Copy>("stageArmsx2Resources") {
+    onlyIf { armsx2ResourcesSrc.isDirectory }
+    from(armsx2ResourcesSrc)
+    into(armsx2AssetsStaging.map { it.dir("resources") })
+}
+// Stage before asset merging so the files land in the APK.
+tasks.named("preBuild") { dependsOn(stageArmsx2Resources) }
+
 android {
     namespace = "com.nesstation.app"
     compileSdk = 34
@@ -89,6 +104,8 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
+            // ARMSX2 resources staged by :stageArmsx2Resources (assets/resources)
+            assets.srcDir(armsx2AssetsStaging)
         }
     }
 

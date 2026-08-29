@@ -45,6 +45,7 @@ object Psx2Native {
 
     @Volatile private var loaded = false
     @Volatile private var vmThread: Thread? = null
+    @Volatile private var lastSystemDir: String? = null
 
     /**
      * True once NativeApp.initialize() has run. The native side only creates
@@ -105,6 +106,14 @@ object Psx2Native {
         vmThread = thread(name = "armsx2-vm", isDaemon = true) {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+                // Seed ARMSX2's runtime resources (shaders/GameIndex/fonts/...)
+                // before the VM boots — the GS reads them from <DataRoot>/resources
+                // and a missing shaders/opengl/convert.glsl aborts the render
+                // device (black screen). Runs here on the VM thread so the ~10MB
+                // asset copy never touches the UI thread.
+                val ctx = appContext
+                val sd = lastSystemDir
+                if (ctx != null && sd != null) ensureResources(ctx, sd)
                 NativeApp.runVMThread(path)
                 android.util.Log.i("Psx2Native", "runVMThread exited")
             } catch (t: Throwable) {
@@ -240,11 +249,52 @@ object Psx2Native {
 
     /** systemDir = <filesDir>/ps2; ARMSX2 reads BIOS from <systemDir>/pcsx2/bios. */
     @JvmStatic fun setPaths(systemDir: String, saveDir: String) {
+        lastSystemDir = systemDir
         try {
             NativeApp.initialize(systemDir, File(systemDir, "pcsx2/bios").absolutePath, 1)
             initialized = true
         } catch (t: Throwable) {
             android.util.Log.e("Psx2Native", "initialize failed", t)
+        }
+    }
+
+    /**
+     * Seeds ARMSX2's runtime resources (shaders/GameIndex/fonts/...) from the
+     * APK assets into <systemDir>/resources — the folder the core pins as
+     * EmuFolders::Resources. The GS renderer reads shaders/opengl/convert.glsl
+     * (and the Vulkan equivalents) from there; if it's missing the render
+     * device fails to create and the VM never boots (black screen). Skips when
+     * already seeded.
+     */
+    private fun ensureResources(context: android.content.Context, systemDir: String) {
+        try {
+            val dest = File(systemDir, "resources")
+            // Key file that gates the whole seed: if the OpenGL convert shader
+            // is already in place, resources are present — avoid re-copying
+            // ~10MB on every boot.
+            if (File(dest, "shaders/opengl/convert.glsl").isFile) return
+            copyAssetTree(context, "resources", dest)
+            android.util.Log.i("Psx2Native", "Seeded ARMSX2 resources -> $dest")
+        } catch (t: Throwable) {
+            android.util.Log.e("Psx2Native", "Seed ARMSX2 resources failed", t)
+        }
+    }
+
+    /** Recursively copies an APK asset tree into [dest]. */
+    private fun copyAssetTree(context: android.content.Context, assetPath: String, dest: File) {
+        val assets = context.assets
+        val names = assets.list(assetPath) ?: return
+        if (names.isEmpty()) {
+            // Leaf file.
+            dest.parentFile?.mkdirs()
+            assets.open(assetPath).use { input ->
+                dest.outputStream().use { out -> input.copyTo(out) }
+            }
+            return
+        }
+        dest.mkdirs()
+        for (name in names) {
+            copyAssetTree(context, "$assetPath/$name", File(dest, name))
         }
     }
 
