@@ -4,11 +4,14 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.VideogameAsset
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,6 +91,21 @@ private fun parseTileIconMap(json: String): Map<String, String> {
     }
 }
 
+/** 解析磁贴图标透明度 JSON（{ tileKey → Float }），损坏/缺失时回退 1.0。 */
+private fun parseTileAlphaMap(json: String): Map<String, Float> {
+    if (json.isBlank()) return emptyMap()
+    return try {
+        val obj = JSONObject(json)
+        val map = LinkedHashMap<String, Float>()
+        obj.keys().forEach { key ->
+            map[key] = obj.optDouble(key, 1.0).toFloat().coerceIn(0.05f, 1f)
+        }
+        map
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
 /**
  * FSD 桌面主页 — 仿 Xbox 360 Freestyle Dash 的磁贴主菜单。
  *
@@ -118,16 +138,18 @@ fun FsdHomeScreen(
 ) {
     val context = LocalContext.current
 
-    // === 个性化状态（背景 + 磁贴图标），ON_RESUME 时从存储重载 ===
+    // === 个性化状态（背景 + 磁贴图标 + 图标透明度），ON_RESUME 时从存储重载 ===
     var bgUri by rememberSaveable { mutableStateOf("") }
     var bgIsVideo by rememberSaveable { mutableStateOf(false) }
     var tileIconsJson by rememberSaveable { mutableStateOf("") }
+    var tileAlphasJson by rememberSaveable { mutableStateOf("") }
 
     fun reloadPersonalization() {
         val pl = PadLayoutStore.load(context)
         bgUri = pl.homeBackgroundUri
         bgIsVideo = pl.homeBackgroundIsVideo
         tileIconsJson = pl.homeTileIcons
+        tileAlphasJson = pl.homeTileIconAlphas
     }
 
     LaunchedEffect(Unit) { reloadPersonalization() }
@@ -142,6 +164,7 @@ fun FsdHomeScreen(
     }
 
     val tileIcons = remember(tileIconsJson) { parseTileIconMap(tileIconsJson) }
+    val tileAlphas = remember(tileAlphasJson) { parseTileAlphaMap(tileAlphasJson) }
 
     val platformOrder = listOf(
         GamePlatform.NES, GamePlatform.SFC, GamePlatform.GB, GamePlatform.GBA,
@@ -152,29 +175,31 @@ fun FsdHomeScreen(
         games.groupingBy { it.platform }.eachCount()
     }
 
-    val tiles = remember(games, countByPlatform, tileIcons) {
+    val tiles = remember(games, countByPlatform, tileIcons, tileAlphas) {
+        fun alpha(key: String) = tileAlphas[key] ?: 1f
         buildList {
             add(FsdTileItem("all", "全部游戏", Icons.Rounded.GridView,
-                badge = games.size.toString(), iconPath = tileIcons["all"]))
+                badge = games.size.toString(), iconPath = tileIcons["all"], iconAlpha = alpha("all")))
             platformOrder.forEach { p ->
                 val n = countByPlatform[p] ?: 0
                 if (n > 0) {
                     add(FsdTileItem("platform:${p.name}", p.displayName, platformIcon(p),
-                        badge = n.toString(), iconPath = tileIcons["platform:${p.name}"]))
+                        badge = n.toString(), iconPath = tileIcons["platform:${p.name}"],
+                        iconAlpha = alpha("platform:${p.name}")))
                 }
             }
             add(FsdTileItem("online", "在线游戏", Icons.Rounded.Public,
-                iconPath = tileIcons["online"]))
+                iconPath = tileIcons["online"], iconAlpha = alpha("online")))
             add(FsdTileItem("battle", "对战平台", Icons.Rounded.SportsEsports,
-                iconPath = tileIcons["battle"]))
+                iconPath = tileIcons["battle"], iconAlpha = alpha("battle")))
             add(FsdTileItem("swf", "SWF/Flash", Icons.Rounded.PlayArrow,
-                iconPath = tileIcons["swf"]))
+                iconPath = tileIcons["swf"], iconAlpha = alpha("swf")))
             add(FsdTileItem("settings", "设置", Icons.Rounded.Settings,
-                iconPath = tileIcons["settings"]))
+                iconPath = tileIcons["settings"], iconAlpha = alpha("settings")))
             add(FsdTileItem("about", "关于", Icons.AutoMirrored.Rounded.HelpOutline,
-                iconPath = tileIcons["about"]))
+                iconPath = tileIcons["about"], iconAlpha = alpha("about")))
             add(FsdTileItem("exit", "退出", Icons.AutoMirrored.Rounded.Logout,
-                iconPath = tileIcons["exit"]))
+                iconPath = tileIcons["exit"], iconAlpha = alpha("exit")))
         }
     }
 
@@ -196,42 +221,45 @@ fun FsdHomeScreen(
         }
     }
 
-    // 分区化主页：模拟器游戏库 / 在线游戏和SWF / 对战平台 / 设置 / 关于 / 退出。
-    // 每分区一段标题条 + 一组 FSD 磁贴，页面上下滑动即可秒达任意分区，
-    // 不用再在单个横向菜单里滑半天找「设置」。
+    // 分区化主页：3 个横向滑动的分区行 —— 游戏库 / 在线·对战·SWF / 设置·关于·退出。
+    // 每个分区一段标题条 + 一行横向滑动的 FSD 磁贴（与游戏库封面流一致）；
+    // 分区之间通过选中态区分（未选中整行变暗），可用 D-pad 上下切换分区。
     val sections = remember(tiles) {
         listOf(
             FsdMenuSection(
                 key = "library",
-                title = "模拟器游戏库",
+                title = "游戏库",
                 items = tiles.filter { it.key == "all" || it.key.startsWith("platform:") }
             ),
             FsdMenuSection(
                 key = "online",
-                title = "在线游戏和SWF",
-                items = tiles.filter { it.key == "online" || it.key == "swf" }
+                title = "在线 · 对战 · SWF",
+                items = tiles.filter {
+                    it.key == "online" || it.key == "battle" || it.key == "swf"
+                }
             ),
             FsdMenuSection(
-                key = "battle",
-                title = "对战平台",
-                items = tiles.filter { it.key == "battle" }
-            ),
-            FsdMenuSection(
-                key = "settings",
-                title = "设置",
-                items = tiles.filter { it.key == "settings" }
-            ),
-            FsdMenuSection(
-                key = "about",
-                title = "关于",
-                items = tiles.filter { it.key == "about" }
-            ),
-            FsdMenuSection(
-                key = "exit",
-                title = "退出",
-                items = tiles.filter { it.key == "exit" }
+                key = "system",
+                title = "设置 · 关于 · 退出",
+                items = tiles.filter {
+                    it.key == "settings" || it.key == "about" || it.key == "exit"
+                }
             )
         )
+    }
+
+    // === 分区导航状态 ===
+    // selectedSection：当前选中的分区（上下切换）；selInSection：每个分区内选中的磁贴索引。
+    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
+    val selInSection = remember(sections.size) {
+        mutableStateOf(List(sections.size) { 0 })
+    }
+    val sectionScroll = rememberScrollState()
+    val density = LocalDensity.current
+    // 切换分区时，把该分区滚动到页面可见区域（按每行估算高度）
+    LaunchedEffect(selectedSection) {
+        val rowH = with(density) { 172.dp.toPx() }
+        runCatching { sectionScroll.animateScrollTo((selectedSection * rowH).toInt()) }
     }
 
     // 长按磁贴 → 挑选自定义图标（拷贝到 filesDir/icons，立即写回存储）
@@ -278,14 +306,37 @@ fun FsdHomeScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            FsdSectionScroller(
-                sections = sections,
-                onActivate = ::activate,
-                onItemLongClick = { tileMenuKey = it.key },
+            // 3 个横向滑动的分区行（游戏库 / 在线·对战·SWF / 设置·关于·退出），
+            // 页面上下滚动浏览分区，行内磁贴左右滑动；选中分区正常亮度，未选中整行变暗。
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-            )
+                    .verticalScroll(sectionScroll),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                sections.forEachIndexed { idx, section ->
+                    FsdSectionRow(
+                        section = section,
+                        selectedIndex = selInSection.value[idx]
+                            .coerceIn(0, (section.items.size - 1).coerceAtLeast(0)),
+                        isFocused = idx == selectedSection,
+                        onIndexChange = { newIdx ->
+                            selInSection.value = selInSection.value.toMutableList()
+                                .also { it[idx] = newIdx }
+                        },
+                        onActivate = ::activate,
+                        onItemLongClick = { tileMenuKey = it.key },
+                        onFocusUp = { selectedSection = (selectedSection - 1).coerceAtLeast(0) },
+                        onFocusDown = {
+                            selectedSection = (selectedSection + 1).coerceAtMost(sections.size - 1)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                // 底部留白，避免最后一个分区贴到底部状态条
+                Spacer(Modifier.height(12.dp))
+            }
 
             // 底部按键提示 + 状态条
             FsdButtonHints(
@@ -317,11 +368,51 @@ fun FsdHomeScreen(
                     )
                 },
                 text = {
-                    Text(
-                        "可为本磁贴设置自定义图标（支持图片）。图标立即生效并持久保存。",
-                        fontSize = 13.sp,
-                        color = Color(0xFF4A5568)
-                    )
+                    Column {
+                        Text(
+                            "可为本磁贴设置自定义图标（支持图片）。图标立即生效并持久保存。",
+                            fontSize = 13.sp,
+                            color = Color(0xFF4A5568)
+                        )
+                        // 已设置自定义图标时：透明度调节（拖动即时预览，松手持久化）
+                        if (tile.iconPath != null) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "图标透明度",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E2A3A),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    "${((tileAlphas[tile.key] ?: 1f) * 100).toInt()}%",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF4A5568)
+                                )
+                            }
+                            Slider(
+                                value = tileAlphas[tile.key] ?: 1f,
+                                onValueChange = { v ->
+                                    // 拖动中：只更新内存状态，磁贴实时预览
+                                    val m = LinkedHashMap<String, Float>(tileAlphas)
+                                    m[tile.key] = v
+                                    tileAlphasJson = JSONObject().apply {
+                                        m.forEach { (k, a) -> put(k, a.toDouble()) }
+                                    }.toString()
+                                },
+                                onValueChangeFinished = {
+                                    // 松手才写盘一次，避免拖动过程高频 SharedPreferences 写入
+                                    val layout = PadLayoutStore.load(context)
+                                    PadLayoutStore.save(
+                                        context,
+                                        layout.copy { homeTileIconAlphas = tileAlphasJson }
+                                    )
+                                },
+                                valueRange = 0.05f..1f
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = {

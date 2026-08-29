@@ -3,14 +3,15 @@ package com.nesstation.app.ui.fsd
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,28 +19,39 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 /**
  * FSD 主菜单磁贴 — 仿 Xbox 360 Freestyle Dash 的蓝/黄对角大磁贴。
@@ -58,7 +70,8 @@ data class FsdTileItem(
     val label: String,
     val icon: ImageVector?,
     val badge: String? = null,   // 右上角小徽标（如游戏数量）
-    val iconPath: String? = null // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
+    val iconPath: String? = null, // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
+    val iconAlpha: Float = 1f    // 自定义图标透明度 0.05..1.0（磁贴选项里调节）；对矢量图标不生效
 )
 
 @Composable
@@ -85,6 +98,7 @@ fun FsdTile(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = item.label,
                     contentScale = ContentScale.Fit,
+                    alpha = item.iconAlpha.coerceIn(0.05f, 1f),   // 用户可调透明度，让图标与磁贴底色融合
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = if (compactTile) 16.dp else 30.dp)
@@ -257,15 +271,14 @@ fun FsdTileFlow(
 /**
  * 主页分区：一个标题 + 一组磁贴。
  *
- * 主页从「单个横向 cover-flow」改为「多个上下滑动的分区菜单」后，
- * 每个分区（模拟器游戏库 / 在线游戏和SWF / 对战平台 / 设置 / 关于 / 退出）
- * 就是一个 [FsdMenuSection] —— 标题写在分区分隔条上，磁贴保留 FSD 蓝/黄
- * 封面样式，按行排布；页面整体上下滚动即可秒达任意分区，无需在横向菜单里
- * 滑动半天找「设置」。
+ * 主页为「3 个横向滑动的分区行」：游戏库 / 在线·对战·SWF / 设置·关于·退出。
+ * 每个分区一个 [FsdMenuSection] —— 标题写在分区标题条上，磁贴保留 FSD 蓝/黄
+ * 封面样式，按一行横向排列；页面整体上下滚动即可秒达任意分区，行内磁贴
+ * 左右滑动浏览（与游戏库封面流一致）。
  */
 data class FsdMenuSection(
     val key: String,          // 分区唯一标识（如 "library"）
-    val title: String,        // 分区标题（如 "模拟器游戏库"）
+    val title: String,        // 分区标题（如 "游戏库"）
     val items: List<FsdTileItem>
 )
 
@@ -310,62 +323,111 @@ fun FsdSectionHeader(
 }
 
 /**
- * 上下滚动的分区主菜单（FSD 磁贴封面样式）。
+ * 主页分区行 — 一个横向滑动的磁贴行（配合 [FsdMenuSection]）。
  *
- * 每个分区一段：标题条 + 一组 [FsdTile] 磁贴（FlowRow 按行排布，2~3 个/行）。
- * 页面整体 [verticalScroll] — 触屏直接上下滑动；TV/遥控器用 D-pad 上下聚焦
- * 也会自动滚动。激活与长按回调都直接传 [FsdTileItem]，由调用方按 key 分派。
+ * 主页有 3 个分区（游戏库 / 在线·对战·SWF / 设置·关于·退出），每个分区
+ * 一行磁贴，左右滑动浏览（与游戏库封面流一致）。分区之间有明确的选中态：
+ *   - 选中分区（[isFocused]）：正常亮度，选中磁贴带黄色高亮边框
+ *   - 未选中分区：整行变暗（graphicsLayer alpha），提示可用 D-pad 上下切换
+ *
+ * TV/遥控器：左右切换行内磁贴、上下切换分区、OK 激活、Y 呼出磁贴选项。
+ * 触屏：直接横向滑动浏览、点按激活、长按呼出磁贴选项。
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun FsdSectionScroller(
-    sections: List<FsdMenuSection>,
+fun FsdSectionRow(
+    section: FsdMenuSection,
+    selectedIndex: Int,
+    isFocused: Boolean,
+    onIndexChange: (Int) -> Unit,
     onActivate: (FsdTileItem) -> Unit,
-    onItemLongClick: (FsdTileItem) -> Unit = {},
+    onItemLongClick: (FsdTileItem) -> Unit,
+    onFocusUp: () -> Unit,
+    onFocusDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (sections.isEmpty()) return
     val compact = LocalConfiguration.current.screenWidthDp < 600
     val tileW = if (compact) 156.dp else 196.dp
     val tileH = if (compact) 100.dp else 126.dp
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
 
-    Column(
-        modifier = modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-        sections.forEach { section ->
-            androidx.compose.runtime.key(section.key) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FsdSectionHeader(
-                        title = section.title,
-                        modifier = Modifier.padding(horizontal = 14.dp)
-                    )
-                    FlowRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        section.items.forEach { item ->
-                            FsdTile(
-                                item = item,
-                                compactTile = true,
-                                modifier = Modifier
-                                    .width(tileW)
-                                    .height(tileH)
-                                    .focusable()
-                                    .combinedClickable(
-                                        onClick = { onActivate(item) },
-                                        onLongClick = { onItemLongClick(item) }
-                                    )
-                            )
+    // 分区被选中时：抓焦点 + 把选中磁贴滚到可见
+    LaunchedEffect(isFocused) {
+        if (isFocused) {
+            delay(80)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+    LaunchedEffect(isFocused, selectedIndex) {
+        if (isFocused && selectedIndex > 0) {
+            runCatching { listState.animateScrollToItem(selectedIndex) }
+        }
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FsdSectionHeader(
+            title = section.title,
+            modifier = Modifier.padding(horizontal = 14.dp)
+        )
+        LazyRow(
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                // 未选中的分区整行变暗；选中的正常亮度
+                .graphicsLayer { this.alpha = if (isFocused) 1f else 0.45f }
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { e ->
+                    if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                        false
+                    } else when (e.key) {
+                        Key.DirectionLeft -> {
+                            if (selectedIndex > 0) onIndexChange(selectedIndex - 1)
+                            true
                         }
+                        Key.DirectionRight -> {
+                            if (selectedIndex < section.items.size - 1) onIndexChange(selectedIndex + 1)
+                            true
+                        }
+                        Key.DirectionUp -> { onFocusUp(); true }
+                        Key.DirectionDown -> { onFocusDown(); true }
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                            section.items.getOrNull(selectedIndex)?.let(onActivate)
+                            true
+                        }
+                        Key.Y, Key.ButtonY -> {
+                            section.items.getOrNull(selectedIndex)?.let(onItemLongClick)
+                            true
+                        }
+                        else -> false
                     }
                 }
+        ) {
+            itemsIndexed(section.items) { i, item ->
+                FsdTile(
+                    item = item,
+                    compactTile = true,
+                    modifier = Modifier
+                        .width(tileW)
+                        .height(tileH)
+                        .then(
+                            // 选中分区中，当前磁贴加黄色高亮边框
+                            if (isFocused && i == selectedIndex) {
+                                Modifier.border(
+                                    width = 3.dp,
+                                    color = Fsd.TileYellowTop,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            } else Modifier
+                        )
+                        .combinedClickable(
+                            onClick = { onActivate(item) },
+                            onLongClick = { onItemLongClick(item) }
+                        )
+                )
             }
         }
-        // 底部留白，避免最后一个分区贴到底部状态条
-        Spacer(Modifier.height(12.dp))
     }
 }

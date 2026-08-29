@@ -3768,14 +3768,12 @@ fun OnScreenController(
                                 val (b, tx, ty) = computeDirection(pos)
                                 bits = b
                                 if (useAnalogStick) {
-                                    // 模拟模式：D-pad 即左摇杆 —— 数字方向位照发
-                                    // （兼容菜单/纯数字游戏），同时把拇指位置作为
-                                    // 左摇杆轴 push 出去，PS2 3D 游戏才认得到。
+                                    // 模拟模式：控件渲染为摇杆样式，拇指位置仅作视觉反馈；
+                                    // 输入仍是纯数字方向位 —— 十字键与左摇杆完全解耦，
+                                    // 左摇杆轴只由独立的 LSTICK 控件输出（PS2 游戏里
+                                    // 十字键=十字键，左摇杆=左摇杆，互不串扰）。
                                     analogThumbX = tx
                                     analogThumbY = ty
-                                    lStickTX = tx
-                                    lStickTY = ty
-                                    pushAnalog()
                                 }
                             }
                             BtnType.LSTICK -> {
@@ -3876,9 +3874,6 @@ fun OnScreenController(
                                                 if (bt == BtnType.DPAD && useAnalogStick) {
                                                     analogThumbX = 0f
                                                     analogThumbY = 0f
-                                                    lStickTX = 0f
-                                                    lStickTY = 0f
-                                                    pushAnalog()
                                                 }
                                             }
                                             BtnType.LSTICK -> {
@@ -3911,9 +3906,6 @@ fun OnScreenController(
                                         if (useAnalogStick) {
                                             analogThumbX = tx
                                             analogThumbY = ty
-                                            lStickTX = tx
-                                            lStickTY = ty
-                                            pushAnalog()
                                         }
                                         sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.LSTICK) {
