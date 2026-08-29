@@ -3,11 +3,14 @@ package com.nesstation.app.ui.fsd
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -247,5 +251,121 @@ fun FsdTileFlow(
             )
             Spacer(Modifier.height(10.dp))
         }
+    }
+}
+
+/**
+ * 主页分区：一个标题 + 一组磁贴。
+ *
+ * 主页从「单个横向 cover-flow」改为「多个上下滑动的分区菜单」后，
+ * 每个分区（模拟器游戏库 / 在线游戏和SWF / 对战平台 / 设置 / 关于 / 退出）
+ * 就是一个 [FsdMenuSection] —— 标题写在分区分隔条上，磁贴保留 FSD 蓝/黄
+ * 封面样式，按行排布；页面整体上下滚动即可秒达任意分区，无需在横向菜单里
+ * 滑动半天找「设置」。
+ */
+data class FsdMenuSection(
+    val key: String,          // 分区唯一标识（如 "library"）
+    val title: String,        // 分区标题（如 "模拟器游戏库"）
+    val items: List<FsdTileItem>
+)
+
+/** FSD 分区标题条：黄色圆点 + 白色粗体大标题，替代原来顶部单一面包屑。 */
+@Composable
+fun FsdSectionHeader(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 黄色圆点（FSD 标志色）
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Fsd.TileYellowTop)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (subtitle != null) {
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = subtitle,
+                color = Fsd.BarTextDim,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * 上下滚动的分区主菜单（FSD 磁贴封面样式）。
+ *
+ * 每个分区一段：标题条 + 一组 [FsdTile] 磁贴（FlowRow 按行排布，2~3 个/行）。
+ * 页面整体 [verticalScroll] — 触屏直接上下滑动；TV/遥控器用 D-pad 上下聚焦
+ * 也会自动滚动。激活与长按回调都直接传 [FsdTileItem]，由调用方按 key 分派。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun FsdSectionScroller(
+    sections: List<FsdMenuSection>,
+    onActivate: (FsdTileItem) -> Unit,
+    onItemLongClick: (FsdTileItem) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    if (sections.isEmpty()) return
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val tileW = if (compact) 156.dp else 196.dp
+    val tileH = if (compact) 100.dp else 126.dp
+
+    Column(
+        modifier = modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        sections.forEach { section ->
+            androidx.compose.runtime.key(section.key) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FsdSectionHeader(
+                        title = section.title,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        section.items.forEach { item ->
+                            FsdTile(
+                                item = item,
+                                compactTile = true,
+                                modifier = Modifier
+                                    .width(tileW)
+                                    .height(tileH)
+                                    .focusable()
+                                    .combinedClickable(
+                                        onClick = { onActivate(item) },
+                                        onLongClick = { onItemLongClick(item) }
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // 底部留白，避免最后一个分区贴到底部状态条
+        Spacer(Modifier.height(12.dp))
     }
 }

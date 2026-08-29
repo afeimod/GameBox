@@ -178,16 +178,11 @@ fun FsdHomeScreen(
         }
     }
 
-    var selected by rememberSaveable { mutableIntStateOf(0) }
-    // 列表变化（如新导入游戏）后安全收敛索引
-    val safeSelected = if (tiles.isEmpty()) 0 else selected.coerceIn(0, tiles.size - 1)
+    // 长按磁贴弹出的「磁贴选项」对话框 —— 以磁贴 key 定位
+    var tileMenuKey by remember { mutableStateOf<String?>(null) }
+    var pendingTileKey by remember { mutableStateOf<String?>(null) }
 
-    // 长按磁贴弹出的「磁贴选项」对话框索引
-    var tileMenuIdx by remember { mutableStateOf<Int?>(null) }
-    var pendingTileIconIdx by remember { mutableStateOf<Int?>(null) }
-
-    fun activate(idx: Int) {
-        val tile = tiles.getOrNull(idx) ?: return
+    fun activate(tile: FsdTileItem) {
         when {
             tile.key == "all" -> onOpenLibrary()
             tile.key.startsWith("platform:") ->
@@ -201,13 +196,51 @@ fun FsdHomeScreen(
         }
     }
 
+    // 分区化主页：模拟器游戏库 / 在线游戏和SWF / 对战平台 / 设置 / 关于 / 退出。
+    // 每分区一段标题条 + 一组 FSD 磁贴，页面上下滑动即可秒达任意分区，
+    // 不用再在单个横向菜单里滑半天找「设置」。
+    val sections = remember(tiles) {
+        listOf(
+            FsdMenuSection(
+                key = "library",
+                title = "模拟器游戏库",
+                items = tiles.filter { it.key == "all" || it.key.startsWith("platform:") }
+            ),
+            FsdMenuSection(
+                key = "online",
+                title = "在线游戏和SWF",
+                items = tiles.filter { it.key == "online" || it.key == "swf" }
+            ),
+            FsdMenuSection(
+                key = "battle",
+                title = "对战平台",
+                items = tiles.filter { it.key == "battle" }
+            ),
+            FsdMenuSection(
+                key = "settings",
+                title = "设置",
+                items = tiles.filter { it.key == "settings" }
+            ),
+            FsdMenuSection(
+                key = "about",
+                title = "关于",
+                items = tiles.filter { it.key == "about" }
+            ),
+            FsdMenuSection(
+                key = "exit",
+                title = "退出",
+                items = tiles.filter { it.key == "exit" }
+            )
+        )
+    }
+
     // 长按磁贴 → 挑选自定义图标（拷贝到 filesDir/icons，立即写回存储）
     val tileIconPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
-        val idx = pendingTileIconIdx
-        val tile = idx?.let { tiles.getOrNull(it) }
-        pendingTileIconIdx = null
+        val key = pendingTileKey
+        val tile = key?.let { k -> tiles.firstOrNull { it.key == k } }
+        pendingTileKey = null
         val uri = uris.firstOrNull()
         if (uri == null || tile == null) return@rememberLauncherForActivityResult
         try {
@@ -244,14 +277,11 @@ fun FsdHomeScreen(
             FsdTopBar()
 
             Spacer(Modifier.height(10.dp))
-            FsdBreadcrumb(listOf("主菜单", "游戏库"))
 
-            FsdTileFlow(
-                items = tiles,
-                selectedIndex = safeSelected,
-                onIndexChange = { selected = it },
+            FsdSectionScroller(
+                sections = sections,
                 onActivate = ::activate,
-                onItemLongClick = { tileMenuIdx = it },
+                onItemLongClick = { tileMenuKey = it.key },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -272,13 +302,13 @@ fun FsdHomeScreen(
     }
 
     // === 磁贴选项对话框：自定义图标 / 恢复默认 ===
-    tileMenuIdx?.let { idx ->
-        val tile = tiles.getOrNull(idx)
+    tileMenuKey?.let { menuKey ->
+        val tile = tiles.firstOrNull { it.key == menuKey }
         if (tile == null) {
-            tileMenuIdx = null
+            tileMenuKey = null
         } else {
             AlertDialog(
-                onDismissRequest = { tileMenuIdx = null },
+                onDismissRequest = { tileMenuKey = null },
                 title = {
                     Text(
                         "磁贴选项 · ${tile.label}",
@@ -295,8 +325,8 @@ fun FsdHomeScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        pendingTileIconIdx = idx
-                        tileMenuIdx = null
+                        pendingTileKey = tile.key
+                        tileMenuKey = null
                         runCatching { tileIconPicker.launch(arrayOf("image/*")) }
                     }) { Text("自定义图标") }
                 },
@@ -309,10 +339,10 @@ fun FsdHomeScreen(
                             val layout = PadLayoutStore.load(context)
                             PadLayoutStore.save(context, layout.copy { homeTileIcons = json })
                             tileIconsJson = json
-                            tileMenuIdx = null
+                            tileMenuKey = null
                         }) { Text("恢复默认") }
                     } else {
-                        TextButton(onClick = { tileMenuIdx = null }) { Text("取消") }
+                        TextButton(onClick = { tileMenuKey = null }) { Text("取消") }
                     }
                 }
             )

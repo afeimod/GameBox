@@ -3768,8 +3768,14 @@ fun OnScreenController(
                                 val (b, tx, ty) = computeDirection(pos)
                                 bits = b
                                 if (useAnalogStick) {
+                                    // 模拟模式：D-pad 即左摇杆 —— 数字方向位照发
+                                    // （兼容菜单/纯数字游戏），同时把拇指位置作为
+                                    // 左摇杆轴 push 出去，PS2 3D 游戏才认得到。
                                     analogThumbX = tx
                                     analogThumbY = ty
+                                    lStickTX = tx
+                                    lStickTY = ty
+                                    pushAnalog()
                                 }
                             }
                             BtnType.LSTICK -> {
@@ -3870,6 +3876,9 @@ fun OnScreenController(
                                                 if (bt == BtnType.DPAD && useAnalogStick) {
                                                     analogThumbX = 0f
                                                     analogThumbY = 0f
+                                                    lStickTX = 0f
+                                                    lStickTY = 0f
+                                                    pushAnalog()
                                                 }
                                             }
                                             BtnType.LSTICK -> {
@@ -3902,6 +3911,9 @@ fun OnScreenController(
                                         if (useAnalogStick) {
                                             analogThumbX = tx
                                             analogThumbY = ty
+                                            lStickTX = tx
+                                            lStickTY = ty
+                                            pushAnalog()
                                         }
                                         sendStateNow(visualState, turboState)
                                     } else if (entry != null && entry.first == BtnType.LSTICK) {
@@ -5994,10 +6006,14 @@ private fun PadLayoutEditor(
         // Draggable button previews — full screen, behind the control panel
         Box(modifier = Modifier.fillMaxSize()) {
             if (showDpadBtn) {
-                EditableDpad(padLayout, surfaceSize, selectedBtn == BtnType.DPAD, isPortrait = isPortrait,
+                EditableDpad(
+                    layout = dpad,
+                    surfaceSize = surfaceSize,
+                    isSelected = selectedBtn == BtnType.DPAD,
+                    isPortrait = isPortrait,
                     onMove = { targetX, targetY ->
-                        val nx = targetX.coerceIn(0.05f, 0.45f)
-                        val ny = targetY.coerceIn(0.3f, 0.97f)
+                        val nx = targetX.coerceIn(0.03f, 0.5f)
+                        val ny = targetY.coerceIn(0.25f, 0.95f)
                         updateBtn(BtnType.DPAD, dpad.copy(x = nx, y = ny))
                     },
                     onSelect = { selectedBtn = BtnType.DPAD }
@@ -6831,15 +6847,16 @@ private fun EditableRoundBtn(
 
 @Composable
 private fun EditableDpad(
-    padLayout: PadLayout,
+    layout: ButtonLayout,
     surfaceSize: IntSize,
     isSelected: Boolean,
     isPortrait: Boolean = false,
     onMove: (targetX: Float, targetY: Float) -> Unit,
     onSelect: () -> Unit
 ) {
-    // 横屏 / 竖屏 D-pad 布局独立
-    val layout = if (isPortrait) padLayout.dpadP else padLayout.dpad
+    // 布局由调用方传入：PS2 用 ps2Dpad/ps2DpadP，其它平台用通用 dpad/dpadP。
+    // 之前这里硬编码读 padLayout.dpad（通用字段），而 PS2 的写入目标是
+    // ps2Dpad —— 结果十字键在编辑器里显示在通用位置、拖了也不动。
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
