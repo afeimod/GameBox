@@ -84,6 +84,9 @@ object NativeApp {
     /** Pass the emulation Surface (or null to detach). width/height 0 = keep window size. */
     @JvmStatic external fun onNativeSurfaceChanged(surface: Surface?, width: Int, height: Int)
 
+    /** Release the surface; the GS thread stops presenting into the dead BufferQueue. */
+    @JvmStatic external fun onNativeSurfaceDestroyed()
+
     @JvmStatic external fun pause()
     @JvmStatic external fun resume()
     @JvmStatic external fun shutdown()
