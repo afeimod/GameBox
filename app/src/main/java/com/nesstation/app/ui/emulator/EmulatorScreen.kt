@@ -8188,10 +8188,12 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
-                // 渲染器：Vulkan = GPU 硬件渲染（推荐）；Software = CPU 软渲染。
-                // 设备不支持 Vulkan 时报错就切 Software。两者都可在游戏中途切换。
+                // 渲染器：OpenGL = GPU 硬件渲染（推荐）；Software = CPU 软渲染。
+                // ARMSX2 核心构建时禁用了 Vulkan (USE_VULKAN=OFF)，硬件渲染只有
+                // OpenGL ES 可用；选 Vulkan 会报 Unsupported render API 而黑屏。
+                // 两者都可在游戏中途切换。
                 DropdownSetting("渲染器",
-                    listOf("vulkan" to "Vulkan (硬件加速)", "software" to "Software (软渲染)"),
+                    listOf("opengl" to "OpenGL (硬件加速)", "software" to "Software (软渲染)"),
                     padLayout.ps2Renderer
                 ) { onLayoutChange(padLayout.copy {ps2Renderer = it}) }
 

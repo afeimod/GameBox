@@ -466,7 +466,10 @@ class PadLayout {
     // 超大帧仍有 box 降采样兜底。旧版 Play! 的 "1x"/"2x"/"4x"/"8x" 取值
     // 在 load() 时自动迁移到新枚举。键名已对照 PCEE2 源码验证。
     var ps2ResMulti: String = "1"                   // "1" | "2" | "3" | "4" (分辨率倍数)
-    var ps2Renderer: String = "vulkan"              // vulkan | software (渲染器, 即时切换)
+    // ARMSX2 核心构建时禁用了 Vulkan (USE_VULKAN=OFF，shaderc 依赖未打包)，
+    // 只有 OpenGL ES 硬件渲染可用。默认用 OpenGL；旧存档里的 "vulkan" 会在
+    // load() 时自动迁移到 "opengl"，否则核心报 Unsupported render API 而黑屏。
+    var ps2Renderer: String = "opengl"              // opengl | software (渲染器, 即时切换)
     var ps2Bilinear: String = "enabled"             // disabled | enabled → 映射为 nearest/bilinear_ps2
 
     // === PS2 (PCEE2) 补充核心选项 — 键名/取值对照 pcee2-libretro Libretro.cpp definitions[] 表 ===
@@ -1572,7 +1575,8 @@ object PadLayoutStore {
             // === PS2 (PCEE2 — PCSX2 core) core options + 专属按键布局 ===
             // PCEE2 迁移：旧值 "1x"/"2x"/"4x"/"8x" 自动归一到 "1".."4"
             ps2ResMulti = PadLayout.normalizePs2ResMulti(p.getString("ps2_res_multi", null))
-            ps2Renderer = p.getString("ps2_renderer", "vulkan")?.takeIf { it == "vulkan" || it == "software" } ?: "vulkan"
+            // 旧值 "vulkan" 不再合法（核心未编译 Vulkan），load() 自动回落到默认 "opengl"。
+            ps2Renderer = p.getString("ps2_renderer", "opengl")?.takeIf { it == "opengl" || it == "software" } ?: "opengl"
             ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2FastBoot = p.getString("ps2_fast_boot", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2HwDownloadMode = p.getString("ps2_hw_download_mode", "unsynchronized")?.takeIf {

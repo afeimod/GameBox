@@ -117,6 +117,48 @@ static RenderAPI GetAPIForRenderer(GSRendererType renderer)
 	}
 }
 
+// True if a render device for this renderer's API is actually compiled into this
+// build. Backends can be compiled out (Android builds with USE_VULKAN=OFF because
+// the shaderc third_party isn't bundled, so RenderAPI::Vulkan has no GSDeviceVK).
+// A requested-but-unavailable renderer must degrade to the preferred renderer
+// instead of failing GS open, or the VM black-screens at boot.
+static bool IsRendererAPIBuilt(GSRendererType renderer)
+{
+	switch (GetAPIForRenderer(renderer))
+	{
+		case RenderAPI::None:
+			return true;
+
+		case RenderAPI::OpenGL:
+#ifdef ENABLE_OPENGL
+			return true;
+#else
+			return false;
+#endif
+
+		case RenderAPI::Vulkan:
+#ifdef ENABLE_VULKAN
+			return true;
+#else
+			return false;
+#endif
+
+#ifdef _WIN32
+		case RenderAPI::D3D11:
+		case RenderAPI::D3D12:
+			return true;
+#endif
+
+#ifdef __APPLE__
+		case RenderAPI::Metal:
+			return true;
+#endif
+
+		default:
+			return false;
+	}
+}
+
 static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool recreate_window,
 	GSVSyncMode vsync_mode, bool allow_present_throttle)
 {
@@ -473,6 +515,19 @@ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* b
 
 	if (renderer == GSRendererType::Auto)
 		renderer = GSUtil::GetPreferredRenderer();
+
+	// A renderer whose backend is compiled out (e.g. Vulkan on a USE_VULKAN=OFF
+	// Android build) must not fail the boot. Fall back to the preferred renderer
+	// so the game actually opens instead of black-screening at GS init.
+	if (!IsRendererAPIBuilt(renderer))
+	{
+		const GSRendererType fallback = GSUtil::GetPreferredRenderer();
+		Console.Warning("Requested renderer %s is not built into this binary; falling back to %s.",
+			Pcsx2Config::GSOptions::GetRendererName(renderer),
+			Pcsx2Config::GSOptions::GetRendererName(fallback));
+		renderer = fallback;
+		GSConfig.Renderer = fallback;
+	}
 
 	bool res = OpenGSDevice(renderer, true, false, vsync_mode, allow_present_throttle);
 	if (res)

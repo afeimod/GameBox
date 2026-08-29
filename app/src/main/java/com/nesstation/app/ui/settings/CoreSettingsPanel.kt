@@ -1013,7 +1013,7 @@ fun CoreSettingsPanel(
                 // (WizzardSK/pcee2-libretro, 与预编译 libpcee2_libretro_android.so 同源)。
                 SettingsSection("PS2 (PCSX2) · 画面") {
                     DropdownRow("渲染器",
-                        listOf("vulkan" to "Vulkan (硬件加速)",
+                        listOf("opengl" to "OpenGL (硬件加速)",
                                "software" to "Software (软渲染)"),
                         padLayout.ps2Renderer
                     ) { updateLayout(padLayout.copy {ps2Renderer = it}) }
