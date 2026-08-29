@@ -1,7 +1,9 @@
 package com.nesstation.app.ui.fsd
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -48,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -59,6 +62,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayoutStore
+import kotlin.math.abs
 import org.json.JSONObject
 import java.io.File
 
@@ -249,18 +253,13 @@ fun FsdHomeScreen(
     }
 
     // === 分区导航状态 ===
-    // selectedSection：当前选中的分区（上下切换）；selInSection：每个分区内选中的磁贴索引。
+    // selectedSection：当前选中的分区（上下切换，选中的一行在中间变大）；
+    // selInSection：每个分区内选中的磁贴索引。
     var selectedSection by rememberSaveable { mutableIntStateOf(0) }
     val selInSection = remember(sections.size) {
         mutableStateOf(List(sections.size) { 0 })
     }
-    val sectionScroll = rememberScrollState()
     val density = LocalDensity.current
-    // 切换分区时，把该分区滚动到页面可见区域（按每行估算高度）
-    LaunchedEffect(selectedSection) {
-        val rowH = with(density) { 172.dp.toPx() }
-        runCatching { sectionScroll.animateScrollTo((selectedSection * rowH).toInt()) }
-    }
 
     // 长按磁贴 → 挑选自定义图标（拷贝到 filesDir/icons，立即写回存储）
     val tileIconPicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -306,16 +305,46 @@ fun FsdHomeScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            // 3 个横向滑动的分区行（游戏库 / 在线·对战·SWF / 设置·关于·退出），
-            // 页面上下滚动浏览分区，行内磁贴左右滑动；选中分区正常亮度，未选中整行变暗。
-            Column(
+            // 3 个分区行以「垂直封面流」排布：选中的一行居中放大，
+            // 上下两行缩小 + 变暗；D-pad 上下 / 触摸上下滑动切换所选行。
+            // 行内仍为横向封面流（选中的卡片变大、其他卡片变小变暗）。
+            val compact = LocalConfiguration.current.screenWidthDp < 600
+            val rowH = if (compact) 150.dp else 190.dp
+            val gapY = if (compact) 18.dp else 28.dp
+            val flowStep = with(density) { (rowH + gapY).toPx() }
+            val animatedSection by animateFloatAsState(
+                targetValue = selectedSection.toFloat(),
+                animationSpec = tween(durationMillis = 260),
+                label = "home-section-flow"
+            )
+
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(sectionScroll),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                    // 触摸纵向滑动切换所选分区（行）
+                    .pointerInput(sections.size, selectedSection) {
+                        var accum = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { accum = 0f },
+                            onVerticalDrag = { _, amount -> accum += amount },
+                            onDragEnd = {
+                                val threshold = with(density) { 48.dp.toPx() }
+                                when {
+                                    accum < -threshold && selectedSection < sections.size - 1 ->
+                                        selectedSection += 1
+                                    accum > threshold && selectedSection > 0 ->
+                                        selectedSection -= 1
+                                }
+                            },
+                            onDragCancel = {}
+                        )
+                    },
+                contentAlignment = Alignment.Center
             ) {
                 sections.forEachIndexed { idx, section ->
+                    val pos = idx - animatedSection
+                    val absPos = abs(pos)
                     FsdSectionRow(
                         section = section,
                         selectedIndex = selInSection.value[idx]
@@ -331,11 +360,18 @@ fun FsdHomeScreen(
                         onFocusDown = {
                             selectedSection = (selectedSection + 1).coerceAtMost(sections.size - 1)
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        onFocusSelf = { selectedSection = idx },
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            // 垂直封面流：选中的一行在中间、放大，上下行缩小变暗
+                            .graphicsLayer {
+                                translationY = pos * flowStep
+                                scaleX = (1f - 0.34f * absPos).coerceAtLeast(0.5f)
+                                scaleY = (1f - 0.34f * absPos).coerceAtLeast(0.5f)
+                                this.alpha = (1f - 0.45f * absPos).coerceIn(0.35f, 1f)
+                            }
                     )
                 }
-                // 底部留白，避免最后一个分区贴到底部状态条
-                Spacer(Modifier.height(12.dp))
             }
 
             // 底部按键提示 + 状态条
@@ -374,44 +410,42 @@ fun FsdHomeScreen(
                             fontSize = 13.sp,
                             color = Color(0xFF4A5568)
                         )
-                        // 已设置自定义图标时：透明度调节（拖动即时预览，松手持久化）
-                        if (tile.iconPath != null) {
-                            Spacer(Modifier.height(10.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "图标透明度",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1E2A3A),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    "${((tileAlphas[tile.key] ?: 1f) * 100).toInt()}%",
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF4A5568)
-                                )
-                            }
-                            Slider(
-                                value = tileAlphas[tile.key] ?: 1f,
-                                onValueChange = { v ->
-                                    // 拖动中：只更新内存状态，磁贴实时预览
-                                    val m = LinkedHashMap<String, Float>(tileAlphas)
-                                    m[tile.key] = v
-                                    tileAlphasJson = JSONObject().apply {
-                                        m.forEach { (k, a) -> put(k, a.toDouble()) }
-                                    }.toString()
-                                },
-                                onValueChangeFinished = {
-                                    // 松手才写盘一次，避免拖动过程高频 SharedPreferences 写入
-                                    val layout = PadLayoutStore.load(context)
-                                    PadLayoutStore.save(
-                                        context,
-                                        layout.copy { homeTileIconAlphas = tileAlphasJson }
-                                    )
-                                },
-                                valueRange = 0.05f..1f
+                        // 卡片透明度调节：拖动即时预览，松手持久化（对任意磁贴都可用）
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "卡片透明度",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E2A3A),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "${((tileAlphas[tile.key] ?: 1f) * 100).toInt()}%",
+                                fontSize = 13.sp,
+                                color = Color(0xFF4A5568)
                             )
                         }
+                        Slider(
+                            value = tileAlphas[tile.key] ?: 1f,
+                            onValueChange = { v ->
+                                // 拖动中：只更新内存状态，磁贴实时预览
+                                val m = LinkedHashMap<String, Float>(tileAlphas)
+                                m[tile.key] = v
+                                tileAlphasJson = JSONObject().apply {
+                                    m.forEach { (k, a) -> put(k, a.toDouble()) }
+                                }.toString()
+                            },
+                            onValueChangeFinished = {
+                                // 松手才写盘一次，避免拖动过程高频 SharedPreferences 写入
+                                val layout = PadLayoutStore.load(context)
+                                PadLayoutStore.save(
+                                    context,
+                                    layout.copy { homeTileIconAlphas = tileAlphasJson }
+                                )
+                            },
+                            valueRange = 0.05f..1f
+                        )
                     }
                 },
                 confirmButton = {

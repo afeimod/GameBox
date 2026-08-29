@@ -4,24 +4,18 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -30,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -39,7 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
@@ -84,6 +78,8 @@ fun FsdTile(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF0D2C55))
+            // 长按磁贴 → 「磁贴选项」里调节的卡片透明度，作用于整个卡片
+            .alpha(item.iconAlpha.coerceIn(0.05f, 1f))
     ) {
         // 蓝/黄对角渐变表面
         Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }
@@ -98,7 +94,6 @@ fun FsdTile(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = item.label,
                     contentScale = ContentScale.Fit,
-                    alpha = item.iconAlpha.coerceIn(0.05f, 1f),   // 用户可调透明度，让图标与磁贴底色融合
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = if (compactTile) 16.dp else 30.dp)
@@ -323,15 +318,17 @@ fun FsdSectionHeader(
 }
 
 /**
- * 主页分区行 — 一个横向滑动的磁贴行（配合 [FsdMenuSection]）。
+ * 主页分区行 — 一行横向封面流磁贴（配合 [FsdMenuSection]）。
  *
- * 主页有 3 个分区（游戏库 / 在线·对战·SWF / 设置·关于·退出），每个分区
- * 一行磁贴，左右滑动浏览（与游戏库封面流一致）。分区之间有明确的选中态：
- *   - 选中分区（[isFocused]）：正常亮度，选中磁贴带黄色高亮边框
- *   - 未选中分区：整行变暗（graphicsLayer alpha），提示可用 D-pad 上下切换
+ * 主页 3 个分区（游戏库 / 在线·对战·SWF / 设置·关于·退出）按「三行
+ * cover flow」排布：选中行居中放大、上下行变小变暗（由 [FsdHomeScreen]
+ * 的垂直封面流控制位移/缩放/变暗）。每行内部同样采用横向封面流 [FsdCoverFlow]：
+ *   - 行内选中的卡片居中放大、正对用户，带黄色高亮边框
+ *   - 两侧卡片按距离缩放 + 淡出（cover-flow 效果）
  *
  * TV/遥控器：左右切换行内磁贴、上下切换分区、OK 激活、Y 呼出磁贴选项。
- * 触屏：直接横向滑动浏览、点按激活、长按呼出磁贴选项。
+ * 触屏：横向滑动浏览行内磁贴、纵向滑动切换分区、点按激活、长按呼出磁贴选项。
+ * 点击/聚焦未选中的行（任意磁贴）会先把该行选中居中，再切换行内磁贴。
  */
 @Composable
 fun FsdSectionRow(
@@ -343,24 +340,20 @@ fun FsdSectionRow(
     onItemLongClick: (FsdTileItem) -> Unit,
     onFocusUp: () -> Unit,
     onFocusDown: () -> Unit,
+    onFocusSelf: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val compact = LocalConfiguration.current.screenWidthDp < 600
-    val tileW = if (compact) 156.dp else 196.dp
-    val tileH = if (compact) 100.dp else 126.dp
-    val listState = rememberLazyListState()
+    val itemW = if (compact) 168.dp else 220.dp
+    val itemH = if (compact) 104.dp else 136.dp
+    val gap = if (compact) 14.dp else 24.dp
     val focusRequester = remember { FocusRequester() }
 
-    // 分区被选中时：抓焦点 + 把选中磁贴滚到可见
+    // 分区被选中时：抓焦点（之后 D-pad 上下切换分区）
     LaunchedEffect(isFocused) {
         if (isFocused) {
             delay(80)
             runCatching { focusRequester.requestFocus() }
-        }
-    }
-    LaunchedEffect(isFocused, selectedIndex) {
-        if (isFocused && selectedIndex > 0) {
-            runCatching { listState.animateScrollToItem(selectedIndex) }
         }
     }
 
@@ -369,14 +362,12 @@ fun FsdSectionRow(
             title = section.title,
             modifier = Modifier.padding(horizontal = 14.dp)
         )
-        LazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        // 行内横向封面流：选中的卡片居中放大，两侧卡片变小变暗。
+        // 外层 Box 统一处理 D-pad（左右/上下/OK/Y），避免与封面流内置键位冲突。
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                // 未选中的分区整行变暗；选中的正常亮度
-                .graphicsLayer { this.alpha = if (isFocused) 1f else 0.45f }
+                .height(itemH)
                 .focusRequester(focusRequester)
                 .focusable()
                 .onKeyEvent { e ->
@@ -405,13 +396,39 @@ fun FsdSectionRow(
                     }
                 }
         ) {
-            itemsIndexed(section.items) { i, item ->
+            FsdCoverFlow(
+                count = section.items.size,
+                selectedIndex = selectedIndex,
+                // 未选中行内的点击：先把该行选中居中，再切换行内磁贴
+                onIndexChange = { i ->
+                    if (!isFocused) onFocusSelf()
+                    onIndexChange(i)
+                },
+                // 选中行点中间磁贴 = 激活；未选中行点任意磁贴 = 选中该行并同步行内磁贴
+                onItemClick = { i ->
+                    if (!isFocused) {
+                        onFocusSelf()
+                        onIndexChange(i)
+                    } else {
+                        onActivate(section.items[i])
+                    }
+                },
+                onItemLongClick = { i -> onItemLongClick(section.items[i]) },
+                modifier = Modifier.fillMaxSize(),
+                itemWidth = itemW,
+                itemHeight = itemH,
+                gap = gap,
+                tiltDegrees = if (compact) 8f else 10f,
+                fadePerStep = 0.2f,
+                scalePerStep = 0.18f,
+                showReflection = false,
+                visibleHalfWindow = 5,
+                grabFocusOnLaunch = false
+            ) { i ->
                 FsdTile(
-                    item = item,
-                    compactTile = true,
+                    item = section.items[i],
                     modifier = Modifier
-                        .width(tileW)
-                        .height(tileH)
+                        .fillMaxSize()
                         .then(
                             // 选中分区中，当前磁贴加黄色高亮边框
                             if (isFocused && i == selectedIndex) {
@@ -421,11 +438,8 @@ fun FsdSectionRow(
                                     shape = RoundedCornerShape(10.dp)
                                 )
                             } else Modifier
-                        )
-                        .combinedClickable(
-                            onClick = { onActivate(item) },
-                            onLongClick = { onItemLongClick(item) }
-                        )
+                        ),
+                    compactTile = true
                 )
             }
         }
