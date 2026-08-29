@@ -2885,12 +2885,22 @@ private fun GameSurfaceView(
                     // with the default OPAQUE format and the first frame will
                     // render with the wrong format before being recreated.
                     holder.setFormat(android.graphics.PixelFormat.RGBX_8888)
+                    // Lifecycle: surfaceCreated attaches, surfaceChanged
+                    // notifies the engine of the real size (PS2/ARMSX2 needs
+                    // it to trigger MTGS::UpdateDisplayWindow — without a
+                    // positive size the GS thread keeps presenting to an
+                    // abandoned BufferQueue: black screen, audio OK), and
+                    // surfaceDestroyed gives the engine a chance to release
+                    // its swapchain. Default engine implementations are no-ops.
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
                             engine.setSurface(holder.surface)
                         }
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            engine.onSurfaceChanged(holder.surface, width, height)
+                        }
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            engine.onSurfaceDestroyed()
                             engine.setSurface(null)
                         }
                     })

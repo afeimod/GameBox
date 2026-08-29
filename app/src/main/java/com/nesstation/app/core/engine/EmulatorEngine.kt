@@ -81,6 +81,34 @@ interface EmulatorEngine {
     fun setSurface(surface: Surface?)
 
     /**
+     * Notify the engine that the display surface changed size.
+     *
+     * Default no-op keeps libretro-style engines (which size their buffer
+     * from the core's own resolution) unaffected. PS2 (ARMSX2) requires the
+     * real width/height to be forwarded to the core so it can update its
+     * presentation window (`MTGS::UpdateDisplayWindow()`); without a positive
+     * size the GS thread is never told about the surface and keeps rendering
+     * to an abandoned BufferQueue (symptom: audio but black screen).
+     *
+     * @param surface The (possibly recreated) Surface, or null.
+     * @param width   Current surface width in pixels (>0 when valid).
+     * @param height  Current surface height in pixels (>0 when valid).
+     */
+    fun onSurfaceChanged(surface: Surface?, width: Int, height: Int) {}
+
+    /**
+     * Notify the engine that the display surface was destroyed.
+     *
+     * Default no-op for libretro-style engines. ARMSX2 needs a dedicated
+     * destroy notification so the GS thread can release its swapchain and
+     * stop posting frames to a dead BufferQueue. Passing a null Surface via
+     * [setSurface] is NOT equivalent — the core only reposts an update when
+     * width/height are positive, so the GS thread would never learn the
+     * surface died.
+     */
+    fun onSurfaceDestroyed() {}
+
+    /**
      * Set an explicit .srm basename for the next ROM load.
      * Pass a stable per-game identifier (e.g. the game's DB id) so that
      * content:// URI games (which share a temp ROM file) get per-game .srm

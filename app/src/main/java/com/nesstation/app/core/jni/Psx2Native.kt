@@ -310,6 +310,37 @@ object Psx2Native {
         }
     }
 
+    /**
+     * Pass the emulation Surface together with its real pixel size.
+     *
+     * Unlike [setSurface], this triggers `MTGS::UpdateDisplayWindow()` in the
+     * core (native `onNativeSurfaceChanged` only reposts an update when
+     * width/height are positive). Called from `surfaceChanged` so the GS
+     * thread switches its presentation target to the current surface —
+     * otherwise it keeps posting frames to a stale/abandoned BufferQueue and
+     * the screen stays black while emulation (and audio) run fine.
+     */
+    @JvmStatic fun setSurface(surface: Surface?, width: Int, height: Int) {
+        if (loaded) {
+            try { NativeApp.onNativeSurfaceChanged(surface, width, height) }
+            catch (t: Throwable) { android.util.Log.w("Psx2Native", "onNativeSurfaceChanged(size)", t) }
+        }
+    }
+
+    /**
+     * Tell the core the display surface was destroyed so the GS thread can
+     * release its swapchain and stop posting frames to a dead BufferQueue.
+     * A null-Surface call to [setSurface] is NOT equivalent: native only
+     * reposts `MTGS::UpdateDisplayWindow()` when width/height > 0, so the GS
+     * thread would never learn the surface died.
+     */
+    @JvmStatic fun surfaceDestroyed() {
+        if (loaded) {
+            try { NativeApp.onNativeSurfaceDestroyed() }
+            catch (t: Throwable) { android.util.Log.w("Psx2Native", "onNativeSurfaceDestroyed", t) }
+        }
+    }
+
     // ------------------------------------------------------------------
     // Core options: pcsx2_* (previous libretro keys) → ARMSX2 ini keys
     // ------------------------------------------------------------------

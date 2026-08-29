@@ -166,6 +166,24 @@ class Psx2Engine private constructor() : EmulatorEngine {
         Psx2Native.setSurface(surface)
     }
 
+    /**
+     * Surface resized (or recreated): forward the real size to the core so it
+     * triggers `MTGS::UpdateDisplayWindow()`. Without a positive size the GS
+     * thread is never told about the surface and keeps presenting to an
+     * abandoned BufferQueue → black screen with working audio.
+     */
+    override fun onSurfaceChanged(surface: Surface?, width: Int, height: Int) {
+        Psx2Native.setSurface(surface, width, height)
+    }
+
+    /**
+     * Surface destroyed: notify the core so it releases its swapchain and
+     * stops posting frames to a dead BufferQueue.
+     */
+    override fun onSurfaceDestroyed() {
+        Psx2Native.surfaceDestroyed()
+    }
+
     override fun setSaveName(name: String) {
         Psx2Native.setSaveName(name)
     }
