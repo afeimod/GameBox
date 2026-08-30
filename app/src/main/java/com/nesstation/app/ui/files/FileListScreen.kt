@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.ui.components.AppBackgroundState
 import java.io.File
 import java.util.Locale
 
@@ -101,7 +102,7 @@ fun FileListScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BgColor)
+            .background(if (AppBackgroundState.active) Color.Transparent else BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ---- Header: back arrow · current path · up-one-level ----

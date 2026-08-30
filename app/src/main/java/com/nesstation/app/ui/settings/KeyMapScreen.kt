@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import android.view.View
 import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
 
 // ---------------------------------------------------------------------------
@@ -273,7 +274,7 @@ fun KeyMapScreen(onBack: () -> Unit) {
     val actions = actionsFor(selectedPlatform, currentPlayer)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PixelBackdrop()
+        if (!AppBackgroundState.active) PixelBackdrop()
         Column(modifier = Modifier.fillMaxSize().padding(top = 24.dp)) {
             // Header
             Row(

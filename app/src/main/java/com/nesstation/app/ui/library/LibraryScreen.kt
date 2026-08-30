@@ -73,6 +73,7 @@ import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ArcadeTitleMapper
 import com.nesstation.app.core.storage.JavaGameStore
 import com.nesstation.app.core.storage.RomStore
+import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
 import com.nesstation.app.ui.fsd.Fsd
 import com.nesstation.app.ui.fsd.FsdBackdrop
@@ -770,7 +771,7 @@ fun LibraryScreen(
                 }
             }
     ) {
-        FsdBackdrop()
+        if (!AppBackgroundState.active) FsdBackdrop()
 
         Column(modifier = Modifier.fillMaxSize()) {
             FsdTopBar()

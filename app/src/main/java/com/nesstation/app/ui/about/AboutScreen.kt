@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.ui.components.AppBackgroundState
 
 // ---------------------------------------------------------------------------
 // NesStation — dark, retro "About" screen.
@@ -62,7 +63,7 @@ fun AboutScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BgColor)
+            .background(if (AppBackgroundState.active) Color.Transparent else BgColor)
     ) {
         Column(
             modifier = Modifier

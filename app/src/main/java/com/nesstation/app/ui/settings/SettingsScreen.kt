@@ -58,6 +58,7 @@ import com.nesstation.app.core.engine.SnesEngine
 import com.nesstation.app.core.engine.GbaEngine
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayoutStore
+import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
 
 @Composable
@@ -95,6 +96,12 @@ fun SettingsScreen(
     LaunchedEffect(Unit) { applyOrientation(padLayout.screenOrientation) }
 
     fun updateLayout(new: com.nesstation.app.core.storage.PadLayout) {
+        // 背景变更时立即同步全局背景状态（根布局 + 各页面无需等待 ON_RESUME）
+        if (new.homeBackgroundUri != padLayout.homeBackgroundUri ||
+            new.homeBackgroundIsVideo != padLayout.homeBackgroundIsVideo
+        ) {
+            AppBackgroundState.update(new.homeBackgroundUri, new.homeBackgroundIsVideo)
+        }
         padLayout = new
         PadLayoutStore.save(context, new)
         // Apply core options to whichever engine(s) are currently loaded.
@@ -238,7 +245,7 @@ fun SettingsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PixelBackdrop()
+        if (!AppBackgroundState.active) PixelBackdrop()
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -405,24 +412,24 @@ fun SettingsScreen(
                         }
                     }
 
-                    // === 主页 ===
+                    // === 外观（全局背景） ===
                     item {
-                        SettingsSection("主页") {
-                            SettingsRow("主页背景",
+                        SettingsSection("外观") {
+                            SettingsRow("应用背景",
                                 if (padLayout.homeBackgroundUri.isEmpty()) "默认深蓝壁纸"
                                 else if (padLayout.homeBackgroundIsVideo) "自定义视频"
                                 else "自定义图片",
                                 trailing = { ValueText(if (padLayout.homeBackgroundUri.isEmpty()) "默认"
                                                        else if (padLayout.homeBackgroundIsVideo) "视频" else "图片") }
                             )
-                            SettingsRow("设置背景图片", "从文件选择图片作为主页壁纸") {
+                            SettingsRow("设置背景图片", "从文件选择图片作为全局壁纸") {
                                 try {
                                     bgImagePicker.launch(arrayOf("image/*"))
                                 } catch (e: Exception) {
                                     dialogText = "无法打开选择器：${e.message}"
                                 }
                             }
-                            SettingsRow("设置背景视频", "循环静音播放的视频壁纸") {
+                            SettingsRow("设置背景视频", "循环静音播放的视频作为全局壁纸") {
                                 try {
                                     bgVideoPicker.launch(arrayOf("video/*"))
                                 } catch (e: Exception) {

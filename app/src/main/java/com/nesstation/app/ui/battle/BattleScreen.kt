@@ -72,6 +72,7 @@ import coil.compose.AsyncImage
 import com.nesstation.app.battle.BattleApi
 import com.nesstation.app.battle.BattleRomStore
 import com.nesstation.app.battle.BattleSession
+import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -175,7 +176,7 @@ fun BattleScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        PixelBackdrop()
+        if (!AppBackgroundState.active) PixelBackdrop()
 
         Column(modifier = Modifier.fillMaxSize()) {
             // ---- 顶部栏 ----

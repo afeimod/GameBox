@@ -17,7 +17,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
@@ -68,8 +67,7 @@ object Routes {
 }
 
 @Composable
-fun NesApp() {
-    val nav = rememberNavController()
+fun NesApp(nav: androidx.navigation.NavHostController) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val isTv = remember {

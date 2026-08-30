@@ -1,6 +1,5 @@
 package com.nesstation.app.ui.fsd
 
-import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -62,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayoutStore
+import com.nesstation.app.ui.components.AppBackgroundState
 import kotlin.math.abs
 import org.json.JSONObject
 import java.io.File
@@ -142,16 +142,12 @@ fun FsdHomeScreen(
 ) {
     val context = LocalContext.current
 
-    // === 个性化状态（背景 + 磁贴图标 + 图标透明度），ON_RESUME 时从存储重载 ===
-    var bgUri by rememberSaveable { mutableStateOf("") }
-    var bgIsVideo by rememberSaveable { mutableStateOf(false) }
+    // === 个性化状态（磁贴图标 + 图标透明度），ON_RESUME 时从存储重载 ===
     var tileIconsJson by rememberSaveable { mutableStateOf("") }
     var tileAlphasJson by rememberSaveable { mutableStateOf("") }
 
     fun reloadPersonalization() {
         val pl = PadLayoutStore.load(context)
-        bgUri = pl.homeBackgroundUri
-        bgIsVideo = pl.homeBackgroundIsVideo
         tileIconsJson = pl.homeTileIcons
         tileAlphasJson = pl.homeTileIconAlphas
     }
@@ -293,10 +289,9 @@ fun FsdHomeScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 背景：用户自定义（图片/视频）优先，否则默认 FSD 深蓝壁纸
-        if (bgUri.isNotBlank()) {
-            FsdCustomBackground(uriString = bgUri, isVideo = bgIsVideo)
-        } else {
+        // 背景：全局背景已激活时由根布局统一渲染，此处不再自绘；
+        // 否则使用默认 FSD 深蓝壁纸。
+        if (!AppBackgroundState.active) {
             FsdBackdrop()
         }
 

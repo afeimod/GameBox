@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
 import kotlinx.coroutines.delay
 import java.io.File
@@ -118,8 +119,8 @@ fun SwfListScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // PixelBackdrop 像素风背景（与首页一致）
-        PixelBackdrop()
+        // PixelBackdrop 像素风背景（与首页一致）；全局背景激活时由根布局统一渲染
+        if (!AppBackgroundState.active) PixelBackdrop()
 
         Column(modifier = Modifier.fillMaxSize()) {
             // ---- 顶部栏：返回箭头 + 返回主页 + 标题 ----
