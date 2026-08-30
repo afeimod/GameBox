@@ -3,17 +3,22 @@ package com.nesstation.app.ui.swf
 import android.os.Environment
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Movie
@@ -21,52 +26,73 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.ui.components.AppBackgroundState
-import com.nesstation.app.ui.components.PixelBackdrop
+import com.nesstation.app.ui.fsd.Fsd
+import com.nesstation.app.ui.fsd.FsdBackdrop
+import com.nesstation.app.ui.fsd.FsdBottomBar
+import com.nesstation.app.ui.fsd.FsdBreadcrumb
+import com.nesstation.app.ui.fsd.FsdButtonHint
+import com.nesstation.app.ui.fsd.FsdButtonHints
+import com.nesstation.app.ui.fsd.FsdCounter
+import com.nesstation.app.ui.fsd.FsdCoverFlow
+import com.nesstation.app.ui.fsd.FsdIconCoverCard
+import com.nesstation.app.ui.fsd.FsdTitleBanner
+import com.nesstation.app.ui.fsd.FsdToolButton
+import com.nesstation.app.ui.fsd.FsdTopBar
 import kotlinx.coroutines.delay
 import java.io.File
 
-// ---- Home-style palette (matches HomeScreen / LibraryScreen) ----
-private val PrimaryText = Color(0xFF1E2A3A)
-private val SecondaryText = Color(0xFF4A5568)
-private val SecondaryTextLight = Color(0xFF8899AA)
-private val Accent = Color(0xFF8A7BFF)
-private val Gold = Color(0xFFFFD66B)
+// ---- 配色（删除确认等弹层沿用浅色，与游戏库弹层一致） ----
 private val DeleteColor = Color(0xFFE74C3C)
-private val CardBgWhite = Color.White.copy(alpha = 0.78f)
 
-/** Accent color palette for SWF cards (cycled by index). */
+/** 封面卡片循环取用的强调色。 */
 private val AccentPalette = listOf(
     Color(0xFF8A7BFF), Color(0xFFE74C3C), Color(0xFF27AE60), Color(0xFF3498DB),
     Color(0xFFE67E22), Color(0xFF1ABC9C), Color(0xFF9B59B6), Color(0xFFF1C40F)
 )
 
 /**
- * SWF 游戏库界面（重写为首页风格）。
+ * SWF 游戏库界面 — 与游戏库（LibraryScreen）同款 FSD 桌面效果。
  *
- * 关键改动：
- * 1. 新增「返回主页」按钮（同时保留左上角箭头），跳转到 HOME 路由。
- * 2. 模仿首页：使用 PixelBackdrop 像素风背景 + 圆角白色 GameCard 网格。
- * 3. 保留双 Tab：「我的游戏」（已添加） / 「浏览文件」（系统文件浏览器）。
- * 4. 已添加游戏用 GameCard 网格展示（修复之前列表不好看的问题）。
+ * 关键改动（修复“在线游戏和 SWF 应该也要和游戏库一样的效果”）：
+ * 1. 弃用旧的 PixelBackdrop 浅色像素风 + 平铺白色卡片网格，改为游戏库
+ *    同款 FSD 深蓝桌面：FsdBackdrop 壁纸 + FsdTopBar/FsdBottomBar 状态条。
+ * 2. 「我的游戏」改为 FsdCoverFlow 3D 封面流 + FsdIconCoverCard 封面卡片，
+ *    配 FsdTitleBanner 标题横幅 / FsdCounter 计数 / FsdButtonHints 按键提示。
+ * 3. 「浏览文件」改为 FSD 深色列表行（半透明玻璃底 + 白字），扫描按钮
+ *    换成 FsdToolButton。
+ * 4. 补齐 D-pad/手柄导航：B 返回/上级（与游戏库一致）。
+ * 5. 保留全部原有功能：双 Tab、文件夹浏览、扫描添加、点击即玩、
+ *    长按移除（确认弹窗）、Snackbar 提示。
  *
  * @param onBack  返回上一级（保留旧入口）
- * @param onHome  返回主页（新增）
+ * @param onHome  返回主页
  * @param onOpenSwf 打开指定 SWF 文件
  */
 @Composable
@@ -79,7 +105,9 @@ fun SwfListScreen(
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(0) } // 0=我的游戏, 1=浏览文件
     var swfList by remember { mutableStateOf(SwfStore.list(context).distinctBy { it.path }) }
+    var selIdx by remember { mutableStateOf(0) }
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
+    var pendingRemove by remember { mutableStateOf<SwfStore.Entry?>(null) }
 
     // 文件浏览状态
     val startDir = remember { Environment.getExternalStorageDirectory() ?: File("/") }
@@ -103,7 +131,8 @@ fun SwfListScreen(
         } catch (_: Exception) { emptyList() }
     }
 
-    BackHandler {
+    // B 键 / 系统返回：文件浏览模式下先回上级目录，否则返回上一页
+    fun goBack() {
         if (currentTab == 1 && currentDir != startDir && currentDir.parentFile != null) {
             currentDir = currentDir.parentFile!!
         } else {
@@ -111,282 +140,224 @@ fun SwfListScreen(
         }
     }
 
+    BackHandler { goBack() }
+
     fun refreshList() {
         // 关键修复：去重逻辑
         // 之前 swfList 直接赋值为 SwfStore.list(context)，如果 SwfStore.add 因为某种
         // 边界情况没去重（比如在并发调用下），这里再加一道 distinctBy 兜底。
         swfList = SwfStore.list(context).distinctBy { it.path }
+        if (selIdx > swfList.size - 1) selIdx = (swfList.size - 1).coerceAtLeast(0)
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        // PixelBackdrop 像素风背景（与首页一致）；全局背景激活时由根布局统一渲染
-        if (!AppBackgroundState.active) PixelBackdrop()
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // 手柄按键（TV / 蓝牙手柄）：B=返回/上级（与游戏库一致）
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.ButtonB, Key.Escape, Key.Back -> { goBack(); true }
+                    else -> false
+                }
+            }
+    ) {
+        // FSD 深蓝壁纸（与游戏库一致）；全局背景激活时由根布局统一渲染
+        if (!AppBackgroundState.active) FsdBackdrop()
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // ---- 顶部栏：返回箭头 + 返回主页 + 标题 ----
+            FsdTopBar()
+
+            // ===== 工具行：面包屑 + 操作按钮（与游戏库同款） =====
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(end = 24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回",
-                        tint = PrimaryText
-                    )
-                }
-                // 新增：返回主页按钮（与首页风格一致，使用半透明白色 pill）
-                HomePill(
-                    onClick = onHome,
-                    modifier = Modifier.padding(start = 2.dp)
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 8.dp)
-                ) {
-                    Text(
+                FsdBreadcrumb(
+                    listOf(
                         "SWF 游戏",
-                        color = PrimaryText,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        if (currentTab == 1) currentDir.absolutePath
-                        else "${swfList.size} 个已添加的游戏",
-                        color = SecondaryText,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // ---- Tab 切换器（首页风格） ----
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TabPill(
-                    text = "我的游戏",
-                    selected = currentTab == 0,
-                    onClick = { currentTab = 0 },
+                        if (currentTab == 1) "浏览文件" else "我的游戏 ${swfList.size}"
+                    ),
                     modifier = Modifier.weight(1f)
                 )
-                TabPill(
-                    text = "浏览文件",
-                    selected = currentTab == 1,
-                    onClick = { currentTab = 1 },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // ---- 文件浏览模式下的扫描栏 ----
-            if (currentTab == 1) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "${subDirs.size} 文件夹 · ${swfFiles.size} SWF",
-                        color = SecondaryText,
-                        fontSize = 11.sp
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.7f))
-                            .clickable {
-                                val count = SwfStore.scanFolder(context, currentDir.absolutePath)
-                                if (count > 0) {
-                                    refreshList()
-                                    snackbarMsg = "已扫描添加 $count 个 SWF 文件"
-                                } else {
-                                    snackbarMsg = "此文件夹没有 SWF 文件"
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Rounded.Search,
-                                contentDescription = null,
-                                tint = Gold,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.size(4.dp))
-                            Text(
-                                "扫描此文件夹",
-                                color = PrimaryText,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                if (currentTab == 1) {
+                    FsdToolButton(Icons.Rounded.Search, "扫描此文件夹") {
+                        val count = SwfStore.scanFolder(context, currentDir.absolutePath)
+                        if (count > 0) {
+                            refreshList()
+                            snackbarMsg = "已扫描添加 $count 个 SWF 文件"
+                        } else {
+                            snackbarMsg = "此文件夹没有 SWF 文件"
                         }
                     }
                 }
+                FsdToolButton(Icons.Rounded.Home, "主页") { onHome() }
             }
 
-            // ---- 内容区 ----
+            // ===== Tab 切换行（FSD 风格胶囊，与游戏库平台标签一致） =====
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 34.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FsdTabChip("我的游戏", currentTab == 0) { currentTab = 0 }
+                FsdTabChip("浏览文件", currentTab == 1) { currentTab = 1 }
+            }
+
+            // ===== 内容区 =====
             if (currentTab == 0) {
-                // 我的游戏：首页 GameCard 网格风格
-                if (swfList.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // 我的游戏：FSD 封面流（与游戏库同款效果）
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                ) {
+                    if (swfList.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 34.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Icon(
                                 Icons.Rounded.Movie,
                                 contentDescription = null,
-                                tint = SecondaryText,
+                                tint = Fsd.BarTextDim,
                                 modifier = Modifier.size(56.dp)
                             )
                             Spacer(Modifier.size(16.dp))
                             Text(
                                 "还没有添加 SWF 游戏",
-                                color = SecondaryText,
-                                fontSize = 15.sp,
+                                color = Fsd.BarText,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Spacer(Modifier.size(6.dp))
                             Text(
                                 "切换到「浏览文件」添加本地 SWF 文件",
-                                color = SecondaryTextLight,
-                                fontSize = 12.sp
+                                color = Fsd.BarTextDim,
+                                fontSize = 13.sp
                             )
                         }
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(120.dp),
-                        contentPadding = PaddingValues(20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(swfList, key = { it.path }) { entry ->
-                            SwfGameCard(
-                                title = entry.title,
-                                size = entry.size,
-                                accent = AccentPalette[swfList.indexOf(entry) % AccentPalette.size],
-                                onClick = { onOpenSwf(entry.path) },
-                                onLongClick = {
-                                    SwfStore.remove(context, entry.path)
-                                    refreshList()
-                                    snackbarMsg = "已移除: ${entry.title}"
+                    } else {
+                        FsdCoverFlow(
+                            count = swfList.size,
+                            selectedIndex = selIdx,
+                            onIndexChange = { selIdx = it },
+                            onItemClick = { idx -> swfList.getOrNull(idx)?.let { onOpenSwf(it.path) } },
+                            onItemLongClick = { idx ->
+                                swfList.getOrNull(idx)?.let { entry ->
+                                    pendingRemove = entry
                                 }
+                            },
+                            grabFocusOnLaunch = true,
+                            modifier = Modifier.fillMaxSize()
+                        ) { i ->
+                            val entry = swfList[i]
+                            FsdIconCoverCard(
+                                title = entry.title,
+                                icon = Icons.Rounded.Movie,
+                                accent = AccentPalette[i % AccentPalette.size],
+                                badge = "SWF",
+                                subtitle = formatSize(entry.size)
                             )
                         }
+
+                        // 底部左：按键提示
+                        FsdButtonHints(
+                            hints = listOf(
+                                FsdButtonHint("A", "启动", Fsd.BtnA),
+                                FsdButtonHint("B", "返回", Fsd.BtnB),
+                                FsdButtonHint("Y", "移除", Fsd.BtnY)
+                            ),
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 34.dp, bottom = 8.dp)
+                        )
+
+                        // 底部中：标题横幅
+                        swfList.getOrNull(selIdx)?.let { g ->
+                            FsdTitleBanner(
+                                text = g.title,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 38.dp)
+                            )
+                        }
+
+                        // 右侧：N of M 计数
+                        FsdCounter(
+                            current = selIdx + 1,
+                            total = swfList.size,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 34.dp, bottom = 38.dp)
+                        )
                     }
                 }
             } else {
-                // 浏览文件
+                // 浏览文件：FSD 深色列表
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 34.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // 当前目录信息
+                    item {
+                        Text(
+                            "${subDirs.size} 文件夹 · ${swfFiles.size} SWF · ${currentDir.absolutePath}",
+                            color = Fsd.BarTextDim,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     // Up
                     if (currentDir.parentFile != null) {
                         item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = 0.6f))
-                                    .clickable { currentDir = currentDir.parentFile!! }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Folder,
-                                    contentDescription = null,
-                                    tint = SecondaryText,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.size(10.dp))
-                                Text("..", color = PrimaryText, fontSize = 14.sp)
-                            }
+                            FsdFileRow(
+                                icon = Icons.Rounded.Folder,
+                                iconTint = Fsd.BarTextDim,
+                                title = "..",
+                                subtitle = null
+                            ) { currentDir = currentDir.parentFile!! }
                         }
                     }
                     // 子目录
                     items(subDirs) { dir ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.7f))
-                                .clickable { currentDir = dir }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Rounded.Folder,
-                                contentDescription = null,
-                                tint = Gold,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.size(10.dp))
-                            Text(
-                                dir.name,
-                                color = PrimaryText,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        FsdFileRow(
+                            icon = Icons.Rounded.Folder,
+                            iconTint = Fsd.TileYellowTop,
+                            title = dir.name,
+                            subtitle = null
+                        ) { currentDir = dir }
                     }
                     // SWF 文件
                     items(swfFiles) { file ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.85f))
-                                .clickable {
-                                    SwfStore.add(context, file.absolutePath, file.nameWithoutExtension)
-                                    refreshList()
-                                    onOpenSwf(file.absolutePath)
-                                }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Rounded.Movie,
-                                contentDescription = null,
-                                tint = Accent,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.size(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    file.name,
-                                    color = PrimaryText,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    formatSize(file.length()),
-                                    color = SecondaryText,
-                                    fontSize = 10.sp
+                        FsdFileRow(
+                            icon = Icons.Rounded.Movie,
+                            iconTint = Fsd.TileBlueTop,
+                            title = file.name,
+                            subtitle = formatSize(file.length()),
+                            trailing = {
+                                Icon(
+                                    Icons.Rounded.PlayArrow,
+                                    contentDescription = "播放",
+                                    tint = Fsd.BarText,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                            Icon(
-                                Icons.Rounded.PlayArrow,
-                                contentDescription = "播放",
-                                tint = Accent,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        ) {
+                            SwfStore.add(context, file.absolutePath, file.nameWithoutExtension)
+                            refreshList()
+                            onOpenSwf(file.absolutePath)
                         }
                     }
                     if (subDirs.isEmpty() && swfFiles.isEmpty()) {
@@ -399,7 +370,7 @@ fun SwfListScreen(
                             ) {
                                 Text(
                                     "此目录没有 SWF 文件",
-                                    color = SecondaryText,
+                                    color = Fsd.BarTextDim,
                                     fontSize = 13.sp
                                 )
                             }
@@ -407,6 +378,8 @@ fun SwfListScreen(
                     }
                 }
             }
+
+            FsdBottomBar(status = "SWF 游戏")
         }
 
         // Snackbar
@@ -414,13 +387,12 @@ fun SwfListScreen(
             Snackbar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(16.dp),
-                containerColor = Color(0xFF1E2A3A),
+                    .padding(bottom = 56.dp, start = 16.dp, end = 16.dp),
+                containerColor = Color(0xCC061225),
                 contentColor = Color.White,
                 action = {
                     TextButton(onClick = { snackbarMsg = null }) {
-                        Text("确定", color = Accent)
+                        Text("确定", color = Color(0xFFF7B500))
                     }
                 }
             ) {
@@ -432,147 +404,109 @@ fun SwfListScreen(
             }
         }
     }
+    // ---- 移除确认弹窗（与旧版一致，防止误触） ----
+    pendingRemove?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { pendingRemove = null },
+            title = { Text("移除游戏") },
+            text = { Text("确定要从列表中移除「${entry.title}」吗？\n（不会删除原文件）") },
+            confirmButton = {
+                TextButton(onClick = {
+                    SwfStore.remove(context, entry.path)
+                    pendingRemove = null
+                    refreshList()
+                    snackbarMsg = "已移除: ${entry.title}"
+                }) { Text("移除", color = DeleteColor) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemove = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
-/** 首页风格的「返回主页」按钮（半透明白色 pill + 房子图标）。 */
+/** FSD 风格 Tab 胶囊（与游戏库的平台 FilterChip 同款视觉）。 */
 @Composable
-private fun HomePill(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun FsdTabChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.6f))
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (selected) Brush.verticalGradient(
+                    listOf(Fsd.TileBlueTop, Fsd.TileBlueBottom)
+                ) else SolidColor(Color.White.copy(alpha = 0.12f))
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) Color.White.copy(alpha = 0.65f)
+                        else Color.White.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(16.dp)
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
-        Icon(
-            Icons.Rounded.Home,
-            contentDescription = "返回主页",
-            tint = PrimaryText,
-            modifier = Modifier.size(14.dp)
-        )
-        Spacer(Modifier.size(4.dp))
         Text(
-            "主页",
-            color = PrimaryText,
-            fontSize = 11.sp,
+            text,
+            color = if (selected) Color.White else Fsd.BarTextDim,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
     }
 }
 
-/** Tab 切换 pill（首页风格：白底 + 选中变深）。 */
+/** FSD 深色文件/文件夹行（浏览文件模式）。 */
 @Composable
-private fun TabPill(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                if (selected) Color(0xFF1E2A3A) else Color.White.copy(alpha = 0.6f)
-            )
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = if (selected) Color.White else PrimaryText,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-        )
-    }
-}
-
-/** SWF 卡片：复用首页 GameCard 视觉，但加上长按删除。 */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun SwfGameCard(
+private fun FsdFileRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
     title: String,
-    size: Long,
-    accent: Color,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    subtitle: String?,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit
 ) {
-    var showRemoveConfirm by remember { mutableStateOf(false) }
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.85f))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = { showRemoveConfirm = true }
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(12.dp)
             )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // 顶部色块（与首页 GameCard 一致）
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(80.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(accent.copy(alpha = 0.9f), accent.copy(alpha = 0.55f))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Rounded.Movie,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(38.dp)
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                color = Fsd.BarText,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Medium
+            )
+            if (subtitle != null) {
                 Text(
-                    title,
-                    color = PrimaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    formatSize(size),
-                    color = SecondaryTextLight,
+                    subtitle,
+                    color = Fsd.BarTextDim,
                     fontSize = 10.sp
                 )
             }
         }
-    }
-
-    if (showRemoveConfirm) {
-        AlertDialog(
-            onDismissRequest = { showRemoveConfirm = false },
-            title = { Text("移除游戏") },
-            text = { Text("确定要从列表中移除「$title」吗？\n（不会删除原文件）") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRemoveConfirm = false
-                    onLongClick()
-                }) { Text("移除", color = DeleteColor) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRemoveConfirm = false }) { Text("取消") }
-            }
-        )
+        trailing?.invoke()
     }
 }
 

@@ -233,6 +233,21 @@ object Psx2Native {
         } catch (t: Throwable) { 60.0 }
     }
 
+    /**
+     * ARMSX2 核心的真实实时帧率（PerformanceMetrics::GetFPS，即核心实际
+     * 呈现到 Surface 的帧率）。修复 FPS HUD：旧实现靠心跳线程固定间隔打点，
+     * 永远显示 ~60，游戏掉帧也看不出来；现在直接读核心指标。
+     * VM 未启动/未出帧时返回 0，UI 回退到帧计数。
+     */
+    @JvmStatic fun realtimeFps(): Double {
+        return try {
+            if (NativeApp.hasActiveVM()) {
+                val fps = NativeApp.getFPS().toDouble()
+                if (fps > 0.5 && fps < 5000.0) fps else 0.0
+            } else 0.0
+        } catch (t: Throwable) { 0.0 }
+    }
+
     @JvmStatic fun saveState(slot: Int, path: String): Boolean =
         try { NativeApp.saveStateToSlot(slot) } catch (t: Throwable) { false }
 

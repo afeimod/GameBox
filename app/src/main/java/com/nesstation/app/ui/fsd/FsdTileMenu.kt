@@ -65,7 +65,7 @@ data class FsdTileItem(
     val icon: ImageVector?,
     val badge: String? = null,   // 右上角小徽标（如游戏数量）
     val iconPath: String? = null, // 自定义图标（用户挑选的图片，绝对路径）；非空时优先于 [icon]
-    val iconAlpha: Float = 1f    // 自定义图标透明度 0.05..1.0（磁贴选项里调节）；对矢量图标不生效
+    val iconAlpha: Float = 1f    // 卡片透明度 0.05..1.0（磁贴选项里调节）；作用于整张卡片
 )
 
 @Composable
@@ -76,10 +76,17 @@ fun FsdTile(
 ) {
     Box(
         modifier = modifier
+            // 修复（卡片透明度不生效）：alpha 必须放在 clip/background 之前。
+            // Compose 修饰符是从左到右包襄的：旧写法 .background(navy).alpha(x)
+            // 里，不透明海军蓝底色画在 alpha 层之外，永远 100% 不透明 ——
+            // 拖动透明度滑杆只能淡出渐变表面/图标/文字，卡片本身永不透光，
+            // 看起来就是“透明度没有应用”。现在 alpha 放在最前，连同底色、
+            // 渐变表面、图标、徽标、文字一起整体变透明。
+            // （左侧传入的 modifier 里的选中高亮边框在 alpha 层外，
+            //  保持全亮 —— 焦点指示不受透明度影响。）
+            .alpha(item.iconAlpha.coerceIn(0.05f, 1f))
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF0D2C55))
-            // 长按磁贴 → 「磁贴选项」里调节的卡片透明度，作用于整个卡片
-            .alpha(item.iconAlpha.coerceIn(0.05f, 1f))
     ) {
         // 蓝/黄对角渐变表面
         Canvas(modifier = Modifier.fillMaxSize()) { drawFsdTileSurface() }

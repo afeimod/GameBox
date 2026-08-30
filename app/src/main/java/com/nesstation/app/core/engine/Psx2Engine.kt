@@ -195,6 +195,18 @@ class Psx2Engine private constructor() : EmulatorEngine {
     override fun videoWidth(): Int = if (isLoaded) Psx2Native.videoWidth() else 640
     override fun videoHeight(): Int = if (isLoaded) Psx2Native.videoHeight() else 448
 
+    /**
+     * 核心真实实时帧率（PerformanceMetrics）。
+     *
+     * 旧实现的 FPS HUD 依靠心跳线程按固定间隔（1000/targetHz ms）调用
+     * onFrame 计数 —— 那只是一个“假节拍”，无论游戏实际跑多快/多慢，
+     * 计数永远是 ~60。现在 HUD 改为轮询本方法读核心真实帧率：
+     * 游戏掉帧 → 数值下降；快进（关闭限帧）→ 数值可以超过 60。
+     * 心跳线程保留，它还兼着 netplay 锁步节拍器的职责。
+     */
+    override fun realtimeFps(): Double =
+        if (isLoaded) Psx2Native.realtimeFps() else 0.0
+
     override fun setVideoFilter(filter: Int) = Psx2Native.setVideoFilter(filter)
     override fun setHighQualityScaling(enabled: Boolean) = Psx2Native.setHighQualityScaling(enabled)
 

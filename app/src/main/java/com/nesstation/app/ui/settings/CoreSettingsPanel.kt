@@ -1050,7 +1050,7 @@ fun CoreSettingsPanel(
                         padLayout.ps2Deinterlace
                     ) { updateLayout(padLayout.copy {ps2Deinterlace = it}) }
                     DropdownRow("画面比例",
-                        listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9"),
+                        listOf("auto" to "跟随全局画面缩放", "4:3" to "4:3 (锁定)", "16:9" to "16:9 (锁定)"),
                         padLayout.ps2AspectRatio
                     ) { updateLayout(padLayout.copy {ps2AspectRatio = it}) }
                 }

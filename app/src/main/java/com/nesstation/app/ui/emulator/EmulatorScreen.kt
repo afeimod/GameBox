@@ -711,12 +711,26 @@ fun EmulatorScreen(
     // 模拟线程每跑完一帧回调 onFrame → counter+1（原子操作，线程安全）；
     // 采样协程每秒读取并清零，刷新显示值。显示的是"模拟帧率"（核心实际
     // 跑了多少帧），不是屏幕刷新率 —— 可用于诊断 NDS 卡顿。
+    //
+    // 修复（帧数显示不准）：PS2 / PS1 等平台优先读核心的"真实帧率"
+    // （engine.realtimeFps()）——
+    //   · PS2(ARMSX2) 是推模型核心，旧实现靠心跳线程按固定间隔打点，
+    //     计数永远是 ~60，掉帧/快进都看不出来；现在直接读核心内部的
+    //     PerformanceMetrics（getFPS）。
+    //   · PS1(PCSX-ReARMed) 旧实现用模拟循环步进计数，只等于帧率限制器
+    //     的目标值（NTSC 60 / PAL 50）；现在统计核心视频回调里真实提交
+    //     的帧数，游戏内部掉帧（30/20fps 游戏）时能显示真实值。
+    // 其它平台（NES/SFC/GBA/NDS/MD/PCE/DOS/ARCADE）仍用帧计数 ——
+    // 拉模型核心每步恰好一帧，计数本身就是真实帧率。
     val fpsFrameCounter = remember { java.util.concurrent.atomic.AtomicInteger(0) }
     var fpsDisplay by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(1000)
-            fpsDisplay = fpsFrameCounter.getAndSet(0)
+            // 无论走哪条路径都要清零计数器，避免 PS2 心跳计数长期累积
+            val counted = fpsFrameCounter.getAndSet(0)
+            val real = try { engine.realtimeFps() } catch (_: Throwable) { 0.0 }
+            fpsDisplay = if (real > 0.5) Math.round(real).toInt() else counted
         }
     }
 
@@ -801,10 +815,13 @@ fun EmulatorScreen(
     }
 
     // Apply core options on load and when they change
+    // 注意：videoScale（全局画面缩放）也在触发列表里 —— PS2 的画面比例
+    // 在 "auto" 时跟随全局设置推导（见 applyCoreOptions PS2 分支），
+    // 游戏中改全局画面缩放必须重新应用，否则 PS2 不会跟随变化。
     LaunchedEffect(padLayout.ntscFilter, padLayout.palette,
                    padLayout.region, padLayout.cropOverscan,
                    padLayout.videoFilter, padLayout.overclocking,
-                   padLayout.aspectRatio,
+                   padLayout.aspectRatio, padLayout.videoScale,
                    padLayout.sfcReduceSpriteFlicker, padLayout.sfcReduceSlowdown,
                    padLayout.sfcAudioInterpolation, padLayout.sfcGfxTransparency,
                    padLayout.sfcGfxHires, padLayout.sfcUpDownAllowed,
@@ -2715,7 +2732,28 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx2_dithering", layout.ps2Dithering)
             engine.setCoreOption("pcsx2_mipmapping", layout.ps2Mipmapping)
             engine.setCoreOption("pcsx2_deinterlace_mode", layout.ps2Deinterlace)
-            engine.setCoreOption("pcsx2_aspect_ratio", layout.ps2AspectRatio)
+            // 画面比例 —— 修复：PS2 始终 4:3、不跟随全局「画面缩放」的问题。
+            //
+            // 原因：ARMSX2 是推模型核心，它会在拿到的 Surface 内部按自己的
+            // AspectRatio 配置自函黑边（RAuto4_3_3_2 → 永远 4:3）。旧代码直接把
+            // ps2AspectRatio（默认 "auto"）透传给核心，全局 videoScale 只约束了
+            // Surface 尺寸，核心仍然在里面函 4:3 黑边 → 表现为“始终 4:3”。
+            //
+            // 修复：PS2 专属设置为 "auto"（默认）时改为跟随全局画面缩放：
+            //   4:3 / 16:9  → 直接映射到核心的同名比例（与 Surface 形状一致，填满）；
+            //   stretch / custom / 2:3 / 8:3 / 3:2 / 8:7 → 映射为 Stretch(0)，
+            //     核心拉满整个 Surface，形状交给 Compose 的 aspectRatio/自定义矩形控制
+            //     （与其它平台“核心填满 Surface”的行为完全一致）。
+            // 只有用户在 PS2 专属设置里显式锁定 4:3 / 16:9 时才优先专属设置。
+            val effectivePs2Aspect = when (layout.ps2AspectRatio) {
+                "4:3", "16:9" -> layout.ps2AspectRatio
+                else -> when (layout.videoScale) {
+                    "4:3" -> "4:3"
+                    "16:9" -> "16:9"
+                    else -> "stretch"   // stretch / custom / 其它比例 → 核心拉满 Surface
+                }
+            }
+            engine.setCoreOption("pcsx2_aspect_ratio", effectivePs2Aspect)
             // Patches
             engine.setCoreOption("pcsx2_widescreen_patches", layout.ps2Widescreen)
             engine.setCoreOption("pcsx2_no_interlacing_patches", layout.ps2NoInterlace)
@@ -8248,7 +8286,7 @@ private fun SettingsPanel(
                 ) { onLayoutChange(padLayout.copy {ps2Deinterlace = it}) }
 
                 DropdownSetting("画面比例",
-                    listOf("auto" to "自动", "4:3" to "4:3", "16:9" to "16:9"),
+                    listOf("auto" to "跟随全局画面缩放", "4:3" to "4:3 (锁定)", "16:9" to "16:9 (锁定)"),
                     padLayout.ps2AspectRatio
                 ) { onLayoutChange(padLayout.copy {ps2AspectRatio = it}) }
 

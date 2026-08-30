@@ -84,6 +84,7 @@ import com.nesstation.app.ui.fsd.FsdButtonHints
 import com.nesstation.app.ui.fsd.FsdCoverFlow
 import com.nesstation.app.ui.fsd.FsdCounter
 import com.nesstation.app.ui.fsd.FsdTitleBanner
+import com.nesstation.app.ui.fsd.FsdToolButton
 import com.nesstation.app.ui.fsd.FsdTopBar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -1485,35 +1486,6 @@ private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Uni
             color = if (danger) Color(0xFFE74C3C) else Color(0xFF1E2A3A),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-/** FSD 工具按钮 — 顶部图标 + 小字标签，D-pad 可聚焦（TV 友好） */
-@Composable
-private fun FsdToolButton(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-    ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = Color.White.copy(alpha = 0.88f),
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            label,
-            color = Fsd.BarTextDim,
-            fontSize = 9.sp,
-            maxLines = 1
         )
     }
 }

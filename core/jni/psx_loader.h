@@ -50,6 +50,11 @@ void unload();
 void resetEmulation(bool hard);
 void stepFrame();
 
+// 读取并清零自上次轮询以来核心真实提交（cb_video 非空）的帧数。
+// FPS HUD 每秒轮询一次，得到的是游戏真实输出帧率（区别于被
+// 帧率限制器凑出来的步进频率）。
+int pollPresentedFrames();
+
 // Queue a libretro controller-port device switch (RETRO_DEVICE_JOYPAD /
 // RETRO_DEVICE_ANALOG ...). Applied on the emulation thread at the next
 // stepFrame() — never directly from the caller thread.

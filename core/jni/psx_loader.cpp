@@ -164,6 +164,13 @@ static unsigned s_videoW = 320;
 static unsigned s_videoH = 240;
 static unsigned s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 
+// FPS HUD：核心真实提交帧计数。cb_video 收到非空 data（核心真的渲染了
+// 新帧）时 +1；UI 每秒 pollPresentedFrames() 读走并清零。区别于前端
+// 模拟循环的步进计数：游戏内部掉帧（如 30fps 游戏）时 PCSX-ReARMed
+// 会对重复帧传 null data，这里不计入 —— 得到的是“游戏真实输出帧率”，
+// 而不是被帧率限制器凑出来的 60。
+static std::atomic<int> s_presentedFrames{0};
+
 // Gamepad bits (port 0..3, RETRO_DEVICE_JOYPAD).
 static std::atomic<uint16_t> s_pad1{0};
 static std::atomic<uint16_t> s_pad2{0};
@@ -534,6 +541,9 @@ static bool cb_environment(unsigned cmd, void* data) {
 static void cb_video(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return;
 
+    // FPS HUD：真实提交帧计数（仅核心渲染出新帧时才计）
+    s_presentedFrames.fetch_add(1, std::memory_order_relaxed);
+
     s_videoW = width;
     s_videoH = height;
 
@@ -892,6 +902,7 @@ void unload() {
     s_audio.reset();
     s_resampler.reset();
     s_newFrame.store(false);
+    s_presentedFrames.store(0, std::memory_order_relaxed);
     s_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
     {
         std::lock_guard<std::mutex> lk(s_frameMtx);
@@ -917,6 +928,11 @@ void stepFrame() {
     if (!s_loaded || !s_gameLoaded) return;
     applyPendingPortDevicesLockedStep();
     s_retro_run();
+}
+
+// 读取并清零自上次轮询以来核心真实提交的帧数（FPS HUD 用）。
+int pollPresentedFrames() {
+    return s_presentedFrames.exchange(0, std::memory_order_acq_rel);
 }
 
 void setPortDevice(int port, int device) {

@@ -190,13 +190,26 @@ interface EmulatorEngine {
      *  or the core rejected it (wrong version, truncated, etc.). */
     fun loadState(slot: Int, src: File): Boolean
 
-    /**
-     * Capture the current frame as an ARGB bitmap (0xAARRGGBB).
+    /** Capture the current frame as an ARGB bitmap (0xAARRGGBB).
      * Returns the bitmap array and dimensions, or null if no frame is available.
      * Works even with hardware-accelerated surface rendering by requesting
      * a fresh frame buffer copy from the native core.
      */
     fun captureFrame(): FrameCapture?
+
+    /**
+     * 实时帧率查询（FPS HUD 用）。
+     *
+     * 返回 > 0 表示该核心支持真实的实时帧率读取（PS2 读 ARMSX2 的
+     * PerformanceMetrics，PS1 读核心实际提交的帧数），UI 应优先采用；
+     * 返回 0 表示不支持，UI 回退到 onFrame 帧计数（NES/SFC/GBA/NDS/
+     * MD/PCE/DOS/ARCADE 等拉模型核心的计数本身就是真实模拟帧率）。
+     *
+     * 为什么需要它：PS2（ARMSX2）是推模型核心，前端没有模拟循环，
+     * 心跳线程按固定间隔打的 onFrame 计数永远是 ~60，与真实性能无关；
+     * 只有核心内部的 PerformanceMetrics 才知道真实帧率。
+     */
+    fun realtimeFps(): Double = 0.0
 
     /** Last error message from the core. */
     fun lastError(): String

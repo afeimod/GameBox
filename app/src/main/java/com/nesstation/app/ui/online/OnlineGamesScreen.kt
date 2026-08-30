@@ -2,36 +2,27 @@ package com.nesstation.app.ui.online
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Snackbar
@@ -46,8 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -55,17 +51,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.ui.components.AppBackgroundState
-import com.nesstation.app.ui.components.PixelBackdrop
+import com.nesstation.app.ui.fsd.FsdBackdrop
+import com.nesstation.app.ui.fsd.FsdBottomBar
+import com.nesstation.app.ui.fsd.FsdBreadcrumb
+import com.nesstation.app.ui.fsd.FsdButtonHint
+import com.nesstation.app.ui.fsd.FsdButtonHints
+import com.nesstation.app.ui.fsd.FsdCounter
+import com.nesstation.app.ui.fsd.FsdCoverFlow
+import com.nesstation.app.ui.fsd.FsdIconCoverCard
+import com.nesstation.app.ui.fsd.FsdTitleBanner
+import com.nesstation.app.ui.fsd.FsdToolButton
+import com.nesstation.app.ui.fsd.FsdTopBar
 import kotlinx.coroutines.delay
 
-// ---- Home-style palette (matches HomeScreen / LibraryScreen) ----
+// ---- 配色（对话框等浅色弹层与旧版一致） ----
 private val PrimaryText = Color(0xFF1E2A3A)
 private val SecondaryText = Color(0xFF4A5568)
 private val SecondaryTextLight = Color(0xFF8899AA)
 private val Accent = Color(0xFF8A7BFF)
 private val DeleteColor = Color(0xFFE74C3C)
 
-/** Accent color palette cycled across the grid cards. */
+/** 封面卡片循环取用的强调色（与旧版色板一致，深蓝 FSD 底上很和谐）。 */
 private val AccentPalette = listOf(
     Color(0xFF8A7BFF), // 紫
     Color(0xFFE74C3C), // 红
@@ -82,12 +88,18 @@ private val AccentPalette = listOf(
 )
 
 /**
- * 在线网页游戏列表（重写为首页风格）。
+ * 在线网页游戏列表 — 与游戏库（LibraryScreen）同款 FSD 桌面效果。
  *
- * 关键改动：
- * 1. 新增「返回主页」按钮（与 SWF 列表一致）。
- * 2. 使用 PixelBackdrop 像素风背景 + 圆角白色卡片（参考首页 GameCard 风格）。
- * 3. 保留：长按删除自定义游戏、添加自定义游戏对话框、UA 模式标识。
+ * 关键改动（修复“在线游戏和 SWF 应该也要和游戏库一样的效果”）：
+ * 1. 弃用旧的 PixelBackdrop 浅色像素风 + 平铺白色卡片网格，改为游戏库
+ *    同款 FSD 深蓝桌面：FsdBackdrop 壁纸 + FsdTopBar/FsdBottomBar 状态条。
+ * 2. 卡片改为 FsdCoverFlow 3D 封面流（居中放大、两侧缩放淡出、倒影）+
+ *    FsdIconCoverCard 封面卡片（深蓝底 + 强调色渐变 + 徽标 + 底部标题条）。
+ * 3. 补齐游戏库同款部件：FsdBreadcrumb 面包屑、FsdTitleBanner 标题横幅、
+ *    FsdCounter 计数、FsdButtonHints 按键提示、FsdToolButton 工具按钮。
+ * 4. 补齐 D-pad/手柄导航（TV 友好）：左右切卡、OK 启动、Y 长按选项、B 主页。
+ * 5. 长按卡片弹出与游戏库一致的操作菜单（开始游戏 / 删除自定义游戏）。
+ * 6. 保留原有功能：添加自定义游戏（UA 模式）、长按删除、Snackbar 提示。
  */
 @Composable
 fun OnlineGamesScreen(
@@ -98,97 +110,136 @@ fun OnlineGamesScreen(
 ) {
     val context = LocalContext.current
     var games by remember { mutableStateOf(WebGameStore.loadAll(context)) }
+    var selIdx by remember { mutableStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<WebGameEntry?>(null) }
+    var menuGame by remember { mutableStateOf<WebGameEntry?>(null) }
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         games = WebGameStore.loadAll(context)
+        if (selIdx > games.size - 1) selIdx = (games.size - 1).coerceAtLeast(0)
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        // PixelBackdrop 像素风背景（与首页 / 库界面一致）；全局背景激活时由根布局统一渲染
-        if (!AppBackgroundState.active) PixelBackdrop()
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // 手柄按键（TV / 蓝牙手柄）：B=返回主页（与游戏库一致）
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.ButtonB, Key.Escape, Key.Back -> { onHome(); true }
+                    else -> false
+                }
+            }
+    ) {
+        // FSD 深蓝壁纸（与游戏库一致）；全局背景激活时由根布局统一渲染
+        if (!AppBackgroundState.active) FsdBackdrop()
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // ---- 顶部栏：返回箭头 + 返回主页 + 标题 ----
+            FsdTopBar()
+
+            // ===== 工具行：面包屑 + 操作按钮（与游戏库同款） =====
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(end = 24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回",
-                        tint = PrimaryText
-                    )
-                }
-                // 新增：返回主页按钮
-                HomePill(
-                    onClick = onHome,
-                    modifier = Modifier.padding(start = 2.dp)
+                FsdBreadcrumb(
+                    listOf("在线游戏", "${games.size} 个站点"),
+                    modifier = Modifier.weight(1f)
                 )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 8.dp)
-                ) {
-                    Text(
-                        "在线游戏",
-                        color = PrimaryText,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        "${games.size} 个游戏网站",
-                        color = SecondaryText,
-                        fontSize = 10.sp
-                    )
-                }
-                IconButton(onClick = { showAddDialog = true }) {
-                    Icon(
-                        Icons.Rounded.Add,
-                        contentDescription = "添加游戏",
-                        tint = Accent
-                    )
-                }
+                FsdToolButton(Icons.Rounded.Add, "添加") { showAddDialog = true }
+                FsdToolButton(Icons.Rounded.Refresh, "刷新") { refresh() }
+                FsdToolButton(Icons.Rounded.Home, "主页") { onHome() }
             }
 
-            // ---- 卡片网格（首页风格：白底 + 圆角 + 色条） ----
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(150.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            // ===== 封面流主体（与游戏库同款） =====
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
             ) {
-                itemsIndexed(games, key = { _, g -> g.url }) { index, game ->
-                    WebGameCard(
-                        game = game,
-                        accent = AccentPalette[index % AccentPalette.size],
-                        onClick = { onOpenGame(game) },
-                        onLongClick = if (!game.isBuiltin) {
-                            { pendingDelete = game }
-                        } else null
+                if (games.isEmpty()) {
+                    // 空状态
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 34.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            "还没有在线游戏站点",
+                            color = Color(0xFFE8F1FF),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "点击右上角「添加」收藏你喜欢的网页游戏网站",
+                            color = Color(0xFF9FB6D4),
+                            fontSize = 13.sp
+                        )
+                    }
+                } else {
+                    FsdCoverFlow(
+                        count = games.size,
+                        selectedIndex = selIdx,
+                        onIndexChange = { selIdx = it },
+                        onItemClick = { idx -> games.getOrNull(idx)?.let(onOpenGame) },
+                        onItemLongClick = { idx ->
+                            games.getOrNull(idx)?.let { menuGame = it }
+                        },
+                        grabFocusOnLaunch = true,
+                        modifier = Modifier.fillMaxSize()
+                    ) { i ->
+                        val g = games[i]
+                        FsdIconCoverCard(
+                            title = g.title,
+                            icon = Icons.Rounded.Public,
+                            accent = AccentPalette[i % AccentPalette.size],
+                            badge = if (g.uaMode == "mobile") "手机" else "PC",
+                            subtitle = g.url
+                        )
+                    }
+
+                    // 底部左：按键提示
+                    FsdButtonHints(
+                        hints = listOf(
+                            FsdButtonHint("A", "启动", com.nesstation.app.ui.fsd.Fsd.BtnA),
+                            FsdButtonHint("B", "主页", com.nesstation.app.ui.fsd.Fsd.BtnB),
+                            FsdButtonHint("Y", "选项", com.nesstation.app.ui.fsd.Fsd.BtnY)
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 34.dp, bottom = 8.dp)
+                    )
+
+                    // 底部中：标题横幅
+                    games.getOrNull(selIdx)?.let { g ->
+                        FsdTitleBanner(
+                            text = "${if (g.uaMode == "mobile") "手机端" else "PC端"}  ${g.title}",
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 38.dp)
+                        )
+                    }
+
+                    // 右侧：N of M 计数
+                    FsdCounter(
+                        current = selIdx + 1,
+                        total = games.size,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 34.dp, bottom = 38.dp)
                     )
                 }
             }
-        }
 
-        // ---- FAB：快速添加 ----
-        FloatingActionButton(
-            onClick = { showAddDialog = true },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(20.dp),
-            containerColor = Accent,
-            contentColor = Color.White
-        ) {
-            Icon(Icons.Rounded.Add, contentDescription = "添加在线游戏")
+            FsdBottomBar(status = if (games.isEmpty()) "空" else "在线游戏")
         }
 
         // ---- Snackbar ----
@@ -197,8 +248,8 @@ fun OnlineGamesScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
-                containerColor = Color(0xFF1E2A3A),
+                    .padding(bottom = 56.dp, start = 16.dp, end = 16.dp),
+                containerColor = Color(0xCC061225),
                 contentColor = Color.White
             ) {
                 Text(msg)
@@ -208,6 +259,42 @@ fun OnlineGamesScreen(
                 snackbarMsg = null
             }
         }
+    }
+
+    // ---- 长按操作菜单（与游戏库的长按菜单同款样式） ----
+    menuGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { menuGame = null },
+            title = { Text(game.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    MenuOption("开始游戏") {
+                        menuGame = null
+                        onOpenGame(game)
+                    }
+                    if (!game.isBuiltin) {
+                        MenuOption("删除游戏", danger = true) {
+                            menuGame = null
+                            pendingDelete = game
+                        }
+                    } else {
+                        Text(
+                            "内置站点不可删除",
+                            color = SecondaryText,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { menuGame = null }) { Text("关闭") }
+            }
+        )
     }
 
     // ---- Add dialog ----
@@ -254,141 +341,21 @@ fun OnlineGamesScreen(
     }
 }
 
-/**
- * 单个游戏卡片：模仿首页 GameCard 视觉（白底圆角 + 顶部色块渐变），
- * 但保留「长按删除」「UA 标识」「内置/自定义标签」等信息。
- */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/** 长按菜单中的单个可点击选项（与游戏库 MenuOption 同款）。 */
 @Composable
-private fun WebGameCard(
-    game: WebGameEntry,
-    accent: Color,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)?
-) {
-    val clickModifier = if (onLongClick != null) {
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
-    } else {
-        Modifier.clickable(onClick = onClick)
-    }
-
+private fun MenuOption(text: String, danger: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(160.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.85f))
-            .then(clickModifier)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // 顶部色块（渐变 + 图标）
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(82.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(accent.copy(alpha = 0.9f), accent.copy(alpha = 0.55f))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.SportsEsports,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(38.dp)
-                )
-                // 右上角 UA 标识
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.85f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (game.uaMode == "mobile") Icons.Rounded.Smartphone
-                        else Icons.Rounded.Computer,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(10.dp)
-                    )
-                    Spacer(Modifier.size(3.dp))
-                    Text(
-                        text = if (game.uaMode == "mobile") "手机" else "PC",
-                        color = accent,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-            // 底部信息
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = game.title,
-                    color = PrimaryText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.size(2.dp))
-                Text(
-                    text = game.url,
-                    color = SecondaryTextLight,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!game.isBuiltin) {
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        text = "长按删除",
-                        color = SecondaryTextLight,
-                        fontSize = 9.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 首页风格的「返回主页」按钮（与 SWF 列表一致）。 */
-@Composable
-private fun HomePill(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.6f))
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .padding(vertical = 10.dp, horizontal = 4.dp)
     ) {
-        Icon(
-            Icons.Rounded.Home,
-            contentDescription = "返回主页",
-            tint = PrimaryText,
-            modifier = Modifier.size(14.dp)
-        )
-        Spacer(Modifier.size(4.dp))
         Text(
-            "主页",
-            color = PrimaryText,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold
+            text = text,
+            color = if (danger) Color(0xFFE74C3C) else Color(0xFF1E2A3A),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }

@@ -55,6 +55,7 @@ void Engine::setFastForward(int speed)  { rom::applySpeed(speed > 0 ? (float)spe
 
 void Engine::setPortDevice(int port, int device) { rom::setPortDevice(port, device); }
 double Engine::videoRefreshRate() { return rom::videoRefreshRate(); }
+int Engine::pollPresentedFrames() { return rom::pollPresentedFrames(); }
 
 void Engine::saveState(int slot, const std::string& path) {
     rom::saveStateToPath(slot, path);
@@ -182,6 +183,12 @@ Java_com_nesstation_app_core_jni_PsxNative_setControllerDevice(JNIEnv*, jclass, 
 JNIEXPORT jdouble JNICALL
 Java_com_nesstation_app_core_jni_PsxNative_videoFps(JNIEnv*, jclass) {
     return (jdouble)psxcore::Engine::instance().videoRefreshRate();
+}
+
+// FPS HUD：读走并清零自上次轮询以来核心真实提交的帧数（cb_video 非空）。
+JNIEXPORT jint JNICALL
+Java_com_nesstation_app_core_jni_PsxNative_pollPresentedFrames(JNIEnv*, jclass) {
+    return (jint)psxcore::Engine::instance().pollPresentedFrames();
 }
 
 JNIEXPORT jboolean JNICALL

@@ -63,6 +63,9 @@ public:
     void setPortDevice(int port, int device);
     // Core-reported refresh rate (59.82614 NTSC / 50.0 PAL / ...).
     double videoRefreshRate();
+    // Read & clear the count of frames actually presented by the core since
+    // the last poll (FPS HUD — real game output rate, not the paced loop rate).
+    int pollPresentedFrames();
 
     void saveState(int slot, const std::string& dstPath);
     bool loadState(int slot, const std::string& srcPath);

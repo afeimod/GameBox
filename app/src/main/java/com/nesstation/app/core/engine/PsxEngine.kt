@@ -54,6 +54,9 @@ class PsxEngine private constructor() : EmulatorEngine {
     /** Core-reported refresh rate; used for pacing (NTSC 59.82614 / PAL 50). */
     @Volatile private var _targetHz: Int = 60
 
+    /** FPS HUD：上次轮询提交帧数的时间戳（ns），用于按真实时间间隔换算帧率。 */
+    @Volatile private var _fpsPollNs: Long = 0L
+
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
     @Volatile private var _netFrame: Long = 0L
@@ -181,6 +184,27 @@ class PsxEngine private constructor() : EmulatorEngine {
     override fun videoWidth(): Int = if (isLoaded) PsxNative.videoWidth() else 320
     override fun videoHeight(): Int = if (isLoaded) PsxNative.videoHeight() else 240
 
+    /**
+     * FPS HUD 的真实帧率：按固定间隔轮询核心“真实提交帧数”计数器
+     * （psx_loader 的 cb_video 非空调用时 +1），并用真实流逝时间换算。
+     *
+     * 修复点：旧实现用前端模拟循环的步进计数，它只会显示帧率限制器
+     * 的目标值（NTSC 60 / PAL 50），游戏内部掉帧（很多 PS1 游戏是
+     * 30/20fps）时也永远显示 60；现在读到的是核心实际输出的帧率。
+     * 快进时按倍速跑，数值同样会正确上升。
+     */
+    override fun realtimeFps(): Double {
+        if (!isLoaded) return 0.0
+        return try {
+            val frames = PsxNative.pollPresentedFrames()
+            val now = System.nanoTime()
+            val last = _fpsPollNs
+            _fpsPollNs = now
+            if (frames <= 0 || last <= 0L) 0.0
+            else frames * 1_000_000_000.0 / (now - last).coerceAtLeast(1)
+        } catch (t: Throwable) { 0.0 }
+    }
+
     override fun setVideoFilter(filter: Int) = PsxNative.setVideoFilter(filter)
     override fun setHighQualityScaling(enabled: Boolean) = PsxNative.setHighQualityScaling(enabled)
 
@@ -290,6 +314,7 @@ class PsxEngine private constructor() : EmulatorEngine {
         _ffSpeed = 0
         hasSurface = false
         _targetHz = 60
+        _fpsPollNs = 0L
     }
 
     override fun setPad1(bits: Int) = PsxNative.setPad1(bits)

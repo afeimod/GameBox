@@ -111,6 +111,13 @@ object PsxNative {
     /** Core-reported refresh rate in Hz (59.82614 NTSC / 50.0 PAL). */
     @JvmStatic external fun videoFps(): Double
 
+    /**
+     * 读取并清零自上次轮询以来核心真实提交（视频回调非空）的帧数。
+     * FPS HUD 每秒轮询一次，换算成真实帧率 —— 游戏内部掉帧时数值
+     * 会低于步进频率，不再是永远被帧率限制器凑出来的 60。
+     */
+    @JvmStatic external fun pollPresentedFrames(): Int
+
     @JvmStatic external fun saveState(slot: Int, path: String): Boolean
     @JvmStatic external fun loadState(slot: Int, path: String): Boolean
 

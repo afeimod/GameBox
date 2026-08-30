@@ -12,6 +12,7 @@ import android.view.TextureView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -549,6 +551,44 @@ fun FsdTopBar(modifier: Modifier = Modifier) {
             fontSize = if (compact) 12.sp else 13.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FsdToolButton — FSD 工具按钮：顶部图标 + 小字标签（TV / D-pad 友好）
+// ---------------------------------------------------------------------------
+
+/**
+ * FSD 工具按钮 — 顶部图标 + 小字标签。
+ *
+ * 游戏库 / 在线游戏 / SWF 列表等 FSD 风页面共用；原先只在 LibraryScreen
+ * 里私有定义，现提为公共组件供各页复用，保证视觉一致。
+ */
+@Composable
+fun FsdToolButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = Color.White.copy(alpha = 0.88f),
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            label,
+            color = Fsd.BarTextDim,
+            fontSize = 9.sp,
+            maxLines = 1
         )
     }
 }

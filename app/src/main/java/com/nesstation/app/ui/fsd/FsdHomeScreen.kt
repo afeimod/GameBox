@@ -441,6 +441,29 @@ fun FsdHomeScreen(
                             },
                             valueRange = 0.05f..1f
                         )
+                        // 一键把当前透明度同步到所有卡片 —— 修复“透明度没有
+                        // 应用到所有卡片”：以前只能逐个磁贴长按调节，现在
+                        // 提供批量应用入口，一次设置全部生效。
+                        TextButton(
+                            onClick = {
+                                val v = (tileAlphas[tile.key] ?: 1f).coerceIn(0.05f, 1f)
+                                val json = JSONObject().apply {
+                                    tiles.forEach { t -> put(t.key, v.toDouble()) }
+                                }.toString()
+                                tileAlphasJson = json
+                                val layout = PadLayoutStore.load(context)
+                                PadLayoutStore.save(
+                                    context,
+                                    layout.copy { homeTileIconAlphas = json }
+                                )
+                            }
+                        ) {
+                            Text(
+                                "将此透明度应用到所有卡片",
+                                fontSize = 12.sp,
+                                color = Color(0xFF2E86E0)
+                            )
+                        }
                     }
                 },
                 confirmButton = {
