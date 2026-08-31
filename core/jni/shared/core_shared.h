@@ -14,12 +14,14 @@
 #include <android/native_window.h>
 #include <atomic>
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 // Include HQX library for HQ2X/HQ4X filters
@@ -967,6 +969,18 @@ static inline void saveSramToDisk(void* sram, size_t sramSize,
         return;
     }
     std::string srmPath = getSrmPath(saveDir, romPath, explicitName);
+    // Ensure the parent directory exists before writing. fopen("wb") silently
+    // fails if the save dir is missing, which would lose the player's
+    // in-game save (e.g. the unified save directory <filesDir>/saves).
+    std::string dir = saveDir;
+    if (!dir.empty()) {
+        if (dir.back() == '/') dir.pop_back();
+        if (!dir.empty() && mkdir(dir.c_str(), 0755) != 0) {
+            if (errno != EEXIST) {
+                LOGW("SRAM save: mkdir %s failed: %d", dir.c_str(), errno);
+            }
+        }
+    }
     FILE* f = std::fopen(srmPath.c_str(), "wb");
     if (!f) {
         LOGE("SRAM save: cannot open %s for write", srmPath.c_str());

@@ -29,6 +29,9 @@ object GbaNative {
 
     @JvmStatic external fun loadRom(path: String): Boolean
     @JvmStatic external fun unload()
+
+    /** Flush the current battery SRAM to disk now (no-op when unloaded). */
+    @JvmStatic external fun flushSave()
     @JvmStatic external fun reset(hard: Boolean)
     @JvmStatic external fun runFrame()
 

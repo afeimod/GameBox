@@ -73,6 +73,12 @@ void setPaths(const std::string& systemDir, const std::string& saveDir);
 // Pass an empty string to revert to deriving the .srm name from the ROM path.
 void setSaveName(const std::string& name);
 
+// Flush the current SAVE_RAM buffer to disk immediately. Safe to call while
+// the core is loaded (no-op otherwise). The frontend calls this periodically
+// (and when the game is paused / backgrounded) so in-game saves survive an
+// app kill/crash — otherwise SRAM is only persisted in unload().
+void flushSave();
+
 // Region / sample-rate / speed hints. Region is auto-detected at load; the
 // core fixes the audio sample rate, so these are best-effort and mostly no-ops
 // kept for ABI compatibility with the bridge.

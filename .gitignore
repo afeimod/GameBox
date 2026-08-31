@@ -39,3 +39,6 @@ replay_pid*
 
 # NDK
 obj/
+
+# Temp downloads (shaderc dep tarballs etc.) — never commit
+.tmp_dl/

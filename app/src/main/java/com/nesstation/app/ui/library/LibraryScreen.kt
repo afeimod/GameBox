@@ -55,7 +55,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -181,7 +185,13 @@ fun LibraryScreen(
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingRenameGame by remember { mutableStateOf<GameEntry?>(null) }
 
-    fun refreshList() {
+    // 刷新/重扫协程作用域。refreshList() 的文件夹重扫涉及 SAF 逐层 query +
+    // 每个新文件的标题读取（含大量 CHD 镜像的目录尤其明显），整体搬到 IO
+    // 线程，避免按钮/回调在主线程同步扫描导致列表刷新卡顿。
+    val scope = rememberCoroutineScope()
+
+    fun refreshList(postMessage: String? = null) {
+        scope.launch(Dispatchers.IO) {
         // 1) Re-scan every folder the user has imported games from, to pick up
         //    newly added ROMs and remove ROMs that have been deleted from disk.
         //    Previously only the LAST imported folder was re-scanned, and only
@@ -388,11 +398,11 @@ fun LibraryScreen(
         val totalAdded = stepAdded
         val totalRemoved = stepRemoved + removedCount
         if (totalAdded > 0 || totalRemoved > 0) {
-            dialogMsg = "刷新完成：新增 $totalAdded 个，移除 $totalRemoved 个"
+            dialogMsg = postMessage ?: "刷新完成：新增 $totalAdded 个，移除 $totalRemoved 个"
         } else if (lostFolderAccess) {
-            dialogMsg = "需要重新选择文件夹（之前的访问权限已失效）"
+            dialogMsg = postMessage ?: "需要重新选择文件夹（之前的访问权限已失效）"
         } else {
-            dialogMsg = "已是最新（无新增/移除）"
+            dialogMsg = postMessage ?: "已是最新（无新增/移除）"
         }
 
         val merged = (validNes + java).distinctBy { it.id }
@@ -403,6 +413,7 @@ fun LibraryScreen(
         // instances reload the latest list — otherwise the refreshed list
         // is replaced by stale data when navigating back.
         onGamesChanged?.invoke()
+        }
     }
 
     // 当外部传入的 games 列表变化时（父级 NavHost 在 ON_RESUME 时重新加载），
@@ -496,12 +507,13 @@ fun LibraryScreen(
             count++
         }
         if (count > 0) {
-            refreshList()
-            dialogMsg = if (skipped > 0) {
-                "已导入 $count 个ROM文件（自动跳过 $skipped 个CD附属文件）"
-            } else {
-                "已导入 $count 个ROM文件"
-            }
+            refreshList(
+                postMessage = if (skipped > 0) {
+                    "已导入 $count 个ROM文件（自动跳过 $skipped 个CD附属文件）"
+                } else {
+                    "已导入 $count 个ROM文件"
+                }
+            )
         }
     }
 
@@ -547,8 +559,7 @@ fun LibraryScreen(
                         execName
                     }
                     RomStore.add(context, title, launcherUri.toString(), GamePlatform.DOS)
-                    refreshList()
-                    dialogMsg = "已导入 DOS 游戏：$title"
+                    refreshList(postMessage = "已导入 DOS 游戏：$title")
                 }
                 return@rememberLauncherForActivityResult
             }
@@ -583,9 +594,11 @@ fun LibraryScreen(
                         failed++
                     }
                 }
-                refreshList()
-                dialogMsg = if (failed > 0) "从文件夹导入 $count 个ROM文件（$failed 个失败）"
-                else "从文件夹导入 $count 个ROM文件"
+                refreshList(
+                    postMessage = if (failed > 0)
+                        "从文件夹导入 $count 个ROM文件（$failed 个失败）"
+                    else "从文件夹导入 $count 个ROM文件"
+                )
             }
         } catch (e: SecurityException) {
             dialogMsg = "没有权限访问所选文件夹，请重试或选择其他文件夹"
@@ -614,8 +627,7 @@ fun LibraryScreen(
                     }
                     RomStore.add(context, title, path, platform)
                 }
-                refreshList()
-                dialogMsg = "权限已授予，扫描到 ${entries.size} 个ROM文件"
+                refreshList(postMessage = "权限已授予，扫描到 ${entries.size} 个ROM文件")
             } else {
                 dialogMsg = "权限已授予，但未在常见目录找到ROM文件"
             }
@@ -638,9 +650,10 @@ fun LibraryScreen(
             } catch (_: Exception) { }
             if (JavaGameStore.installJar(context, uri) != null) installed++
         }
-        refreshList()
-        dialogMsg = if (installed > 0) "已安装 $installed 个 Java 游戏"
-        else "安装失败，请检查 JAR 文件是否有效"
+        refreshList(
+            postMessage = if (installed > 0) "已安装 $installed 个 Java 游戏"
+            else "安装失败，请检查 JAR 文件是否有效"
+        )
     }
 
     // SAF picker for choosing a custom cover icon for a game
@@ -661,8 +674,7 @@ fun LibraryScreen(
                 iconFile.outputStream().use { output -> input.copyTo(output) }
             }
             RomStore.setCustomIcon(context, game.id, iconFile.absolutePath)
-            refreshList()
-            dialogMsg = "已设置自定义图标"
+            refreshList(postMessage = "已设置自定义图标")
         } catch (e: Exception) {
             dialogMsg = "图标设置失败：${e.message}"
         }
@@ -717,8 +729,7 @@ fun LibraryScreen(
                         val platform = detectPlatformFromFile(File(path), hintPlatform = selectedPlatform)
                         RomStore.add(context, name.substringBeforeLast('.'), path, platform)
                     }
-                    refreshList()
-                    dialogMsg = "已扫描到 ${entries.size} 个ROM文件"
+                    refreshList(postMessage = "已扫描到 ${entries.size} 个ROM文件")
                 } else {
                     dialogMsg = "未在常见目录找到ROM文件"
                 }
@@ -1044,8 +1055,7 @@ fun LibraryScreen(
                             launcher.absolutePath,
                             GamePlatform.DOS
                         )
-                        refreshList()
-                        dialogMsg = "已导入 DOS 游戏：$title"
+                        refreshList(postMessage = "已导入 DOS 游戏：$title")
                     }
                     return@FileBrowserDialog
                 }
@@ -1078,10 +1088,11 @@ fun LibraryScreen(
                             failed++
                         }
                     }
-                    refreshList()
-                    dialogMsg = if (failed > 0)
-                        "从文件夹导入 $count 个ROM文件（$failed 个失败）"
-                    else "从文件夹导入 $count 个ROM文件"
+                    refreshList(
+                        postMessage = if (failed > 0)
+                            "从文件夹导入 $count 个ROM文件（$failed 个失败）"
+                        else "从文件夹导入 $count 个ROM文件"
+                    )
                 }
             },
             onDismiss = { showFileBrowser = false }

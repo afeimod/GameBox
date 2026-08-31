@@ -53,6 +53,7 @@ bool Engine::loadRom(const std::string& path) {
 }
 
 void Engine::unload()       { rom::unload(); }
+void Engine::flushSave()    { rom::flushSave(); }
 void Engine::reset(bool h)  { rom::resetEmulation(h); }
 void Engine::runFrame()     { rom::stepFrame(); }
 void Engine::shutdown()     { rom::unload(); }
@@ -150,6 +151,11 @@ Java_com_nesstation_app_core_jni_GbaNative_loadRom(JNIEnv* env, jclass, jstring 
 JNIEXPORT void JNICALL
 Java_com_nesstation_app_core_jni_GbaNative_unload(JNIEnv*, jclass) {
     gbacore::Engine::instance().unload();
+}
+
+JNIEXPORT void JNICALL
+Java_com_nesstation_app_core_jni_GbaNative_flushSave(JNIEnv*, jclass) {
+    gbacore::Engine::instance().flushSave();
 }
 
 JNIEXPORT void JNICALL

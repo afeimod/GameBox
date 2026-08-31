@@ -19,3 +19,15 @@ android_test/libs
 android_test/include
 .DS_Store
 .vscode/
+
+# --- GameBox: vendored deps for the Vulkan GS renderer (USE_VULKAN=ON) ---
+# shaderc's upstream CMake normally pulls these in as git submodules. This
+# repo vendors them from tarballs instead, so both local builds and GitHub
+# Actions CI can compile the Vulkan backend without network access. The
+# negation rules below force them back into version control.
+!third_party/glslang/
+!third_party/glslang/**
+!third_party/spirv-tools/
+!third_party/spirv-tools/**
+!third_party/spirv-headers/
+!third_party/spirv-headers/**

@@ -469,10 +469,11 @@ class PadLayout {
     // 超大帧仍有 box 降采样兜底。旧版 Play! 的 "1x"/"2x"/"4x"/"8x" 取值
     // 在 load() 时自动迁移到新枚举。键名已对照 PCEE2 源码验证。
     var ps2ResMulti: String = "1"                   // "1" | "2" | "3" | "4" (分辨率倍数)
-    // ARMSX2 核心构建时禁用了 Vulkan (USE_VULKAN=OFF，shaderc 依赖未打包)，
-    // 只有 OpenGL ES 硬件渲染可用。默认用 OpenGL；旧存档里的 "vulkan" 会在
-    // load() 时自动迁移到 "opengl"，否则核心报 Unsupported render API 而黑屏。
-    var ps2Renderer: String = "opengl"              // opengl | software (渲染器, 即时切换)
+    // ARMSX2 核心已编译 Vulkan (USE_VULKAN=ON)。可取 auto | opengl | vulkan |
+    // software；auto 让 GSUtil::GetPreferredRenderer 按设备支持选择（有 Vulkan 的
+    // Adreno/Mali 设备走 Vulkan，其余回 OpenGL）。默认 auto 与 ARMSX2 全新安装
+    // 一致；旧存档里的 "opengl" 保持原样直接生效。
+    var ps2Renderer: String = "auto"                // auto | opengl | vulkan | software (渲染器, 即时切换)
     var ps2Bilinear: String = "enabled"             // disabled | enabled → 映射为 nearest/bilinear_ps2
 
     // === PS2 (PCEE2) 补充核心选项 — 键名/取值对照 pcee2-libretro Libretro.cpp definitions[] 表 ===
@@ -492,6 +493,12 @@ class PadLayout {
     var ps2EeCycleRate: String = "0"                 // pcsx2_ee_cycle_rate: -3..3 (超频/降频)
     var ps2EeCycleSkip: String = "0"                 // pcsx2_ee_cycle_skip: 0|1|2|3
     var ps2Rumble: String = "enabled"                // pcsx2_rumble: enabled|disabled
+    // ARMSX2 native 渲染增强设置（renderTvShader/renderShadeBoost/
+    // renderHalfpixeloffset/renderPreloading）——原先只有渲染器/分辨率等基础项。
+    var ps2TvShader: String = "0"                    // pcsx2_tv_shader: 0..7 (0=关闭, ARMSX2 TVShader 枚举)
+    var ps2ShadeBoost: String = "disabled"           // pcsx2_shade_boost: disabled|enabled (亮度/对比度/饱和度/伽马固定默认 50)
+    var ps2HalfPixelOffset: String = "0"             // pcsx2_half_pixel_offset: 0..5 (GSHalfPixelOffset, 0=关闭)
+    var ps2TexturePreloading: String = "1"           // pcsx2_texture_preloading: 0=Off|1=Partial|2=Full (Full 最吃显存)
 
     companion object {
         /** 把 Play! 时代的 "1x|2x|4x|8x" 迁移为 PCEE2 的 "1".."4"；非法值回落默认。 */
@@ -915,6 +922,10 @@ class PadLayout {
         ps2InstantVu1 = another.ps2InstantVu1
         ps2EeCycleRate = another.ps2EeCycleRate
         ps2EeCycleSkip = another.ps2EeCycleSkip
+        ps2TvShader = another.ps2TvShader
+        ps2ShadeBoost = another.ps2ShadeBoost
+        ps2HalfPixelOffset = another.ps2HalfPixelOffset
+        ps2TexturePreloading = another.ps2TexturePreloading
         ps2Rumble = another.ps2Rumble
         ps2Dpad = another.ps2Dpad
         ps2DpadP = another.ps2DpadP
@@ -1580,8 +1591,9 @@ object PadLayoutStore {
             // === PS2 (PCEE2 — PCSX2 core) core options + 专属按键布局 ===
             // PCEE2 迁移：旧值 "1x"/"2x"/"4x"/"8x" 自动归一到 "1".."4"
             ps2ResMulti = PadLayout.normalizePs2ResMulti(p.getString("ps2_res_multi", null))
-            // 旧值 "vulkan" 不再合法（核心未编译 Vulkan），load() 自动回落到默认 "opengl"。
-            ps2Renderer = p.getString("ps2_renderer", "opengl")?.takeIf { it == "opengl" || it == "software" } ?: "opengl"
+            // 核心已编译 Vulkan，auto/opengl/vulkan/software 均为合法值；非法旧值回落 auto。
+            ps2Renderer = p.getString("ps2_renderer", "auto")?.takeIf {
+                it in setOf("auto", "opengl", "vulkan", "software") } ?: "auto"
             ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2FastBoot = p.getString("ps2_fast_boot", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2HwDownloadMode = p.getString("ps2_hw_download_mode", "unsynchronized")?.takeIf {
@@ -1612,8 +1624,14 @@ object PadLayoutStore {
                 it in setOf("-3", "-2", "-1", "0", "1", "2", "3") } ?: "0"
             ps2EeCycleSkip = p.getString("ps2_ee_cycle_skip", "0")?.takeIf {
                 it in setOf("0", "1", "2", "3") } ?: "0"
-            ps2Rumble = p.getString("ps2_rumble", "enabled")?.takeIf {
-                it == "disabled" || it == "enabled" } ?: "enabled"
+            ps2TvShader = p.getString("ps2_tv_shader", "0")?.takeIf { it.toIntOrNull() in 0..7 } ?: "0"
+                        ps2ShadeBoost = p.getString("ps2_shade_boost", "disabled")?.takeIf {
+                            it == "disabled" || it == "enabled" } ?: "disabled"
+                        ps2HalfPixelOffset = p.getString("ps2_half_pixel_offset", "0")?.takeIf {
+                            it.toIntOrNull() in 0..5 } ?: "0"
+                        ps2TexturePreloading = p.getString("ps2_texture_preloading", "1")?.takeIf {
+                            it.toIntOrNull() in 0..2 } ?: "1"
+                        ps2Rumble = p.getString("ps2_rumble", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2Dpad = loadBtn(p, "ps2_dpad", ButtonLayout(x = 0.13f, y = 0.55f, sizeDp = 110))
             ps2DpadP = loadBtn(p, "ps2_p_dpad", ButtonLayout(x = 0.18f, y = 0.58f, sizeDp = 104))
             ps2LStick = loadBtn(p, "ps2_lstick", ButtonLayout(x = 0.13f, y = 0.88f, sizeDp = 112))
@@ -2056,6 +2074,10 @@ object PadLayoutStore {
             putString("ps2_instant_vu1", layout.ps2InstantVu1)
             putString("ps2_ee_cycle_rate", layout.ps2EeCycleRate)
             putString("ps2_ee_cycle_skip", layout.ps2EeCycleSkip)
+            putString("ps2_tv_shader", layout.ps2TvShader)
+            putString("ps2_shade_boost", layout.ps2ShadeBoost)
+            putString("ps2_half_pixel_offset", layout.ps2HalfPixelOffset)
+            putString("ps2_texture_preloading", layout.ps2TexturePreloading)
             putString("ps2_rumble", layout.ps2Rumble)
             saveBtn("ps2_dpad", layout.ps2Dpad)
             saveBtn("ps2_p_dpad", layout.ps2DpadP)

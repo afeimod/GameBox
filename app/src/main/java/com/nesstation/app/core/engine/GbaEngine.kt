@@ -49,6 +49,8 @@ class GbaEngine private constructor() : EmulatorEngine {
     @Volatile private var _ffSpeed = 0
     @Volatile private var hasSurface = false
     @Volatile private var _paused = false
+    // 暂停时确保只触发一次 SRAM 刷盘（进程可能在后台被杀）
+    private var pauseFlushDone = false
 
     // === Netplay (lockstep hook) ===
     @Volatile private var _frameHook: NetplayHook? = null
@@ -99,11 +101,18 @@ class GbaEngine private constructor() : EmulatorEngine {
                 android.os.Process.setThreadPriority(
                     android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
                 )
+                var frameCount = 0
                 while (running.get()) {
                     if (_paused) {
+                        // 暂停时把当前电池存档刷盘一次（进程可能在后台被杀）
+                        if (!pauseFlushDone) {
+                            try { if (isLoaded) GbaNative.flushSave() } catch (_: Throwable) {}
+                            pauseFlushDone = true
+                        }
                         try { Thread.sleep(16) } catch (_: InterruptedException) { break }
                         continue
                     }
+                    pauseFlushDone = false
 
                     val t0 = System.nanoTime()
 
@@ -138,6 +147,14 @@ class GbaEngine private constructor() : EmulatorEngine {
                     }
 
                     onFrame()
+
+                    // === 周期刷盘：防止进程被杀/崩溃/强制停止时丢失内部存档 ===
+                    // 否则 SRAM 仅在 unload() 时写盘，Android 随时可能回收后台
+                    // 进程（尤其切后台玩别的游戏），存档会静默丢失。
+                    if (++frameCount >= 600) {
+                        frameCount = 0
+                        try { GbaNative.flushSave() } catch (_: Throwable) {}
+                    }
 
                     // Pacing — melonDS-style fast-forward: divide the frame
                     // budget by the multiplier so emulation runs up to N×
@@ -182,6 +199,10 @@ class GbaEngine private constructor() : EmulatorEngine {
 
     override fun setPaused(paused: Boolean) {
         _paused = paused
+        if (paused) {
+            // 暂停/切后台时立即刷盘，防止进程被杀丢失内部存档
+            try { if (isLoaded) GbaNative.flushSave() } catch (_: Throwable) {}
+        }
     }
 
     private fun startAudio(sampleRate: Int) {

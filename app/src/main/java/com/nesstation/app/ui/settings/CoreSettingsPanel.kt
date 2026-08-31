@@ -1012,8 +1012,13 @@ fun CoreSettingsPanel(
                 // 键名/取值已对照 pcee2-libretro 源码 Libretro.cpp definitions[] 表验证
                 // (WizzardSK/pcee2-libretro, 与预编译 libpcee2_libretro_android.so 同源)。
                 SettingsSection("PS2 (PCSX2) · 画面") {
+                    // ARMSX2 核心已启用 Vulkan (USE_VULKAN=ON)。auto 由核心按设备
+                    // 支持选择（Vulkan 优先），opengl 用 OpenGL ES，vulkan 强制 Vulkan，
+                    // software 用 CPU 软渲染。均可即时切换。
                     DropdownRow("渲染器",
-                        listOf("opengl" to "OpenGL (硬件加速)",
+                        listOf("auto" to "Auto (按设备选择)",
+                               "vulkan" to "Vulkan (硬件加速)",
+                               "opengl" to "OpenGL (硬件加速)",
                                "software" to "Software (软渲染)"),
                         padLayout.ps2Renderer
                     ) { updateLayout(padLayout.copy {ps2Renderer = it}) }
@@ -1049,6 +1054,30 @@ fun CoreSettingsPanel(
                                "5" to "Bob (BFF)", "8" to "Adaptive (TFF)", "9" to "Adaptive (BFF)"),
                         padLayout.ps2Deinterlace
                     ) { updateLayout(padLayout.copy {ps2Deinterlace = it}) }
+                    // 以下为 ARMSX2 native 渲染增强设置 — TVShader/HalfPixelOffset/
+                    // TexturePreloadingLevel 枚举值对照 ARMSX2 全屏设置 UI。
+                    DropdownRow("电视滤镜 (TV Shader)",
+                        listOf("0" to "无 (默认)", "1" to "扫描线 (Scanline)",
+                               "2" to "对角线 (Diagonal)", "3" to "三角 (Triangular)",
+                               "4" to "波浪 (Wave)", "5" to "Lottes CRT",
+                               "6" to "4xRGSS", "7" to "NxAGSS"),
+                        padLayout.ps2TvShader
+                    ) { updateLayout(padLayout.copy {ps2TvShader = it}) }
+                    DropdownRow("画面增强 (ShadeBoost)",
+                        listOf("disabled" to "关闭 (默认)", "enabled" to "开启 (亮度对比度饱和度伽马=50)"),
+                        padLayout.ps2ShadeBoost
+                    ) { updateLayout(padLayout.copy {ps2ShadeBoost = it}) }
+                    DropdownRow("半像素偏移 (Half-pixel)",
+                        listOf("0" to "关闭 (默认)", "1" to "普通 (Normal)",
+                               "2" to "特殊 (Special)", "3" to "特殊激进 (Special Aggressive)",
+                               "4" to "原生 (Native)", "5" to "原生+纹理偏移"),
+                        padLayout.ps2HalfPixelOffset
+                    ) { updateLayout(padLayout.copy {ps2HalfPixelOffset = it}) }
+                    DropdownRow("纹理预加载",
+                        listOf("0" to "关闭 (Off)", "1" to "部分 (Partial, 推荐)",
+                               "2" to "完整 (Full, 最吃显存)"),
+                        padLayout.ps2TexturePreloading
+                    ) { updateLayout(padLayout.copy {ps2TexturePreloading = it}) }
                     DropdownRow("画面比例",
                         listOf("auto" to "跟随全局画面缩放", "4:3" to "4:3 (锁定)", "16:9" to "16:9 (锁定)"),
                         padLayout.ps2AspectRatio

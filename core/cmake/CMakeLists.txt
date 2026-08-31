@@ -627,14 +627,13 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     # only affect its own subtree, not the GameBox targets above.
     #
     # Vulkan renderer: ARMSX2's Vulkan GS backend needs the shaderc
-    # submodule deps (3rdparty/shaderc/third_party/{spirv-tools,spirv-headers,
-    # glslang}) which are NOT packed in the source download — enabling it
-    # fails the build inside shaderc. Force USE_VULKAN=OFF here and render
-    # with OpenGL ES instead (USE_OPENGL=ON is the default; glad ships).
-    # To re-enable Vulkan later: populate shaderc's third_party (e.g.
-    # `git submodule update --init 3rdparty/shaderc` from ARMSX2's repo)
-    # and drop the line below.
-    set(USE_VULKAN OFF CACHE BOOL "ARMSX2 Vulkan renderer (disabled: shaderc third_party not bundled)" FORCE)
+    # third_party deps (3rdparty/shaderc/third_party/{spirv-tools,
+    # spirv-headers, glslang}) which the ARMSX2 source download does not
+    # pack. They are now vendored into ARMSX2's cpp/3rdparty/shaderc/
+    # third_party/ (plus the spirv-tools/external/spirv-headers symlink),
+    # so USE_VULKAN defaults to ON here via BuildParameters. SearchForStuff
+    # locates them with CMAKE_CURRENT_SOURCE_DIR (GameBox add_subdirectory
+    # build: CMAKE_SOURCE_DIR would point at core/cmake).
     add_subdirectory("${ARMSX2_ANDROID_CPP}" "${CMAKE_BINARY_DIR}/armsx2")
 
     # ARMSX2's vendored 7-Zip lzma (pcsx2-lzma) compiles AesOpt.c with ARMv8

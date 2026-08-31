@@ -1,6 +1,57 @@
 # GameBox 修复说明（本次提交）
 
-本次共修复 4 个问题，全部为源码级修复，无需额外资源；直接用 Android Studio 打开工程构建 APK 即可。
+本次共修复 7 个问题，全部为源码级修复，无需额外资源；直接用 Android Studio 打开工程构建 APK 即可。
+
+---
+
+## 修复 7：PS2 Vulkan 渲染（启用 + 编译链路修正）与补全缺失的渲染增强设置
+
+**背景**：ARMSX2（PCSX2 fork）核心支持 Vulkan GS 渲染器，但本仓库先前通过 `set(USE_VULKAN OFF ... FORCE)` 关闭了它，且 shaderc 构建所需的 vendored 依赖（spirv-tools / spirv-headers / glslang）缺失，导致 Vulkan 即便打开也无法编译。
+
+**修复**（编译链路）：
+- **移除强制关闭**：`core/cmake/CMakeLists.txt` 删掉 `set(USE_VULKAN OFF ... FORCE)` —— Vulkan 按 ARMSX2 默认（`USE_VULKAN=ON`）启用。
+- **vendored 依赖补齐**：下载 spirv-tools / spirv-headers / glslang 到 ARMSX2 的 `3rdparty` 并解包；`spirv-tools/external/spirv-headers` 建立符号链接（spirv-tools 的 external CMake 会回落到该目录，否则 SPIRV-Headers target 重复定义）。
+- **SPIRV-Headers 目录作用域修正**：`SearchForStuff.cmake` 显式 `set(SPIRV-Headers_SOURCE_DIR ... CACHE STRING "" FORCE)` —— CMake 目录作用域隔离导致 spirv-tools 子目录看不到 spirv-headers 的 `project()` 自动 CACHE 写入，之前会错误地重复 `add_subdirectory(spirv-headers)`。
+- `SHADERC_SKIP_TESTS` / `SHADERC_SKIP_EXECUTABLES` 已置 ON（SearchForStuff），glslang 测试默认关闭，无 googletest 拉取风险。
+
+**补全缺失的设置**：ARMSX2 native 已暴露、但 GameBox UI 未接入的 4 项渲染增强设置已补全（native 方法 `renderTvShader` / `renderShadeBoost` / `renderHalfpixeloffset` / `renderPreloading`）：
+- **电视滤镜 (TV Shader)** `0..7`：无/Scanline/Diagonal/Triangular/Wave/Lottes CRT/4xRGSS/NxAGSS
+- **画面增强 (ShadeBoost)** `disabled|enabled`：开启时亮度/对比度/饱和度/伽马固定 50
+- **半像素偏移 (Half-pixel)** `0..5`：Off/Normal/Special/Special Aggressive/Native/Native+纹理偏移
+- **纹理预加载** `0..2`：Off/Partial(推荐)/Full
+- UI 三处同步：设置面板（`CoreSettingsPanel.kt` PS2·画面）、游戏内快捷菜单（`EmulatorScreen.kt`）、存储层（`PadLayoutStore.kt` 新增 4 字段 + load/save/copy + LaunchedEffect 触发列表），JNI 映射在 `Psx2Native.kt`。
+
+**涉及文件**：`core/cmake/CMakeLists.txt`、`ARMSX2-master/cmake/SearchForStuff.cmake`、`ARMSX2-master/3rdparty/`（vendored 依赖）、`app/.../jni/Psx2Native.kt`、`app/.../storage/PadLayoutStore.kt`、`app/.../settings/CoreSettingsPanel.kt`、`app/.../emulator/EmulatorScreen.kt`
+
+---
+
+## 修复 6：PS2 首次启动 ANR / CHD 黑屏 / CHD 扫描卡顿
+
+**根因**：
+- **首启 ANR**：SAF（content://）来源的 PS2/PSX/MD-CD/PCE-CD 游戏走 `loadGameFolder`，首次进入时在**主线程**同步递归复制整个文件夹（CHD/ISO 数 GB）→ 主线程阻塞 → ANR；二次进入命中 fast-path（`destLauncher.exists() && length()>0`）立即返回，所以表现为"第一次挂死、第二次正常"。单文件 content:// 分支同样在主线程 `copyTo` 复制大文件。
+- **CHD 黑屏**：旧 fast-path 只看目标文件是否存在/非空。若上次进程在复制大 CHD 中途被杀，残留的**截断文件**会被永久当作完整镜像返回——核心能读出 CHD 头部却读不到游戏数据 → BIOS 动画后黑屏，且无法自愈。
+- **扫描卡顿**：`LibraryScreen.refreshList()`（按钮/导入回调触发）在**主线程**同步重扫所有已导入文件夹，每个新文件还要 `extractTitle` 读文件头；含大量 CHD 的目录尤其明显，且 `RomStore.add()` 每次全量重写 SharedPreferences。
+
+**修复**：
+- **大文件复制移 IO 线程**（`EmulatorScreen.kt`）：DOS / Mega-CD / PCE-CD / PSX+PS2 四个 `loadGameFolder` 分支及单文件 content:// 大文件 `copyTo`，全部用 `withContext(Dispatchers.IO) { ... }` 包裹——首次启动不再阻塞主线程。
+- **复制完成标记自愈黑屏**：`loadGameFolder` 新增 `<filesDir>/<subDir>/<safeId>/.<safeId>.copy_ok` 标记文件。fast-path 额外要求标记存在；仅当整份复制成功写盘后才写标记；复制失败/中途被杀则删掉残留目录下次自动重拷——截断 CHD 不再被永久缓存。
+- **refreshList 异步化**（`LibraryScreen.kt`）：`refreshList()` 整体改为 `rememberCoroutineScope() + launch(Dispatchers.IO)`；新增 `postMessage` 参数，导入等操作成功后把专属提示透传给异步扫描汇总——不再有"提示被扫描结果覆盖"或"主线程卡顿"。9 处调用点（文件选择器/SAF DOS/SAF 普通/权限扫描/JAR/图标/存储权限/内置浏览器 DOS/内置浏览器文件夹）已全部改传 `postMessage`。
+
+**涉及文件**：`ui/emulator/EmulatorScreen.kt`、`ui/library/LibraryScreen.kt`
+
+---
+
+## 修复 5：GBA 等游戏在统一存档目录下"内部存档丢失/存不上"
+
+**根因**：SRAM（电池存档）只在 `unload()` 时写盘一次（`DisposableEffect.onDispose`）。Android 随时可能回收后台进程（切应用、来电、低内存、游戏内跳转），进程被杀后本次会话的进度全部丢失 —— 用户感知为"统一存档模式下存不上"。另：`saveSramToDisk` 用 `fopen("wb")` 写盘，若存档目录不存在会静默失败。
+
+**修复**（防御性刷盘 + 目录创建）：
+- **周期刷盘**：GBA 模拟线程每 600 帧（约 10 秒）调用一次新的 `flushSave()`，把当前 SAVE_RAM 缓冲写盘。
+- **暂停即刷**：`setPaused(true)` 立即刷一次；模拟线程检测到暂停也补刷一次 —— 切后台/游戏内暂停时进度已落盘。
+- **共享 mkdir**：`core_shared.h::saveSramToDisk` 在写盘前自动创建存档父目录（`mkdir 0755`，`EEXIST` 静默）—— 该函数被 NES/SNES/GBA/MD/PCE/PSX/FBNeo 等所有核心共用，一处修复全部生效。
+- `flushSave()` 在 core 未加载 / 无 ROM 时为 no-op，可安全周期调用。
+
+**涉及文件**：`core/jni/shared/core_shared.h`、`core/jni/gba_loader.h`、`core/jni/gba_loader.cpp`、`core/jni/gba_bridge.h`、`core/jni/gba_bridge.cpp`、`app/.../core/jni/GbaNative.kt`、`app/.../core/engine/GbaEngine.kt`
 
 ---
 

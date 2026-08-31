@@ -113,7 +113,7 @@ if(ANDROID)
 		set(SHADERC_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
 		set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
 		set(SHADERC_ENABLE_WERROR_COMPILE OFF CACHE BOOL "" FORCE)
-		set(SHADERC_THIRD_PARTY_ROOT_DIR "${CMAKE_SOURCE_DIR}/3rdparty/shaderc/third_party" CACHE STRING "" FORCE)
+		set(SHADERC_THIRD_PARTY_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/shaderc/third_party" CACHE STRING "" FORCE)
 		# Lowercase to match the directories git-sync-deps actually creates
 		# (DEPS uses third_party/spirv-tools, third_party/spirv-headers). The
 		# PascalCase repo names only resolve on case-insensitive filesystems
@@ -122,6 +122,14 @@ if(ANDROID)
 		set(SHADERC_SPIRV_TOOLS_DIR "${SHADERC_THIRD_PARTY_ROOT_DIR}/spirv-tools" CACHE STRING "" FORCE)
 		set(SHADERC_SPIRV_HEADERS_DIR "${SHADERC_THIRD_PARTY_ROOT_DIR}/spirv-headers" CACHE STRING "" FORCE)
 		set(SHADERC_GLSLANG_DIR "${SHADERC_THIRD_PARTY_ROOT_DIR}/glslang" CACHE STRING "" FORCE)
+		# spirv-tools/external/CMakeLists.txt gates its SPIRV-Headers dependency on
+		# `if (DEFINED SPIRV-Headers_SOURCE_DIR)`: without it the CMake fallback
+		# re-add_subdirectory()s spirv-headers and dies on a duplicate
+		# SPIRV-Headers INTERFACE target (shaderc's third_party already added it).
+		# Publish the path here so spirv-tools reuses the existing target. Note
+		# project(SPIRV-Headers) above would set this var in spirv-headers' own
+		# scope only (CMake scope isolation), so spirv-tools can't see it.
+		set(SPIRV-Headers_SOURCE_DIR "${SHADERC_THIRD_PARTY_ROOT_DIR}/spirv-headers" CACHE STRING "" FORCE)
 		set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
 		set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
 		set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
@@ -129,8 +137,8 @@ if(ANDROID)
 		set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
 		set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 		set(SPIRV_TOOLS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-		add_subdirectory("${CMAKE_SOURCE_DIR}/3rdparty/shaderc" "${CMAKE_BINARY_DIR}/3rdparty/shaderc" EXCLUDE_FROM_ALL)
-		set(SHADERC_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/3rdparty/shaderc/libshaderc/include")
+		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/shaderc" "${CMAKE_BINARY_DIR}/3rdparty/shaderc" EXCLUDE_FROM_ALL)
+		set(SHADERC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/shaderc/libshaderc/include")
 	endif()
 
 	set(FFMPEG_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/include")

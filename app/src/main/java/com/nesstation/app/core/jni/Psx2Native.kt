@@ -428,6 +428,16 @@ object Psx2Native {
                     NativeApp.setSetting("EmuCore/GS", "Deinterlace", "int", value)
                 "pcsx2_hw_download_mode" -> { /* no ARMSX2 equivalent */ }
 
+                // --- ARMSX2 live GS pokes (see native-lib.cpp render* methods) ---
+                "pcsx2_tv_shader" ->
+                    NativeApp.renderTvShader(value.toIntOrNull()?.coerceIn(0, 7) ?: 0)
+                "pcsx2_shade_boost" ->
+                    NativeApp.renderShadeBoost(value == "enabled", 50, 50, 50, 50)
+                "pcsx2_half_pixel_offset" ->
+                    NativeApp.renderHalfpixeloffset(value.toIntOrNull()?.coerceIn(0, 5) ?: 0)
+                "pcsx2_texture_preloading" ->
+                    NativeApp.renderPreloading(value.toIntOrNull()?.coerceIn(0, 2) ?: 1)
+
                 else -> android.util.Log.w("Psx2Native", "unmapped core option: $key=$value")
             }
             // Persist to the core's ini layer; read at next VM boot.

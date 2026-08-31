@@ -118,6 +118,8 @@ import com.nesstation.app.ui.settings.KeyMapStore
 import android.view.KeyEvent
 import android.view.View
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // ---------------------------------------------------------------------------
 // TV mode detection — used to hide the touch-only on-screen gamepad on TV
@@ -584,9 +586,15 @@ private fun loadGameFolder(
     val destRoot = java.io.File(context.filesDir, "$subDir/$safeId")
     val destLauncher = java.io.File(destRoot, launcherName)
 
-    // Fast path: launcher already copied — assume the folder is up to date.
-    // (User can clear app data to force re-copy.)
-    if (destLauncher.exists() && destLauncher.length() > 0) {
+    // 复制完成标记：仅在整份复制成功写盘后才落盘。旧 fast-path 只看
+    // destLauncher 是否存在/非空——若上次进程在复制大 CHD 中途被杀，
+    // 残留的截断文件会被永久当作完整镜像返回；核心能读出 CHD 头部却
+    // 读不到游戏数据 → BIOS 动画后黑屏。标记缺失时下次启动自动重拷。
+    val copyMarker = java.io.File(destRoot, ".${safeId}.copy_ok")
+
+    // Fast path: launcher already copied AND a full copy completed (marker
+    // present). (User can clear app data to force re-copy.)
+    if (destLauncher.exists() && destLauncher.length() > 0 && copyMarker.exists()) {
         return destLauncher
     }
 
@@ -597,13 +605,18 @@ private fun loadGameFolder(
     // Recursively copy the parent folder into destRoot.
     try {
         copySafFolderRecursive(context, treeUri, parentUri, destRoot)
+        // Copy finished without throwing — record completion so the fast
+        // path never returns a truncated image left by a killed mid-copy.
+        if (destLauncher.exists() && destLauncher.length() > 0) {
+            copyMarker.writeText("ok")
+        }
     } catch (e: Exception) {
         android.util.Log.e("DosLoader", "Folder copy failed", e)
         return null
     }
 
     // The launcher file should now exist in destRoot under its original name.
-    return if (destLauncher.exists()) destLauncher else {
+    return if (destLauncher.exists() && copyMarker.exists()) destLauncher else {
         // Fallback: find the first .bat/.exe/.com in destRoot.
         destRoot.walkTopDown()
             .firstOrNull { it.isFile && it.extension.lowercase() in setOf("bat", "exe", "com") }
@@ -890,7 +903,9 @@ fun EmulatorScreen(
                    padLayout.ps2Mipmapping, padLayout.ps2Deinterlace, padLayout.ps2AspectRatio,
                    padLayout.ps2Widescreen, padLayout.ps2NoInterlace,
                    padLayout.ps2Mtvu, padLayout.ps2InstantVu1,
-                   padLayout.ps2EeCycleRate, padLayout.ps2EeCycleSkip, padLayout.ps2Rumble
+                   padLayout.ps2EeCycleRate, padLayout.ps2EeCycleSkip, padLayout.ps2Rumble,
+                   padLayout.ps2TvShader, padLayout.ps2ShadeBoost,
+                   padLayout.ps2HalfPixelOffset, padLayout.ps2TexturePreloading
                    ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
@@ -1197,7 +1212,9 @@ fun EmulatorScreen(
             // Without this, DOSBox-Pure cannot find the executable referenced
             // by the .bat file and falls back to its "Start Menu" with the
             // message "No executable file found" — exactly the bug we're fixing.
-            val result = loadDosGameFolder(context, romPath, game.id)
+            val result = withContext(Dispatchers.IO) {
+                loadDosGameFolder(context, romPath, game.id)
+            }
             if (result == null) {
                 errorMsg = "DOS 游戏加载失败：无法读取文件夹内容"
             } else {
@@ -1247,7 +1264,9 @@ fun EmulatorScreen(
             //
             // Copy the whole folder so all .bin tracks are next to the .cue,
             // then pass the copied .cue path to the core.
-            val cdFile = loadGameFolder(context, romPath, game.id, "md_cd")
+            val cdFile = withContext(Dispatchers.IO) {
+                loadGameFolder(context, romPath, game.id, "md_cd")
+            }
             if (cdFile == null) {
                 errorMsg = "Mega-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
@@ -1270,7 +1289,9 @@ fun EmulatorScreen(
             // misreports it as "System Card BIOS missing" — even when the
             // BIOS is present. Copy the whole folder so the .bin tracks
             // are available next to the .cue.
-            val cdFile = loadGameFolder(context, romPath, game.id, "pce_cd")
+            val cdFile = withContext(Dispatchers.IO) {
+                loadGameFolder(context, romPath, game.id, "pce_cd")
+            }
             if (cdFile == null) {
                 errorMsg = "PCE-CD 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
             } else {
@@ -1299,7 +1320,9 @@ fun EmulatorScreen(
             // the same way for consistency (these are single-file images but
             // the folder-copy path is safe and handles edge cases like
             // .mdf+.mds pairs).
-            val cdFile = loadGameFolder(context, romPath, game.id, "psx_cd")
+            val cdFile = withContext(Dispatchers.IO) {
+                loadGameFolder(context, romPath, game.id, "psx_cd")
+            }
             if (cdFile == null) {
                 errorMsg = if (platform == GamePlatform.PS2) "PS2 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
                            else "PS1 加载失败：无法读取文件夹内容（.cue/.bin 音轨）"
@@ -1503,7 +1526,9 @@ fun EmulatorScreen(
                     } else {
                         java.io.File(context.cacheDir, "$tempFileName$ext")
                     }
-                    tempFile.outputStream().use { out -> input.copyTo(out) }
+                    withContext(Dispatchers.IO) {
+                        tempFile.outputStream().use { out -> input.copyTo(out) }
+                    }
                     input.close()
                     // === iNES Header Patching for pirate multicarts (500-in-1) ===
                     // Patch the temp file's iNES header so FCEUmm loads the
@@ -2732,6 +2757,12 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx2_dithering", layout.ps2Dithering)
             engine.setCoreOption("pcsx2_mipmapping", layout.ps2Mipmapping)
             engine.setCoreOption("pcsx2_deinterlace_mode", layout.ps2Deinterlace)
+            // ARMSX2 渲染增强 — TVShader / ShadeBoost / HalfPixelOffset /
+            // TexturePreloading (live GS pokes, 由 Psx2Native 转发 native)
+            engine.setCoreOption("pcsx2_tv_shader", layout.ps2TvShader)
+            engine.setCoreOption("pcsx2_shade_boost", layout.ps2ShadeBoost)
+            engine.setCoreOption("pcsx2_half_pixel_offset", layout.ps2HalfPixelOffset)
+            engine.setCoreOption("pcsx2_texture_preloading", layout.ps2TexturePreloading)
             // 画面比例 —— 修复：PS2 始终 4:3、不跟随全局「画面缩放」的问题。
             //
             // 原因：ARMSX2 是推模型核心，它会在拿到的 Surface 内部按自己的
@@ -8245,12 +8276,14 @@ private fun SettingsPanel(
 
                 Spacer(Modifier.size(4.dp))
                 Text("画面", color = Color(0xFF8899AA), fontSize = 11.sp)
-                // 渲染器：OpenGL = GPU 硬件渲染（推荐）；Software = CPU 软渲染。
-                // ARMSX2 核心构建时禁用了 Vulkan (USE_VULKAN=OFF)，硬件渲染只有
-                // OpenGL ES 可用；选 Vulkan 会报 Unsupported render API 而黑屏。
-                // 两者都可在游戏中途切换。
+                // 渲染器：auto = 核心按设备支持选择（Vulkan 优先）；Vulkan/OpenGL
+                // = GPU 硬件渲染；Software = CPU 软渲染。核心已编译 Vulkan
+                // (USE_VULKAN=ON)，所有选项都可在游戏中途切换。
                 DropdownSetting("渲染器",
-                    listOf("opengl" to "OpenGL (硬件加速)", "software" to "Software (软渲染)"),
+                    listOf("auto" to "Auto (按设备选择)",
+                           "vulkan" to "Vulkan (硬件加速)",
+                           "opengl" to "OpenGL (硬件加速)",
+                           "software" to "Software (软渲染)"),
                     padLayout.ps2Renderer
                 ) { onLayoutChange(padLayout.copy {ps2Renderer = it}) }
 
@@ -8284,6 +8317,33 @@ private fun SettingsPanel(
                            "5" to "Bob (BFF)", "8" to "Adaptive (TFF)", "9" to "Adaptive (BFF)"),
                     padLayout.ps2Deinterlace
                 ) { onLayoutChange(padLayout.copy {ps2Deinterlace = it}) }
+
+                // ARMSX2 渲染增强 — 与设置面板同步
+                DropdownSetting("电视滤镜 (TV Shader)",
+                    listOf("0" to "无 (默认)", "1" to "扫描线 (Scanline)",
+                           "2" to "对角线 (Diagonal)", "3" to "三角 (Triangular)",
+                           "4" to "波浪 (Wave)", "5" to "Lottes CRT",
+                           "6" to "4xRGSS", "7" to "NxAGSS"),
+                    padLayout.ps2TvShader
+                ) { onLayoutChange(padLayout.copy {ps2TvShader = it}) }
+
+                DropdownSetting("画面增强 (ShadeBoost)",
+                    listOf("disabled" to "关闭 (默认)", "enabled" to "开启 (亮度对比度饱和度伽马=50)"),
+                    padLayout.ps2ShadeBoost
+                ) { onLayoutChange(padLayout.copy {ps2ShadeBoost = it}) }
+
+                DropdownSetting("半像素偏移 (Half-pixel)",
+                    listOf("0" to "关闭 (默认)", "1" to "普通 (Normal)",
+                           "2" to "特殊 (Special)", "3" to "特殊激进 (Special Aggressive)",
+                           "4" to "原生 (Native)", "5" to "原生+纹理偏移"),
+                    padLayout.ps2HalfPixelOffset
+                ) { onLayoutChange(padLayout.copy {ps2HalfPixelOffset = it}) }
+
+                DropdownSetting("纹理预加载",
+                    listOf("0" to "关闭 (Off)", "1" to "部分 (Partial, 推荐)",
+                           "2" to "完整 (Full, 最吃显存)"),
+                    padLayout.ps2TexturePreloading
+                ) { onLayoutChange(padLayout.copy {ps2TexturePreloading = it}) }
 
                 DropdownSetting("画面比例",
                     listOf("auto" to "跟随全局画面缩放", "4:3" to "4:3 (锁定)", "16:9" to "16:9 (锁定)"),

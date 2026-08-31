@@ -628,6 +628,14 @@ std::string loadFromFile(const std::string& path, int& regionOut) {
     return "";
 }
 
+void flushSave() {
+    if (!s_loaded) return;
+    if (s_lastRomPath.empty()) return;
+    void* sram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+    size_t sramSize = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    coreshared::saveSramToDisk(sram, sramSize, s_saveDir, s_lastRomPath, s_saveName);
+}
+
 void unload() {
     if (s_loaded) {
         // Persist battery-backed cartridge SRAM to disk BEFORE unloading the

@@ -26,6 +26,9 @@ public:
 
     bool loadRom(const std::string& path);
     void unload();
+    // Flush current SAVE_RAM to disk now (protects in-game saves against
+    // process kill/crash/backgrounding). No-op when no ROM is loaded.
+    void flushSave();
     void reset(bool hard);
     void runFrame();
     void shutdown();
