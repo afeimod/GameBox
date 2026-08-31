@@ -1100,8 +1100,8 @@ fun EmulatorScreen(
         // DOSBox-Pure 音频：统一使用核心自带采样率输出（默认行为，无
         // TV 模式特殊处理），由 DosEngine.loadRom 内部自动设置，无需注入。
 
-        var romPath = game.romPath
-        if (romPath.isNullOrEmpty()) {
+        var romPath = game.romPath ?: ""
+        if (romPath.isEmpty()) {
             errorMsg = "该游戏未关联 ROM 文件"
             return@LaunchedEffect
         }

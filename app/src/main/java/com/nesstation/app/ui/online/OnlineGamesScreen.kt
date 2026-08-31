@@ -118,6 +118,11 @@ fun OnlineGamesScreen(
     var pendingIconGame by remember { mutableStateOf<WebGameEntry?>(null) }
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
 
+    fun refresh() {
+        games = WebGameStore.loadAll(context)
+        if (selIdx > games.size - 1) selIdx = (games.size - 1).coerceAtLeast(0)
+    }
+
     // 长按 → 自定义图标：选图后拷贝到 filesDir/icons 并记录路径
     val iconPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -144,11 +149,6 @@ fun OnlineGamesScreen(
         } catch (_: Exception) {
             snackbarMsg = "图标设置失败"
         }
-    }
-
-    fun refresh() {
-        games = WebGameStore.loadAll(context)
-        if (selIdx > games.size - 1) selIdx = (games.size - 1).coerceAtLeast(0)
     }
 
     Box(
@@ -393,11 +393,11 @@ fun OnlineGamesScreen(
     // ---- Rename dialog ----
     pendingRenameGame?.let { game ->
         val displayTitle = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title
+        var name by remember { mutableStateOf(displayTitle) }
         AlertDialog(
             onDismissRequest = { pendingRenameGame = null },
             title = { Text("重命名游戏", color = PrimaryText) },
             text = {
-                var name by remember { mutableStateOf(displayTitle) }
                 Column {
                     OutlinedTextField(
                         value = name,

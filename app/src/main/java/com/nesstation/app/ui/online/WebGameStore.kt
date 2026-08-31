@@ -112,12 +112,12 @@ object WebGameStore {
     fun loadAll(ctx: Context): List<WebGameEntry> {
         val titles = loadTitles(ctx)
         val icons = loadIcons(ctx)
-        fun apply(e: WebGameEntry): WebGameEntry = e.copy(
+        fun applyEntry(e: WebGameEntry): WebGameEntry = e.copy(
             // customTitle/iconPath 对 UI 转发显示名与图标；title 保留原始名
             customTitle = titles[e.url]?.takeIf { it.isNotBlank() },
             iconPath = icons[e.url]?.takeIf { it.isNotBlank() }
         )
-        return getBuiltinGames().map(apply) + loadCustom(ctx).map(apply)
+        return getBuiltinGames().map(::applyEntry) + loadCustom(ctx).map(::applyEntry)
     }
 
     /** 重命名：设置 url 的自定义显示标题；传空/空白清除覆盖恢复原名。 */

@@ -113,6 +113,14 @@ fun SwfListScreen(
     var pendingRenameEntry by remember { mutableStateOf<SwfStore.Entry?>(null) }
     var pendingIconEntry by remember { mutableStateOf<SwfStore.Entry?>(null) }
 
+    fun refreshList() {
+        // 关键修复：去重逻辑
+        // 之前 swfList 直接赋值为 SwfStore.list(context)，如果 SwfStore.add 因为某种
+        // 边界情况没去重（比如在并发调用下），这里再加一道 distinctBy 兜底。
+        swfList = SwfStore.list(context).distinctBy { it.path }
+        if (selIdx > swfList.size - 1) selIdx = (swfList.size - 1).coerceAtLeast(0)
+    }
+
     // 长按 → 自定义图标：把图片拷贝到 filesDir/icons/swf_.. 并记录路径
     val iconPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -173,14 +181,6 @@ fun SwfListScreen(
     }
 
     BackHandler { goBack() }
-
-    fun refreshList() {
-        // 关键修复：去重逻辑
-        // 之前 swfList 直接赋值为 SwfStore.list(context)，如果 SwfStore.add 因为某种
-        // 边界情况没去重（比如在并发调用下），这里再加一道 distinctBy 兜底。
-        swfList = SwfStore.list(context).distinctBy { it.path }
-        if (selIdx > swfList.size - 1) selIdx = (swfList.size - 1).coerceAtLeast(0)
-    }
 
     Box(
         modifier = modifier
