@@ -478,7 +478,7 @@ class PadLayout {
 
     // === PS2 (PCEE2) 补充核心选项 — 键名/取值对照 pcee2-libretro Libretro.cpp definitions[] 表 ===
     var ps2FastBoot: String = "enabled"              // pcsx2_fast_boot: enabled(跳过BIOS动画,默认) | disabled(播放BIOS动画)
-    var ps2HwDownloadMode: String = "unsynchronized" // pcsx2_hw_download_mode: accurate|unsynchronized|disabled (GPU回读,手机tiler提速)
+    var ps2HwDownloadMode: String = "unsynchronized" // pcsx2_hw_download_mode: accurate|no_readbacks|unsynchronized|async|disabled (GPU回读/硬件下载模式,手机tiler提速)
     var ps2BlendingAccuracy: String = "basic"        // pcsx2_blending_accuracy: minimum|basic|medium|high|full|maximum
     var ps2Trilinear: String = "auto"                // pcsx2_trilinear_filtering: auto|off|ps2|forced
     var ps2Anisotropic: String = "0"                 // pcsx2_anisotropic_filtering: 0|2|4|8|16
@@ -1597,7 +1597,7 @@ object PadLayoutStore {
             ps2Bilinear = p.getString("ps2_bilinear", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2FastBoot = p.getString("ps2_fast_boot", "enabled")?.takeIf { it == "disabled" || it == "enabled" } ?: "enabled"
             ps2HwDownloadMode = p.getString("ps2_hw_download_mode", "unsynchronized")?.takeIf {
-                it == "accurate" || it == "unsynchronized" || it == "disabled" } ?: "unsynchronized"
+                it in setOf("accurate", "force_full", "no_readbacks", "unsynchronized", "async", "disabled") } ?: "unsynchronized"
             ps2BlendingAccuracy = p.getString("ps2_blending_accuracy", "basic")?.takeIf {
                 it in setOf("minimum", "basic", "medium", "high", "full", "maximum") } ?: "basic"
             ps2Trilinear = p.getString("ps2_trilinear", "auto")?.takeIf {

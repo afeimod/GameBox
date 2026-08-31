@@ -8506,9 +8506,11 @@ private fun SettingsPanel(
                 Spacer(Modifier.size(4.dp))
                 Text("性能 (速度作弊)", color = Color(0xFF8899AA), fontSize = 11.sp)
                 DropdownSetting("GPU 回读模式",
-                    listOf("unsynchronized" to "非同步 (快, 推荐)",
-                           "accurate" to "精确 (慢)",
-                           "disabled" to "关闭 (最快, 部分特效异常)"),
+                    listOf("accurate" to "精准 (慢, 特效完整)",
+                           "no_readbacks" to "禁用回读 (同步GS线程, 加速)",
+                           "unsynchronized" to "非同步 (快)",
+                           "async" to "异步 (实验性, 最快, 滞后1帧)",
+                           "disabled" to "禁用/忽略 (最快, 部分特效异常)"),
                     padLayout.ps2HwDownloadMode
                 ) { onLayoutChange(padLayout.copy {ps2HwDownloadMode = it}) }
 

@@ -410,23 +410,46 @@ object Psx2Native {
                 "pcsx2_no_interlacing_patches" ->
                     NativeApp.setSetting("EmuCore", "EnableNoInterlacingPatches", "bool", truthy(value))
 
-                // --- Pixel-level GS options (best-effort; keys follow the ARMSX2
-                //     Settings.kt put() table, not all are exposed upstream) ---
+                // --- Pixel-level GS options ---
+                // 键名/枚举值对照 ARMSX2 核心 Pcsx2Config.cpp::GSOptions::LoadSave
+                // (EmuCore/GS 段)。旧实现把字符串枚举名当 int 传，native setSetting
+                // 用 FromChars 解析失败会静默丢弃 → 这些设置以前根本没生效；且部分
+                // 键名写错(Dithering/AnisoFilter/Deinterlace/BlendingAccuracy 都不是
+                // 核心实际读取的键)。下方一律改为核心真实键名 + int 枚举索引。
                 "pcsx2_texture_filtering" ->
-                    NativeApp.setSetting("EmuCore/GS", "TriFilter", "int", if (value.contains("bilinear")) "1" else "0")
+                    // BiFiltering: 0=Nearest, 1=Forced, 2=PS2, 3=Forced_But_Sprite。
+                    // GameBox「双线性过滤」enabled=bilinear_ps2(PS2 原生平滑=2)，
+                    // disabled=nearest(像素风=0)。键名是 filter(不是 TriFilter)。
+                    NativeApp.setSetting("EmuCore/GS", "filter", "int",
+                        if (value.contains("bilinear")) "2" else "0")
                 "pcsx2_mipmapping" ->
                     NativeApp.setSetting("EmuCore/GS", "hw_mipmap", "bool", truthy(value))
                 "pcsx2_dithering" ->
-                    NativeApp.setSetting("EmuCore/GS", "Dithering", "int", value)
+                    // 核心键名是 dithering_ps2(不是 Dithering)。值 0/1/2 本就是 int。
+                    NativeApp.setSetting("EmuCore/GS", "dithering_ps2", "int", value)
                 "pcsx2_blending_accuracy" ->
-                    NativeApp.setSetting("EmuCore/GS", "BlendingAccuracy", "int", value)
+                    // AccBlendLevel: 0=Minimum..5=Maximum。UI 传枚举名(minimum/basic/…)，
+                    // 必须转成 int，键名是 accurate_blending_unit(不是 BlendingAccuracy)。
+                    NativeApp.setSetting("EmuCore/GS", "accurate_blending_unit", "int",
+                        mapBlendingAccuracy(value))
                 "pcsx2_trilinear_filtering" ->
-                    NativeApp.setSetting("EmuCore/GS", "TriFilter", "int", value)
+                    // TriFiltering(s8): -1=Automatic, 0=Off, 1=PS2, 2=Forced。
+                    // UI 传 auto/off/ps2/forced 枚举名，需转 int。
+                    NativeApp.setSetting("EmuCore/GS", "TriFilter", "int",
+                        mapTrilinearFiltering(value))
                 "pcsx2_anisotropic_filtering" ->
-                    NativeApp.setSetting("EmuCore/GS", "AnisoFilter", "int", value)
+                    // 核心键名是 MaxAnisotropy(不是 AnisoFilter)。值 0/2/4/8/16 已是 int。
+                    NativeApp.setSetting("EmuCore/GS", "MaxAnisotropy", "int", value)
                 "pcsx2_deinterlace_mode" ->
-                    NativeApp.setSetting("EmuCore/GS", "Deinterlace", "int", value)
-                "pcsx2_hw_download_mode" -> { /* no ARMSX2 equivalent */ }
+                    // 核心键名是 deinterlace_mode(不是 Deinterlace)。值 0/1/4/5/8/9 已是 int。
+                    NativeApp.setSetting("EmuCore/GS", "deinterlace_mode", "int", value)
+                "pcsx2_hw_download_mode" ->
+                    // GSHardwareDownloadMode: 0=Accurate, 1=AccurateForceFull,
+                    // 2=NoReadbacks(禁用回读,同步GS线程), 3=Unsynchronized(非同步),
+                    // 4=Disabled(禁用/忽略), 5=Asynchronous(异步)。UI 传枚举名，需转 int。
+                    // 旧实现是 no-op → 设置完全不起作用，现接回 EmuCore/GS/HWDownloadMode。
+                    NativeApp.setSetting("EmuCore/GS", "HWDownloadMode", "int",
+                        mapHwDownloadMode(value))
 
                 // --- ARMSX2 live GS pokes (see native-lib.cpp render* methods) ---
                 "pcsx2_tv_shader" ->
@@ -466,6 +489,34 @@ object Psx2Native {
         "16:10" -> 4
         "stretch" -> 0
         else -> 1
+    }
+
+    /** GameBox pcsx2_blending_accuracy 枚举名 → AccBlendLevel int (0..5)。 */
+    private fun mapBlendingAccuracy(value: String): String = when (value.lowercase()) {
+        "minimum" -> "0"; "basic" -> "1"; "medium" -> "2"
+        "high" -> "3"; "full" -> "4"; "maximum" -> "5"
+        else -> value.toIntOrNull()?.coerceIn(0, 5)?.toString() ?: "1"
+    }
+
+    /** GameBox pcsx2_trilinear_filtering 枚举名 → TriFiltering s8 (-1..2)。 */
+    private fun mapTrilinearFiltering(value: String): String = when (value.lowercase()) {
+        "auto", "automatic" -> "-1"; "off" -> "0"
+        "ps2" -> "1"; "forced" -> "2"
+        else -> value.toIntOrNull()?.coerceIn(-1, 2)?.toString() ?: "-1"
+    }
+
+    /**
+     * GameBox pcsx2_hw_download_mode 枚举名 → GSHardwareDownloadMode int (0..5)。
+     * 0=Accurate(精准) 1=ForceFull 2=NoReadbacks(禁用回读,同步GS线程)
+     * 3=Unsynchronized(非同步) 4=Disabled(禁用/忽略) 5=Asynchronous(异步)。
+     */
+    private fun mapHwDownloadMode(value: String): String = when (value.lowercase()) {
+        "accurate" -> "0"; "force_full", "forcefull" -> "1"
+        "no_readbacks", "noreadbacks", "disable_readbacks" -> "2"
+        "unsynchronized", "unsync" -> "3"
+        "disabled", "disable" -> "4"
+        "async", "asynchronous" -> "5"
+        else -> value.toIntOrNull()?.coerceIn(0, 5)?.toString() ?: "0"
     }
 
     @JvmStatic fun videoWidth(): Int = 640

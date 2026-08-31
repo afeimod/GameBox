@@ -246,18 +246,20 @@ fun SettingsScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (!AppBackgroundState.active) PixelBackdrop()
+        // 自定义背景激活时，顶部标题/返回箭头改亮色，避免深色字盖在背景上看不清。
+        val headerTint = if (AppBackgroundState.active) Color.White else Color(0xFF1E2A3A)
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { if (selectedCore != null) selectedCore = null else onBack() }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = Color(0xFF1E2A3A))
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = headerTint)
                 }
                 Spacer(Modifier.size(8.dp))
                 Text(
                     if (selectedCore == null) "设置" else "${selectedCore!!.displayName} 核心设置",
-                    color = Color(0xFF1E2A3A), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold
+                    color = headerTint, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold
                 )
             }
 
@@ -400,7 +402,8 @@ fun SettingsScreen(
                             Text(
                                 "「统一存档目录」把存档集中在应用内部 saves 目录（NDS 为 <游戏ID>.sav，其他核心为 .srm），content:// 导入的游戏互不干扰。" +
                                 "「ROM 同目录」直接读写 ROM 旁的同名存档（与官方 melonDS APK / RetroArch 习惯一致，便于和电脑交换存档）。切换后需重进游戏。",
-                                color = Color(0xFF4A5568), fontSize = 11.sp,
+                                color = if (AppBackgroundState.active) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568),
+                                fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                             )
@@ -449,7 +452,8 @@ fun SettingsScreen(
                             }
                             Text(
                                 "磁贴自定义图标：在主页长按任意磁贴（或按 Y 键）即可为其设置专属图标，立即生效并持久保存。",
-                                color = Color(0xFF4A5568), fontSize = 11.sp,
+                                color = if (AppBackgroundState.active) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568),
+                                fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                             )
@@ -492,12 +496,17 @@ fun SettingsScreen(
 
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
+    // 自定义背景(图片/视频)激活时改用半透明深色玻璃卡片，让背景透出来而不是被
+    // 0.65 白色挡住；文字同步改亮色保证可读。默认壁纸时维持原白底深字观感。
+    val onCustomBg = AppBackgroundState.active
+    val cardBg = if (onCustomBg) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.65f)
+    val titleColor = if (onCustomBg) Color.White else Color(0xFF1E2A3A)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, color = Color(0xFF1E2A3A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        Text(title, color = titleColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
         Column(
             modifier = Modifier.clip(RoundedCornerShape(16.dp))
-                .background(Color.White.copy(alpha = 0.65f))
+                .background(cardBg)
                 .padding(vertical = 2.dp)
         ) {
             content()
@@ -515,19 +524,25 @@ internal fun SettingsRow(
 ) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    val onCustomBg = AppBackgroundState.active
+    val rowBg = if (focused) {
+        if (onCustomBg) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+    } else Color.Transparent
+    val titleColor = if (onCustomBg) Color.White else Color(0xFF1E2A3A)
+    val subtitleColor = if (onCustomBg) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (focused) Color.White.copy(alpha = 0.85f) else Color.Transparent)
+            .background(rowBg)
             .clickable(interactionSource = interaction, indication = null) { onClick?.invoke() }
             .focusable(interactionSource = interaction)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = titleColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             if (subtitle != null && showSubtitle) {
-                Text(subtitle, color = Color(0xFF4A5568), fontSize = 11.sp)
+                Text(subtitle, color = subtitleColor, fontSize = 11.sp)
             }
         }
         trailing()
@@ -545,17 +560,22 @@ internal fun DropdownRow(
     val selectedLabel = options.find { it.first == selected }?.second ?: selected
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    val onCustomBg = AppBackgroundState.active
+    val rowBg = if (focused) {
+        if (onCustomBg) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+    } else Color.Transparent
+    val labelColor = if (onCustomBg) Color.White else Color(0xFF1E2A3A)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (focused) Color.White.copy(alpha = 0.85f) else Color.Transparent)
+            .background(rowBg)
             .clickable(interactionSource = interaction, indication = null) { expanded = true }
             .focusable(interactionSource = interaction)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color(0xFF1E2A3A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Text(label, color = labelColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         Box {
             Text(selectedLabel, color = Color(0xFFE74C3C), fontSize = 13.sp)
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -567,5 +587,9 @@ internal fun DropdownRow(
     }
 }
 
-@Composable private fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Color(0xFF4A5568), modifier = Modifier.size(18.dp))
-@Composable private fun ValueText(v: String) = Text(v, color = Color(0xFF4A5568), fontSize = 12.sp)
+@Composable private fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null,
+    tint = if (AppBackgroundState.active) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568),
+    modifier = Modifier.size(18.dp))
+@Composable private fun ValueText(v: String) = Text(v,
+    color = if (AppBackgroundState.active) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568),
+    fontSize = 12.sp)
