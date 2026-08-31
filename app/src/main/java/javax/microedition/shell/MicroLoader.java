@@ -84,7 +84,7 @@ public class MicroLoader {
 	private final String appDirName;
 	private ProfileModel params;
 
-	MicroLoader(Context context, String appPath) {
+	public MicroLoader(Context context, String appPath) {
 		this.context = context;
 		this.appDir = new File(appPath);
 		File converted = appDir.getParentFile();
@@ -123,7 +123,7 @@ public class MicroLoader {
 		return true;
 	}
 
-	LinkedHashMap<String, String> loadMIDletList() throws IOException {
+	public LinkedHashMap<String, String> loadMIDletList() throws IOException {
 		LinkedHashMap<String, String> midlets = new LinkedHashMap<>();
 		String jarHash = null;
 		Descriptor descriptor;
@@ -234,7 +234,7 @@ public class MicroLoader {
 		else Canvas.setLimitFps(fps);
 	}
 
-	void applyConfiguration() {
+	public void applyConfiguration() {
 		try {
 			// Apply configuration to the launching MIDlet
 			if (params.showKeyboard) {

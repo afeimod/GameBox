@@ -74,7 +74,7 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 		handler.obtainMessage(INIT).sendToTarget();
 	}
 
-	static void create(MicroLoader microLoader, String mainClass) {
+	public static void create(MicroLoader microLoader, String mainClass) {
 		instance = new MidletThread(microLoader, mainClass);
 	}
 
@@ -108,7 +108,7 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 		instance.state = PAUSED;
 	}
 
-	static void pauseApp() {
+	public static void pauseApp() {
 		if (instance != null)
 			instance.handler.obtainMessage(PAUSE).sendToTarget();
 	}
@@ -121,7 +121,7 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 			instance.handler.obtainMessage(START).sendToTarget();
 	}
 
-	static void destroyApp() {
+	public static void destroyApp() {
 		Thread.setDefaultUncaughtExceptionHandler(uncaughtExceptionHandler);
 		new Thread(() -> {
 			try {

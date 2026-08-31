@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -302,7 +304,7 @@ private fun J2mePhoneOverlay(
     val gridWidth = cols * keySizePx + (cols - 1) * keyGapPx
     val gridHeight = rows * keySizePx + (rows - 1) * keyGapPx
     val gridLeft = (surfaceSize.width - gridWidth) / 2f
-    val gridTop = surfaceSize.height - gridHeight - 24.dp.toPx()
+    val gridTop = surfaceSize.height - gridHeight - with(density) { 24.dp.toPx() }
 
     // Key labels and their bit values, in reading order (row-major).
     // Row 0: 1 2 3
@@ -326,9 +328,9 @@ private fun J2mePhoneOverlay(
 
     // Soft key + action key positions (above the keypad, left/right).
     val softKeySizePx = with(density) { 48.dp.toPx() }
-    val softKeyY = gridTop - softKeySizePx - 12.dp.toPx()
-    val softLeftX = gridLeft - softKeySizePx - 12.dp.toPx()
-    val softRightX = gridLeft + gridWidth + 12.dp.toPx()
+    val softKeyY = gridTop - softKeySizePx - with(density) { 12.dp.toPx() }
+    val softLeftX = gridLeft - softKeySizePx - with(density) { 12.dp.toPx() }
+    val softRightX = gridLeft + gridWidth + with(density) { 12.dp.toPx() }
 
     val activePointers = remember { mutableMapOf<Long, Int>() }
     var visualState by remember { mutableStateOf(0) }

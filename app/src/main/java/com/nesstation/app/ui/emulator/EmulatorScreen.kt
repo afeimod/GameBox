@@ -2971,7 +2971,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             }
             javax.microedition.lcdui.Canvas.setScale(gravity, scaleType, 100)
             javax.microedition.lcdui.Canvas.setShowFps(layout.javaShowFps)
-            javax.microedition.lcdui.EventQueue.setImmediate(layout.javaImmediateMode)
+            javax.microedition.lcdui.event.EventQueue.setImmediate(layout.javaImmediateMode)
         }
     }
 }
@@ -3413,7 +3413,7 @@ private fun J2meGameView(
 ) {
     var viewSwapKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
-    androidx.compose.foundation.LaunchedEffect(engine) {
+    androidx.compose.runtime.LaunchedEffect(engine) {
         var lastView: android.view.View? = engine.getDisplayableView()
         while (true) {
             kotlinx.coroutines.delay(50)
@@ -3425,7 +3425,7 @@ private fun J2meGameView(
         }
     }
 
-    androidx.compose.ui.platform.AndroidView(
+    androidx.compose.ui.viewinterop.AndroidView(
         key = viewSwapKey,
         factory = { context ->
             android.widget.FrameLayout(context).apply {
