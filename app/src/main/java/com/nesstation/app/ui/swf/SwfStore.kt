@@ -17,10 +17,12 @@ object SwfStore {
     private const val KEY_LIST = "swf_list"
 
     data class Entry(
-        val path: String,      // 文件绝对路径
-        val title: String,     // 显示名称
-        val size: Long,        // 文件大小（字节）
-        val timestamp: Long    // 添加时间
+        val path: String,           // 文件绝对路径
+        val title: String,          // 显示名称（原始文件名）
+        val size: Long,             // 文件大小（字节）
+        val timestamp: Long,        // 添加时间
+        val customTitle: String? = null, // 显示层自定义名称（重命名）
+        val iconPath: String? = null     // 显示层自定义图标路径
     )
 
     private fun prefs(ctx: Context) =
@@ -35,7 +37,9 @@ object SwfStore {
                 path = o.optString("path"),
                 title = o.optString("title"),
                 size = o.optLong("size", 0),
-                timestamp = o.optLong("ts")
+                timestamp = o.optLong("ts"),
+                customTitle = o.optString("customTitle").takeIf { it.isNotBlank() },
+                iconPath = o.optString("iconPath").takeIf { it.isNotBlank() }
             )
         }
     } catch (_: Exception) { emptyList() }
@@ -78,8 +82,32 @@ object SwfStore {
                 put("title", e.title)
                 put("size", e.size)
                 put("ts", e.timestamp)
+                e.customTitle?.takeIf { it.isNotBlank() }?.let { put("customTitle", it) }
+                e.iconPath?.takeIf { it.isNotBlank() }?.let { put("iconPath", it) }
             })
         }
         prefs(ctx).edit().putString(KEY_LIST, arr.toString()).apply()
     }
+
+    /** 重命名：设置 path 的自定义显示标题；传 null/空白清除覆盖。 */
+    fun setCustomTitle(ctx: Context, path: String, title: String?) {
+        val list = list(ctx).toMutableList()
+        val idx = list.indexOfFirst { it.path == path }
+        if (idx < 0) return
+        list[idx] = list[idx].copy(customTitle = title?.trim()?.takeIf { it.isNotEmpty() })
+        writeList(ctx, list)
+    }
+
+    /** 设置自定义图标路径；传 null/空白清除覆盖。 */
+    fun setCustomIcon(ctx: Context, path: String, iconPath: String?) {
+        val list = list(ctx).toMutableList()
+        val idx = list.indexOfFirst { it.path == path }
+        if (idx < 0) return
+        list[idx] = list[idx].copy(iconPath = iconPath?.takeIf { it.isNotBlank() })
+        writeList(ctx, list)
+    }
+
+    /** 显示标题：优先自定义名称。 */
+    fun displayTitle(e: Entry): String =
+        e.customTitle?.takeIf { it.isNotBlank() } ?: e.title
 }

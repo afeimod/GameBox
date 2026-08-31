@@ -8,7 +8,9 @@ data class WebGameEntry(
     val title: String,
     val url: String,
     val isBuiltin: Boolean = false,
-    val uaMode: String = "desktop" // "desktop" or "mobile"
+    val uaMode: String = "desktop", // "desktop" or "mobile"
+    val customTitle: String? = null, // 自定义显示标题（重命名）
+    val iconPath: String? = null     // 自定义图标文件路径
 )
 
 /**
@@ -25,6 +27,8 @@ data class WebGameEntry(
 object WebGameStore {
     private const val PREFS_NAME = "web_game_store"
     private const val KEY_GAMES = "games_json"
+    private const val KEY_TITLES = "custom_titles_json"
+    private const val KEY_ICONS = "custom_icons_json"
 
     fun getBuiltinGames(): List<WebGameEntry> = listOf(
         WebGameEntry("4399电脑版", "https://www.4399.com/", true, "desktop"),
@@ -40,6 +44,30 @@ object WebGameStore {
         WebGameEntry("FC在线", "https://www.playfc.cn/", true, "desktop"),
         WebGameEntry("Flash游戏", "http://www.flashgame.com.cn/", true, "desktop")
     )
+
+    /** url → 自定义标题；空/缺失 = 用原始标题。 */
+    private fun loadTitles(ctx: Context): Map<String, String> = try {
+        val o = JSONObject(prefs(ctx).getString(KEY_TITLES, "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getString(it) }
+    } catch (_: Exception) { emptyMap() }
+
+    /** url → 自定义图标文件路径。 */
+    private fun loadIcons(ctx: Context): Map<String, String> = try {
+        val o = JSONObject(prefs(ctx).getString(KEY_ICONS, "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getString(it) }
+    } catch (_: Exception) { emptyMap() }
+
+    private fun writeTitles(ctx: Context, titles: Map<String, String>) {
+        val o = JSONObject()
+        titles.forEach { (k, v) -> if (v.isNotBlank()) o.put(k, v) }
+        prefs(ctx).edit().putString(KEY_TITLES, o.toString()).apply()
+    }
+
+    private fun writeIcons(ctx: Context, icons: Map<String, String>) {
+        val o = JSONObject()
+        icons.forEach { (k, v) -> if (v.isNotBlank()) o.put(k, v) }
+        prefs(ctx).edit().putString(KEY_ICONS, o.toString()).apply()
+    }
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -79,9 +107,32 @@ object WebGameStore {
 
     /**
      * 加载全部游戏：内置游戏在前，自定义游戏在后。
+     * 应用自定义标题/图标覆盖（对内置游戏同样生效）。
      */
-    fun loadAll(ctx: Context): List<WebGameEntry> =
-        getBuiltinGames() + loadCustom(ctx)
+    fun loadAll(ctx: Context): List<WebGameEntry> {
+        val titles = loadTitles(ctx)
+        val icons = loadIcons(ctx)
+        fun apply(e: WebGameEntry): WebGameEntry = e.copy(
+            // customTitle/iconPath 对 UI 转发显示名与图标；title 保留原始名
+            customTitle = titles[e.url]?.takeIf { it.isNotBlank() },
+            iconPath = icons[e.url]?.takeIf { it.isNotBlank() }
+        )
+        return getBuiltinGames().map(apply) + loadCustom(ctx).map(apply)
+    }
+
+    /** 重命名：设置 url 的自定义显示标题；传空/空白清除覆盖恢复原名。 */
+    fun setCustomTitle(ctx: Context, url: String, title: String?) {
+        val t = loadTitles(ctx).toMutableMap()
+        if (title.isNullOrBlank()) t.remove(url) else t[url] = title.trim()
+        writeTitles(ctx, t)
+    }
+
+    /** 设置自定义图标路径；传空/空白清除覆盖恢复默认图标。 */
+    fun setCustomIcon(ctx: Context, url: String, path: String?) {
+        val icons = loadIcons(ctx).toMutableMap()
+        if (path.isNullOrBlank()) icons.remove(url) else icons[url] = path
+        writeIcons(ctx, icons)
+    }
 
     /**
      * 保存一个自定义游戏。

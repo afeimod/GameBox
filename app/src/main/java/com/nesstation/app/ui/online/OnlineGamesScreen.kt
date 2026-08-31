@@ -114,7 +114,37 @@ fun OnlineGamesScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<WebGameEntry?>(null) }
     var menuGame by remember { mutableStateOf<WebGameEntry?>(null) }
+    var pendingRenameGame by remember { mutableStateOf<WebGameEntry?>(null) }
+    var pendingIconGame by remember { mutableStateOf<WebGameEntry?>(null) }
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
+
+    // 长按 → 自定义图标：选图后拷贝到 filesDir/icons 并记录路径
+    val iconPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val game = pendingIconGame
+        pendingIconGame = null
+        val uri = uris.firstOrNull()
+        if (uri == null || game == null) return@rememberLauncherForActivityResult
+        try {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            val iconsDir = java.io.File(context.filesDir, "icons").apply { mkdirs() }
+            val dest = java.io.File(iconsDir,
+                "web_${System.currentTimeMillis()}_${uri.lastPathSegment?.substringAfterLast('/') ?: "icon"}.png")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("无法读取所选图片")
+            WebGameStore.setCustomIcon(context, game.url, dest.absolutePath)
+            refresh()
+            snackbarMsg = "已设置自定义图标：${game.title}"
+        } catch (_: Exception) {
+            snackbarMsg = "图标设置失败"
+        }
+    }
 
     fun refresh() {
         games = WebGameStore.loadAll(context)
@@ -197,12 +227,14 @@ fun OnlineGamesScreen(
                         modifier = Modifier.fillMaxSize()
                     ) { i ->
                         val g = games[i]
+                        val displayTitle = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title
                         FsdIconCoverCard(
-                            title = g.title,
+                            title = displayTitle,
                             icon = Icons.Rounded.Public,
                             accent = AccentPalette[i % AccentPalette.size],
                             badge = if (g.uaMode == "mobile") "手机" else "PC",
-                            subtitle = g.url
+                            subtitle = g.url,
+                            iconPath = g.iconPath
                         )
                     }
 
@@ -220,8 +252,9 @@ fun OnlineGamesScreen(
 
                     // 底部中：标题横幅
                     games.getOrNull(selIdx)?.let { g ->
+                        val displayTitle = g.customTitle?.takeIf { it.isNotBlank() } ?: g.title
                         FsdTitleBanner(
-                            text = "${if (g.uaMode == "mobile") "手机端" else "PC端"}  ${g.title}",
+                            text = "${if (g.uaMode == "mobile") "手机端" else "PC端"}  $displayTitle",
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 38.dp)
@@ -275,6 +308,23 @@ fun OnlineGamesScreen(
                     MenuOption("开始游戏") {
                         menuGame = null
                         onOpenGame(game)
+                    }
+                    MenuOption("自定义图标") {
+                        menuGame = null
+                        pendingIconGame = game
+                        iconPickerLauncher.launch(arrayOf("image/*"))
+                    }
+                    if (!game.iconPath.isNullOrBlank()) {
+                        MenuOption("恢复默认图标") {
+                            menuGame = null
+                            WebGameStore.setCustomIcon(context, game.url, null)
+                            refresh()
+                            snackbarMsg = "已恢复默认图标：${game.title}"
+                        }
+                    }
+                    MenuOption("重命名") {
+                        menuGame = null
+                        pendingRenameGame = game
                     }
                     if (!game.isBuiltin) {
                         MenuOption("删除游戏", danger = true) {
@@ -334,6 +384,53 @@ fun OnlineGamesScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
+                    Text("取消", color = SecondaryText)
+                }
+            }
+        )
+    }
+
+    // ---- Rename dialog ----
+    pendingRenameGame?.let { game ->
+        val displayTitle = game.customTitle?.takeIf { it.isNotBlank() } ?: game.title
+        AlertDialog(
+            onDismissRequest = { pendingRenameGame = null },
+            title = { Text("重命名游戏", color = PrimaryText) },
+            text = {
+                var name by remember { mutableStateOf(displayTitle) }
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("自定义名称") },
+                        singleLine = true,
+                        colors = lightFieldColors(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "留空则恢复原始名称",
+                        color = SecondaryTextLight,
+                        fontSize = 11.sp
+                    )
+                }
+            },
+            containerColor = Color.White,
+            titleContentColor = PrimaryText,
+            textContentColor = PrimaryText,
+            confirmButton = {
+                TextButton(onClick = {
+                    WebGameStore.setCustomTitle(
+                        context, game.url,
+                        name.trim().takeIf { it.isNotEmpty() }
+                    )
+                    pendingRenameGame = null
+                    refresh()
+                    snackbarMsg = "已重命名：${game.title}"
+                }) { Text("保存", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRenameGame = null }) {
                     Text("取消", color = SecondaryText)
                 }
             }

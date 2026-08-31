@@ -2301,9 +2301,9 @@ object PadLayoutStore {
             )
             GamePlatform.MD -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
-                "x" to "X键", "y" to "Y键",
+                "x" to "C键", "y" to "X键",
                 "ta" to "连射A", "tb" to "连射B",
-                "l" to "L键", "r" to "R键",
+                "l" to "Y键", "r" to "Z键",
                 "start" to "START", "select" to "SELECT"
             )
             GamePlatform.PCE -> listOf(

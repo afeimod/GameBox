@@ -598,6 +598,26 @@ private fun loadGameFolder(
         return destLauncher
     }
 
+    // === 历史副本兼容（copy_ok 标记机制引入之前复制的旧副本）===
+    // 标记缺失但目标已存在且非空时，先统计源 SAF 文件夹与本地缓存的
+    // 文件数 + 总字节数。完全一致 → 旧副本是完整的：回填标记直接复用，
+    // 避免每次启动都删除目录重新复制多 GB 镜像（这正是"PS2 一直
+    // 正在加载"的根因）。不一致（上次复制中途被杀留下的截断文件）→
+    // 继续走删除重拷。
+    if (destLauncher.exists() && destLauncher.length() > 0L && destRoot.isDirectory) {
+        val srcStats = countSafFolder(context, treeUri, parentUri)
+        val localStats = destRoot.walkTopDown()
+            .filter { it.isFile && it.name != "${copyMarker.name}" }
+            .fold(0L to 0L) { (cnt, total), f -> cnt + 1 to total + f.length() }
+        if (srcStats != null &&
+            srcStats.first == localStats.first &&
+            srcStats.second == localStats.second
+        ) {
+            try { copyMarker.writeText("ok") } catch (_: Exception) { }
+            return destLauncher
+        }
+    }
+
     // Wipe any stale partial copy.
     if (destRoot.exists()) destRoot.deleteRecursively()
     destRoot.mkdirs()
@@ -621,6 +641,63 @@ private fun loadGameFolder(
         destRoot.walkTopDown()
             .firstOrNull { it.isFile && it.extension.lowercase() in setOf("bat", "exe", "com") }
     }
+}
+
+/**
+ * 递归统计 SAF 文件夹下的文件数与总字节数。
+ * 返回 (文件数, 总字节数)；无法读取时返回 null（调用方视为不可验证，
+ * 走重新复制兜底）。用于验证历史副本（无 copy_ok 标记）是否完整。
+ */
+private fun countSafFolder(
+    context: android.content.Context,
+    treeUri: android.net.Uri,
+    folderUri: android.net.Uri
+): Pair<Long, Long>? {
+    return try {
+        var count = 0L
+        var total = 0L
+        val cr = context.contentResolver
+        val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            android.provider.DocumentsContract.getDocumentId(folderUri)
+        )
+        cr.query(childrenUri, null, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val docId = cursor.getString(cursor.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID)) ?: continue
+                val name = cursor.getString(cursor.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)) ?: continue
+                val mimeType = cursor.getString(cursor.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE))
+                val childUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                    val sub = countSafFolder(context, treeUri, childUri) ?: return null
+                    count += sub.first
+                    total += sub.second
+                } else {
+                    // 用 SAF 报告的大小；若拿不到（个别 provider），尝试流读取可读长度。
+                    var size = 0L
+                    val sizeIdx = cursor.getColumnIndex(
+                        android.provider.DocumentsContract.Document.COLUMN_SIZE)
+                    if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
+                        try { size = cursor.getLong(sizeIdx) } catch (_: Exception) { size = -1L }
+                    } else {
+                        size = -1L
+                    }
+                    if (size < 0L) {
+                        try {
+                            cr.openInputStream(childUri)?.use { input ->
+                                size = input.available().toLong()
+                            } ?: return null
+                        } catch (_: Exception) { return null }
+                    }
+                    count++
+                    total += size
+                }
+            }
+        }
+        count to total
+    } catch (_: Exception) { null }
 }
 
 /** Recursively copy a SAF folder tree to a local File tree. */
@@ -1023,10 +1100,27 @@ fun EmulatorScreen(
         // DOSBox-Pure 音频：统一使用核心自带采样率输出（默认行为，无
         // TV 模式特殊处理），由 DosEngine.loadRom 内部自动设置，无需注入。
 
-        val romPath = game.romPath
+        var romPath = game.romPath
         if (romPath.isNullOrEmpty()) {
             errorMsg = "该游戏未关联 ROM 文件"
             return@LaunchedEffect
+        }
+
+        // === 直接读取优化：content:// → 外部存储真实路径 ===
+        // libretro/ARMSX2 等 native 核心只能通过文件系统路径读 ROM；SAF
+        // 选择的 content:// URI 传统上需要先复制进内部目录才能交给核心。
+        // App 已申请"所有文件访问"权限，外部存储主卷/次卷的文件可以直接
+        // 解析成真实路径交给核心（对大 CHD/ISO 镜像尤为重要，省去复制）。
+        // 解析失败（云盘/USB OTG 等 provider）时保持原逻辑走复制兜底。
+        if (romPath.startsWith("content://")) {
+            try {
+                val real = resolveContentUriToRealFile(romPath)
+                if (real != null && real.isFile && real.length() > 0L && real.canRead()) {
+                    android.util.Log.i("EmulatorScreen",
+                        "SafToRealPath: ${real.absolutePath} (${real.length()})")
+                    romPath = real.absolutePath
+                }
+            } catch (_: Throwable) { }
         }
 
         // Compute a stable per-game save name so that battery-backed SRAM
@@ -2388,6 +2482,41 @@ private fun resolveNdsRomAdjacentSave(
     // 3) 回退：内部目录 + ROM 原始文件名
     return NdsSaveResolution(internalSavesDir.absolutePath, base,
         "无法访问 ROM 所在目录，.sav 将保存在应用内部存档目录")
+}
+
+/**
+ * 把 content:// 文档 URI 解析为外部存储上的真实文件路径。
+ *
+ * 形如 content://com.android.externalstorage.documents/tree/primary%3AROMs%2Fnds/document/primary%3AROMs%2Fnds%2Fgame.nds
+ * 或 .../document/primary%3AROMs%2Fnds%2Fgame.nds 的 URI 末段解码后为
+ * "primary:ROMs/nds/game.nds" → /storage/emulated/0/ROMs/nds/game.nds。
+ *
+ * 仅支持外部存储主卷/第二卷（volume id = primary 或含连字符的卷号，如
+ * 17FB-1E12）。其它 provider（下载、云盘等）没有稳定的磁盘路径，返回
+ * null —— 调用方应回退到复制缓存方案。
+ *
+ * 注意：真实路径存在 ≠ 一定可读。Android 11+ 作用域存储下，App 必须在
+ * 运行时获得 MANAGE_EXTERNAL_STORAGE（或旧版 READ_EXTERNAL_STORAGE）
+ * 才能直接按路径读取；调用方仍需用 canRead()/openInputStream 验证。
+ */
+private fun resolveContentUriToRealFile(uriStr: String): java.io.File? {
+    if (!uriStr.startsWith("content://")) return null
+    return try {
+        val uri = android.net.Uri.parse(uriStr)
+        val lastSeg = android.net.Uri.decode(uri.lastPathSegment ?: return null)
+        // "primary:ROMs/nds/game.nds" 或 "17FB-1E12:ROMS/game.chd"
+        if (!lastSeg.contains(':')) return null
+        val volume = lastSeg.substringBefore(':', "").trim()
+        val pathPart = lastSeg.substringAfter(':', "").trimStart('/')
+        if (pathPart.isBlank() || pathPart.isEmpty()) return null
+        val storageRoot = when {
+            volume.equals("primary", ignoreCase = true) -> "/storage/emulated/0"
+            volume.contains('-') -> "/storage/$volume"
+            else -> return null
+        }
+        val file = java.io.File(storageRoot, pathPart)
+        file.takeIf { it.isFile }
+    } catch (_: Exception) { null }
 }
 
 /**
@@ -4049,22 +4178,30 @@ fun OnScreenController(
             // PSX 屏幕排布：X 在右上 = △；PS2 专属菱形：X 在左 = □
             GamePlatform.PSX -> "△"  // Triangle
             GamePlatform.PS2 -> "□"  // Square
+            // MD 6 键手柄：libretro X 对应 SEGA C（A/B/C/X/Y/Z 六键布局）
+            GamePlatform.MD -> "C"
             else -> "X"
         }
         val labelY = when (platform) {
             GamePlatform.PCE -> "III"
             GamePlatform.PSX -> "□"  // Square
             GamePlatform.PS2 -> "△"  // Triangle
+            // MD 6 键手柄：libretro Y 对应 SEGA X
+            GamePlatform.MD -> "X"
             else -> "Y"
         }
         val labelL = when (platform) {
             GamePlatform.PCE -> "V"
             GamePlatform.PSX, GamePlatform.PS2 -> "L1"
+            // MD 6 键手柄：libretro L 对应 SEGA Y
+            GamePlatform.MD -> "Y"
             else -> "L"
         }
         val labelR = when (platform) {
             GamePlatform.PCE -> "VI"
             GamePlatform.PSX, GamePlatform.PS2 -> "R1"
+            // MD 6 键手柄：libretro R 对应 SEGA Z
+            GamePlatform.MD -> "Z"
             else -> "R"
         }
         val labelL2 = when (platform) {
@@ -6142,7 +6279,11 @@ private fun PadLayoutEditor(
             }
             // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
             if (showLR && showLBtn) {
-                val lLabel = if (platform == GamePlatform.PCE) "V" else "L"
+                val lLabel = when (platform) {
+                    GamePlatform.PCE -> "V"
+                    GamePlatform.MD -> "Y"  // libretro L → SEGA Y
+                    else -> "L"
+                }
                 EditablePillBtn(lLabel, btnL, surfaceSize, selectedBtn == BtnType.L,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.02f, 0.6f)
@@ -6153,7 +6294,11 @@ private fun PadLayoutEditor(
                 )
             }
             if (showLR && showRBtn) {
-                val rLabel = if (platform == GamePlatform.PCE) "VI" else "R"
+                val rLabel = when (platform) {
+                    GamePlatform.PCE -> "VI"
+                    GamePlatform.MD -> "Z"  // libretro R → SEGA Z
+                    else -> "R"
+                }
                 EditablePillBtn(rLabel, btnR, surfaceSize, selectedBtn == BtnType.R,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.98f)
@@ -6165,7 +6310,11 @@ private fun PadLayoutEditor(
             }
             // X/Y face buttons (SNES/Arcade/MD/PCE)
             if (showXY && showXBtn) {
-                val xLabel = if (platform == GamePlatform.PCE) "IV" else "X"
+                val xLabel = when (platform) {
+                    GamePlatform.PCE -> "IV"
+                    GamePlatform.MD -> "C"  // libretro X → SEGA C
+                    else -> "X"
+                }
                 EditableRoundBtn(xLabel, Color(0xFF3498DB), btnX, surfaceSize, selectedBtn == BtnType.X,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)
@@ -6176,7 +6325,11 @@ private fun PadLayoutEditor(
                 )
             }
             if (showXY && showYBtn) {
-                val yLabel = if (platform == GamePlatform.PCE) "III" else "Y"
+                val yLabel = when (platform) {
+                    GamePlatform.PCE -> "III"
+                    GamePlatform.MD -> "X"  // libretro Y → SEGA X
+                    else -> "Y"
+                }
                 EditableRoundBtn(yLabel, Color(0xFF2ECC71), btnY, surfaceSize, selectedBtn == BtnType.Y,
                     onMove = { targetX, targetY ->
                         val nx = targetX.coerceIn(0.4f, 0.95f)

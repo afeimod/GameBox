@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -108,6 +109,37 @@ fun SwfListScreen(
     var selIdx by remember { mutableStateOf(0) }
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<SwfStore.Entry?>(null) }
+    var menuEntry by remember { mutableStateOf<SwfStore.Entry?>(null) }
+    var pendingRenameEntry by remember { mutableStateOf<SwfStore.Entry?>(null) }
+    var pendingIconEntry by remember { mutableStateOf<SwfStore.Entry?>(null) }
+
+    // 长按 → 自定义图标：把图片拷贝到 filesDir/icons/swf_.. 并记录路径
+    val iconPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val entry = pendingIconEntry
+        pendingIconEntry = null
+        val uri = uris.firstOrNull()
+        if (uri == null || entry == null) return@rememberLauncherForActivityResult
+        try {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            val iconsDir = File(context.filesDir, "icons").apply { mkdirs() }
+            val dest = File(iconsDir,
+                "swf_${System.currentTimeMillis()}_${uri.lastPathSegment?.substringAfterLast('/') ?: "icon"}.png")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("无法读取所选图片")
+            SwfStore.setCustomIcon(context, entry.path, dest.absolutePath)
+            refreshList()
+            snackbarMsg = "已设置自定义图标：${entry.title}"
+        } catch (_: Exception) {
+            snackbarMsg = "图标设置失败"
+        }
+    }
 
     // 文件浏览状态
     val startDir = remember { Environment.getExternalStorageDirectory() ?: File("/") }
@@ -252,7 +284,7 @@ fun SwfListScreen(
                             onItemClick = { idx -> swfList.getOrNull(idx)?.let { onOpenSwf(it.path) } },
                             onItemLongClick = { idx ->
                                 swfList.getOrNull(idx)?.let { entry ->
-                                    pendingRemove = entry
+                                    menuEntry = entry
                                 }
                             },
                             grabFocusOnLaunch = true,
@@ -260,11 +292,12 @@ fun SwfListScreen(
                         ) { i ->
                             val entry = swfList[i]
                             FsdIconCoverCard(
-                                title = entry.title,
+                                title = SwfStore.displayTitle(entry),
                                 icon = Icons.Rounded.Movie,
                                 accent = AccentPalette[i % AccentPalette.size],
                                 badge = "SWF",
-                                subtitle = formatSize(entry.size)
+                                subtitle = formatSize(entry.size),
+                                iconPath = entry.iconPath
                             )
                         }
 
@@ -273,7 +306,7 @@ fun SwfListScreen(
                             hints = listOf(
                                 FsdButtonHint("A", "启动", Fsd.BtnA),
                                 FsdButtonHint("B", "返回", Fsd.BtnB),
-                                FsdButtonHint("Y", "移除", Fsd.BtnY)
+                                FsdButtonHint("Y", "选项", Fsd.BtnY)
                             ),
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -283,7 +316,7 @@ fun SwfListScreen(
                         // 底部中：标题横幅
                         swfList.getOrNull(selIdx)?.let { g ->
                             FsdTitleBanner(
-                                text = g.title,
+                                text = SwfStore.displayTitle(g),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .padding(bottom = 38.dp)
@@ -421,6 +454,107 @@ fun SwfListScreen(
             dismissButton = {
                 TextButton(onClick = { pendingRemove = null }) { Text("取消") }
             }
+        )
+    }
+
+    // ---- 长按操作菜单（与游戏库同款） ----
+    menuEntry?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { menuEntry = null },
+            title = { Text(SwfStore.displayTitle(entry), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column {
+                    MenuRow("开始游戏") {
+                        menuEntry = null
+                        onOpenSwf(entry.path)
+                    }
+                    MenuRow("自定义图标") {
+                        menuEntry = null
+                        pendingIconEntry = entry
+                        iconPickerLauncher.launch(arrayOf("image/*"))
+                    }
+                    if (!entry.iconPath.isNullOrBlank()) {
+                        MenuRow("恢复默认图标") {
+                            menuEntry = null
+                            SwfStore.setCustomIcon(context, entry.path, null)
+                            refreshList()
+                            snackbarMsg = "已恢复默认图标：${entry.title}"
+                        }
+                    }
+                    MenuRow("重命名") {
+                        menuEntry = null
+                        pendingRenameEntry = entry
+                    }
+                    MenuRow("移除", danger = true) {
+                        menuEntry = null
+                        pendingRemove = entry
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { menuEntry = null }) { Text("关闭") }
+            }
+        )
+    }
+
+    // ---- 重命名弹窗 ----
+    pendingRenameEntry?.let { entry ->
+        var name by remember(entry.path) { mutableStateOf(SwfStore.displayTitle(entry)) }
+        AlertDialog(
+            onDismissRequest = { pendingRenameEntry = null },
+            title = { Text("重命名游戏", color = Color(0xFF1E2A3A)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("自定义名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "留空则恢复原始名称",
+                        color = Color.Gray,
+                        fontSize = 11.sp
+                    )
+                }
+            },
+            containerColor = Color.White,
+            titleContentColor = Color(0xFF1E2A3A),
+            confirmButton = {
+                TextButton(onClick = {
+                    SwfStore.setCustomTitle(
+                        context, entry.path,
+                        name.trim().takeIf { it.isNotEmpty() }
+                    )
+                    pendingRenameEntry = null
+                    refreshList()
+                    snackbarMsg = "已重命名：${entry.title}"
+                }) { Text("保存", color = Color(0xFF1976D2)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRenameEntry = null }) { Text("取消") }
+            }
+        )
+    }
+}
+
+/** 长按菜单中的单行选项（深色背景列表内的白字菜单，SVF 复用） */
+@Composable
+private fun MenuRow(text: String, danger: Boolean = false, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp)
+    ) {
+        Text(
+            text = text,
+            color = if (danger) DeleteColor else Color(0xFF1E2A3A),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }

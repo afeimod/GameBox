@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,8 +44,14 @@ fun FsdIconCoverCard(
     accent: Color,
     modifier: Modifier = Modifier,
     badge: String? = null,        // 左上角徽标（如 "WEB" / "SWF" / "PC" / "手机"）
-    subtitle: String? = null      // 底部标题下的小字（域名 / 文件大小等）
+    subtitle: String? = null,     // 底部标题下的小字（域名 / 文件大小等）
+    iconPath: String? = null      // 自定义封面图片路径（存在时替代渐变+图标）
 ) {
+    // 缓存解码结果 — 多数情况下 iconPath 为空，布局成本可忽略
+    val customBmp = androidx.compose.runtime.remember(iconPath) {
+        if (iconPath.isNullOrBlank()) null
+        else FsdImaging.decodeFile(iconPath, 512, 512)
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -56,31 +63,54 @@ fun FsdIconCoverCard(
                 shape = RoundedCornerShape(10.dp)
             )
     ) {
-        // 「封面」区：强调色对角渐变（从左上到右下淡入深蓝，模拟封面 art）
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            accent.copy(alpha = 0.48f),
-                            accent.copy(alpha = 0.16f),
-                            Color(0xFF0D2C55)
+        if (customBmp != null) {
+            // 自定义图标封面：整卡铺满图片
+            androidx.compose.foundation.Image(
+                bitmap = customBmp.asImageBitmap(),
+                contentDescription = title,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // 底部压一条渐变保证标题可读
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.80f)
                         )
                     )
-                )
-        )
+                    .height(48.dp)
+            )
+        } else {
+            // 「封面」区：强调色对角渐变（从左上到右下淡入深蓝，模拟封面 art）
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                accent.copy(alpha = 0.48f),
+                                accent.copy(alpha = 0.16f),
+                                Color(0xFF0D2C55)
+                            )
+                        )
+                    )
+            )
 
-        // 居中白色大图标（替代封面主视觉）
-        Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = Color.White.copy(alpha = 0.92f),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(top = 14.dp)
-                .size(58.dp)
-        )
+            // 居中白色大图标（替代封面主视觉）
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = Color.White.copy(alpha = 0.92f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = 14.dp)
+                    .size(58.dp)
+            )
+        }
 
         // 左上角徽标 — 与 FsdPlatformBadge 同款半透明黑底白字
         if (badge != null) {
