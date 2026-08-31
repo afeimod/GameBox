@@ -92,7 +92,7 @@ import com.nesstation.app.databinding.ActivityMicroBinding;
 import ru.playsoftware.j2meloader.util.Constants;
 import ru.playsoftware.j2meloader.util.LogUtils;
 
-public class MicroActivity extends AppCompatActivity {
+public class MicroActivity extends AppCompatActivity implements J2meHost {
 	private static final int ORIENTATION_DEFAULT = 0;
 	private static final int ORIENTATION_AUTO = 1;
 	private static final int ORIENTATION_PORTRAIT = 2;
@@ -368,6 +368,11 @@ public class MicroActivity extends AppCompatActivity {
 
 	public boolean isVisible() {
 		return visible;
+	}
+
+	@Override
+	public void requestExit() {
+		finish();
 	}
 
 	public void showExitConfirmation() {

@@ -95,7 +95,7 @@ public class ImageItem extends Item {
 	@Override
 	public View getItemContentView() {
 		if (imageView == null) {
-			imageView = new AppCompatImageView(ContextHolder.getActivity());
+			imageView = new AppCompatImageView(ContextHolder.getContext());
 			imageView.setScaleType(ImageView.ScaleType.FIT_XY);
 			imageView.setOnClickListener(v -> fireDefaultCommandAction());
 			updateImageView();

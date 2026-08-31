@@ -791,9 +791,19 @@ void unload() {
     //   - Stuck keys (s_keysDown[] left true) -> game acts as if a key is held
     //   - Stuck mouse buttons (s_mouseBtn[] left true) -> drag-select forever
     //   - Stuck pad bits (s_pad1 left non-zero) -> character keeps walking
-    //   - Stuck keyboard callback (s_keyboardCallback) -> not strictly stale,
-    //     but resetting it forces the core to re-register on next load,
-    //     ensuring the callback points to valid memory after a re-init.
+    //   - Stuck keyboard callback (s_keyboardCallback) -> PRESERVED on purpose.
+    //     The core .so is NOT dlclose()'d in unload(), so the
+    //     retro_keyboard_event pointer registered via
+    //     RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK stays valid across game
+    //     switches. Clearing it here used to break function keys
+    //     (Esc/Enter/Space/Tab/Ctrl/Alt/Shift/...) on every game after the
+    //     first: because s_loaded is left true, loadFromFile() skips
+    //     retro_init() on the next load, so the core never re-registers the
+    //     callback, leaving s_keyboardCallback null and keyboardDown()/Up()
+    //     unable to forward key events to DOSBox. D-pad still worked because it
+    //     goes through cb_input_state (JOYPAD polling of s_pad1), not the
+    //     keyboard callback. DOSBox-Pure relies on this callback (NOT
+    //     input_state polling) to receive keyboard input, so it MUST be kept.
     //   - Mouse delta accumulators (s_mouseDX/s_mouseDY) -> stray cursor jump
     //   - Audio ring buffer / resampler -> leftover samples from previous game
     //     play briefly before the new game's audio starts.
@@ -808,7 +818,8 @@ void unload() {
     s_pad1.store(0, std::memory_order_relaxed);
     s_mouseDX.store(0, std::memory_order_relaxed);
     s_mouseDY.store(0, std::memory_order_relaxed);
-    s_keyboardCallback = nullptr;
+    // NOTE: s_keyboardCallback is intentionally NOT cleared — see comment
+    // above. Clearing it breaks keyboard input on all subsequent game loads.
     s_audio.reset();
     s_resampler.reset();
     s_newFrame.store(false, std::memory_order_release);

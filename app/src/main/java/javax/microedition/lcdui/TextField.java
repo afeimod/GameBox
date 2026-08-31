@@ -105,7 +105,7 @@ public class TextField extends Item {
 
 	@Override
 	public View getItemContentView() {
-		Context context = ContextHolder.getActivity();
+		Context context = ContextHolder.getContext();
 		return textField.getView(context, this);
 	}
 

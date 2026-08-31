@@ -54,7 +54,7 @@ public class CameraController {
 	private final Object monitor = new Object();
 
 	public void setUp(PreviewView view) {
-		Context context = ContextHolder.getActivity();
+		Context context = ContextHolder.getContext();
 		cameraProviderFuture = ProcessCameraProvider.getInstance(context);
 		cameraProviderFuture.addListener(() -> {
 			try {

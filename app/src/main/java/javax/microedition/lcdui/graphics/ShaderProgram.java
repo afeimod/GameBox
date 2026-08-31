@@ -58,7 +58,7 @@ public class ShaderProgram {
 					return;
 				}
 				compileFailed = true;
-				ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getActivity(),
+				ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getContext(),
 						"Error loading shader - default shader is used!",
 						Toast.LENGTH_LONG).show());
 			}
@@ -86,7 +86,7 @@ public class ShaderProgram {
 		if (program == -1) {
 			compileFailed = true;
 			Log.e(TAG, "Shader compilation failed — falling back to default shader");
-			ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getActivity(),
+			ViewHandler.postEvent(() -> Toast.makeText(ContextHolder.getContext(),
 					"Shader compile error — using default shader",
 					Toast.LENGTH_LONG).show());
 			// Fall back to default shader

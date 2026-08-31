@@ -447,7 +447,7 @@ public class ChoiceGroup extends Item implements Choice {
 
 	@Override
 	public View getItemContentView() {
-		Context context = ContextHolder.getActivity();
+		Context context = ContextHolder.getContext();
 
 		switch (choiceType) {
 			case EXCLUSIVE:
@@ -506,7 +506,7 @@ public class ChoiceGroup extends Item implements Choice {
 	}
 
 	private void addButton(int index, String stringPart, Image imagePart, boolean checked) {
-		Context context = ContextHolder.getActivity();
+		Context context = ContextHolder.getContext();
 
 		if (buttongroup instanceof RadioGroup) {
 			addButton(new RadioButton(context), index, stringPart, imagePart, checked);
@@ -555,7 +555,7 @@ public class ChoiceGroup extends Item implements Choice {
 	private void initButtonGroup() {
 		buttongroup.setOrientation(LinearLayout.VERTICAL);
 
-		Context context = ContextHolder.getActivity();
+		Context context = ContextHolder.getContext();
 		int size = selected.size();
 
 		if (buttongroup instanceof RadioGroup) {

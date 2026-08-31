@@ -32,7 +32,7 @@ public abstract class LocationProvider {
 	private static void initLocationManager() throws LocationException {
 		LocationProviderImpl.requestLocationPermission();
 		if (locationManager == null) {
-			locationManager = (LocationManager) ContextHolder.getActivity().getSystemService(Context.LOCATION_SERVICE);
+			locationManager = (LocationManager) ContextHolder.getContext().getSystemService(Context.LOCATION_SERVICE);
 		}
 		gpsProviderEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
 		networkProviderEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);

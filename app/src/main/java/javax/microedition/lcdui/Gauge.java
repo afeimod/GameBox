@@ -106,7 +106,7 @@ public class Gauge extends Item {
 	@Override
 	protected View getItemContentView() {
 		if (pbar == null) {
-			Context activity = ContextHolder.getActivity();
+			Context activity = ContextHolder.getContext();
 			if (interactive) {
 				pbar = new AppCompatSeekBar(activity);
 				((SeekBar) pbar).setOnSeekBarChangeListener(listener);

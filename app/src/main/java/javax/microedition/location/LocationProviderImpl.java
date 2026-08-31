@@ -46,6 +46,9 @@ public class LocationProviderImpl extends LocationProvider implements android.lo
     private boolean gotLocation;
 
     public LocationProviderImpl() {
+        if (ContextHolder.getActivity() == null) {
+            throw new LocationException("Location requires an Activity host (not available in embedded mode)");
+        }
 
         this.provider = gpsProviderEnabled ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
         ContextHolder.getActivity().runOnUiThread(() -> locationManager.addNmeaListener((GpsStatus.NmeaListener) this));
@@ -212,8 +215,12 @@ public class LocationProviderImpl extends LocationProvider implements android.lo
     }
 
     protected static void requestLocationPermission() {
-        if (ContextCompat.checkSelfPermission(ContextHolder.getActivity(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(ContextHolder.getActivity(), new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 1);
+        MicroActivity activity = ContextHolder.getActivity();
+        if (activity == null) {
+            throw new SecurityException("Location permission requires an Activity host");
+        }
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 1);
             try {
                 synchronized (LocationProviderImpl.permissionLock) {
                     permissionLock.wait();

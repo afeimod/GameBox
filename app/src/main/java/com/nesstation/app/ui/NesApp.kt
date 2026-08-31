@@ -121,13 +121,10 @@ private fun PhoneNavHost(
         }
     }
 
-    // 平台感知的打开游戏：Java 直接启动 J2ME 引擎，NES 进入模拟器
+    // 所有平台（含 J2ME）统一走 EmulatorScreen：J2meEngine 实现了 EmulatorEngine，
+    // J2meGameView 在 Compose 内托管 Canvas 视图，不再需要单独的 MicroActivity。
     val openGame: (GameEntry) -> Unit = { game ->
-        if (game.platform == GamePlatform.JAVA) {
-            JavaGameStore.launchGame(ctx, game)
-        } else {
-            nav.navigate(Routes.emulator(game.id))
-        }
+        nav.navigate(Routes.emulator(game.id))
     }
 
     NavHost(
@@ -324,13 +321,9 @@ private fun TvNavHost(
 ) {
     val ctx = LocalContext.current
 
-    // Platform-aware openGame: Java games launch via J2ME engine, NES via emulator
+    // All platforms (including J2ME) use the unified EmulatorScreen in TV mode.
     val openGame: (GameEntry) -> Unit = { game ->
-        if (game.platform == GamePlatform.JAVA) {
-            JavaGameStore.launchGame(ctx, game)
-        } else {
-            nav.navigate(Routes.emulator(game.id))
-        }
+        nav.navigate(Routes.emulator(game.id))
     }
 
     NavHost(

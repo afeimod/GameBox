@@ -22,6 +22,7 @@ package javax.microedition.lcdui;
 import static android.opengl.GLES20.*;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Paint;
@@ -599,12 +600,14 @@ public abstract class Canvas extends Displayable {
 
         @SuppressLint("ClickableViewAccessibility")
         @Override
-        public View getDisplayableView() {
-                if (layout == null) {
-                        layout = (LinearLayout) super.getDisplayableView();
-                        MicroActivity activity = ContextHolder.getActivity();
-                        if (graphicsMode == 1) {
-                                GlesView glesView = new GlesView(activity);
+                        public View getDisplayableView() {
+                                if (layout == null) {
+                                        layout = (LinearLayout) super.getDisplayableView();
+                                        // getContext() falls back to the Application
+                                        // context in embedded (non-Activity) mode;
+                                        // GlesView/CanvasView only need a Context.
+                                        Context activity = ContextHolder.getContext();
+                                        if (graphicsMode == 1) {                                GlesView glesView = new GlesView(activity);
                                 glesView.setRenderer(renderer);
                                 glesView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
                                 renderer.setView(glesView);
@@ -1250,7 +1253,9 @@ public abstract class Canvas extends Displayable {
 
                 public ViewCallbacks(View view) {
                         mView = view;
-                        overlayView = ContextHolder.getActivity().binding.overlayView;
+                        // getOverlayView() returns null in embedded mode; the
+                        // field is only used for soft-key popup positioning.
+                        overlayView = ContextHolder.getOverlayView();
                 }
 
                 @Override
@@ -1532,8 +1537,10 @@ public abstract class Canvas extends Displayable {
 
                 private SoftBar() {
                         super(Canvas.this, false);
-                        MicroActivity activity = ContextHolder.getActivity();
-                        this.overlayView = activity.binding.overlayView;
+                        // getContext() falls back to the Application context in
+                        // embedded mode; getOverlayView() returns null there.
+                        Context activity = ContextHolder.getContext();
+                        this.overlayView = ContextHolder.getOverlayView();
                         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
                         padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5, metrics);
                         textColor = ContextCompat.getColor(activity, R.color.accent);

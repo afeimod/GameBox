@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import javax.microedition.lcdui.commands.AbstractSoftKeysBar;
 import javax.microedition.lcdui.event.CommandActionEvent;
 import javax.microedition.lcdui.event.SimpleEvent;
+import javax.microedition.shell.J2meHost;
 import javax.microedition.shell.MicroActivity;
 import javax.microedition.util.ContextHolder;
 
@@ -89,8 +90,10 @@ public abstract class Displayable {
 	public void setTitle(String title) {
 		this.title = title;
 
+		// In embedded mode getActivity() returns null; the title is still
+		// stored and can be read via getTitle() by the embedded host.
 		MicroActivity activity = ContextHolder.getActivity();
-		if (isShown()) {
+		if (isShown() && activity != null) {
 			ViewHandler.postEvent(() -> activity.setTitle(title));
 		}
 	}
@@ -100,16 +103,18 @@ public abstract class Displayable {
 	}
 
 	public boolean isShown() {
-		MicroActivity activity = ContextHolder.getActivity();
-		if (activity != null) {
-			return activity.isVisible() && activity.getCurrent() == this;
+		J2meHost host = ContextHolder.getHost();
+		if (host != null) {
+			return host.isVisible() && host.getCurrent() == this;
 		}
 		return false;
 	}
 
 	public View getDisplayableView() {
 		if (layout == null) {
-			Context context = ContextHolder.getActivity();
+			// Use getContext() so embedded (non-Activity) hosts can still
+			// build the view tree; falls back to the Application context.
+			Context context = ContextHolder.getContext();
 
 			layout = new LinearLayout(context);
 			layout.setOrientation(LinearLayout.VERTICAL);

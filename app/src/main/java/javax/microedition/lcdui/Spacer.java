@@ -43,7 +43,7 @@ public class Spacer extends Item {
 	@Override
 	public View getItemContentView() {
 		if (view == null) {
-			view = new Space(ContextHolder.getActivity());
+			view = new Space(ContextHolder.getContext());
 
 			view.setMinimumWidth(width);
 			view.setMinimumHeight(height);

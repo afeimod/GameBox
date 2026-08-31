@@ -24,6 +24,7 @@ import javax.microedition.lcdui.event.Event;
 import javax.microedition.lcdui.event.EventQueue;
 import javax.microedition.lcdui.event.RunnableEvent;
 import javax.microedition.midlet.MIDlet;
+import javax.microedition.shell.J2meHost;
 import javax.microedition.util.ContextHolder;
 
 import ru.woesss.j2me.jar.Descriptor;
@@ -142,7 +143,12 @@ public class Display {
 	}
 
 	private void showCurrent() {
-		ContextHolder.getActivity().setCurrent(current);
+		// setCurrent is a J2meHost method, so any host (standalone
+		// MicroActivity or an embedded non-Activity host) can receive it.
+		J2meHost host = ContextHolder.getHost();
+		if (host != null) {
+			host.setCurrent(current);
+		}
 	}
 
 	public Displayable getCurrent() {

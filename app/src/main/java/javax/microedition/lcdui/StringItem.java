@@ -84,7 +84,7 @@ public class StringItem extends Item {
 	@Override
 	public View getItemContentView() {
 		if (textview == null) {
-			Context context = ContextHolder.getActivity();
+			Context context = ContextHolder.getContext();
 
 			if (appearanceMode == BUTTON) {
 				textview = new AppCompatButton(context);

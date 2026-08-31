@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.nesstation.app.core.engine.EmulatorEngine
+import com.nesstation.app.core.engine.J2meEngine
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ButtonLayout
@@ -1677,37 +1678,38 @@ fun EmulatorScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (loaded) {
-            GameSurfaceView(
-                engine = engine,
-                videoScale = padLayout.videoScale,
-                videoFilter = padLayout.videoFilter,
-                isPortrait = isPortrait,
-                platform = platform,
-                currentPlayer = currentPlayer,
-                gamepadBitsHolder = gamepadBitsHolder,
-                // When any overlay (menu / layout editor / settings / dialogs)
-                // is open, the SurfaceView must NOT consume D-pad / button
-                // keys — those need to reach the Compose UI for navigation.
-                // The key listener returns false (don't consume) when
-                // uiBlocked is true, letting the event propagate to Compose.
-                uiBlocked = showMenu || showLayoutEditor || showSettings || showCustomLayoutEditor ||
-                            showNdsCustomLayoutEditor || showSlotPicker != null || showFFSpeedPicker,
-                onMenuToggle = { showMenu = !showMenu },
-                customRect = customRect,
-                netplayController = netplayController,
-                ndsScreenLayout = padLayout.ndsScreenLayout,
-                ndsScreenGapPx = padLayout.ndsScreenGap.toIntOrNull()?.coerceIn(0, 20) ?: 0,
-                ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
-                ndsTopRect = ndsTopRect,
-                ndsBottomRect = ndsBottomRect,
-                // 游戏视图位置/尺寸追踪（onGloballyPositioned）：供虚拟手柄
-                // 覆盖层把未命中按键的触摸坐标从根坐标换算成游戏视图局部
-                // 坐标后转发给 NDS 触摸屏（GAME_AREA 路径）。
-                gameViewTracker = gameViewTracker,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onSizeChanged { surfaceSize = it }
-            )
+            if (platform == GamePlatform.JAVA && engine is J2meEngine) {
+                J2meGameView(
+                    engine = engine,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { surfaceSize = it }
+                )
+            } else {
+                GameSurfaceView(
+                    engine = engine,
+                    videoScale = padLayout.videoScale,
+                    videoFilter = padLayout.videoFilter,
+                    isPortrait = isPortrait,
+                    platform = platform,
+                    currentPlayer = currentPlayer,
+                    gamepadBitsHolder = gamepadBitsHolder,
+                    uiBlocked = showMenu || showLayoutEditor || showSettings || showCustomLayoutEditor ||
+                                showNdsCustomLayoutEditor || showSlotPicker != null || showFFSpeedPicker,
+                    onMenuToggle = { showMenu = !showMenu },
+                    customRect = customRect,
+                    netplayController = netplayController,
+                    ndsScreenLayout = padLayout.ndsScreenLayout,
+                    ndsScreenGapPx = padLayout.ndsScreenGap.toIntOrNull()?.coerceIn(0, 20) ?: 0,
+                    ndsOpenGl = padLayout.ndsOpenGlRenderer == "enabled",
+                    ndsTopRect = ndsTopRect,
+                    ndsBottomRect = ndsBottomRect,
+                    gameViewTracker = gameViewTracker,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { surfaceSize = it }
+                )
+            }
 
             // === 联机对战状态条（顶部居中） ===
             // 显示帧号 / 延迟 / desync 计数 / 对手加入离开等提示。
@@ -1800,6 +1802,21 @@ fun EmulatorScreen(
                         val newLayout = padLayout.copy {dosInputMode = newMode}
                         padLayout = newLayout
                         // Persisted by the debounced LaunchedEffect above.
+                    }
+                )
+            } else if (platform == GamePlatform.JAVA && engine is com.nesstation.app.core.engine.J2meEngine) {
+                // J2ME uses a dedicated overlay with two modes (gamepad / phone).
+                // Gamepad: D-pad + A/B/X/Y/Start/Select.
+                // Phone: 12-key numeric keypad + soft keys + FIRE.
+                J2meOnScreenController(
+                    engine = engine,
+                    padLayout = padLayout,
+                    surfaceSize = surfaceSize,
+                    isPortrait = isPortrait,
+                    onToggleMode = {
+                        val newMode = if (padLayout.javaInputMode == "gamepad") "phone" else "gamepad"
+                        val newLayout = padLayout.copy { javaInputMode = newMode }
+                        padLayout = newLayout
                     }
                 )
             } else {
@@ -1947,55 +1964,71 @@ fun EmulatorScreen(
         }
 
         if (loaded && showMenu && !showLayoutEditor && !showSettings) {
-            MenuOverlay(
-                gameTitle = game.title,
-                running = running,
-                fastForwardSpeed = fastForwardSpeed,
-                isPortrait = isPortrait,
-                onTogglePause = { running = !running },
-                onToggleFastForward = {
-                    if (fastForwardSpeed > 0) fastForwardSpeed = 0
-                    else fastForwardSpeed = lastNonZeroFFSpeed
-                },
-                onCycleFFSpeed = { showFFSpeedPicker = true },
-                onScreenshot = {
-                    val capture = engine.captureFrame()
-                    if (capture != null) {
-                        try {
-                            val bitmap = Bitmap.createBitmap(
-                                capture.pixels, capture.width, capture.height, Bitmap.Config.ARGB_8888
-                            )
-                            val screenshotsDir = java.io.File(
-                                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-                                    ?: context.filesDir,
-                                "screenshots"
-                            )
-                            screenshotsDir.mkdirs()
-                            val timestamp = java.text.SimpleDateFormat(
-                                "yyyyMMdd_HHmmss", java.util.Locale.getDefault()
-                            ).format(java.util.Date())
-                            val safeTitle = game.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-                            val file = java.io.File(screenshotsDir, "${safeTitle}_${timestamp}.png")
-                            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                            Toast.makeText(context, "截图已保存: ${file.name}", Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            if (platform == GamePlatform.JAVA && engine is com.nesstation.app.core.engine.J2meEngine) {
+                J2meMenuOverlay(
+                    gameTitle = game.title,
+                    running = running,
+                    isPhoneMode = padLayout.javaInputMode == "phone",
+                    isPortrait = isPortrait,
+                    onTogglePause = { running = !running },
+                    onToggleOverlayMode = {
+                        val newMode = if (padLayout.javaInputMode == "gamepad") "phone" else "gamepad"
+                        padLayout = padLayout.copy { javaInputMode = newMode }
+                    },
+                    onClose = { showMenu = false },
+                    onExit = { onExit() }
+                )
+            } else {
+                MenuOverlay(
+                    gameTitle = game.title,
+                    running = running,
+                    fastForwardSpeed = fastForwardSpeed,
+                    isPortrait = isPortrait,
+                    onTogglePause = { running = !running },
+                    onToggleFastForward = {
+                        if (fastForwardSpeed > 0) fastForwardSpeed = 0
+                        else fastForwardSpeed = lastNonZeroFFSpeed
+                    },
+                    onCycleFFSpeed = { showFFSpeedPicker = true },
+                    onScreenshot = {
+                        val capture = engine.captureFrame()
+                        if (capture != null) {
+                            try {
+                                val bitmap = Bitmap.createBitmap(
+                                    capture.pixels, capture.width, capture.height, Bitmap.Config.ARGB_8888
+                                )
+                                val screenshotsDir = java.io.File(
+                                    context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                                        ?: context.filesDir,
+                                    "screenshots"
+                                )
+                                screenshotsDir.mkdirs()
+                                val timestamp = java.text.SimpleDateFormat(
+                                    "yyyyMMdd_HHmmss", java.util.Locale.getDefault()
+                                ).format(java.util.Date())
+                                val safeTitle = game.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                                val file = java.io.File(screenshotsDir, "${safeTitle}_${timestamp}.png")
+                                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                Toast.makeText(context, "截图已保存: ${file.name}", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "截图失败：无画面数据", Toast.LENGTH_SHORT).show()
                         }
-                    } else {
-                        Toast.makeText(context, "截图失败：无画面数据", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onSaveState = { showSlotPicker = "save" },
-                onLoadState = { showSlotPicker = "load" },
-                onReset = {
-                    engine.reset(hard = false)
-                    Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
-                },
-                onLayoutEditor = { showLayoutEditor = true },
-                onSettings = { showSettings = true },
-                onClose = { showMenu = false },
-                onExit = { onExit() }
-            )
+                    },
+                    onSaveState = { showSlotPicker = "save" },
+                    onLoadState = { showSlotPicker = "load" },
+                    onReset = {
+                        engine.reset(hard = false)
+                        Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
+                    },
+                    onLayoutEditor = { showLayoutEditor = true },
+                    onSettings = { showSettings = true },
+                    onClose = { showMenu = false },
+                    onExit = { onExit() }
+                )
+            }
         }
 
         // State slot picker dialog
@@ -2921,9 +2954,24 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx2_mtvu", layout.ps2Mtvu)
             engine.setCoreOption("pcsx2_instant_vu1", layout.ps2InstantVu1)
             engine.setCoreOption("pcsx2_ee_cycle_rate", layout.ps2EeCycleRate)
-            engine.setCoreOption("pcsx2_ee_cycle_skip", layout.ps2EeCycleSkip)
+        GamePlatform.JAVA -> {
+            // J2ME settings are applied via Canvas static methods, not libretro core options.
+            // Screen scale type: "stretch" = GRAVITY_FILL, "fit" = GRAVITY_CENTER, "center" = GRAVITY_TOP
+            val gravity = when (layout.javaScaleType) {
+                "stretch" -> 1  // GRAVITY_FILL
+                "center"  -> 48 // GRAVITY_TOP (native resolution, top-aligned)
+                else       -> 1  // GRAVITY_FILL as safe default
+            }
+            val scaleType = when (layout.javaScaleType) {
+                "stretch" -> 0  // SCALE_STRETCH
+                "fit"     -> 1  // SCALE_FIT
+                "center"  -> 2  // SCALE_NONE
+                else      -> 1
+            }
+            javax.microedition.lcdui.Canvas.setScale(gravity, scaleType, 100)
+            javax.microedition.lcdui.Canvas.setShowFps(layout.javaShowFps)
+            javax.microedition.lcdui.EventQueue.setImmediate(layout.javaImmediateMode)
         }
-        GamePlatform.JAVA -> { /* no core options for J2ME */ }
     }
 }
 
@@ -3334,6 +3382,79 @@ private fun handleNdsTouch(
         }
         else -> return false
     }
+}
+
+/**
+ * Hosts the J2ME Canvas's [Displayable] view inside EmulatorScreen's
+ * Compose hierarchy.
+ *
+ * J2ME is fundamentally different from the libretro-based engines: there is
+ * no native core, no continuous emulation loop, and no direct frame buffer.
+ * The MIDlet renders to its own SurfaceView (inside Canvas.getDisplayableView()),
+ * and switches between Displayables (Canvas / Form / List / Alert / TextBox)
+ * at runtime. This composable:
+ *
+ * 1. Polls [J2meEngine.getDisplayableView] every 50 ms for the current
+ *     Displayable's Android View.
+ * 2. Hosts it inside a [FrameLayout] via [AndroidView].
+ * 3. Swaps the child view when the MIDlet switches screens (e.g. game
+ *     Canvas -> pause Form -> back to Canvas).
+ *
+ * The polling is intentional: the view is created on the main looper by
+ * [J2meEngine.setCurrent], and Compose has no push-based notification
+ * channel into the J2ME runtime. A 50 ms poll is fast enough that the user
+ * never sees a stale screen, and cheap enough to run continuously.
+ */
+@Composable
+private fun J2meGameView(
+    engine: J2meEngine,
+    modifier: Modifier = Modifier
+) {
+    var viewSwapKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
+    androidx.compose.foundation.LaunchedEffect(engine) {
+        var lastView: android.view.View? = engine.getDisplayableView()
+        while (true) {
+            kotlinx.coroutines.delay(50)
+            val current = engine.getDisplayableView()
+            if (current != lastView) {
+                lastView = current
+                viewSwapKey++ // forces AndroidView recreation with new view
+            }
+        }
+    }
+
+    androidx.compose.ui.platform.AndroidView(
+        key = viewSwapKey,
+        factory = { context ->
+            android.widget.FrameLayout(context).apply {
+                layoutParams = android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                engine.getDisplayableView()?.let { view ->
+                    addView(view, android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                    ))
+                }
+            }
+        },
+        update = { frameLayout ->
+            val view = engine.getDisplayableView()
+            val child = if (frameLayout.childCount > 0) frameLayout.getChildAt(0) else null
+            if (view != child) {
+                frameLayout.removeAllViews()
+                view?.let {
+                    frameLayout.addView(it, android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                    ))
+                }
+            }
+        },
+        modifier = modifier.fillMaxSize()
+    )
 }
 
 // GPU-accelerated filter overlay using BitmapShader — a single GPU texture
@@ -8570,7 +8691,13 @@ private fun SettingsPanel(
                 )
                 Psx2BiosImportSection()
             }
-            GamePlatform.JAVA -> { /* no core options for J2ME */ }
+            GamePlatform.JAVA -> {
+                Text("J2ME (Java 2 Micro Edition)", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(6.dp))
+                Text("J2ME 游戏无需 BIOS 或核心配置。游戏设置请在「游戏设置」面板中调整。",
+                    color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp)
+            }
         }
 
         Spacer(Modifier.size(8.dp))

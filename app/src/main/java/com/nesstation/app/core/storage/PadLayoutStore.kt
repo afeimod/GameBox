@@ -210,6 +210,20 @@ class PadLayout {
     // DOS on-screen controller mode: "gamepad" (circular buttons, transparent)
     // or "keyboard" (full QWERTY layout). Switchable at runtime via a button.
     var dosInputMode: String = "gamepad"              // gamepad | keyboard
+    // J2ME on-screen controller mode: "gamepad" (D-pad + A/B/X/Y/Start/Select)
+    // or "phone" (12-key numeric keypad + soft keys). Switchable at runtime
+    // via a button in the J2me overlay.
+    var javaInputMode: String = "gamepad"             // gamepad | phone
+    // J2ME screen scale type: how the virtual MIDlet screen is scaled to fit
+    // the device display. "stretch" = fill (may distort), "fit" = keep
+    // aspect ratio with letterboxing, "center" = native resolution centered.
+    var javaScaleType: String = "fit"                 // stretch | fit | center
+    // J2ME FPS counter: show real-time FPS overlay inside the MIDlet screen.
+    var javaShowFps: Boolean = false
+    // J2ME immediate mode: when enabled, the MIDlet redraws immediately on
+    // repaint() instead of waiting for the next frame. Better for interactive
+    // menus but can cause flicker in fast games.
+    var javaImmediateMode: Boolean = false
     // === DOS gamepad overlay button positions (landscape) ===
     // Each button has x/y (0.0-1.0 of screen) and sizeDp.
     // dosBtnEnabled controls whether the button is shown (user can hide/add).
@@ -742,6 +756,10 @@ class PadLayout {
         dosVoodoo = another.dosVoodoo
         dosForce60fps = another.dosForce60fps
         dosInputMode = another.dosInputMode
+        javaInputMode = another.javaInputMode
+        javaScaleType = another.javaScaleType
+        javaShowFps = another.javaShowFps
+        javaImmediateMode = another.javaImmediateMode
         dosDpad = another.dosDpad
         dosBtnEsc = another.dosBtnEsc
         dosBtnEnter = another.dosBtnEnter
@@ -1360,6 +1378,10 @@ object PadLayoutStore {
             dosVoodoo = p.getString("dos_voodoo", "off") ?: "off"
             dosForce60fps = p.getString("dos_force60fps", "on") ?: "on"
             dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad"
+            javaInputMode = p.getString("java_input_mode", "gamepad") ?: "gamepad"
+            javaScaleType = p.getString("java_scale_type", "fit") ?: "fit"
+            javaShowFps = p.getBoolean("java_show_fps", false)
+            javaImmediateMode = p.getBoolean("java_immediate_mode", false)
             // DOS gamepad overlay button positions (landscape)
             dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
             dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56))
@@ -1886,6 +1908,10 @@ object PadLayoutStore {
             putString("dos_voodoo", layout.dosVoodoo)
             putString("dos_force60fps", layout.dosForce60fps)
             putString("dos_input_mode", layout.dosInputMode)
+            putString("java_input_mode", layout.javaInputMode)
+            putString("java_scale_type", layout.javaScaleType)
+            putBoolean("java_show_fps", layout.javaShowFps)
+            putBoolean("java_immediate_mode", layout.javaImmediateMode)
             // DOS gamepad overlay button positions (landscape)
             saveBtn("dos_dpad", layout.dosDpad)
             saveBtn("dos_btn_esc", layout.dosBtnEsc)

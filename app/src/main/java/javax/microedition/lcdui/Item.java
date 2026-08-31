@@ -169,7 +169,7 @@ public abstract class Item implements View.OnCreateContextMenuListener {
 	 */
 	public View getItemView() {
 		if (layout == null) {
-			Context context = ContextHolder.getActivity();
+			Context context = ContextHolder.getContext();
 
 			layout = new LinearLayout(context);
 			layout.setOrientation(LinearLayout.VERTICAL);

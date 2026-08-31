@@ -114,7 +114,11 @@ public abstract class MIDlet {
 				} else {
 					intent.setData(Uri.parse(url));
 				}
-				ContextHolder.getActivity().startActivity(intent);
+				MicroActivity activity = ContextHolder.getActivity();
+				if (activity == null) {
+					throw new ConnectionNotFoundException("Cannot start external Activity in embedded mode");
+				}
+				activity.startActivity(intent);
 			}
 		} catch (ConnectionNotFoundException e) {
 			throw e;

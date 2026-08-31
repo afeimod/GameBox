@@ -62,7 +62,7 @@ public class SoftNotificationImpl extends SoftNotification {
 	static {
 		try {
 			activity = ContextHolder.getActivity();
-			notificationmgr = NotificationManagerCompat.from(activity);
+			notificationmgr = NotificationManagerCompat.from(ContextHolder.getContext());
 			instanceMap = new Hashtable<>();
 		} catch (Exception ignored) {
 		}

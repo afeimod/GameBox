@@ -17,6 +17,7 @@
 
 package javax.microedition.shell;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -47,6 +48,16 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 	private static final int PAUSED = 2;
 	private static final int DESTROYED = 3;
 	public static String[] startAfterDestroy;
+	/**
+	 * When true, the MIDlet runs embedded inside EmulatorScreen via a
+	 * J2meEngine host and the process must NOT be killed on exit (exit
+	 * returns to the game library instead). When false (standalone
+	 * MicroActivity), the original behavior is preserved: killProcess
+	 * resets J2ME static state.
+	 *
+	 * Set to true by the embedded host before creating the MIDlet.
+	 */
+	public static boolean embedded;
 	private static MidletThread instance;
 	private final MicroLoader microLoader;
 	private final String mainClass;
@@ -72,14 +83,25 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 		if (instance != null) {
 			instance.state = DESTROYED;
 		}
-		MicroActivity activity = ContextHolder.getActivity();
-		if (activity != null) {
-			activity.finish();
+		// Host is now a J2meHost interface; requestExit() finishes the
+		// standalone MicroActivity, or unloads the embedded J2meEngine.
+		J2meHost host = ContextHolder.getHost();
+		if (host != null) {
+			host.requestExit();
 		}
-		if (startAfterDestroy != null) {
-			Config.startApp(ContextHolder.getActivity(), startAfterDestroy[0], startAfterDestroy[1], false, startAfterDestroy[2]);
+		// startAfterDestroy restarts another MIDlet; only meaningful for a
+		// Context host (standalone MicroActivity). An embedded host drives
+		// its own restart via J2meEngine.
+		if (startAfterDestroy != null && host instanceof Context) {
+			Config.startApp((Context) host, startAfterDestroy[0], startAfterDestroy[1], false, startAfterDestroy[2]);
 		}
-		Process.killProcess(Process.myPid());
+		// Standalone mode kills the process to reset J2ME static state
+		// (Display.instance, Graphics3D, MidletThread.instance, etc.).
+		// Embedded mode must NOT kill the process; the embedded host owns
+		// lifecycle reset.
+		if (!embedded) {
+			Process.killProcess(Process.myPid());
+		}
 	}
 
 	public static void notifyPaused() {
@@ -92,8 +114,10 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 	}
 
 	public static void resumeApp() {
-		MicroActivity activity = ContextHolder.getActivity();
-		if (instance != null && activity != null && activity.isVisible())
+		// Use the J2meHost interface so both MicroActivity and a future
+		// embedded host can satisfy the visibility check.
+		J2meHost host = ContextHolder.getHost();
+		if (instance != null && host != null && host.isVisible())
 			instance.handler.obtainMessage(START).sendToTarget();
 	}
 
@@ -105,11 +129,15 @@ public class MidletThread extends HandlerThread implements Handler.Callback {
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
-			Process.killProcess(Process.myPid());
+			// Force-destroy fallback only kills the process in standalone
+			// mode; embedded mode relies on the host's unload.
+			if (!embedded) {
+				Process.killProcess(Process.myPid());
+			}
 		}, "ForceDestroyTimer").start();
-		MicroActivity activity = ContextHolder.getActivity();
-		if (activity != null) {
-			Displayable current = activity.getCurrent();
+		J2meHost host = ContextHolder.getHost();
+		if (host != null) {
+			Displayable current = host.getCurrent();
 			if (current instanceof Canvas) {
 				Canvas canvas = (Canvas) current;
 				canvas.postKeyPressed(Canvas.KEY_END);

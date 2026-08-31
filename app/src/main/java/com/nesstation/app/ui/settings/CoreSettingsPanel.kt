@@ -675,7 +675,22 @@ fun CoreSettingsPanel(
             }
             GamePlatform.JAVA -> item {
                 SettingsSection("Java (J2ME)") {
-                    // J2ME 核心没有专属选项
+                    DropdownRow("虚拟按键模式",
+                        listOf("gamepad" to "手柄 (D-pad + A/B/X/Y)", "phone" to "手机键盘 (12键)"),
+                        padLayout.javaInputMode
+                    ) { updateLayout(padLayout.copy { javaInputMode = it }) }
+                    DropdownRow("画面缩放",
+                        listOf("fit" to "适应 (保持比例)", "stretch" to "拉伸 (填满屏幕)", "center" to "原始分辨率居中"),
+                        padLayout.javaScaleType
+                    ) { updateLayout(padLayout.copy { javaScaleType = it }) }
+                    DropdownRow("显示 FPS",
+                        listOf("enabled" to "开启", "disabled" to "关闭"),
+                        if (padLayout.javaShowFps) "enabled" else "disabled"
+                    ) { updateLayout(padLayout.copy { javaShowFps = (it == "enabled") }) }
+                    DropdownRow("即时渲染模式",
+                        listOf("enabled" to "开启 (菜单更流畅)", "disabled" to "关闭 (减少闪烁)"),
+                        if (padLayout.javaImmediateMode) "enabled" else "disabled"
+                    ) { updateLayout(padLayout.copy { javaImmediateMode = (it == "enabled") }) }
                 }
             }
             GamePlatform.NDS -> item {

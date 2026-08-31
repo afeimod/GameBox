@@ -69,7 +69,11 @@ public class LocalDevice implements ActivityResultListener {
 		}
 		if (!DiscoveryAgent.adapter.isEnabled()) {
 			Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-			ContextHolder.getActivity().startActivityForResult(enableBtIntent, 2);
+			MicroActivity activity = ContextHolder.getActivity();
+			if (activity == null) {
+				throw new BluetoothStateException();
+			}
+			activity.startActivityForResult(enableBtIntent, 2);
 			synchronized (monitor) {
 				try {
 					monitor.wait();
@@ -112,7 +116,10 @@ public class LocalDevice implements ActivityResultListener {
 
 		Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
 		lock = true;
-		ContextHolder.getActivity().startActivityForResult(discoverableIntent, 1);
+		MicroActivity activity = ContextHolder.getActivity();
+		if (activity != null) {
+			activity.startActivityForResult(discoverableIntent, 1);
+		}
 		return true;
 	}
 

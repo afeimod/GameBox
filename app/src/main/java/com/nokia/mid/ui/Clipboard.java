@@ -28,7 +28,7 @@ public abstract class Clipboard {
 	private static final ClipboardManager clipboardmgr;
 
 	static {
-		clipboardmgr = (ClipboardManager) ContextHolder.getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+		clipboardmgr = (ClipboardManager) ContextHolder.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
 	}
 
 	public static void copyToClipboard(String text) {

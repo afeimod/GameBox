@@ -240,7 +240,7 @@ interface EmulatorEngine {
             GamePlatform.NDS    -> NdsEngine.get()
             GamePlatform.PSX    -> PsxEngine.get()
             GamePlatform.PS2    -> Psx2Engine.get()
-            GamePlatform.JAVA   -> NesEngine.get() // fallback, should not be used
+            GamePlatform.JAVA   -> J2meEngine.get()
         }
     }
 }

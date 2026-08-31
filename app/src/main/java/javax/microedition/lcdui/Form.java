@@ -167,7 +167,7 @@ public class Form extends Screen {
 	@Override
 	public View getScreenView() {
 		if (scrollview == null) {
-			Context context = ContextHolder.getActivity();
+			Context context = ContextHolder.getContext();
 
 			layout = new LinearLayout(context);
 			layout.setOrientation(LinearLayout.VERTICAL);

@@ -41,6 +41,7 @@ import java.util.Objects;
 
 import javax.microedition.lcdui.keyboard.VirtualKeyboard;
 import javax.microedition.shell.AppClassLoader;
+import javax.microedition.shell.J2meHost;
 import javax.microedition.shell.MicroActivity;
 
 import androidx.core.app.ActivityCompat;
@@ -52,7 +53,9 @@ import ru.playsoftware.j2meloader.config.Config;
 public class ContextHolder {
 	private static Display display;
 	private static VirtualKeyboard vk;
-	private static WeakReference<MicroActivity> currentActivity;
+	// Host interface, not the concrete Activity, so an embedded
+	// (non-Activity) host can drive the MIDlet too. See J2meHost.
+	private static WeakReference<J2meHost> currentActivity;
 	private static Vibrator vibrator;
 	private static Context appContext;
 	private static final ArrayList<ActivityResultListener> resultListeners = new ArrayList<>();
@@ -85,7 +88,7 @@ public class ContextHolder {
 		return getDisplay().getHeight();
 	}
 
-	public static void setCurrentActivity(MicroActivity activity) {
+	public static void setCurrentActivity(J2meHost activity) {
 		currentActivity = new WeakReference<>(activity);
 	}
 
@@ -140,10 +143,14 @@ public class ContextHolder {
 	}
 
 	public static boolean requestPermission(String permission) {
-		MicroActivity context = currentActivity.get();
-		if (context == null) {
+		// Permission requests need an Activity; only the standalone
+		// MicroActivity host qualifies. An embedded host will route
+		// permissions through EmulatorScreen's Activity later.
+		J2meHost host = currentActivity.get();
+		if (!(host instanceof MicroActivity)) {
 			return false;
 		}
+		MicroActivity context = (MicroActivity) host;
 		if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
 			ActivityCompat.requestPermissions(context, new String[]{permission}, 0);
 			return false;
@@ -153,10 +160,11 @@ public class ContextHolder {
 	}
 
 	public static boolean requestPermissions(String[] permissions) {
-		MicroActivity context = currentActivity.get();
-		if (context == null) {
+		J2meHost host = currentActivity.get();
+		if (!(host instanceof MicroActivity)) {
 			return false;
 		}
+		MicroActivity context = (MicroActivity) host;
 		if (!hasPermissions(context, permissions)) {
 			ActivityCompat.requestPermissions(context, permissions, 0);
 			return false;
@@ -192,8 +200,52 @@ public class ContextHolder {
 		return sb.toString();
 	}
 
+	/**
+	 * @return the host cast to MicroActivity, or null if the current host is
+	 * not a MicroActivity (e.g. an embedded non-Activity host).
+	 *
+	 * Existing lcdui/media code (40+ call sites) treats the host as a
+	 * MicroActivity/Context. They keep compiling via this cast; in embedded
+	 * mode they receive null and must be adapted individually as the
+	 * embedded pipeline is built out.
+	 */
 	public static MicroActivity getActivity() {
+		J2meHost host = currentActivity.get();
+		return host instanceof MicroActivity ? (MicroActivity) host : null;
+	}
+
+	/**
+	 * @return the current host as the J2meHost interface, for code that only
+	 * needs setCurrent/getCurrent/isVisible/requestExit (MidletThread,
+	 * Display). Works for both the standalone MicroActivity host and a
+	 * future embedded host driven by EmulatorScreen/J2meEngine.
+	 */
+	public static J2meHost getHost() {
 		return currentActivity.get();
+	}
+
+	/**
+	 * @return a Context usable for constructing Views. Prefers the standalone
+	 * MicroActivity (so theme resources resolve correctly); falls back to the
+	 * Application context for embedded (non-Activity) hosts, which have no
+	 * MicroActivity and would otherwise get null from getActivity().
+	 *
+	 * Used by Displayable/Canvas to build their view trees when the MIDlet
+	 * runs inside EmulatorScreen rather than in its own Activity.
+	 */
+	public static Context getContext() {
+		MicroActivity activity = getActivity();
+		return activity != null ? activity : getAppContext();
+	}
+
+	/**
+	 * @return the MicroActivity's overlay view (used for the soft-key bar and
+	 * virtual keyboard), or null when the host is not a MicroActivity
+	 * (embedded mode). Callers must null-check.
+	 */
+	public static android.view.View getOverlayView() {
+		MicroActivity activity = getActivity();
+		return activity != null ? activity.binding.overlayView : null;
 	}
 
 	public static boolean vibrate(int duration) {
