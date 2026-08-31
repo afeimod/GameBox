@@ -2954,6 +2954,7 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
             engine.setCoreOption("pcsx2_mtvu", layout.ps2Mtvu)
             engine.setCoreOption("pcsx2_instant_vu1", layout.ps2InstantVu1)
             engine.setCoreOption("pcsx2_ee_cycle_rate", layout.ps2EeCycleRate)
+        }
         GamePlatform.JAVA -> {
             // J2ME settings are applied via Canvas static methods, not libretro core options.
             // Screen scale type: "stretch" = GRAVITY_FILL, "fit" = GRAVITY_CENTER, "center" = GRAVITY_TOP
