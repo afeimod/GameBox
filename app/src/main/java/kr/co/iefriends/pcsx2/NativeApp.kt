@@ -117,6 +117,12 @@ object NativeApp {
     /** Internal resolution multiplier (1x..4x). Mirrors psx2_upscale_multiplier. */
     @JvmStatic external fun renderUpscalemultiplier(multiplier: Float)
 
+    /** GS pixel-level live pokes (see native-lib.cpp render* methods). */
+    @JvmStatic external fun renderTvShader(value: Int)
+    @JvmStatic external fun renderShadeBoost(enabled: Boolean, brightness: Int, contrast: Int, saturation: Int, gamma: Int)
+    @JvmStatic external fun renderHalfpixeloffset(value: Int)
+    @JvmStatic external fun renderPreloading(value: Int)
+
     /** AspectRatioType index (0=Stretch .. 5=Custom). */
     @JvmStatic external fun setAspectRatio(mode: Int)
 
