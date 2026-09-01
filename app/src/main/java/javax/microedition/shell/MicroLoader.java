@@ -100,14 +100,14 @@ public class MicroLoader {
                 if (params == null) {
                         // GameBox: 配置缺失或损坏时自动生成默认配置，而不是启动失败。
                         // 原版 J2ME-Loader 的兜底链路是 MicroActivity → ConfigActivity
-                        // （首次打开生成默认 config.json 再重启游戏）。GameBox 嵌入式模式
-                        // (J2meEngine) 不经过这两个 Activity，而 JavaGameStore.installJar()
+                        // （首次打开生成默认 config.json 再重启游戏）。GameBox 嵌入式
+                        // 模式 (J2meEngine) 不经过这两个 Activity，而 JavaGameStore
                         // 安装时也不写 config.json，导致这类游戏全部黑屏报错
                         // "MicroLoader.init() returned false"。
                         // 这里对齐 ConfigActivity.loadConfig() 的兜底逻辑：
                         // loadConfig 为 null → new ProfileModel(dir) + saveConfig。
                         // 覆盖两种情况：config.json 从未创建（新装游戏）、
-                        // config.json 存在但 Gson 解析失败（损坏/被清库工具截断）。
+                        // config.json 存在但 Gson 解析失败（损坏/被截断）。
                         try {
                                 if (!config.exists() && !config.mkdirs()) {
                                         Log.e(TAG, "init: Can't create config dir: " + config);

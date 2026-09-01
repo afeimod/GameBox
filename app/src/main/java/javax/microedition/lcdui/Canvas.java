@@ -138,14 +138,6 @@ public abstract class Canvas extends Displayable {
         /** J2ME video filter mode (0=none,1=scanline,2=CRT,3=dot,4=2XBR,5=4XBR,6=2XBR+dot,7=4XBR+dot,8=HQ4x,9=HQ4x+dot) */
         private static volatile int j2meFilterMode = 0;
 
-        // GameBox: 全局帧计数器 —— 三条绘制路径（CPU repaintScreen / View onDraw /
-        // GL 渲染线程）每成功向屏幕提交一帧都 +1。宿主 EmulatorScreen 的 FPS 悬浮窗
-        // 通过 J2meEngine.realtimeFps() → getAndResetFrameCount() 每秒采样一次，
-        // 修复 Java 游戏全局帧数一直显示 0fps 的问题（J2ME 是事件驱动渲染，
-        // 没有 libretro 式的 onFrame 回调，旧版两条统计路径都拿不到数据）。
-        private static final java.util.concurrent.atomic.AtomicLong globalFrameCount =
-                        new java.util.concurrent.atomic.AtomicLong(0);
-
         private final Object bufferLock = new Object();
         private final Object surfaceLock = new Object();
         private final PaintEvent paintEvent = new PaintEvent();
@@ -282,21 +274,6 @@ public abstract class Canvas extends Displayable {
                 Canvas.showFps = showFps;
         }
 
-        /**
-         * GameBox: 返回自上次调用以来向屏幕提交的帧数并清零。
-         * 宿主（J2meEngine.realtimeFps）每约 1 秒采样一次，读数即实时帧率。
-         * 覆盖全部三条绘制路径，与实例级 fpsCounter（仅 OverlayView 模式可用）
-         * 互不影响。
-         */
-        public static long getAndResetFrameCount() {
-                return globalFrameCount.getAndSet(0);
-        }
-
-        /** 全局帧计数 +1（向屏幕成功提交一帧时调用）。 */
-        private static void countFrame() {
-                globalFrameCount.incrementAndGet();
-        }
-
         public static void setLimitFps(int fpsLimit) {
                 if (fpsLimit == 0 && (graphicsMode == 1 || graphicsMode == 2)) {
                         // hack for async redraw
@@ -368,6 +345,79 @@ public abstract class Canvas extends Displayable {
                                 KeyMapper.convertKeyCode(keyCode)));
         }
 
+        /**
+         * GameBox: 嵌入式模式的触屏注入入口。
+         *
+         * Compose 的虚拟手柄覆盖层是游戏视图（AndroidView 内的
+         * GlesView/CanvasView）的高 z 兄弟节点，命中测试不会穿透到手柄下方
+         * —— 覆盖层可见时 ViewCallbacks.onTouch 永远收不到游戏区域的触摸。
+         * 覆盖层把"未命中任何按键"的触摸转发出来后，宿主经 J2meEngine 调用
+         * 本方法，复用与 onTouch 完全相同的坐标换算（视图坐标 → 虚拟画布
+         * 坐标）与事件投递路径，让 MIDlet 的 pointerPressed/Dragged/Released
+         * 正常触发。
+         *
+         * @param actionMasked MotionEvent.ACTION_DOWN/POINTER_DOWN/MOVE/UP/POINTER_UP/CANCEL
+         * @param pointerId    指针 id（多点触控）
+         * @param x            视图局部坐标（innerView 坐标系，即 surface 像素坐标）
+         * @param y            视图局部坐标
+         */
+        public void postTouchAction(int actionMasked, int pointerId, float x, float y) {
+                switch (actionMasked) {
+                        case android.view.MotionEvent.ACTION_DOWN:
+                        case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                                if (touchInput && virtualScreen.contains(x, y)) {
+                                        int cX = Math.round(convertPointerX(x));
+                                        int cY = Math.round(convertPointerY(y));
+                                        if (pointerId < 20) {
+                                                lastPointerPos[pointerId][0] = cX;
+                                                lastPointerPos[pointerId][1] = cY;
+                                        }
+                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                        CanvasEvent.POINTER_PRESSED,
+                                                        pointerId, cX, cY));
+                                }
+                                break;
+                        case android.view.MotionEvent.ACTION_MOVE:
+                                if (touchInput && virtualScreen.contains(x, y)) {
+                                        int cX = Math.round(convertPointerX(x));
+                                        int cY = Math.round(convertPointerY(y));
+                                        if (pointerId < 20) {
+                                                int oX = lastPointerPos[pointerId][0];
+                                                int oY = lastPointerPos[pointerId][1];
+                                                if (oX == cX && oY == cY) {
+                                                        break;
+                                                }
+                                                lastPointerPos[pointerId][0] = cX;
+                                                lastPointerPos[pointerId][1] = cY;
+                                        }
+                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                        CanvasEvent.POINTER_DRAGGED,
+                                                        pointerId, cX, cY));
+                                }
+                                break;
+                        case android.view.MotionEvent.ACTION_UP:
+                        case android.view.MotionEvent.ACTION_POINTER_UP:
+                                if (touchInput && virtualScreen.contains(x, y)) {
+                                        int cX = Math.round(convertPointerX(x));
+                                        int cY = Math.round(convertPointerY(y));
+                                        if (pointerId < 20) {
+                                                lastPointerPos[pointerId][0] = cX;
+                                                lastPointerPos[pointerId][1] = cY;
+                                        }
+                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                        CanvasEvent.POINTER_RELEASED,
+                                                        pointerId, cX, cY));
+                                }
+                                break;
+                        case android.view.MotionEvent.ACTION_CANCEL:
+                                // 与 ViewCallbacks.onTouch 一致：CANCEL 交给 overlay
+                                // 处理（嵌入式 overlay 为 null），无需投递 MIDlet 事件。
+                                break;
+                        default:
+                                break;
+                }
+        }
+
         public void doShowNotify() {
                 visible = true;
                 showNotify();
@@ -396,7 +446,6 @@ public abstract class Canvas extends Displayable {
                                 g.drawImage(offscreenCopy, virtualScreen);
                         }
                 }
-                countFrame();
                 if (fpsCounter != null) {
                         fpsCounter.increment();
                 }
@@ -793,7 +842,6 @@ public abstract class Canvas extends Displayable {
                         }
                                 surface.unlockCanvasAndPost(canvas);
                         }
-                        countFrame();
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
                         }
@@ -1003,7 +1051,6 @@ public abstract class Canvas extends Displayable {
                         // instead of stale frame data.
                         glClear(GL_COLOR_BUFFER_BIT);
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                        countFrame();
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
                         }

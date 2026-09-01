@@ -75,7 +75,10 @@ import androidx.core.content.ContextCompat
 import com.nesstation.app.core.model.GameEntry
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ArcadeTitleMapper
+import com.nesstation.app.core.storage.JavaGameSettings
+import com.nesstation.app.core.storage.JavaGameSettingsStore
 import com.nesstation.app.core.storage.JavaGameStore
+import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.RomStore
 import com.nesstation.app.ui.components.AppBackgroundState
 import com.nesstation.app.ui.components.PixelBackdrop
@@ -181,6 +184,9 @@ fun LibraryScreen(
 
     // 长按菜单相关状态
     var longPressGame by remember { mutableStateOf<GameEntry?>(null) }
+    // J2ME 长按「游戏设置」：打开每游戏专属设置弹窗（分辨率/缩放/帧率/触摸/
+    // 透明度等，独立保存，不影响其他 Java 游戏）
+    var pendingJavaSettingsGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingIconGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingDeleteGame by remember { mutableStateOf<GameEntry?>(null) }
     var pendingRenameGame by remember { mutableStateOf<GameEntry?>(null) }
@@ -1140,14 +1146,11 @@ fun LibraryScreen(
                         MenuOption("游戏设置") {
                             longPressGame = null
                             if (game.platform == GamePlatform.JAVA) {
-                                // Java 游戏设置已补全到游戏内设置菜单（分辨率/缩放/
-                                // 按键映射/帧率等），不再跳转 J2ME-Loader 的原生设置
-                                // (ConfigActivity)，避免两套设置互相覆盖。
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "Java 游戏设置已整合到游戏内：进入游戏后打开菜单（返回键）→ 设置",
-                                    android.widget.Toast.LENGTH_LONG
-                                ).show()
+                                // Java 游戏：打开本游戏专属设置（分辨率/缩放/帧率/
+                                // 触摸/透明度等，按游戏单独保存，进游戏即生效）。
+                                // 旧版只弹 Toast 指引进游戏内设置 —— 现在有真正的
+                                // 每游戏设置界面。
+                                pendingJavaSettingsGame = game
                             } else {
                                 onOpenGame(game)
                             }
@@ -1184,6 +1187,14 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    // J2ME 每游戏专属设置弹窗（长按卡片「游戏设置」）
+    pendingJavaSettingsGame?.let { game ->
+        JavaGameSettingsDialog(
+            game = game,
+            onDismiss = { pendingJavaSettingsGame = null }
+        )
     }
 
     // 重命名弹窗
@@ -1757,4 +1768,343 @@ private fun findDosLauncherInLocalFolder(folder: File): File? {
     return candidates.firstOrNull { it.name.endsWith(".bat", ignoreCase = true) }
         ?: candidates.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) }
         ?: candidates.firstOrNull { it.name.endsWith(".com", ignoreCase = true) }
+}
+
+// ===========================================================================
+// J2ME 每游戏专属设置弹窗
+//
+// 长按 Java 游戏卡片 →「游戏设置」：编辑该游戏独立保存的 J2ME 配置
+// （分辨率/缩放/帧率/触摸/透明度/输入模式等）。没有专属配置时以全局
+// 默认值作为起点，保存后生成专属配置；「恢复全局默认」删除专属配置。
+// 配置在下次进入游戏时生效（游戏内设置面板则即时生效）。
+// ===========================================================================
+@Composable
+private fun JavaGameSettingsDialog(
+    game: GameEntry,
+    onDismiss: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val gameKey = remember { JavaGameSettingsStore.gameKey(game.romPath) }
+    val hasOverride = remember { JavaGameSettingsStore.has(context, gameKey) }
+
+    // 初始值：优先读专属配置，否则用全局默认
+    val initial = remember {
+        JavaGameSettingsStore.load(context, gameKey)
+            ?: JavaGameSettings.of(PadLayoutStore.load(context))
+    }
+
+    var inputMode by remember { mutableStateOf(initial.javaInputMode) }
+    var scaleType by remember { mutableStateOf(initial.javaScaleType) }
+    var resolution by remember { mutableStateOf(initial.javaResolution) }
+    var scaleRatio by remember { mutableStateOf(initial.javaScaleRatio) }
+    var fpsLimit by remember { mutableStateOf(initial.javaFpsLimit) }
+    var showFps by remember { mutableStateOf(initial.javaShowFps) }
+    var immediateMode by remember { mutableStateOf(initial.javaImmediateMode) }
+    var touchInput by remember { mutableStateOf(initial.javaTouchInput) }
+    var numDualDispatch by remember { mutableStateOf(initial.javaNumDualDispatch) }
+    var opacity by remember { mutableStateOf(initial.javaOpacity) }
+    // 当前展开的下拉项（null = 全部收起）
+    var openDropdown by remember { mutableStateOf<String?>(null) }
+
+    fun snapshot(): JavaGameSettings = JavaGameSettings(
+        javaInputMode = inputMode,
+        javaScaleType = scaleType,
+        javaShowFps = showFps,
+        javaImmediateMode = immediateMode,
+        javaResolution = resolution,
+        javaScaleRatio = scaleRatio,
+        javaFpsLimit = fpsLimit,
+        javaTouchInput = touchInput,
+        javaNumDualDispatch = numDualDispatch,
+        javaButtonKeyMap = initial.javaButtonKeyMap,
+        javaPhoneGrid = initial.javaPhoneGrid,
+        javaPhoneTop = initial.javaPhoneTop,
+        javaOpacity = opacity
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF16212E),
+            tonalElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth(0.92f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .heightIn(max = 560.dp)
+            ) {
+                // 标题
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("游戏设置 · ${game.title}",
+                            color = Color.White, fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                        Text(
+                            if (hasOverride) "本游戏专属设置（独立保存）"
+                            else "基于全局默认 · 保存后为本游戏专属",
+                            color = if (hasOverride) Color(0xFF7BD88F) else Color(0xFF8899AA),
+                            fontSize = 10.sp
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(androidx.compose.material.icons.Icons.Rounded.Clear, "关闭",
+                            tint = Color.White)
+                    }
+                }
+                Spacer(Modifier.size(6.dp))
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // --- 输入模式 ---
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("输入模式", color = Color.White, fontSize = 13.sp) },
+                        trailingContent = {
+                            Text(
+                                if (inputMode == "phone") "手机键盘 ▾" else "手柄布局 ▾",
+                                color = Color(0xFFFFD66B), fontSize = 12.sp,
+                                modifier = Modifier.clickable {
+                                    openDropdown = if (openDropdown == "input") null else "input"
+                                }
+                            )
+                        },
+                        colors = androidx.compose.material3.ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    if (openDropdown == "input") {
+                        listOf("gamepad" to "手柄布局 (方向键 + ABXY)",
+                               "phone" to "手机键盘 (数字 + 软键 + 方向)").forEach { (v, label) ->
+                            JavaSettingsOptionRow(label, inputMode == v) { inputMode = v; openDropdown = null }
+                        }
+                    }
+
+                    // --- 屏幕缩放 ---
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("屏幕缩放", color = Color.White, fontSize = 13.sp) },
+                        trailingContent = {
+                            Text(
+                                when (scaleType) {
+                                    "stretch" -> "全屏拉伸 ▾"
+                                    "center" -> "原始分辨率 ▾"
+                                    else -> "适应屏幕 ▾"
+                                },
+                                color = Color(0xFFFFD66B), fontSize = 12.sp,
+                                modifier = Modifier.clickable {
+                                    openDropdown = if (openDropdown == "scale") null else "scale"
+                                }
+                            )
+                        },
+                        colors = androidx.compose.material3.ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    if (openDropdown == "scale") {
+                        listOf("fit" to "适应屏幕 (保持比例，推荐)",
+                               "stretch" to "全屏拉伸",
+                               "center" to "原始分辨率 (居中)").forEach { (v, label) ->
+                            JavaSettingsOptionRow(label, scaleType == v) { scaleType = v; openDropdown = null }
+                        }
+                    }
+
+                    // --- 游戏分辨率 ---
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("游戏分辨率", color = Color.White, fontSize = 13.sp) },
+                        trailingContent = {
+                            Text(
+                                (when (resolution) {
+                                    "default" -> "默认"
+                                    "auto" -> "自动"
+                                    else -> resolution.replace("x", "×")
+                                }) + " ▾",
+                                color = Color(0xFFFFD66B), fontSize = 12.sp,
+                                modifier = Modifier.clickable {
+                                    openDropdown = if (openDropdown == "res") null else "res"
+                                }
+                            )
+                        },
+                        colors = androidx.compose.material3.ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    if (openDropdown == "res") {
+                        listOf(
+                            "default" to "默认 (跟随游戏配置)",
+                            "auto" to "自动 (跟随设备屏幕)",
+                            "128x128" to "128 × 128",
+                            "176x208" to "176 × 208 (S60 经典)",
+                            "176x220" to "176 × 220",
+                            "208x208" to "208 × 208",
+                            "240x320" to "240 × 320 (最常见)",
+                            "240x400" to "240 × 400",
+                            "320x240" to "320 × 240 (横屏)",
+                            "360x640" to "360 × 640",
+                            "480x800" to "480 × 800",
+                            "640x360" to "640 × 360 (横屏)"
+                        ).forEach { (v, label) ->
+                            JavaSettingsOptionRow(label, resolution == v) { resolution = v; openDropdown = null }
+                        }
+                    }
+
+                    // --- 画面缩放比例 ---
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("画面缩放比例", color = Color.White, fontSize = 13.sp) },
+                        trailingContent = {
+                            Text("$scaleRatio% ▾", color = Color(0xFFFFD66B), fontSize = 12.sp,
+                                modifier = Modifier.clickable {
+                                    openDropdown = if (openDropdown == "ratio") null else "ratio"
+                                })
+                        },
+                        colors = androidx.compose.material3.ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    if (openDropdown == "ratio") {
+                        listOf("25", "50", "75", "100", "125", "150", "175", "200", "300", "400")
+                            .forEach { v ->
+                                JavaSettingsOptionRow(
+                                    if (v == "100") "100% (默认)" else "$v%",
+                                    scaleRatio == v
+                                ) { scaleRatio = v; openDropdown = null }
+                            }
+                    }
+
+                    // --- 帧率限制 ---
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("帧率限制", color = Color.White, fontSize = 13.sp) },
+                        trailingContent = {
+                            Text(
+                                (if (fpsLimit == "0") "不限制" else "$fpsLimit FPS") + " ▾",
+                                color = Color(0xFFFFD66B), fontSize = 12.sp,
+                                modifier = Modifier.clickable {
+                                    openDropdown = if (openDropdown == "fps") null else "fps"
+                                }
+                            )
+                        },
+                        colors = androidx.compose.material3.ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    if (openDropdown == "fps") {
+                        listOf("0" to "不限制 (默认)", "60" to "60 FPS", "50" to "50 FPS",
+                               "40" to "40 FPS", "30" to "30 FPS", "25" to "25 FPS",
+                               "15" to "15 FPS").forEach { (v, label) ->
+                            JavaSettingsOptionRow(label, fpsLimit == v) { fpsLimit = v; openDropdown = null }
+                        }
+                    }
+
+                    // --- 开关项 ---
+                    JavaSettingsSwitchRow("显示 J2ME 帧数", "由 MIDlet 画面内部绘制实时帧率", showFps) { showFps = it }
+                    JavaSettingsSwitchRow("即时绘制模式", "提升按键/触摸响应速度，少数游戏需关闭", immediateMode) { immediateMode = it }
+                    JavaSettingsSwitchRow("触摸输入支持", "触屏版游戏的触摸操作；关闭强制键盘 UI", touchInput) { touchInput = it }
+                    JavaSettingsSwitchRow("数字键兼作方向键", "2/4/6/8/5 同时发送方向/确认键（真机行为）", numDualDispatch) { numDualDispatch = it }
+
+                    // --- 虚拟按键透明度 ---
+                    Text("虚拟按键透明度", color = Color.White, fontSize = 13.sp,
+                        modifier = Modifier.padding(start = 16.dp, top = 6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp)) {
+                        androidx.compose.material3.Slider(
+                            value = opacity.coerceIn(0.3f, 1f),
+                            onValueChange = { opacity = it.coerceIn(0.3f, 1f) },
+                            valueRange = 0.3f..1f,
+                            colors = androidx.compose.material3.SliderDefaults.colors(
+                                thumbColor = Color(0xFFFFD66B),
+                                activeTrackColor = Color(0xFFFFD66B),
+                                inactiveTrackColor = Color(0xFF3A4A5A)
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text("${(opacity.coerceIn(0.3f, 1f) * 100).toInt()}%",
+                            color = Color(0xFFFFD66B), fontSize = 12.sp,
+                            modifier = Modifier.padding(start = 8.dp))
+                    }
+
+                    // --- 恢复全局默认 ---
+                    if (hasOverride) {
+                        TextButton(onClick = {
+                            JavaGameSettingsStore.remove(context, gameKey)
+                            onDismiss()
+                        }) {
+                            Text("恢复全局默认设置", color = Color(0xFFFF6B6B), fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "设置在下次进入游戏时生效；按键映射请进游戏后打开菜单 → 设置",
+                        color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+
+                Spacer(Modifier.size(10.dp))
+                // 底部操作
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消", color = Color(0xFF8899AA)) }
+                    TextButton(onClick = {
+                        JavaGameSettingsStore.save(context, gameKey, snapshot())
+                        onDismiss()
+                    }) {
+                        Text("保存", color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 设置弹窗里的单选选项行（右侧打勾）。 */
+@Composable
+private fun JavaSettingsOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+    ) {
+        Text(
+            label,
+            color = if (selected) Color(0xFFFFD66B) else Color.White,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
+        if (selected) Text("✓", color = Color(0xFFFFD66B), fontSize = 13.sp)
+    }
+}
+
+/** 设置弹窗里的开关行。 */
+@Composable
+private fun JavaSettingsSwitchRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = Color.White, fontSize = 13.sp)
+            Text(description, color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 13.sp)
+        }
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFFFFD66B),
+                checkedTrackColor = Color(0xFF5A4A1F)
+            )
+        )
+    }
 }

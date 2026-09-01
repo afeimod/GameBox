@@ -277,8 +277,7 @@ object JavaGameStore {
                 dir.deleteRecursively()
             }
             // GameBox: 同步删除 <configs>/<目录名>/，否则卸载后残留旧
-            // config.json，重装同名游戏会继承陈旧的分辨率/缩放等设置，
-            // 造成“新装游戏打开却是奇怪画面尺寸”的困惑。
+            // config.json，重装同名游戏会继承陈旧的分辨率/缩放等设置。
             try {
                 val configDir = File(
                     ru.playsoftware.j2meloader.config.Config.getConfigsDir(),

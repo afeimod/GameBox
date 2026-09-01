@@ -104,7 +104,7 @@ class PadLayout {
     var btnXP: ButtonLayout = ButtonLayout(x = 0.83f, y = 0.50f, sizeDp = 56)
     var btnYP: ButtonLayout = ButtonLayout(x = 0.69f, y = 0.56f, sizeDp = 56)
     // === 全局设置（横竖屏共享） ===
-    var opacity: Float = 0.7f     // 0.3 – 1.0
+    var opacity: Float = 0.7f     // 0.3 – 1.0（通用核心虚拟按键透明度，可调）
     var showPad: Boolean = true
     // 全局 FPS 显示（所有平台通用）：开启后游戏画面左上角叠加实时帧率。
     // 帧率来自各引擎模拟线程的 onFrame 回调（每模拟帧 +1），
@@ -214,6 +214,10 @@ class PadLayout {
     // or "phone" (12-key numeric keypad + soft keys). Switchable at runtime
     // via a button in the J2me overlay.
     var javaInputMode: String = "gamepad"             // gamepad | phone
+    // J2ME 虚拟按键透明度（0.3–1.0，默认 0.8）。旧版直接复用全局 opacity
+    // 再打对折（0.7*0.5=0.35），方向键深色底在深色游戏画面上几乎看不清 ——
+    // 现在独立成键，默认提亮，并且可在布局编辑器/设置里调节。
+    var javaOpacity: Float = 0.8f     // 0.3 – 1.0（J2ME 专用，不影响其他核心）
     // J2ME screen scale type: how the virtual MIDlet screen is scaled to fit
     // the device display. "stretch" = fill (may distort), "fit" = keep
     // aspect ratio with letterboxing, "center" = native resolution centered.
@@ -249,28 +253,6 @@ class PadLayout {
     var javaPhoneGrid: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48)
     // J2ME 手机键盘模式布局：顶部功能键行（L/F/R/C）的中心位置与单键尺寸。
     var javaPhoneTop: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40)
-    // === Java 游戏窗口独立画面缩放 ===
-    // Java(J2ME) 游戏多为竖屏(240x320 等)，比例与其他横屏核心不同，
-    // 窗口缩放单独保存，避免与全局 videoScale（NES/SFC/GBA 等共用）
-    // 互相覆盖：在 Java 游戏里改缩放不会影响其他核心，反之亦然。
-    // 取值："stretch" 铺满 | "3:4"/"9:16"/"2:3"/"1:1"/"4:3"/"16:9" 固定比例 | "custom" 自定义矩形
-    var javaVideoScale: String = "stretch"
-    // Java 自定义窗口矩形（videoScale=="custom" 时的归一化 0..1 矩形），横竖屏分开保存。
-    var javaCustomLayoutLeft: Float = 0f
-    var javaCustomLayoutTop: Float = 0f
-    var javaCustomLayoutRight: Float = 1f
-    var javaCustomLayoutBottom: Float = 1f
-    var javaCustomLayoutLeftP: Float = 0f
-    var javaCustomLayoutTopP: Float = 0f
-    var javaCustomLayoutRightP: Float = 1f
-    var javaCustomLayoutBottomP: Float = 1f
-    // J2ME 手柄模式方向控制："dpad" 十字键 | "analog" 摇杆。
-    // 与其他核心的 inputMode 分开保存（Java 的摇杆是虚拟层，把拖动方向
-    // 映射成 J2ME 方向键），切换摇杆不会影响其他核心的设置。
-    var javaStickMode: String = "dpad"
-    // J2ME 手柄模式隐藏按键列表（逗号分隔，见显隐按键对话框）。
-    // 可选值：dpad/a/b/x/y/start/select。手机键盘模式不受此影响。
-    var hiddenButtonsJava: String = ""
     // === DOS gamepad overlay button positions (landscape) ===
     // Each button has x/y (0.0-1.0 of screen) and sizeDp.
     // dosBtnEnabled controls whether the button is shown (user can hide/add).
@@ -804,6 +786,7 @@ class PadLayout {
         dosForce60fps = another.dosForce60fps
         dosInputMode = another.dosInputMode
         javaInputMode = another.javaInputMode
+        javaOpacity = another.javaOpacity
         javaScaleType = another.javaScaleType
         javaShowFps = another.javaShowFps
         javaImmediateMode = another.javaImmediateMode
@@ -815,17 +798,6 @@ class PadLayout {
         javaButtonKeyMap = another.javaButtonKeyMap
         javaPhoneGrid = another.javaPhoneGrid
         javaPhoneTop = another.javaPhoneTop
-        javaVideoScale = another.javaVideoScale
-        javaCustomLayoutLeft = another.javaCustomLayoutLeft
-        javaCustomLayoutTop = another.javaCustomLayoutTop
-        javaCustomLayoutRight = another.javaCustomLayoutRight
-        javaCustomLayoutBottom = another.javaCustomLayoutBottom
-        javaCustomLayoutLeftP = another.javaCustomLayoutLeftP
-        javaCustomLayoutTopP = another.javaCustomLayoutTopP
-        javaCustomLayoutRightP = another.javaCustomLayoutRightP
-        javaCustomLayoutBottomP = another.javaCustomLayoutBottomP
-        javaStickMode = another.javaStickMode
-        hiddenButtonsJava = another.hiddenButtonsJava
         dosDpad = another.dosDpad
         dosBtnEsc = another.dosBtnEsc
         dosBtnEnter = another.dosBtnEnter
@@ -1445,6 +1417,7 @@ object PadLayoutStore {
             dosForce60fps = p.getString("dos_force60fps", "on") ?: "on"
             dosInputMode = p.getString("dos_input_mode", "gamepad") ?: "gamepad"
             javaInputMode = p.getString("java_input_mode", "gamepad") ?: "gamepad"
+            javaOpacity = p.getFloat("java_opacity", 0.8f).coerceIn(0.3f, 1f)
             javaScaleType = p.getString("java_scale_type", "fit") ?: "fit"
             javaShowFps = p.getBoolean("java_show_fps", false)
             javaImmediateMode = p.getBoolean("java_immediate_mode", false)
@@ -1456,17 +1429,6 @@ object PadLayoutStore {
             javaButtonKeyMap = p.getString("java_button_key_map", "") ?: ""
             javaPhoneGrid = loadBtn(p, "java_phone_grid", ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48))
             javaPhoneTop = loadBtn(p, "java_phone_top", ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40))
-            javaVideoScale = p.getString("java_video_scale", "stretch") ?: "stretch"
-            javaCustomLayoutLeft = p.getFloat("java_custom_layout_left", 0f)
-            javaCustomLayoutTop = p.getFloat("java_custom_layout_top", 0f)
-            javaCustomLayoutRight = p.getFloat("java_custom_layout_right", 1f)
-            javaCustomLayoutBottom = p.getFloat("java_custom_layout_bottom", 1f)
-            javaCustomLayoutLeftP = p.getFloat("java_custom_layout_left_p", 0f)
-            javaCustomLayoutTopP = p.getFloat("java_custom_layout_top_p", 0f)
-            javaCustomLayoutRightP = p.getFloat("java_custom_layout_right_p", 1f)
-            javaCustomLayoutBottomP = p.getFloat("java_custom_layout_bottom_p", 1f)
-            javaStickMode = p.getString("java_stick_mode", "dpad") ?: "dpad"
-            hiddenButtonsJava = p.getString("hidden_buttons_java", "") ?: ""
             // DOS gamepad overlay button positions (landscape)
             dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
             dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56))
@@ -1994,6 +1956,7 @@ object PadLayoutStore {
             putString("dos_force60fps", layout.dosForce60fps)
             putString("dos_input_mode", layout.dosInputMode)
             putString("java_input_mode", layout.javaInputMode)
+            putFloat("java_opacity", layout.javaOpacity)
             putString("java_scale_type", layout.javaScaleType)
             putBoolean("java_show_fps", layout.javaShowFps)
             putBoolean("java_immediate_mode", layout.javaImmediateMode)
@@ -2005,17 +1968,6 @@ object PadLayoutStore {
             putString("java_button_key_map", layout.javaButtonKeyMap)
             saveBtn("java_phone_grid", layout.javaPhoneGrid)
             saveBtn("java_phone_top", layout.javaPhoneTop)
-            putString("java_video_scale", layout.javaVideoScale)
-            putFloat("java_custom_layout_left", layout.javaCustomLayoutLeft)
-            putFloat("java_custom_layout_top", layout.javaCustomLayoutTop)
-            putFloat("java_custom_layout_right", layout.javaCustomLayoutRight)
-            putFloat("java_custom_layout_bottom", layout.javaCustomLayoutBottom)
-            putFloat("java_custom_layout_left_p", layout.javaCustomLayoutLeftP)
-            putFloat("java_custom_layout_top_p", layout.javaCustomLayoutTopP)
-            putFloat("java_custom_layout_right_p", layout.javaCustomLayoutRightP)
-            putFloat("java_custom_layout_bottom_p", layout.javaCustomLayoutBottomP)
-            putString("java_stick_mode", layout.javaStickMode)
-            putString("hidden_buttons_java", layout.hiddenButtonsJava)
             // DOS gamepad overlay button positions (landscape)
             saveBtn("dos_dpad", layout.dosDpad)
             saveBtn("dos_btn_esc", layout.dosBtnEsc)
@@ -2316,7 +2268,6 @@ object PadLayoutStore {
             GamePlatform.NDS -> isHiddenInList(layout.hiddenButtonsNds, key)
             GamePlatform.PSX -> isHiddenInList(layout.hiddenButtonsPsx, key)
             GamePlatform.PS2 -> isHiddenInList(layout.hiddenButtonsPs2, key)
-            GamePlatform.JAVA -> isHiddenInList(layout.hiddenButtonsJava, key)
             else -> false
         }
     }
@@ -2352,7 +2303,6 @@ object PadLayoutStore {
             GamePlatform.NDS -> layout.copy {hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden)}
             GamePlatform.PSX -> layout.copy {hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden)}
             GamePlatform.PS2 -> layout.copy {hiddenButtonsPs2 = updateHiddenList(layout.hiddenButtonsPs2, key, hidden)}
-            GamePlatform.JAVA -> layout.copy {hiddenButtonsJava = updateHiddenList(layout.hiddenButtonsJava, key, hidden)}
             else -> layout
         }
     }
@@ -2360,27 +2310,21 @@ object PadLayoutStore {
     /**
      * Get the input mode ("dpad" or "analog") for a given platform.
      * Arcade still uses its legacy arcadeInputMode field for backward compatibility.
-     * JAVA uses its own javaStickMode field (J2ME 摇杆与其它核心互不影响).
      * All other platforms use the global inputMode field.
      */
     fun getInputMode(layout: PadLayout, platform: GamePlatform): String {
-        return when (platform) {
-            GamePlatform.ARCADE -> layout.arcadeInputMode
-            GamePlatform.JAVA -> layout.javaStickMode
-            else -> layout.inputMode
-        }
+        return if (platform == GamePlatform.ARCADE) layout.arcadeInputMode else layout.inputMode
     }
 
     /**
      * Set the input mode for a given platform.
-     * Arcade updates arcadeInputMode; JAVA updates javaStickMode;
-     * all others update the global inputMode.
+     * Arcade updates arcadeInputMode; all others update the global inputMode.
      */
     fun setInputMode(layout: PadLayout, platform: GamePlatform, mode: String): PadLayout {
-        return when (platform) {
-            GamePlatform.ARCADE -> layout.copy {arcadeInputMode = mode}
-            GamePlatform.JAVA -> layout.copy {javaStickMode = mode}
-            else -> layout.copy {inputMode = mode}
+        return if (platform == GamePlatform.ARCADE) {
+            layout.copy {arcadeInputMode = mode}
+        } else {
+            layout.copy {inputMode = mode}
         }
     }
 
@@ -2466,13 +2410,6 @@ object PadLayoutStore {
                 "l3" to "L3键", "r3" to "R3键",
                 "start" to "START", "select" to "SELECT"
                 // 双摇杆为 PS2 常驻控件，不参与显隐
-            )
-            GamePlatform.JAVA -> listOf(
-                // J2ME 手柄模式按键（显隐按键对话框）。dpad 在摇杆模式下
-                // 显示为摇杆，仍是同一个可编辑实体。
-                "dpad" to "十字键/摇杆", "a" to "A键 (确认)", "b" to "B键 (左软键)",
-                "x" to "X键 (右软键)", "y" to "Y键 (*键)",
-                "start" to "START (挂机)", "select" to "SELECT (#键)"
             )
             else -> emptyList()
         }
@@ -2566,4 +2503,166 @@ fun javaButtonKeyMapSet(raw: String, buttonId: String, keyCode: Int): String {
         map[buttonId] = keyCode
     }
     return map.entries.joinToString(",") { "${it.key}=${it.value}" }
+}
+
+// ===========================================================================
+// J2ME 每游戏单独设置（per-game overrides）
+//
+// 背景：J2ME 游戏分辨率五花八门（128x128 / 176x208 / 240x320 / 360x640 …），
+// 缩放/帧率限制/触摸支持等设置如果全局共用，切换游戏就要反复改。
+// 现在每个游戏可以有一份独立配置：
+//   · 游戏内设置面板改 J2ME 设置 → 写入该游戏的专属配置（不再污染全局）；
+//   · 游戏库长按卡片「游戏设置」→ 编辑同一份专属配置，进游戏即生效；
+//   · 无专属配置的游戏使用全局默认（与旧行为兼容）；
+//   · 「恢复全局默认」删除专属配置，回到跟随全局。
+// 存储键用 romPath 的目录名（converted/<目录名>），重装同名游戏仍能命中。
+// ===========================================================================
+
+/** 一份 J2ME 游戏专属设置（字段与 PadLayout 的 java* 子集一一对应）。 */
+data class JavaGameSettings(
+    val javaInputMode: String,
+    val javaScaleType: String,
+    val javaShowFps: Boolean,
+    val javaImmediateMode: Boolean,
+    val javaResolution: String,
+    val javaScaleRatio: String,
+    val javaFpsLimit: String,
+    val javaTouchInput: Boolean,
+    val javaNumDualDispatch: Boolean,
+    val javaButtonKeyMap: String,
+    val javaPhoneGrid: ButtonLayout,
+    val javaPhoneTop: ButtonLayout,
+    val javaOpacity: Float
+) {
+    /** 从 PadLayout 抽取当前生效的 J2ME 设置快照。 */
+    companion object {
+        fun of(l: PadLayout): JavaGameSettings = JavaGameSettings(
+            javaInputMode = l.javaInputMode,
+            javaScaleType = l.javaScaleType,
+            javaShowFps = l.javaShowFps,
+            javaImmediateMode = l.javaImmediateMode,
+            javaResolution = l.javaResolution,
+            javaScaleRatio = l.javaScaleRatio,
+            javaFpsLimit = l.javaFpsLimit,
+            javaTouchInput = l.javaTouchInput,
+            javaNumDualDispatch = l.javaNumDualDispatch,
+            javaButtonKeyMap = l.javaButtonKeyMap,
+            javaPhoneGrid = l.javaPhoneGrid,
+            javaPhoneTop = l.javaPhoneTop,
+            javaOpacity = l.javaOpacity
+        )
+
+        fun fromJson(json: String): JavaGameSettings? = try {
+            val o = org.json.JSONObject(json)
+            fun btn(name: String): ButtonLayout {
+                val b = o.optJSONObject(name) ?: return ButtonLayout(0.5f, 0.8f, 48)
+                return ButtonLayout(
+                    b.optDouble("x", 0.5).toFloat(),
+                    b.optDouble("y", 0.8).toFloat(),
+                    b.optInt("size", 48)
+                )
+            }
+            JavaGameSettings(
+                javaInputMode = o.optString("inputMode", "gamepad"),
+                javaScaleType = o.optString("scaleType", "fit"),
+                javaShowFps = o.optBoolean("showFps", false),
+                javaImmediateMode = o.optBoolean("immediateMode", false),
+                javaResolution = o.optString("resolution", "default"),
+                javaScaleRatio = o.optString("scaleRatio", "100"),
+                javaFpsLimit = o.optString("fpsLimit", "0"),
+                javaTouchInput = o.optBoolean("touchInput", true),
+                javaNumDualDispatch = o.optBoolean("numDualDispatch", true),
+                javaButtonKeyMap = o.optString("buttonKeyMap", ""),
+                javaPhoneGrid = btn("phoneGrid"),
+                javaPhoneTop = btn("phoneTop"),
+                javaOpacity = o.optDouble("opacity", 0.8).toFloat().coerceIn(0.3f, 1f)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun toJson(): String {
+        val o = org.json.JSONObject()
+        o.put("inputMode", javaInputMode)
+        o.put("scaleType", javaScaleType)
+        o.put("showFps", javaShowFps)
+        o.put("immediateMode", javaImmediateMode)
+        o.put("resolution", javaResolution)
+        o.put("scaleRatio", javaScaleRatio)
+        o.put("fpsLimit", javaFpsLimit)
+        o.put("touchInput", javaTouchInput)
+        o.put("numDualDispatch", javaNumDualDispatch)
+        o.put("buttonKeyMap", javaButtonKeyMap)
+        o.put("phoneGrid", org.json.JSONObject()
+            .put("x", javaPhoneGrid.x.toDouble())
+            .put("y", javaPhoneGrid.y.toDouble())
+            .put("size", javaPhoneGrid.sizeDp))
+        o.put("phoneTop", org.json.JSONObject()
+            .put("x", javaPhoneTop.x.toDouble())
+            .put("y", javaPhoneTop.y.toDouble())
+            .put("size", javaPhoneTop.sizeDp))
+        o.put("opacity", javaOpacity.toDouble())
+        return o.toString()
+    }
+}
+
+/** 把一份 J2ME 设置快照应用到 PadLayout（返回新实例，不修改原对象）。 */
+fun PadLayout.withJavaSettings(s: JavaGameSettings): PadLayout = copy {
+    javaInputMode = s.javaInputMode
+    javaScaleType = s.javaScaleType
+    javaShowFps = s.javaShowFps
+    javaImmediateMode = s.javaImmediateMode
+    javaResolution = s.javaResolution
+    javaScaleRatio = s.javaScaleRatio
+    javaFpsLimit = s.javaFpsLimit
+    javaTouchInput = s.javaTouchInput
+    javaNumDualDispatch = s.javaNumDualDispatch
+    javaButtonKeyMap = s.javaButtonKeyMap
+    javaPhoneGrid = s.javaPhoneGrid
+    javaPhoneTop = s.javaPhoneTop
+    javaOpacity = s.javaOpacity
+}
+
+/**
+ * J2ME 每游戏设置的持久化仓库。
+ * SharedPreferences 文件 "java_game_settings"，key = 游戏目录名，value = JSON。
+ */
+object JavaGameSettingsStore {
+    private const val PREFS_NAME = "java_game_settings"
+
+    private fun prefs(ctx: Context) =
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * 由 romPath 推导存储键。Java 游戏的 romPath 是转换目录
+     * (<emulatorDir>/converted/<目录名>)，取最后一段即目录名，全局唯一且稳定。
+     * 非 Java 路径 / 空路径返回 null（调用方按"无专属配置"处理）。
+     */
+    fun gameKey(romPath: String?): String? {
+        val p = romPath?.trim() ?: return null
+        if (p.isEmpty()) return null
+        return p.trimEnd('/').substringAfterLast('/').takeIf { it.isNotEmpty() }
+    }
+
+    fun load(ctx: Context, key: String?): JavaGameSettings? {
+        if (key == null) return null
+        val raw = prefs(ctx).getString(key, null) ?: return null
+        return JavaGameSettings.fromJson(raw)
+    }
+
+    fun has(ctx: Context, key: String?): Boolean {
+        if (key == null) return false
+        return prefs(ctx).contains(key)
+    }
+
+    fun save(ctx: Context, key: String?, settings: JavaGameSettings) {
+        if (key == null) return
+        prefs(ctx).edit().putString(key, settings.toJson()).apply()
+    }
+
+    fun remove(ctx: Context, key: String?) {
+        if (key == null) return
+        prefs(ctx).edit().remove(key).apply()
+    }
 }

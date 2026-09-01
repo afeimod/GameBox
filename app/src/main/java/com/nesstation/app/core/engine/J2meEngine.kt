@@ -322,33 +322,20 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
 
         override fun setPad2(bits: Int) {} // J2ME is single-player
 
-        // ─── FPS 统计 ────────────────────────────────────────────────────────
-
-        private var lastFpsSampleNanos = 0L
-
         /**
-         * GameBox: 实时帧率 —— 修复 Java 游戏全局 FPS 悬浮窗一直显示 0fps。
-         *
-         * J2ME 是事件驱动渲染（MIDlet 主动 repaint，无 libretro 式 onFrame
-         * 回调），帧计数走 javax.microedition.lcdui.Canvas 的全局帧计数器：
-         * 三条绘制路径（CPU repaintScreen / View onDraw / GL 渲染线程）每向
-         * 屏幕提交一帧都会 +1。宿主 EmulatorScreen 每约 1 秒采样一次，本方法
-         * 读取并清零计数器，按实际采样间隔换算成帧率。
-         *
-         * 注意：游戏停在静态画面（菜单/过场）不 repaint 时帧率为 0，属正常。
+         * GameBox: 触屏注入 —— 手柄覆盖层把"未命中任何按键"的游戏区域触摸
+         * 转发到这里（坐标已换算为游戏视图局部 px）。转发给当前 Canvas，
+         * 由 postTouchAction 完成虚拟坐标换算并投递 MIDlet 触屏事件。
+         * 没有这条链路时，覆盖层可见期间 Compose 命中测试不会穿透到下层
+         * AndroidView，J2ME 游戏的触摸输入（触屏版游戏）完全失效。
          */
-        override fun realtimeFps(): Double {
-                val frames = try {
-                        Canvas.getAndResetFrameCount()
+        fun postTouch(actionMasked: Int, pointerId: Int, x: Float, y: Float) {
+                val canvas = currentDisplayable as? Canvas ?: return
+                try {
+                        canvas.postTouchAction(actionMasked, pointerId, x, y)
                 } catch (_: Throwable) {
-                        0L
+                        // 触屏注入失败不应影响模拟（旧游戏/异常坐标等场景）
                 }
-                val now = System.nanoTime()
-                val last = lastFpsSampleNanos
-                lastFpsSampleNanos = now
-                val dtNanos = if (last == 0L) 1_000_000_000.0 else (now - last).toDouble()
-                if (dtNanos <= 0.0) return 0.0
-                return frames * 1_000_000_000.0 / dtNanos
         }
 
         override var frameHook: NetplayHook? = null
