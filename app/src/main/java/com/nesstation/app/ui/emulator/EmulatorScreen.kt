@@ -114,6 +114,10 @@ import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.DosExtraKeyEntry
+import com.nesstation.app.core.storage.JAVA_MAPPABLE_BUTTONS
+import com.nesstation.app.core.storage.JAVA_PHONE_KEY_OPTIONS
+import com.nesstation.app.core.storage.javaButtonKeyMapGet
+import com.nesstation.app.core.storage.javaButtonKeyMapSet
 import com.nesstation.app.ui.swf.ScreenPositionEditor
 import com.nesstation.app.ui.settings.KeyMapStore
 import android.view.KeyEvent
@@ -983,7 +987,13 @@ fun EmulatorScreen(
                    padLayout.ps2Mtvu, padLayout.ps2InstantVu1,
                    padLayout.ps2EeCycleRate, padLayout.ps2EeCycleSkip, padLayout.ps2Rumble,
                    padLayout.ps2TvShader, padLayout.ps2ShadeBoost,
-                   padLayout.ps2HalfPixelOffset, padLayout.ps2TexturePreloading
+                   padLayout.ps2HalfPixelOffset, padLayout.ps2TexturePreloading,
+                   // J2ME options — 游戏中改设置需即时生效
+                   padLayout.javaInputMode, padLayout.javaScaleType, padLayout.javaShowFps,
+                   padLayout.javaImmediateMode, padLayout.javaResolution,
+                   padLayout.javaScaleRatio, padLayout.javaFpsLimit,
+                   padLayout.javaTouchInput, padLayout.javaNumDualDispatch,
+                   padLayout.javaButtonKeyMap
                    ) {
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
@@ -1661,6 +1671,16 @@ fun EmulatorScreen(
                 Toast.makeText(context, it, Toast.LENGTH_LONG).show()
             }
         }
+
+        // === J2ME：loadRom 完成后重放一次核心设置 ===
+        // J2meEngine.loadRom() 内部会调用 MicroLoader.applyConfiguration()，
+        // 用每游戏 config.json 里的值覆盖 Canvas 的缩放/FPS/即时渲染/分辨率
+        // 等设置（组合时先于 loadRom 运行的那次 applyCoreOptions 会被整个
+        // 覆盖掉）。加载成功后重新应用 GameBox 的 J2ME 设置，保证
+        // “游戏内设置 / 全局 Java 设置”真正生效且优先级高于旧配置文件。
+        if (loaded && platform == GamePlatform.JAVA) {
+            applyCoreOptions(engine, padLayout, platform)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -1679,12 +1699,50 @@ fun EmulatorScreen(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (loaded) {
             if (platform == GamePlatform.JAVA && engine is J2meEngine) {
-                J2meGameView(
-                    engine = engine,
+                // === J2ME 游戏窗口同样接收全局「画面缩放」(videoScale) ===
+                // 与 GameSurfaceView 一致的形状约束：stretch=铺满（旧行为）、
+                // 4:3/2:3/3:2/8:7/16:9=按比例约束窗口、custom=四角自定义矩形。
+                // J2ME Canvas 内部的 javaScaleType（适应/拉伸/原始分辨率）继续
+                // 在窗口内生效，两者叠加：窗口形状由 videoScale 决定，窗口内
+                // 画面适配由 javaScaleType 决定。
+                val j2meCustom = padLayout.videoScale == "custom"
+                val j2meContainerAlignment = when {
+                    j2meCustom -> Alignment.TopStart
+                    isPortrait -> Alignment.TopCenter
+                    else -> Alignment.Center
+                }
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { surfaceSize = it }
-                )
+                        .then(gameViewTracker),
+                    contentAlignment = j2meContainerAlignment
+                ) {
+                    val j2meScaleModifier = when (padLayout.videoScale) {
+                        "4:3" -> Modifier.aspectRatio(4f / 3f)
+                        "2:3" -> Modifier.aspectRatio(2f / 3f)
+                        "3:2" -> Modifier.aspectRatio(3f / 2f)
+                        "8:7" -> Modifier.aspectRatio(8f / 7f)
+                        "16:9" -> Modifier.aspectRatio(16f / 9f)
+                        "custom" -> {
+                            val maxW = surfaceSize.width.coerceAtLeast(1)
+                            val maxH = surfaceSize.height.coerceAtLeast(1)
+                            val leftPx = (customRect[0] * maxW).toInt().coerceIn(0, maxW)
+                            val topPx = (customRect[1] * maxH).toInt().coerceIn(0, maxH)
+                            val wPx = ((customRect[2] - customRect[0]) * maxW).toInt().coerceIn(1, maxW)
+                            val hPx = ((customRect[3] - customRect[1]) * maxH).toInt().coerceIn(1, maxH)
+                            val density = LocalDensity.current
+                            Modifier
+                                .offset { IntOffset(leftPx, topPx) }
+                                .size(width = with(density) { wPx.toDp() }, height = with(density) { hPx.toDp() })
+                        }
+                        else -> Modifier.fillMaxSize() // stretch (default)
+                    }
+                    J2meGameView(
+                        engine = engine,
+                        modifier = Modifier.then(j2meScaleModifier)
+                    )
+                }
             } else {
                 GameSurfaceView(
                     engine = engine,
@@ -2967,9 +3025,22 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
                 "center"  -> 0  // 原始分辨率(不缩放)
                 else      -> 1  // fit 适应屏幕保持比例
             }
-            javax.microedition.lcdui.Canvas.setScale(2, scaleType, 100)
+            val scaleRatio = layout.javaScaleRatio.toIntOrNull()?.coerceIn(25, 400) ?: 100
+            javax.microedition.lcdui.Canvas.setScale(2, scaleType, scaleRatio)
             javax.microedition.lcdui.Canvas.setShowFps(layout.javaShowFps)
             javax.microedition.lcdui.event.EventQueue.setImmediate(layout.javaImmediateMode)
+            // 补全原 J2ME-Loader 设置里游戏会用到的其余项：
+            // 虚拟分辨率（游戏逻辑分辨率，"default"=不干预，交由每游戏 config.json）
+            if (engine is com.nesstation.app.core.engine.J2meEngine) {
+                engine.applyVirtualResolution(layout.javaResolution)
+                // 按键映射：虚拟手柄按键 → 手机按键（ABXY/START/SELECT/方向键）
+                engine.setCustomKeyMap(layout.javaButtonKeyMap)
+            }
+            // 帧率限制（0 = 不限制）
+            val fpsLimit = layout.javaFpsLimit.toIntOrNull() ?: 0
+            javax.microedition.lcdui.Canvas.setLimitFps(fpsLimit)
+            // 触摸输入支持（MIDlet hasPointerEvents() 的返回值）
+            javax.microedition.lcdui.Canvas.setHasTouchInput(layout.javaTouchInput)
         }
     }
 }
@@ -3452,7 +3523,7 @@ private fun J2meGameView(
                     }
                 }
             },
-            modifier = modifier.fillMaxSize()
+            modifier = modifier
         )
     }
 }
@@ -6192,6 +6263,22 @@ private fun PadLayoutEditor(
         return
     }
 
+    // === JAVA 手机键盘模式使用专用编辑器 ===
+    // 手机键盘（数字盘 + L/F/R/C 功能键）的位置旧版是硬编码的，无法调整。
+    // 现在布局存在 javaPhoneGrid / javaPhoneTop，切换到手机键盘后也支持
+    // 布局调整 —— 路由到 J2ME 专用编辑器；手柄模式继续用下面的通用编辑器
+    // （X/Y 已加入可编辑列表，见 showXY）。
+    if (platform == GamePlatform.JAVA && padLayout.javaInputMode == "phone") {
+        J2mePhoneLayoutEditor(
+            padLayout = padLayout,
+            isPortrait = isPortrait,
+            onLayoutChange = onLayoutChange,
+            surfaceSize = surfaceSize,
+            onClose = onClose
+        )
+        return
+    }
+
     var selectedBtn by remember { mutableStateOf<BtnType?>(null) }
     // Combo button picker dialog state — when true, shows a dialog that lets
     // the user pick 2-4 buttons to combine into a single on-screen combo key.
@@ -6201,7 +6288,9 @@ private fun PadLayoutEditor(
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
                  platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
                  platform == GamePlatform.PSX || platform == GamePlatform.PS2
-    val showXY = platform == GamePlatform.SFC ||
+    // JAVA（J2ME）手柄模式的虚拟按键同样带 X/Y 两个键（X=右软键，Y=*键），
+    // 布局编辑器必须允许拖动它们 —— 旧版没包含 JAVA，编辑器里缺少 X/Y。
+    val showXY = platform == GamePlatform.SFC || platform == GamePlatform.JAVA ||
                  platform == GamePlatform.ARCADE || platform == GamePlatform.MD ||
                  platform == GamePlatform.PCE || platform == GamePlatform.NDS ||
                  platform == GamePlatform.PSX || platform == GamePlatform.PS2
@@ -8713,6 +8802,46 @@ private fun SettingsPanel(
                     padLayout.javaScaleType
                 ) { onLayoutChange(padLayout.copy {javaScaleType = it}) }
 
+                // 游戏逻辑分辨率（MIDlet 看到的屏幕尺寸）。旧版只能跳转
+                // J2ME-Loader 原生设置修改，现在补全到游戏内设置：
+                // default=跟随每游戏配置；auto=跟随设备屏幕；其余为强制分辨率。
+                DropdownSetting("游戏分辨率",
+                    listOf(
+                        "default" to "默认 (跟随游戏配置)",
+                        "auto" to "自动 (跟随设备屏幕)",
+                        "128x128" to "128 × 128",
+                        "176x208" to "176 × 208 (S60 经典)",
+                        "176x220" to "176 × 220",
+                        "208x208" to "208 × 208",
+                        "240x320" to "240 × 320 (最常见)",
+                        "240x400" to "240 × 400",
+                        "320x240" to "320 × 240 (横屏)",
+                        "360x640" to "360 × 640",
+                        "480x800" to "480 × 800",
+                        "640x360" to "640 × 360 (横屏)"
+                    ),
+                    padLayout.javaResolution
+                ) { onLayoutChange(padLayout.copy {javaResolution = it}) }
+
+                // 画面缩放比例：配合「屏幕缩放」使用。center(原始分辨率) 模式下
+                // 可放大/缩小画面；fit/stretch 模式下 >100 会被核心自动截断。
+                DropdownSetting("画面缩放比例",
+                    listOf(
+                        "25" to "25%", "50" to "50%", "75" to "75%",
+                        "100" to "100% (默认)", "125" to "125%", "150" to "150%",
+                        "175" to "175%", "200" to "200%", "300" to "300%", "400" to "400%"
+                    ),
+                    padLayout.javaScaleRatio
+                ) { onLayoutChange(padLayout.copy {javaScaleRatio = it}) }
+
+                DropdownSetting("帧率限制",
+                    listOf(
+                        "0" to "不限制 (默认)", "60" to "60 FPS", "50" to "50 FPS",
+                        "40" to "40 FPS", "30" to "30 FPS", "25" to "25 FPS", "15" to "15 FPS"
+                    ),
+                    padLayout.javaFpsLimit
+                ) { onLayoutChange(padLayout.copy {javaFpsLimit = it}) }
+
                 SwitchSetting(
                     label = "显示 J2ME 帧数",
                     description = "由 MIDlet 画面内部绘制的实时帧率",
@@ -8724,6 +8853,39 @@ private fun SettingsPanel(
                     description = "提升部分游戏的按键/触摸响应速度，少数游戏可能需要关闭",
                     checked = padLayout.javaImmediateMode
                 ) { onLayoutChange(padLayout.copy {javaImmediateMode = it}) }
+
+                SwitchSetting(
+                    label = "触摸输入支持",
+                    description = "部分游戏检测到触摸后会切换触屏 UI，关闭可强制键盘操作",
+                    checked = padLayout.javaTouchInput
+                ) { onLayoutChange(padLayout.copy {javaTouchInput = it}) }
+
+                SwitchSetting(
+                    label = "数字键兼作方向键",
+                    description = "2/4/6/8/5 同时发送方向/确认键（真机行为），修复 123 数字键盘无法操作菜单的问题",
+                    checked = padLayout.javaNumDualDispatch
+                ) { onLayoutChange(padLayout.copy {javaNumDualDispatch = it}) }
+
+                Spacer(Modifier.size(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                Spacer(Modifier.size(8.dp))
+                Text("按键映射 (虚拟按键 → 手机按键)", color = Color(0xFFFFD66B), fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "把手柄上的每个按键映射到 J2ME 手机的任意按键。" +
+                    "映射列表覆盖手机的全部按键：数字 0-9、*、#、方向、确认、" +
+                    "软键、清除、挂机等。留默认即为出厂映射。",
+                    color = Color(0xFF8899AA), fontSize = 10.sp, lineHeight = 14.sp
+                )
+                Spacer(Modifier.size(6.dp))
+                JAVA_MAPPABLE_BUTTONS.forEach { (buttonId, buttonLabel) ->
+                    val currentCode = javaButtonKeyMapGet(padLayout.javaButtonKeyMap, buttonId)
+                    DropdownSetting(buttonLabel, JAVA_PHONE_KEY_OPTIONS, currentCode.toString()) { code ->
+                        val newMap = javaButtonKeyMapSet(padLayout.javaButtonKeyMap, buttonId, code.toIntOrNull() ?: 0)
+                        onLayoutChange(padLayout.copy {javaButtonKeyMap = newMap})
+                    }
+                }
             }
         }
 

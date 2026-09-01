@@ -224,6 +224,31 @@ class PadLayout {
     // repaint() instead of waiting for the next frame. Better for interactive
     // menus but can cause flicker in fast games.
     var javaImmediateMode: Boolean = false
+    // J2ME 虚拟分辨率（游戏内 Canvas 的逻辑分辨率，即 MIDlet 看到的屏幕尺寸）。
+    // "default" = 不干预（使用每游戏 config.json 里的值）；
+    // "auto"    = 跟随设备屏幕 (setVirtualSize(-1,-1))；
+    // 其他值形如 "240x320" = 强制指定逻辑分辨率。
+    var javaResolution: String = "default"
+    // J2ME 画面缩放比例（百分比）。在 scaleType=0(原始分辨率) 时可放大/缩小
+    // 画面；fit/stretch 模式下 >100 会被核心自动截到 100。
+    var javaScaleRatio: String = "100"
+    // J2ME 帧率限制（0 = 不限制）。对应 Canvas.setLimitFps。
+    var javaFpsLimit: String = "0"
+    // J2ME 触摸输入支持：控制 MIDlet hasPointerEvents() 的返回值。
+    // 部分老游戏检测到触摸支持后会切换成触屏 UI，关闭可强制键盘 UI。
+    var javaTouchInput: Boolean = true
+    // J2ME 数字键兼作方向键：开启后虚拟键盘上的 2/4/6/8/5 在发送数字键的
+    // 同时追加发送 上/左/右/下/确认 键（真机行为，兼容直接比较 KEY_UP 等
+    // 原始常量的游戏）。手柄模式的 "123" 数字小键盘同样生效。
+    var javaNumDualDispatch: Boolean = true
+    // J2ME 虚拟按键 → 手机按键 映射表（仅记录被用户改过的项）。
+    // 格式：逗号分隔的 "键位=MIDP键码"，如 "a=-5,b=-6,y=42"。
+    // 键位取值见 JAVA_MAPPABLE_BUTTONS；空串 = 全部使用默认映射。
+    var javaButtonKeyMap: String = ""
+    // J2ME 手机键盘模式布局：数字键盘（4行×3列）的中心位置与单键尺寸。
+    var javaPhoneGrid: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48)
+    // J2ME 手机键盘模式布局：顶部功能键行（L/F/R/C）的中心位置与单键尺寸。
+    var javaPhoneTop: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40)
     // === DOS gamepad overlay button positions (landscape) ===
     // Each button has x/y (0.0-1.0 of screen) and sizeDp.
     // dosBtnEnabled controls whether the button is shown (user can hide/add).
@@ -760,6 +785,14 @@ class PadLayout {
         javaScaleType = another.javaScaleType
         javaShowFps = another.javaShowFps
         javaImmediateMode = another.javaImmediateMode
+        javaResolution = another.javaResolution
+        javaScaleRatio = another.javaScaleRatio
+        javaFpsLimit = another.javaFpsLimit
+        javaTouchInput = another.javaTouchInput
+        javaNumDualDispatch = another.javaNumDualDispatch
+        javaButtonKeyMap = another.javaButtonKeyMap
+        javaPhoneGrid = another.javaPhoneGrid
+        javaPhoneTop = another.javaPhoneTop
         dosDpad = another.dosDpad
         dosBtnEsc = another.dosBtnEsc
         dosBtnEnter = another.dosBtnEnter
@@ -1382,6 +1415,14 @@ object PadLayoutStore {
             javaScaleType = p.getString("java_scale_type", "fit") ?: "fit"
             javaShowFps = p.getBoolean("java_show_fps", false)
             javaImmediateMode = p.getBoolean("java_immediate_mode", false)
+            javaResolution = p.getString("java_resolution", "default") ?: "default"
+            javaScaleRatio = p.getString("java_scale_ratio", "100") ?: "100"
+            javaFpsLimit = p.getString("java_fps_limit", "0") ?: "0"
+            javaTouchInput = p.getBoolean("java_touch_input", true)
+            javaNumDualDispatch = p.getBoolean("java_num_dual_dispatch", true)
+            javaButtonKeyMap = p.getString("java_button_key_map", "") ?: ""
+            javaPhoneGrid = loadBtn(p, "java_phone_grid", ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48))
+            javaPhoneTop = loadBtn(p, "java_phone_top", ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40))
             // DOS gamepad overlay button positions (landscape)
             dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
             dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56))
@@ -1912,6 +1953,14 @@ object PadLayoutStore {
             putString("java_scale_type", layout.javaScaleType)
             putBoolean("java_show_fps", layout.javaShowFps)
             putBoolean("java_immediate_mode", layout.javaImmediateMode)
+            putString("java_resolution", layout.javaResolution)
+            putString("java_scale_ratio", layout.javaScaleRatio)
+            putString("java_fps_limit", layout.javaFpsLimit)
+            putBoolean("java_touch_input", layout.javaTouchInput)
+            putBoolean("java_num_dual_dispatch", layout.javaNumDualDispatch)
+            putString("java_button_key_map", layout.javaButtonKeyMap)
+            saveBtn("java_phone_grid", layout.javaPhoneGrid)
+            saveBtn("java_phone_top", layout.javaPhoneTop)
             // DOS gamepad overlay button positions (landscape)
             saveBtn("dos_dpad", layout.dosDpad)
             saveBtn("dos_btn_esc", layout.dosBtnEsc)
@@ -2358,4 +2407,93 @@ object PadLayoutStore {
             else -> emptyList()
         }
     }
+}
+
+// ===========================================================================
+// J2ME 虚拟按键 → 手机按键 映射（Java 游戏专用）
+//
+// 映射方向：GameBox 虚拟手柄上的按键（A/B/X/Y/START/SELECT/方向键）
+//   → J2ME 手机上的物理按键（MIDP 键码）。
+// 映射列表覆盖真机手机的所有按键：数字键 1-9/0、*、#、四个方向键、
+// 确认(FIRE)、左/右软键、清除键、挂机键以及 GAME_A~GAME_D。
+// 仅记录用户显式修改过的项；未记录的键位使用内置默认映射
+// （见 JAVA_BUTTON_DEFAULT_KEY）。
+// ===========================================================================
+
+/** 可参与映射的 J2ME 虚拟手柄键位（id → 显示名）。 */
+val JAVA_MAPPABLE_BUTTONS: List<Pair<String, String>> = listOf(
+    "up" to "方向键 ↑",
+    "down" to "方向键 ↓",
+    "left" to "方向键 ←",
+    "right" to "方向键 →",
+    "a" to "按键 A",
+    "b" to "按键 B",
+    "x" to "按键 X",
+    "y" to "按键 Y",
+    "start" to "START",
+    "select" to "SELECT"
+)
+
+/** 各键位的默认 MIDP 键码（与 J2meEngine 内置 keyMap 一致）。 */
+val JAVA_BUTTON_DEFAULT_KEY: Map<String, Int> = mapOf(
+    "up" to -1,       // KEY_UP
+    "down" to -2,     // KEY_DOWN
+    "left" to -3,     // KEY_LEFT
+    "right" to -4,    // KEY_RIGHT
+    "a" to -5,        // KEY_FIRE (确认)
+    "b" to -6,        // KEY_SOFT_LEFT (左软键)
+    "x" to -7,        // KEY_SOFT_RIGHT (右软键)
+    "y" to 42,        // KEY_STAR (*)
+    "start" to -11,   // KEY_END (挂机键)
+    "select" to 35    // KEY_POUND (#)
+)
+
+/**
+ * 映射目标列表 —— 手机（J2ME 设备）的所有按键。
+ * value = MIDP 键码，label = 用户可读名称。
+ */
+val JAVA_PHONE_KEY_OPTIONS: List<Pair<String, String>> = listOf(
+    "1" to "数字键 1", "2" to "数字键 2", "3" to "数字键 3",
+    "4" to "数字键 4", "5" to "数字键 5", "6" to "数字键 6",
+    "7" to "数字键 7", "8" to "数字键 8", "9" to "数字键 9",
+    "0" to "数字键 0",
+    "42" to "* 键", "35" to "# 键",
+    "-1" to "方向 上", "-2" to "方向 下", "-3" to "方向 左", "-4" to "方向 右",
+    "-5" to "确认键 (FIRE)",
+    "-6" to "左软键", "-7" to "右软键",
+    "-8" to "清除键 (CLEAR)",
+    "-11" to "挂机键 (END)",
+    "-10" to "接听键 (SEND)",
+    "9" to "游戏键 GAME_A", "10" to "游戏键 GAME_B",
+    "11" to "游戏键 GAME_C", "12" to "游戏键 GAME_D"
+)
+
+/** 解析 javaButtonKeyMap 字符串为 (键位id → MIDP键码) 表。 */
+fun parseJavaButtonKeyMap(raw: String): Map<String, Int> {
+    if (raw.isBlank()) return emptyMap()
+    val out = mutableMapOf<String, Int>()
+    for (entry in raw.split(',')) {
+        val parts = entry.split('=')
+        if (parts.size != 2) continue
+        val id = parts[0].trim()
+        val code = parts[1].trim().toIntOrNull() ?: continue
+        if (JAVA_BUTTON_DEFAULT_KEY.containsKey(id)) out[id] = code
+    }
+    return out
+}
+
+/** 读取某键位当前生效的 MIDP 键码（未映射时返回默认值）。 */
+fun javaButtonKeyMapGet(raw: String, buttonId: String): Int =
+    parseJavaButtonKeyMap(raw)[buttonId] ?: JAVA_BUTTON_DEFAULT_KEY[buttonId]
+    ?: 0
+
+/** 设置/更新某键位的映射，返回新的 javaButtonKeyMap 字符串。设为默认值时移除该条目。 */
+fun javaButtonKeyMapSet(raw: String, buttonId: String, keyCode: Int): String {
+    val map = parseJavaButtonKeyMap(raw).toMutableMap()
+    if (keyCode == JAVA_BUTTON_DEFAULT_KEY[buttonId]) {
+        map.remove(buttonId)
+    } else {
+        map[buttonId] = keyCode
+    }
+    return map.entries.joinToString(",") { "${it.key}=${it.value}" }
 }

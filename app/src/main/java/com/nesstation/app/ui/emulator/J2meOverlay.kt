@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,17 +118,18 @@ fun J2meOnScreenController(
     // 手柄模式下的数字小键盘开关（J2ME 游戏经常需要数字输入）
     var showNumPad by remember { mutableStateOf(false) }
 
-    // 2/4/6/8/5 → 方向/确认键的双派发只在手机键盘模式启用。
-    // 手柄模式的数字键盘用于纯数字输入（如游戏内输入名字/密码），
-    // 如果再附带方向键会导致光标跳动。
-    androidx.compose.runtime.LaunchedEffect(padLayout.javaInputMode) {
-        engine.phoneDualDispatch = padLayout.javaInputMode == "phone"
+    // 数字键兼作方向键：开启后 2/4/6/8/5 在发送数字键的同时追加发送
+    // 方向/确认键（真机行为）。由设置里的“数字键兼作方向键”控制，
+    // 手柄模式的 "123" 数字小键盘与手机键盘模式同样生效。
+    androidx.compose.runtime.LaunchedEffect(padLayout.javaNumDualDispatch) {
+        engine.phoneDualDispatch = padLayout.javaNumDualDispatch
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (padLayout.javaInputMode == "phone") {
             J2mePhoneOverlay(
                 engine = engine,
+                padLayout = padLayout,
                 opacity = opacity,
                 isPortrait = isPortrait,
                 surfaceSize = surfaceSize
@@ -399,6 +401,7 @@ private data class J2mePhoneKey(
 @Composable
 private fun J2mePhoneOverlay(
     engine: J2meEngine,
+    padLayout: PadLayout,
     opacity: Float,
     isPortrait: Boolean,
     surfaceSize: IntSize
@@ -406,24 +409,25 @@ private fun J2mePhoneOverlay(
     val density = LocalDensity.current
 
     // ---- 几何参数: 先把 dp 换算成 px, 后续全部用 px 运算 ----
-    val keySizeDp = if (isPortrait) 48.dp else 44.dp
+    // 布局来自 PadLayout（可在布局编辑器里拖动/调尺寸），不再硬编码。
+    val keySizeDp = padLayout.javaPhoneGrid.sizeDp.dp.coerceIn(28.dp, 72.dp)
     val keyGapDp = 6.dp
     val keySizePx = with(density) { keySizeDp.toPx() }
     val keyGapPx = with(density) { keyGapDp.toPx() }
 
-    // 4 行 × 3 列数字键盘, 底部居中
+    // 4 行 × 3 列数字键盘, 以 javaPhoneGrid 为中心
     val gridWidth = 3 * keySizePx + 2 * keyGapPx
     val gridHeight = 4 * keySizePx + 3 * keyGapPx
-    val gridLeft = (surfaceSize.width - gridWidth) / 2f
-    val gridTop = surfaceSize.height - gridHeight - with(density) { 16.dp.toPx() }
+    val gridLeft = surfaceSize.width * padLayout.javaPhoneGrid.x - gridWidth / 2f
+    val gridTop = surfaceSize.height * padLayout.javaPhoneGrid.y - gridHeight / 2f
 
-    // 顶部功能键行: 4 列等距, 跨度比数字键盘宽一列,
-    // 键距充足且与键盘视觉对齐
-    val topSizeDp = keySizeDp * 0.82f
+    // 顶部功能键行: 4 个圆形键（L/F/R/C）, 以 javaPhoneTop 为中心,
+    // 键距与数字键盘保持一致
+    val topSizeDp = padLayout.javaPhoneTop.sizeDp.dp.coerceIn(24.dp, 60.dp)
     val topSizePx = with(density) { topSizeDp.toPx() }
     val topSlot = keySizePx + keyGapPx
-    val topRowLeft = gridLeft - topSlot / 2f
-    val topCy = gridTop - topSizePx / 2f - with(density) { 8.dp.toPx() }
+    val topRowLeft = surfaceSize.width * padLayout.javaPhoneTop.x - 2f * topSlot
+    val topCy = surfaceSize.height * padLayout.javaPhoneTop.y
 
     val topKeys = listOf(
         J2mePhoneKey("L", null, J2ME_BTN_B),       // SOFT_LEFT
@@ -922,6 +926,241 @@ fun J2meMenuOverlay(
                 IconButton(onClick = onExit) {
                     Icon(Icons.Rounded.Close, "退出", tint = Color(0xFFFF6B6B))
                 }
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// J2ME 手机键盘专用布局编辑器
+//
+// 切换到“手机键盘”模式后，虚拟按键布局同样可以调整：
+//   - 数字键盘（4 行 × 3 列，1-9 / * 0 #）— 拖动位置、滑杆调键距大小
+//   - 功能键行（L / F / R / C）          — 拖动位置、滑杆调键大小
+// 布局持久化在 PadLayout.javaPhoneGrid / javaPhoneTop（横竖屏共用），
+// 保存时机与通用布局编辑器一致（EmulatorScreen 里的 400ms 防抖）。
+// ===========================================================================
+
+private enum class J2mePhoneEditTarget(val label: String) {
+    GRID("数字键盘"), TOP("功能键 L/F/R/C")
+}
+
+@Composable
+fun J2mePhoneLayoutEditor(
+    padLayout: PadLayout,
+    isPortrait: Boolean,
+    onLayoutChange: (PadLayout) -> Unit,
+    surfaceSize: IntSize,
+    onClose: () -> Unit
+) {
+    val density = LocalDensity.current
+    var selected by remember { mutableStateOf(J2mePhoneEditTarget.GRID) }
+
+    val grid = padLayout.javaPhoneGrid
+    val top = padLayout.javaPhoneTop
+
+    // 与 J2mePhoneOverlay 相同的几何计算，保证编辑器里看到的就是游戏中的样子
+    val keySizeDp = grid.sizeDp.dp.coerceIn(28.dp, 72.dp)
+    val keyGapDp = 6.dp
+    val keySizePx = with(density) { keySizeDp.toPx() }
+    val keyGapPx = with(density) { keyGapDp.toPx() }
+    val gridWidth = 3 * keySizePx + 2 * keyGapPx
+    val gridHeight = 4 * keySizePx + 3 * keyGapPx
+    val gridLeft = surfaceSize.width * grid.x - gridWidth / 2f
+    val gridTop = surfaceSize.height * grid.y - gridHeight / 2f
+
+    val topSizeDp = top.sizeDp.dp.coerceIn(24.dp, 60.dp)
+    val topSizePx = with(density) { topSizeDp.toPx() }
+    val topSlot = keySizePx + keyGapPx
+    val topRowLeft = surfaceSize.width * top.x - 2f * topSlot
+    val topCy = surfaceSize.height * top.y
+
+    val gridRect = Rect(gridLeft, gridTop, gridLeft + gridWidth, gridTop + gridHeight)
+    val topRect = Rect(
+        topRowLeft - topSizePx / 2f, topCy - topSizePx / 2f,
+        topRowLeft + 4f * topSlot - topSizePx / 2f, topCy + topSizePx / 2f
+    )
+
+    // 手势稳定模式（与通用 PadLayoutEditor 的 EditableDpad 一致）：
+    // pointerInput(Unit) 只启动一次，通过 rememberUpdatedState 读取最新值，
+    // 避免拖动过程中因 key 变化导致手势被取消。
+    val curGrid by rememberUpdatedState(grid)
+    val curTop by rememberUpdatedState(top)
+    val curSurfaceSize by rememberUpdatedState(surfaceSize)
+    val curGridRect by rememberUpdatedState(gridRect)
+    val curTopRect by rememberUpdatedState(topRect)
+    var dragStartX by remember { mutableStateOf(0f) }
+    var dragStartY by remember { mutableStateOf(0f) }
+    var layoutStartX by remember { mutableStateOf(0f) }
+    var layoutStartY by remember { mutableStateOf(0f) }
+
+    fun updateGrid(nx: Float, ny: Float) {
+        onLayoutChange(
+            padLayout.copy {
+                javaPhoneGrid = ButtonLayout(
+                    x = nx.coerceIn(0.08f, 0.92f),
+                    y = ny.coerceIn(0.08f, 0.92f),
+                    sizeDp = padLayout.javaPhoneGrid.sizeDp
+                )
+            }
+        )
+    }
+    fun updateTop(nx: Float, ny: Float) {
+        onLayoutChange(
+            padLayout.copy {
+                javaPhoneTop = ButtonLayout(
+                    x = nx.coerceIn(0.08f, 0.92f),
+                    y = ny.coerceIn(0.08f, 0.92f),
+                    sizeDp = padLayout.javaPhoneTop.sizeDp
+                )
+            }
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0x88000000))) {
+        // 可拖动的键盘预览
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        // 命中哪个元素就拖哪个；两个都命中时选更靠近中心的一个
+                        val hitGrid = curGridRect.contains(down.position)
+                        val hitTop = curTopRect.contains(down.position)
+                        selected = when {
+                            hitGrid && hitTop -> {
+                                val dGrid = (down.position - curGridRect.center).getDistance()
+                                val dTop = (down.position - curTopRect.center).getDistance()
+                                if (dGrid <= dTop) J2mePhoneEditTarget.GRID else J2mePhoneEditTarget.TOP
+                            }
+                            hitGrid -> J2mePhoneEditTarget.GRID
+                            hitTop -> J2mePhoneEditTarget.TOP
+                            else -> selected
+                        }
+                        // 记录拖动起点与被拖元素的初始位置，后续按相对位移更新
+                        dragStartX = down.position.x
+                        dragStartY = down.position.y
+                        when (selected) {
+                            J2mePhoneEditTarget.GRID -> {
+                                layoutStartX = curGrid.x
+                                layoutStartY = curGrid.y
+                            }
+                            J2mePhoneEditTarget.TOP -> {
+                                layoutStartX = curTop.x
+                                layoutStartY = curTop.y
+                            }
+                        }
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: continue
+                            change.consume()
+                            if (!change.pressed) break
+                            val dxFrac = (change.position.x - dragStartX) / curSurfaceSize.width
+                            val dyFrac = (change.position.y - dragStartY) / curSurfaceSize.height
+                            when (selected) {
+                                J2mePhoneEditTarget.GRID -> updateGrid(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                                J2mePhoneEditTarget.TOP -> updateTop(layoutStartX + dxFrac, layoutStartY + dyFrac)
+                            }
+                        }
+                    }
+                }
+        ) {
+            // 功能键行预览 (L/F/R/C)
+            val topKeys = listOf("L", "F", "R", "C")
+            val topColors = listOf(
+                Color(0xFF3498DB), Color(0xFFE74C3C), Color(0xFF3498DB), Color(0xFF95A5A6)
+            )
+            topKeys.forEachIndexed { i, label ->
+                val cx = topRowLeft + topSlot * (i + 0.5f)
+                J2meRoundActionKey(label, topColors[i], cx, topCy, topSizeDp, 0.7f, false)
+                if (selected == J2mePhoneEditTarget.TOP) {
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    (cx - topSizePx / 2).toInt(),
+                                    (topCy - topSizePx / 2).toInt()
+                                )
+                            }
+                            .size(with(density) { topSizePx.toDp() })
+                            .border(2.dp, Color(0xFFFFD66B), RoundedCornerShape(22.dp))
+                    )
+                }
+            }
+            // 数字键盘预览 (1-9 / * 0 #)
+            val previewKeys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#")
+            previewKeys.forEachIndexed { idx, label ->
+                val row = idx / 3
+                val col = idx % 3
+                val cx = gridLeft + col * (keySizePx + keyGapPx) + keySizePx / 2f
+                val cy = gridTop + row * (keySizePx + keyGapPx) + keySizePx / 2f
+                J2meNumericKey(label, null, cx, cy, keySizeDp, 0.7f, false)
+            }
+            if (selected == J2mePhoneEditTarget.GRID) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(gridLeft.toInt(), gridTop.toInt()) }
+                        .size(
+                            width = with(density) { gridWidth.toDp() },
+                            height = with(density) { gridHeight.toDp() }
+                        )
+                        .border(2.dp, Color(0xFFFFD66B), RoundedCornerShape(10.dp))
+                )
+            }
+        }
+
+        // 底部控制面板：选中项 + 尺寸滑杆 + 关闭
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(16.dp)
+                .background(Color(0xDD1E2A3A), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (selected == J2mePhoneEditTarget.GRID) "手机键盘布局 · 数字键盘" else "手机键盘布局 · 功能键行",
+                    color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "拖动调整位置",
+                    color = Color(0xFF8899AA), fontSize = 11.sp,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Rounded.Close, "完成", tint = Color.White)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("大小", color = Color(0xFF8899AA), fontSize = 12.sp)
+                Spacer(Modifier.width(8.dp))
+                androidx.compose.material3.Slider(
+                    value = when (selected) {
+                        J2mePhoneEditTarget.GRID -> padLayout.javaPhoneGrid.sizeDp.coerceIn(28, 72).toFloat()
+                        J2mePhoneEditTarget.TOP -> padLayout.javaPhoneTop.sizeDp.coerceIn(24, 60).toFloat()
+                    },
+                    onValueChange = { v ->
+                        when (selected) {
+                            J2mePhoneEditTarget.GRID ->
+                                onLayoutChange(padLayout.copy { javaPhoneGrid = ButtonLayout(
+                                    x = padLayout.javaPhoneGrid.x, y = padLayout.javaPhoneGrid.y,
+                                    sizeDp = v.toInt().coerceIn(28, 72)) })
+                            J2mePhoneEditTarget.TOP ->
+                                onLayoutChange(padLayout.copy { javaPhoneTop = ButtonLayout(
+                                    x = padLayout.javaPhoneTop.x, y = padLayout.javaPhoneTop.y,
+                                    sizeDp = v.toInt().coerceIn(24, 60)) })
+                        }
+                    },
+                    valueRange = when (selected) {
+                        J2mePhoneEditTarget.GRID -> 28f..72f
+                        J2mePhoneEditTarget.TOP -> 24f..60f
+                    },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }

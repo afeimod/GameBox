@@ -1140,7 +1140,14 @@ fun LibraryScreen(
                         MenuOption("游戏设置") {
                             longPressGame = null
                             if (game.platform == GamePlatform.JAVA) {
-                                JavaGameStore.openSettings(context, game)
+                                // Java 游戏设置已补全到游戏内设置菜单（分辨率/缩放/
+                                // 按键映射/帧率等），不再跳转 J2ME-Loader 的原生设置
+                                // (ConfigActivity)，避免两套设置互相覆盖。
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Java 游戏设置已整合到游戏内：进入游戏后打开菜单（返回键）→ 设置",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
                             } else {
                                 onOpenGame(game)
                             }

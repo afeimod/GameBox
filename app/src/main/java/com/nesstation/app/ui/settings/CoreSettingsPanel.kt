@@ -14,6 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.storage.JAVA_MAPPABLE_BUTTONS
+import com.nesstation.app.core.storage.JAVA_PHONE_KEY_OPTIONS
+import com.nesstation.app.core.storage.javaButtonKeyMapGet
+import com.nesstation.app.core.storage.javaButtonKeyMapSet
 import com.nesstation.app.ui.emulator.Psx2BiosImportSection
 
 /**
@@ -683,6 +687,40 @@ fun CoreSettingsPanel(
                         listOf("fit" to "适应 (保持比例)", "stretch" to "拉伸 (填满屏幕)", "center" to "原始分辨率居中"),
                         padLayout.javaScaleType
                     ) { updateLayout(padLayout.copy { javaScaleType = it }) }
+                    // 游戏逻辑分辨率（MIDlet 看到的屏幕尺寸）
+                    DropdownRow("游戏分辨率",
+                        listOf(
+                            "default" to "默认 (跟随游戏配置)",
+                            "auto" to "自动 (跟随设备屏幕)",
+                            "128x128" to "128 × 128",
+                            "176x208" to "176 × 208 (S60 经典)",
+                            "176x220" to "176 × 220",
+                            "208x208" to "208 × 208",
+                            "240x320" to "240 × 320 (最常见)",
+                            "240x400" to "240 × 400",
+                            "320x240" to "320 × 240 (横屏)",
+                            "360x640" to "360 × 640",
+                            "480x800" to "480 × 800",
+                            "640x360" to "640 × 360 (横屏)"
+                        ),
+                        padLayout.javaResolution
+                    ) { updateLayout(padLayout.copy { javaResolution = it }) }
+                    // 画面缩放比例（百分比），center 模式下可放大/缩小
+                    DropdownRow("画面缩放比例",
+                        listOf(
+                            "25" to "25%", "50" to "50%", "75" to "75%",
+                            "100" to "100% (默认)", "125" to "125%", "150" to "150%",
+                            "175" to "175%", "200" to "200%", "300" to "300%", "400" to "400%"
+                        ),
+                        padLayout.javaScaleRatio
+                    ) { updateLayout(padLayout.copy { javaScaleRatio = it }) }
+                    DropdownRow("帧率限制",
+                        listOf(
+                            "0" to "不限制 (默认)", "60" to "60 FPS", "50" to "50 FPS",
+                            "40" to "40 FPS", "30" to "30 FPS", "25" to "25 FPS", "15" to "15 FPS"
+                        ),
+                        padLayout.javaFpsLimit
+                    ) { updateLayout(padLayout.copy { javaFpsLimit = it }) }
                     DropdownRow("显示 FPS",
                         listOf("enabled" to "开启", "disabled" to "关闭"),
                         if (padLayout.javaShowFps) "enabled" else "disabled"
@@ -691,6 +729,26 @@ fun CoreSettingsPanel(
                         listOf("enabled" to "开启 (菜单更流畅)", "disabled" to "关闭 (减少闪烁)"),
                         if (padLayout.javaImmediateMode) "enabled" else "disabled"
                     ) { updateLayout(padLayout.copy { javaImmediateMode = (it == "enabled") }) }
+                    DropdownRow("触摸输入支持",
+                        listOf("enabled" to "开启", "disabled" to "关闭 (强制键盘操作)"),
+                        if (padLayout.javaTouchInput) "enabled" else "disabled"
+                    ) { updateLayout(padLayout.copy { javaTouchInput = (it == "enabled") }) }
+                    DropdownRow("数字键兼作方向键",
+                        listOf("enabled" to "开启 (真机行为，推荐)", "disabled" to "关闭 (仅发送数字)"),
+                        if (padLayout.javaNumDualDispatch) "enabled" else "disabled"
+                    ) { updateLayout(padLayout.copy { javaNumDualDispatch = (it == "enabled") }) }
+                    // 按键映射：虚拟手柄按键 → 手机任意按键
+                    Text(
+                        "按键映射 (虚拟按键 → 手机按键)：把手柄 A/B/X/Y、START、SELECT 和方向键映射到手机的数字键、方向键、软键等任意按键。",
+                        color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp
+                    )
+                    JAVA_MAPPABLE_BUTTONS.forEach { (buttonId, buttonLabel) ->
+                        val currentCode = javaButtonKeyMapGet(padLayout.javaButtonKeyMap, buttonId)
+                        DropdownRow("映射 $buttonLabel", JAVA_PHONE_KEY_OPTIONS, currentCode.toString()) { code ->
+                            val newMap = javaButtonKeyMapSet(padLayout.javaButtonKeyMap, buttonId, code.toIntOrNull() ?: 0)
+                            updateLayout(padLayout.copy { javaButtonKeyMap = newMap })
+                        }
+                    }
                 }
             }
             GamePlatform.NDS -> item {
