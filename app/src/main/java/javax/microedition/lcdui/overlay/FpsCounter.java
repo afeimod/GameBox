@@ -38,7 +38,10 @@ public class FpsCounter extends TimerTask implements Layer {
 	public void run() {
 		prevFrameCount = String.valueOf(totalFrameCount);
 		totalFrameCount = 0;
-		view.postInvalidate();
+		// 嵌入式模式下宿主没有 OverlayView, view 可能为 null, 跳过刷新即可
+		if (view != null) {
+			view.postInvalidate();
+		}
 	}
 
 	public void increment() {

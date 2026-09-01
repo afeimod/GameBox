@@ -1461,12 +1461,16 @@ public abstract class Canvas extends Displayable {
                         surface = holder.getSurface();
                         Display.postEvent(CanvasEvent.getInstance(Canvas.this, CanvasEvent.SHOW_NOTIFY));
                         repaintInternal();
-                        if (showFps) {
-                                fpsCounter = new FpsCounter(overlayView);
-                                overlayView.addLayer(fpsCounter);
+                        // 嵌入式模式(J2meEngine 宿主)下没有 OverlayView, 此处为 null。
+                        // 只跳过覆盖层 UI 管理, 游戏本身照常运行(软键由虚拟手柄发送)。
+                        if (overlayView != null) {
+                                if (showFps) {
+                                        fpsCounter = new FpsCounter(overlayView);
+                                        overlayView.addLayer(fpsCounter);
+                                }
+                                overlayView.addLayer(softBar, 0);
+                                overlayView.setVisibility(true);
                         }
-                        overlayView.addLayer(softBar, 0);
-                        overlayView.setVisibility(true);
                         overlay = ContextHolder.getVk();
                         if (overlay != null) {
                                 overlay.setTarget(Canvas.this);
@@ -1484,12 +1488,16 @@ public abstract class Canvas extends Displayable {
                         Display.postEvent(CanvasEvent.getInstance(Canvas.this, CanvasEvent.HIDE_NOTIFY));
                         if (fpsCounter != null) {
                                 fpsCounter.stop();
-                                overlayView.removeLayer(fpsCounter);
+                                if (overlayView != null) {
+                                        overlayView.removeLayer(fpsCounter);
+                                }
                                 fpsCounter = null;
                         }
-                        overlayView.removeLayer(softBar);
                         softBar.closeMenu();
-                        overlayView.setVisibility(false);
+                        if (overlayView != null) {
+                                overlayView.removeLayer(softBar);
+                                overlayView.setVisibility(false);
+                        }
                         if (overlay != null) {
                                 overlay.setTarget(null);
                                 overlay.cancel();
@@ -1549,6 +1557,10 @@ public abstract class Canvas extends Displayable {
                 }
 
                 private void showPopup() {
+                        // 嵌入式模式下 overlayView 为 null, 软键菜单由宿主 UI(虚拟手柄)接管
+                        if (overlayView == null) {
+                                return;
+                        }
                         PopupWindow popup = prepareMenu(fullscreen ? 0 : 1);
                         popup.setWidth(Math.min(displayWidth, displayHeight) / 2);
                         popup.setHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1560,6 +1572,15 @@ public abstract class Canvas extends Displayable {
                 @Override
                 protected void onCommandsChanged() {
                         super.onCommandsChanged();
+                        // 闪退根因修复: 嵌入式模式(J2meEngine 宿主, 非 MicroActivity)下
+                        // ContextHolder.getOverlayView() 返回 null, 而 SoftBar 构造函数
+                        // 末尾就会调用 notifyChanged(), 导致主线程在此解引用 null 崩溃
+                        // (NullPointerException: View.postInvalidate() on a null object
+                        // reference)。无 OverlayView 时跳过软键条 UI 更新即可, 命令本身
+                        // 仍通过 CommandListener 正常派发。
+                        if (overlayView == null) {
+                                return;
+                        }
                         if (!fullscreen) {
                                 int size = commands.size();
                                 switch (size) {

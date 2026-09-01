@@ -507,7 +507,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 			resizeKeyGroup(group);
 		}
 		snapKeys();
-		overlayView.postInvalidate();
+		postOverlayInvalidate();
 		if (target != null && target.isShown()) {
 			target.updateSize();
 		}
@@ -725,7 +725,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		for (int i = 0; i < KEYBOARD_SIZE; i++) {
 			keypad[i].visible = !states[i];
 		}
-		overlayView.postInvalidate();
+		postOverlayInvalidate();
 	}
 
 	@Override
@@ -834,7 +834,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		highlightGroup(group);
 		handler.removeCallbacks(this);
 		visible = true;
-		overlayView.postInvalidate();
+		postOverlayInvalidate();
 		hide();
 	}
 
@@ -870,7 +870,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 			resizeKeyGroup(group);
 		}
 		snapKeys();
-		overlayView.postInvalidate();
+		postOverlayInvalidate();
 		int delay = settings.vkHideDelay;
 		if (delay > 0 && obscuresVirtualScreen && layoutEditMode == LAYOUT_EOF) {
 			for (VirtualKey key : associatedKeys) {
@@ -927,7 +927,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 						vibrate();
 						associatedKeys[pointer] = key;
 						key.onDown();
-						overlayView.postInvalidate();
+						postOverlayInvalidate();
 						break;
 					}
 				}
@@ -956,7 +956,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 				if (index >= 0) {
 					editedIndex = index;
 					highlightGroup(index);
-					overlayView.postInvalidate();
+					postOverlayInvalidate();
 				}
 				offsetX = x;
 				offsetY = y;
@@ -980,7 +980,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 				} else if (!aKey.contains(x, y)) {
 					associatedKeys[pointer] = null;
 					aKey.onUp();
-					overlayView.postInvalidate();
+					postOverlayInvalidate();
 					pointerPressed(pointer, x, y);
 				}
 				break;
@@ -1006,7 +1006,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 						}
 					}
 					snapKey(editedIndex, 0);
-					overlayView.postInvalidate();
+					postOverlayInvalidate();
 				}
 				break;
 			case LAYOUT_SCALES:
@@ -1033,7 +1033,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 				keyScales[index] = scale;
 				resizeKeyGroup(this.editedIndex);
 				snapKeys();
-				overlayView.postInvalidate();
+				postOverlayInvalidate();
 				break;
 		}
 		return false;
@@ -1049,7 +1049,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 			if (key != null) {
 				associatedKeys[pointer] = null;
 				key.onUp();
-				overlayView.postInvalidate();
+				postOverlayInvalidate();
 			}
 		} else if (layoutEditMode == LAYOUT_KEYS) {
 			for (int key = 0; key < keypad.length; key++) {
@@ -1086,7 +1086,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 			handler.removeCallbacks(this);
 			if (!visible) {
 				visible = true;
-				overlayView.postInvalidate();
+				postOverlayInvalidate();
 			}
 		}
 	}
@@ -1110,7 +1110,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 	@Override
 	public void run() {
 		visible = false;
-		overlayView.postInvalidate();
+		postOverlayInvalidate();
 	}
 
 	@Override
@@ -1119,7 +1119,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		for (VirtualKey key : keypad) {
 			if (key.hashCode() == hashCode) {
 				key.selected = true;
-				overlayView.postInvalidate();
+				postOverlayInvalidate();
 				break;
 			}
 		}
@@ -1137,7 +1137,7 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		for (VirtualKey key : keypad) {
 			if (key.hashCode() == hashCode) {
 				key.selected = false;
-				overlayView.postInvalidate();
+				postOverlayInvalidate();
 				break;
 			}
 		}
@@ -1150,6 +1150,21 @@ public class VirtualKeyboard implements Overlay, Runnable {
 
 	public void setView(View view) {
 		overlayView = view;
+	}
+
+	/**
+	 * 空安全的覆盖层重绘请求。
+	 *
+	 * 嵌入式模式(J2meEngine 宿主, 非 MicroActivity)下没有 OverlayView,
+	 * overlayView 为 null(setView() 不会被调用)。此时直接跳过重绘即可:
+	 * 虚拟键盘本就不显示, 按键/指针事件仍通过 Canvas 正常派发给 MIDlet。
+	 * 不判空会在游戏启动(surfaceCreated -> setTarget -> highlightGroup)
+	 * 或用户触摸屏幕时抛出 NullPointerException 导致整个应用闪退。
+	 */
+	private void postOverlayInvalidate() {
+		if (overlayView != null) {
+			overlayView.postInvalidate();
+		}
 	}
 
 	public int getKeyStatesVodafone() {
