@@ -3425,37 +3425,38 @@ private fun J2meGameView(
         }
     }
 
-    androidx.compose.ui.viewinterop.AndroidView(
-        key = viewSwapKey,
-        factory = { context ->
-            android.widget.FrameLayout(context).apply {
-                layoutParams = android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                )
-                engine.getDisplayableView()?.let { view ->
-                    addView(view, android.widget.FrameLayout.LayoutParams(
+    androidx.compose.runtime.key(viewSwapKey) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { context ->
+                android.widget.FrameLayout(context).apply {
+                    layoutParams = android.widget.FrameLayout.LayoutParams(
                         android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                         android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                    ))
+                    )
+                    engine.getDisplayableView()?.let { view ->
+                        addView(view, android.widget.FrameLayout.LayoutParams(
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                        ))
+                    }
                 }
-            }
-        },
-        update = { frameLayout ->
-            val view = engine.getDisplayableView()
-            val child = if (frameLayout.childCount > 0) frameLayout.getChildAt(0) else null
-            if (view != child) {
-                frameLayout.removeAllViews()
-                view?.let {
-                    frameLayout.addView(it, android.widget.FrameLayout.LayoutParams(
-                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                    ))
+            },
+            update = { frameLayout ->
+                val view = engine.getDisplayableView()
+                val child = if (frameLayout.childCount > 0) frameLayout.getChildAt(0) else null
+                if (view != child) {
+                    frameLayout.removeAllViews()
+                    view?.let {
+                        frameLayout.addView(it, android.widget.FrameLayout.LayoutParams(
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                        ))
+                    }
                 }
-            }
-        },
-        modifier = modifier.fillMaxSize()
-    )
+            },
+            modifier = modifier.fillMaxSize()
+        )
+    }
 }
 
 // GPU-accelerated filter overlay using BitmapShader — a single GPU texture
