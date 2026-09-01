@@ -109,4 +109,26 @@
         <item name="android:colorBackground">@android:color/black</item>
     </style>
 
+    <!--
+        GameBox: J2ME 嵌入式模式 MIDP 界面专用深色主题。
+        ContextHolder.getContext() 在嵌入式模式(宿主非 MicroActivity)下用
+        该主题包装 Application context, 使 Form / List / TextBox 等
+        MIDP 界面渲染为深色背景, 与其他模拟核心的画面观感一致,
+        而不是宿主浅色主题下的白底。
+    -->
+    <style name="Theme.J2meDark" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/amber</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:textColorPrimary">@android:color/primary_text_light</item>
+        <item name="actionOverflowMenuStyle">@style/Widget.AppTheme.OverflowMenuDark</item>
+    </style>
+
+    <style name="Widget.AppTheme.OverflowMenuDark" parent="Widget.AppCompat.PopupMenu.Overflow">
+        <item name="android:popupBackground">#DD1E2A3A</item>
+        <item name="overlapAnchor">false</item>
+    </style>
+
 </resources>

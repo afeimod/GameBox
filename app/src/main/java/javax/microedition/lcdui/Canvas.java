@@ -48,7 +48,6 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -1551,8 +1550,11 @@ public abstract class Canvas extends Displayable {
                         this.overlayView = ContextHolder.getOverlayView();
                         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
                         padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5, metrics);
-                        textColor = ContextCompat.getColor(activity, R.color.accent);
-                        bgColor = ContextCompat.getColor(activity, R.color.background);
+                        // GameBox: 软键条改用与其他核心游戏内菜单一致的深蓝底 +
+                        // 琥珀色文字。原配色是白底(#fafafa) + 红字, 在深色游戏
+                        // 画面上格外刺眼。
+                        textColor = 0xFFFFD66B;
+                        bgColor = 0xDD1E2A3A;
                         notifyChanged();
                 }
 

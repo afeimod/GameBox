@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -112,6 +114,16 @@ fun J2meOnScreenController(
 ) {
     val opacity = (padLayout.opacity * 0.5f).coerceIn(0.15f, 0.85f)
 
+    // 手柄模式下的数字小键盘开关（J2ME 游戏经常需要数字输入）
+    var showNumPad by remember { mutableStateOf(false) }
+
+    // 2/4/6/8/5 → 方向/确认键的双派发只在手机键盘模式启用。
+    // 手柄模式的数字键盘用于纯数字输入（如游戏内输入名字/密码），
+    // 如果再附带方向键会导致光标跳动。
+    androidx.compose.runtime.LaunchedEffect(padLayout.javaInputMode) {
+        engine.phoneDualDispatch = padLayout.javaInputMode == "phone"
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (padLayout.javaInputMode == "phone") {
             J2mePhoneOverlay(
@@ -126,7 +138,8 @@ fun J2meOnScreenController(
                 padLayout = padLayout,
                 opacity = opacity,
                 isPortrait = isPortrait,
-                surfaceSize = surfaceSize
+                surfaceSize = surfaceSize,
+                showNumPad = showNumPad
             )
         }
 
@@ -137,6 +150,19 @@ fun J2meOnScreenController(
             onClick = onToggleMode,
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
         )
+
+        // 手柄模式的 "123" 数字键盘开关 — 在模式切换按钮左侧。
+        if (padLayout.javaInputMode != "phone") {
+            J2meModeSwitchButton(
+                isPhone = showNumPad,
+                opacity = opacity,
+                onClick = { showNumPad = !showNumPad },
+                label = if (showNumPad) "\u2715" else "123",
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = 72.dp)
+            )
+        }
     }
 }
 
@@ -150,7 +176,8 @@ private fun J2meGamepadOverlay(
     padLayout: PadLayout,
     opacity: Float,
     isPortrait: Boolean,
-    surfaceSize: IntSize
+    surfaceSize: IntSize,
+    showNumPad: Boolean = false
 ) {
     val density = LocalDensity.current
 
@@ -192,6 +219,37 @@ private fun J2meGamepadOverlay(
     val startRect = btnRect(btnStart, 2.2f, 0.7f)
     val selectRect = btnRect(btnSelect, 2.2f, 0.7f)
 
+    // 数字小键盘命中区域（手柄模式按 "123" 按钮后显示）
+    val numKeySizeDp = 34.dp
+    val numGapDp = 4.dp
+    val numKeySizePx = with(density) { numKeySizeDp.toPx() }
+    val numGapPx = with(density) { numGapDp.toPx() }
+    val numGridWidth = 3 * numKeySizePx + 2 * numGapPx
+    val numGridHeight = 4 * numKeySizePx + 3 * numGapPx
+    // 居中偏上：横屏垂直居中，竖屏在屏幕中部偏上，避开底部 start/select
+    val numCenterY = if (isPortrait) surfaceSize.height * 0.40f else surfaceSize.height * 0.50f
+    val numGridLeft = (surfaceSize.width - numGridWidth) / 2f
+    val numGridTop = numCenterY - numGridHeight / 2f
+    val numGridWidthDp = with(density) { numGridWidth.toDp() }
+    val numGridHeightDp = with(density) { numGridHeight.toDp() }
+
+    val numKeys = listOf(
+        "1" to J2ME_BTN_NUM_1, "2" to J2ME_BTN_NUM_2, "3" to J2ME_BTN_NUM_3,
+        "4" to J2ME_BTN_NUM_4, "5" to J2ME_BTN_NUM_5, "6" to J2ME_BTN_NUM_6,
+        "7" to J2ME_BTN_NUM_7, "8" to J2ME_BTN_NUM_8, "9" to J2ME_BTN_NUM_9,
+        "*" to J2ME_BTN_Y,      "0" to J2ME_BTN_NUM_0, "#" to J2ME_BTN_SELECT,
+    )
+    val numKeyRects = numKeys.mapIndexed { idx, _ ->
+        val row = idx / 3
+        val col = idx % 3
+        Rect(
+            numGridLeft + col * (numKeySizePx + numGapPx),
+            numGridTop + row * (numKeySizePx + numGapPx),
+            numGridLeft + col * (numKeySizePx + numGapPx) + numKeySizePx,
+            numGridTop + row * (numKeySizePx + numGapPx) + numKeySizePx
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -200,7 +258,10 @@ private fun J2meGamepadOverlay(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val id = down.id.value
-                    val bits = hitTestGamepad(down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect)
+                    val bits = hitTestGamepad(
+                        down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
+                        if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
+                    )
                     if (bits != 0) {
                         activePointers[id] = bits
                         sendState(combineBits(activePointers))
@@ -211,7 +272,10 @@ private fun J2meGamepadOverlay(
                             change.consume()
                             val pid = change.id.value
                             val newBits = if (change.pressed) {
-                                hitTestGamepad(change.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect)
+                                hitTestGamepad(
+                                    change.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
+                                    if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
+                                )
                             } else 0
                             val oldBits = activePointers[pid] ?: 0
                             if (oldBits != newBits) {
@@ -241,13 +305,39 @@ private fun J2meGamepadOverlay(
         J2mePillButton("START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0)
         // Draw Select
         J2mePillButton("SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0)
+
+        // Draw number pad (toggle via "123" button) — J2ME 游戏经常需要数字输入
+        if (showNumPad) {
+            // 半透明遮罩底色，让键盘在游戏画面上可读
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            numGridLeft.toInt() - 8.dp.roundToPx(),
+                            numGridTop.toInt() - 8.dp.roundToPx()
+                        )
+                    }
+                    .size(width = numGridWidthDp + 16.dp, height = numGridHeightDp + 16.dp)
+                    .background(Color(0x66000000), RoundedCornerShape(10.dp))
+            )
+            numKeys.forEachIndexed { idx, (label, bit) ->
+                val row = idx / 3
+                val col = idx % 3
+                val cx = numGridLeft + col * (numKeySizePx + numGapPx) + numKeySizePx / 2f
+                val cy = numGridTop + row * (numKeySizePx + numGapPx) + numKeySizePx / 2f
+                val isPressed = visualState and bit != 0
+                J2meNumericKey(label, null, cx, cy, numKeySizeDp, opacity, isPressed)
+            }
+        }
     }
 }
 
 private fun hitTestGamepad(
     pos: Offset,
     dpadRect: Rect, aRect: Rect, bRect: Rect, xRect: Rect, yRect: Rect,
-    startRect: Rect, selectRect: Rect
+    startRect: Rect, selectRect: Rect,
+    numKeys: List<Pair<String, Int>>? = null,
+    numKeyRects: List<Rect>? = null
 ): Int {
     var bits = 0
     if (dpadRect.contains(pos)) {
@@ -268,6 +358,12 @@ private fun hitTestGamepad(
     if (yRect.contains(pos)) bits = bits or J2ME_BTN_Y
     if (startRect.contains(pos)) bits = bits or J2ME_BTN_START
     if (selectRect.contains(pos)) bits = bits or J2ME_BTN_SELECT
+    // 数字键盘：命中即返回该键 bit（独占，避免误触叠加）
+    if (numKeys != null && numKeyRects != null) {
+        for (i in numKeyRects.indices) {
+            if (numKeyRects[i].contains(pos)) return numKeys[i].second
+        }
+    }
     return bits
 }
 
@@ -278,8 +374,27 @@ private fun combineBits(pointers: Map<Long, Int>): Int {
 }
 
 // ===========================================================================
-// Phone mode — 12-key numeric keypad + soft keys + FIRE + END
+// Phone mode — 完整的 J2ME 真机键盘
+//
+//   顶行:  [L] [F] [R] [C]   L/R=软键  F=确认  C=清除/返回(END)
+//   主键盘:  1..9 / * 0 #,  其中 2/4/6/8 兼作方向键, 5 兼作确认键
+//                        (真机行为, 引擎层 dualKeyMap 双派发)
+//
+// 修复记录:
+//  - 旧版 J2meNumericKey 把已换算的像素值再次当 dp 传给
+//    Modifier.size(), 高密度屏幕上按键被放大约 3 倍 ("太大")
+//  - 旧版软键用 J2mePillButton, 其位置换算用单键宽度的一半去
+//    居中一个 2.2 倍宽的胶囊, 中心右偏 0.6 倍宽度, 且 SOFT_L
+//    位于键盘左外侧, 胶囊右缘伸进键盘区域 ("重叠")
+//  - 补全真机应有按键: 顶行 L/F/R/C 四个功能键 + 数字键
+//    方向提示, 不再缺方向键/清除键
 // ===========================================================================
+
+private data class J2mePhoneKey(
+    val label: String,
+    val hint: String?,             // 方向/确认提示 (显示在数字下方)
+    val bit: Int
+)
 
 @Composable
 private fun J2mePhoneOverlay(
@@ -290,47 +405,60 @@ private fun J2mePhoneOverlay(
 ) {
     val density = LocalDensity.current
 
-    // Layout parameters — keypad occupies the bottom-center area.
-    // In portrait: narrower, taller grid. In landscape: wider, shorter.
-    val keySizeDp = if (isPortrait) 56.dp else 52.dp
+    // ---- 几何参数: 先把 dp 换算成 px, 后续全部用 px 运算 ----
+    val keySizeDp = if (isPortrait) 48.dp else 44.dp
     val keyGapDp = 6.dp
-    val keyGapPx = with(density) { keyGapDp.toPx() }
     val keySizePx = with(density) { keySizeDp.toPx() }
+    val keyGapPx = with(density) { keyGapDp.toPx() }
 
-    // 4 rows × 3 cols grid. Positions are relative to the keypad's top-left.
-    // Keypad is anchored to the bottom of the screen.
-    val cols = 3
-    val rows = 4
-    val gridWidth = cols * keySizePx + (cols - 1) * keyGapPx
-    val gridHeight = rows * keySizePx + (rows - 1) * keyGapPx
+    // 4 行 × 3 列数字键盘, 底部居中
+    val gridWidth = 3 * keySizePx + 2 * keyGapPx
+    val gridHeight = 4 * keySizePx + 3 * keyGapPx
     val gridLeft = (surfaceSize.width - gridWidth) / 2f
-    val gridTop = surfaceSize.height - gridHeight - with(density) { 24.dp.toPx() }
+    val gridTop = surfaceSize.height - gridHeight - with(density) { 16.dp.toPx() }
 
-    // Key labels and their bit values, in reading order (row-major).
-    // Row 0: 1 2 3
-    // Row 1: 4 5 6
-    // Row 2: 7 8 9
-    // Row 3: * 0 #
-    val keys = listOf(
-        "1" to J2ME_BTN_NUM_1,
-        "2" to J2ME_BTN_NUM_2,
-        "3" to J2ME_BTN_NUM_3,
-        "4" to J2ME_BTN_NUM_4,
-        "5" to J2ME_BTN_NUM_5,
-        "6" to J2ME_BTN_NUM_6,
-        "7" to J2ME_BTN_NUM_7,
-        "8" to J2ME_BTN_NUM_8,
-        "9" to J2ME_BTN_NUM_9,
-        "*" to J2ME_BTN_Y,           // → Canvas.KEY_STAR
-        "0" to J2ME_BTN_NUM_0,
-        "#" to J2ME_BTN_SELECT,       // → Canvas.KEY_POUND
+    // 顶部功能键行: 4 列等距, 跨度比数字键盘宽一列,
+    // 键距充足且与键盘视觉对齐
+    val topSizeDp = keySizeDp * 0.82f
+    val topSizePx = with(density) { topSizeDp.toPx() }
+    val topSlot = keySizePx + keyGapPx
+    val topRowLeft = gridLeft - topSlot / 2f
+    val topCy = gridTop - topSizePx / 2f - with(density) { 8.dp.toPx() }
+
+    val topKeys = listOf(
+        J2mePhoneKey("L", null, J2ME_BTN_B),       // SOFT_LEFT
+        J2mePhoneKey("F", null, J2ME_BTN_A),       // FIRE
+        J2mePhoneKey("R", null, J2ME_BTN_X),       // SOFT_RIGHT
+        J2mePhoneKey("C", null, J2ME_BTN_START),   // END / 清除
     )
 
-    // Soft key + action key positions (above the keypad, left/right).
-    val softKeySizePx = with(density) { 48.dp.toPx() }
-    val softKeyY = gridTop - softKeySizePx - with(density) { 12.dp.toPx() }
-    val softLeftX = gridLeft - softKeySizePx - with(density) { 12.dp.toPx() }
-    val softRightX = gridLeft + gridWidth + with(density) { 12.dp.toPx() }
+    val numKeys = listOf(
+        J2mePhoneKey("1", null, J2ME_BTN_NUM_1),
+        J2mePhoneKey("2", "\u25b2", J2ME_BTN_NUM_2),   // ▲ → UP
+        J2mePhoneKey("3", null, J2ME_BTN_NUM_3),
+        J2mePhoneKey("4", "\u25c0", J2ME_BTN_NUM_4),   // ◀ → LEFT
+        J2mePhoneKey("5", "\u25cf", J2ME_BTN_NUM_5),   // ● → FIRE
+        J2mePhoneKey("6", "\u25b6", J2ME_BTN_NUM_6),   // ▶ → RIGHT
+        J2mePhoneKey("7", null, J2ME_BTN_NUM_7),
+        J2mePhoneKey("8", "\u25bc", J2ME_BTN_NUM_8),   // ▼ → DOWN
+        J2mePhoneKey("9", null, J2ME_BTN_NUM_9),
+        J2mePhoneKey("*", null, J2ME_BTN_Y),            // → KEY_STAR
+        J2mePhoneKey("0", null, J2ME_BTN_NUM_0),
+        J2mePhoneKey("#", null, J2ME_BTN_SELECT),       // → KEY_POUND
+    )
+
+    // 命中矩形 (与绘制使用同一套坐标)
+    val topKeyRects = topKeys.mapIndexed { i, _ ->
+        val cx = topRowLeft + topSlot * (i + 0.5f)
+        Rect(cx - topSizePx / 2, topCy - topSizePx / 2, cx + topSizePx / 2, topCy + topSizePx / 2)
+    }
+    val numKeyRects = numKeys.mapIndexed { idx, _ ->
+        val row = idx / 3
+        val col = idx % 3
+        val x = gridLeft + col * (keySizePx + keyGapPx)
+        val y = gridTop + row * (keySizePx + keyGapPx)
+        Rect(x, y, x + keySizePx, y + keySizePx)
+    }
 
     val activePointers = remember { mutableMapOf<Long, Int>() }
     var visualState by remember { mutableStateOf(0) }
@@ -342,28 +470,6 @@ private fun J2mePhoneOverlay(
         }
     }
 
-    // Compute hit rects for each key
-    fun keyRect(row: Int, col: Int): Rect {
-        val x = gridLeft + col * (keySizePx + keyGapPx)
-        val y = gridTop + row * (keySizePx + keyGapPx)
-        return Rect(x, y, x + keySizePx, y + keySizePx)
-    }
-
-    val keyRects = keys.mapIndexed { idx, _ ->
-        val row = idx / cols
-        val col = idx % cols
-        keyRect(row, col)
-    }
-
-    val softLeftRect = Rect(softLeftX, softKeyY, softLeftX + softKeySizePx, softKeyY + softKeySizePx)
-    val softRightRect = Rect(softRightX, softKeyY, softRightX + softKeySizePx, softKeyY + softKeySizePx)
-    val fireRect = Rect(
-        (surfaceSize.width - softKeySizePx) / 2f,
-        softKeyY,
-        (surfaceSize.width + softKeySizePx) / 2f,
-        softKeyY + softKeySizePx
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -372,10 +478,7 @@ private fun J2mePhoneOverlay(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val id = down.id.value
-                    val bits = hitTestPhone(
-                        down.position, keyRects, keys,
-                        softLeftRect, softRightRect, fireRect
-                    )
+                    val bits = hitTestPhone(down.position, topKeys, topKeyRects, numKeys, numKeyRects)
                     if (bits != 0) {
                         activePointers[id] = bits
                         sendState(combineBits(activePointers))
@@ -386,10 +489,7 @@ private fun J2mePhoneOverlay(
                             change.consume()
                             val pid = change.id.value
                             val newBits = if (change.pressed) {
-                                hitTestPhone(
-                                    change.position, keyRects, keys,
-                                    softLeftRect, softRightRect, fireRect
-                                )
+                                hitTestPhone(change.position, topKeys, topKeyRects, numKeys, numKeyRects)
                             } else 0
                             val oldBits = activePointers[pid] ?: 0
                             if (oldBits != newBits) {
@@ -405,37 +505,43 @@ private fun J2mePhoneOverlay(
                 }
             }
     ) {
-        // Draw soft keys row
-        J2mePillButton("SOFT_L", ButtonLayout(softLeftX / surfaceSize.width, softKeyY / surfaceSize.height, 48), surfaceSize, opacity, visualState and J2ME_BTN_B != 0)
-        J2mePillButton("FIRE", ButtonLayout(fireRect.center.x / surfaceSize.width, softKeyY / surfaceSize.height, 48), surfaceSize, opacity, visualState and J2ME_BTN_A != 0)
-        J2mePillButton("SOFT_R", ButtonLayout(softRightX / surfaceSize.width, softKeyY / surfaceSize.height, 48), surfaceSize, opacity, visualState and J2ME_BTN_X != 0)
+        // 顶部功能键行: L / F / R / C
+        topKeys.forEachIndexed { i, key ->
+            val cx = topRowLeft + topSlot * (i + 0.5f)
+            val isPressed = visualState and key.bit != 0
+            val color = when (key.label) {
+                "F" -> Color(0xFFE74C3C)                       // FIRE 红
+                "L", "R" -> Color(0xFF3498DB)                  // 软键 蓝
+                else -> Color(0xFF95A5A6)                      // 清除 灰
+            }
+            J2meRoundActionKey(key.label, color, cx, topCy, topSizeDp, opacity, isPressed)
+        }
 
-        // Draw numeric keypad
-        keys.forEachIndexed { idx, (label, bit) ->
-            val row = idx / cols
-            val col = idx % cols
+        // 数字键盘 (2/4/6/8 带方向提示, 5 带确认提示)
+        numKeys.forEachIndexed { idx, key ->
+            val row = idx / 3
+            val col = idx % 3
             val cx = gridLeft + col * (keySizePx + keyGapPx) + keySizePx / 2f
             val cy = gridTop + row * (keySizePx + keyGapPx) + keySizePx / 2f
-            val isPressed = visualState and bit != 0
-            J2meNumericKey(label, cx, cy, keySizePx, opacity, isPressed)
+            val isPressed = visualState and key.bit != 0
+            J2meNumericKey(key.label, key.hint, cx, cy, keySizeDp, opacity, isPressed)
         }
     }
 }
 
 private fun hitTestPhone(
     pos: Offset,
-    keyRects: List<Rect>,
-    keys: List<Pair<String, Int>>,
-    softLeftRect: Rect,
-    softRightRect: Rect,
-    fireRect: Rect
+    topKeys: List<J2mePhoneKey>,
+    topKeyRects: List<Rect>,
+    numKeys: List<J2mePhoneKey>,
+    numKeyRects: List<Rect>
 ): Int {
-    for (i in keyRects.indices) {
-        if (keyRects[i].contains(pos)) return keys[i].second
+    for (i in topKeyRects.indices) {
+        if (topKeyRects[i].contains(pos)) return topKeys[i].bit
     }
-    if (softLeftRect.contains(pos)) return J2ME_BTN_B
-    if (softRightRect.contains(pos)) return J2ME_BTN_X
-    if (fireRect.contains(pos)) return J2ME_BTN_A
+    for (i in numKeyRects.indices) {
+        if (numKeyRects[i].contains(pos)) return numKeys[i].bit
+    }
     return 0
 }
 
@@ -526,8 +632,13 @@ private fun J2mePillButton(
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val sizePx = with(density) { sizeDp.toPx() }
-    val px = (surfaceSize.width * layout.x - sizePx / 2f)
-    val py = (surfaceSize.height * layout.y - sizePx / 2f)
+    // 修复: 胶囊实际尺寸是 2.2×sizePx 宽、0.7×sizePx 高, 旧代码用单键
+    // 尺寸的一半去居中, 导致胶囊中心右偏 0.6×sizePx、下偏 0.15×sizePx。
+    // 这里按胶囊真实宽高的一半回退, 使 layout.x/y 准确对应胶囊中心。
+    val pillWidthPx = sizePx * 2.2f
+    val pillHeightPx = sizePx * 0.7f
+    val px = (surfaceSize.width * layout.x - pillWidthPx / 2f)
+    val py = (surfaceSize.height * layout.y - pillHeightPx / 2f)
 
     Box(
         modifier = Modifier
@@ -541,8 +652,21 @@ private fun J2mePillButton(
             val rx = size.width * 0.46f
             val ry = size.height * 0.46f
             val color = Color(0xFF95A5A6).copy(alpha = if (isPressed) (opacity * 1.5f).coerceAtMost(1f) else opacity)
-            drawCircle(color, ry + 2.dp.toPx(), Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
-            drawCircle(color.copy(alpha = opacity * 0.5f), ry, Offset(cx, cy))
+            // 圆角胶囊外形 (旧版画圆, 与 2.2:0.7 的容器不匹配)
+            val cornerR = size.height / 2f
+            drawRoundRect(
+                color.copy(alpha = opacity * 0.5f),
+                Offset(cx - rx, cy - ry),
+                Size(rx * 2, ry * 2),
+                androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+            )
+            drawRoundRect(
+                color,
+                Offset(cx - rx, cy - ry),
+                Size(rx * 2, ry * 2),
+                androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+            )
         }
         Text(label, color = Color.White, fontSize = (sizeDp.value * 0.28f).sp, fontWeight = FontWeight.Bold)
     }
@@ -551,30 +675,106 @@ private fun J2mePillButton(
 @Composable
 private fun J2meNumericKey(
     label: String,
+    hint: String?,
     cx: Float,
     cy: Float,
-    sizePx: Float,
+    sizeDp: androidx.compose.ui.unit.Dp,
     opacity: Float,
     isPressed: Boolean
 ) {
-    val r = sizePx * 0.46f
-    val bgColor = Color(0xFF1A1A22).copy(alpha = opacity)
-    val fgColor = Color(0xFFFFD66B).copy(alpha = if (isPressed) (opacity * 1.3f).coerceAtMost(1f) else opacity)
+    // 修复: 旧版把 px 值再次当 dp 用 (Modifier.size(sizePx.dp)),
+    // 高密度屏幕上按键放大约密度倍数。现改为传入 Dp,
+    // 在 offset 回调里用 Density 接收器换算。
+    val bgColor = if (isPressed) Color(0xFFFFD66B).copy(alpha = (opacity * 0.95f).coerceAtMost(1f))
+                  else Color(0xFF1A1A22).copy(alpha = opacity)
+    val fgColor = if (isPressed) Color(0xFF14141C)
+                  else Color(0xFFFFD66B).copy(alpha = (opacity * 1.4f).coerceAtMost(1f))
+    val hintColor = if (isPressed) Color(0xFF14141C)
+                    else Color.White.copy(alpha = opacity * 0.8f)
     val borderColor = Color.White.copy(alpha = opacity * 0.4f)
 
     Box(
         modifier = Modifier
-            .offset { IntOffset((cx - sizePx / 2).toInt(), (cy - sizePx / 2).toInt()) }
-            .size(sizePx.dp)
+            .offset {
+                IntOffset(
+                    (cx - sizeDp.toPx() / 2).toInt(),
+                    (cy - sizeDp.toPx() / 2).toInt()
+                )
+            }
+            .size(sizeDp)
             .clip(CircleShape)
             .background(bgColor)
             .border(1.dp, borderColor, CircleShape),
         contentAlignment = Alignment.Center
     ) {
+        if (hint == null) {
+            Text(
+                text = label,
+                color = fgColor,
+                fontSize = (sizeDp.value * 0.38f).sp,
+                fontWeight = FontWeight.Bold
+            )
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = label,
+                    color = fgColor,
+                    fontSize = (sizeDp.value * 0.28f).sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = (sizeDp.value * 0.32f).sp
+                )
+                Text(
+                    text = hint,
+                    color = hintColor,
+                    fontSize = (sizeDp.value * 0.16f).sp,
+                    lineHeight = (sizeDp.value * 0.20f).sp
+                )
+            }
+        }
+    }
+}
+
+// 圆形功能按键 (L/F/R/C 顶部行用) — 位置即圆心, 无旧版胶囊的居中偏移问题
+@Composable
+private fun J2meRoundActionKey(
+    label: String,
+    color: Color,
+    cx: Float,
+    cy: Float,
+    sizeDp: androidx.compose.ui.unit.Dp,
+    opacity: Float,
+    isPressed: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (cx - sizeDp.toPx() / 2).toInt(),
+                    (cy - sizeDp.toPx() / 2).toInt()
+                )
+            }
+            .size(sizeDp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val c = Offset(size.width / 2f, size.height / 2f)
+            val r = size.minDimension / 2f * 0.92f
+            drawCircle(color.copy(alpha = opacity * 0.35f), r + 2.dp.toPx(), c)
+            drawCircle(
+                if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
+                else color.copy(alpha = opacity * 0.85f),
+                r, c
+            )
+            drawCircle(
+                Color.White.copy(alpha = 0.15f),
+                r * 0.7f,
+                Offset(c.x - r * 0.15f, c.y - r * 0.15f)
+            )
+        }
         Text(
             text = label,
-            color = fgColor,
-            fontSize = (sizePx * 0.35f).sp,
+            color = Color.White,
+            fontSize = (sizeDp.value * 0.36f).sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -589,13 +789,14 @@ private fun J2meModeSwitchButton(
     isPhone: Boolean,
     opacity: Float,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    label: String? = null
 ) {
     val bgColor = Color.Black.copy(alpha = opacity * 0.6f)
     val fgColor = Color.White.copy(alpha = opacity)
     val borderColor = Color.White.copy(alpha = opacity * 0.7f)
-    // 🎮 = gamepad, ☎ = phone
-    val label = if (isPhone) "\ud83c\udfae" else "\u260e\ufe0f"
+    // 🎮 = gamepad, ☎ = phone; label 参数供 "123" 数字键盘开关复用
+    val text = label ?: if (isPhone) "\ud83c\udfae" else "\u260e\ufe0f"
 
     Box(
         modifier = modifier
@@ -608,7 +809,7 @@ private fun J2meModeSwitchButton(
             }
     ) {
         Text(
-            text = label,
+            text = text,
             color = fgColor,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
@@ -621,9 +822,11 @@ private fun J2meModeSwitchButton(
 // ===========================================================================
 // J2ME In-Game Menu Overlay
 //
-// Shows J2ME-relevant controls:
+// Shows J2ME-relevant controls (与其它核心的 MenuOverlay 同款深蓝底 + 图标行):
 //   - Pause / Resume (toggle MIDlet running state)
 //   - Overlay mode toggle (gamepad ↔ phone)
+//   - Layout editor (手柄模式下编辑虚拟按键位置, 与其它核心一致)
+//   - Settings (输入模式/屏幕缩放/J2ME帧率/即时绘制等专属设置)
 //   - Exit (unload MIDlet, return to game library)
 //
 // Does NOT show libretro-only features:
@@ -631,7 +834,6 @@ private fun J2meModeSwitchButton(
 //   - Fast-forward (J2ME is event-driven, not frame-pumped)
 //   - Screenshot (J2ME renders to its own SurfaceView)
 //   - Reset (J2ME restart = unload + reload)
-//   - Layout editor (J2ME overlay is mode-based, not position-based)
 // ===========================================================================
 
 @Composable
@@ -642,6 +844,8 @@ fun J2meMenuOverlay(
     isPortrait: Boolean = false,
     onTogglePause: () -> Unit,
     onToggleOverlayMode: () -> Unit,
+    onLayoutEditor: () -> Unit,
+    onSettings: () -> Unit,
     onClose: () -> Unit,
     onExit: () -> Unit
 ) {
@@ -702,6 +906,14 @@ fun J2meMenuOverlay(
                     fontSize = 12.sp,
                     modifier = Modifier.clickable { onToggleOverlayMode() }
                 )
+                // Virtual keypad layout editor — same as other cores' 手柄布局
+                IconButton(onClick = onLayoutEditor) {
+                    Icon(Icons.Rounded.Tune, "虚拟按键布局", tint = Color.White)
+                }
+                // Engine-specific settings (输入模式/屏幕缩放/J2ME帧率/即时绘制)
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Rounded.Settings, "设置", tint = Color.White)
+                }
                 // Close menu
                 IconButton(onClick = onClose) {
                     Icon(Icons.Rounded.Fullscreen, "隐藏菜单", tint = Color(0xFF4A90D9))

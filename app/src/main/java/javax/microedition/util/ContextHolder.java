@@ -236,7 +236,17 @@ public class ContextHolder {
 	 */
 	public static Context getContext() {
 		MicroActivity activity = getActivity();
-		return activity != null ? activity : getAppContext();
+		if (activity != null) {
+			return activity;
+		}
+		// GameBox 嵌入式模式(J2meEngine 宿主)：宿主不是 MicroActivity,
+		// 此前回退到 Application context —— 默认主题是浅色, 导致 J2ME 的
+		// Form / List / TextBox 等 MIDP 界面渲染成白底黑字, 与其他
+		// 模拟核心的深色画面格格不入。这里用深色 AppCompat 主题包装,
+		// 使所有 MIDP 界面与其余核心观感一致(深色背景)。
+		Context app = getAppContext();
+		return new android.view.ContextThemeWrapper(app,
+				com.nesstation.app.R.style.Theme_J2meDark);
 	}
 
 	/**

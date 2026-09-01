@@ -84,6 +84,28 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
 		0x2000000 to '9'.code,         // BTN_NUM_9
 	)
 
+	// 手机键盘模式双派发：真实手机上 2/4/6/8 既是数字键也是方向键，
+	// 5 是确认键。游戏可能用 getGameAction() 译码（数字键自带游戏动作，
+	// KeyMapper 已映射），也可能直接比较 keyCode == KEY_UP 等原始常量。
+	// 只发数字键会让后者完全无法操作菜单。keyMap 已发送数字键本身，
+	// 这里为同一个 bit 追加发送对应的游戏动作键，与真机行为一致。
+	private val dualKeyMap: Map<Int, Int> = mapOf(
+		0x040000 to Canvas.KEY_UP,      // 2 → 上
+		0x100000 to Canvas.KEY_LEFT,    // 4 → 左
+		0x400000 to Canvas.KEY_RIGHT,   // 6 → 右
+		0x8000000 to Canvas.KEY_DOWN,   // 8 → 下
+		0x200000 to Canvas.KEY_FIRE,    // 5 → 确认
+	)
+
+	/**
+	 * 手机键盘模式下 2/4/6/8/5 是否追加派发方向/确认键。
+	 * 由 UI 层 (J2meOnScreenController) 根据当前输入模式设置：
+	 * 手机键盘模式 = true（真机行为）；手柄模式 = false（数字小键盘
+	 * 用于纯数字输入，附带方向键会导致光标跳动）。
+	 */
+	@Volatile
+	var phoneDualDispatch: Boolean = true
+
 	override fun ensureLoaded(): Boolean = true
 
 	override fun loadRom(
@@ -111,6 +133,12 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
 			return false
 		}
 		loader.applyConfiguration()
+
+		// GameBox: 强制黑色屏幕底色, 与其他模拟核心(NES/SFC/GBA/...)一致。
+		// 原默认 ProfileModel.screenBackgroundColor = 0xD0D0D0 浅灰色, 在
+		// 游戏画面宽高比与屏幕不一致时四周出现白色边框。旧存档里的
+		// 浅色配置也会被这里覆盖。
+		Canvas.setBackgroundColor(0xFF000000.toInt())
 
 		// Register this engine as the J2ME host BEFORE loading the MIDlet,
 		// so Display.setCurrent() / MidletThread.resumeApp() find us.
@@ -234,6 +262,21 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
 					canvas.postKeyPressed(keyCode)
 				} else {
 					canvas.postKeyReleased(keyCode)
+				}
+			}
+		}
+
+		// 手机键盘模式：2/4/6/8/5 追加派发方向/确认键（真机行为）
+		if (phoneDualDispatch) {
+			for ((bit, keyCode) in dualKeyMap) {
+				val wasPressed = (prev and bit) != 0
+				val isPressed = (bits and bit) != 0
+				if (wasPressed != isPressed) {
+					if (isPressed) {
+						canvas.postKeyPressed(keyCode)
+					} else {
+						canvas.postKeyReleased(keyCode)
+					}
 				}
 			}
 		}

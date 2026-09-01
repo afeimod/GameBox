@@ -1975,6 +1975,8 @@ fun EmulatorScreen(
                         val newMode = if (padLayout.javaInputMode == "gamepad") "phone" else "gamepad"
                         padLayout = padLayout.copy { javaInputMode = newMode }
                     },
+                    onLayoutEditor = { showLayoutEditor = true },
+                    onSettings = { showSettings = true },
                     onClose = { showMenu = false },
                     onExit = { onExit() }
                 )
@@ -2957,19 +2959,15 @@ private fun applyCoreOptions(engine: EmulatorEngine, layout: PadLayout, platform
         }
         GamePlatform.JAVA -> {
             // J2ME settings are applied via Canvas static methods, not libretro core options.
-            // Screen scale type: "stretch" = GRAVITY_FILL, "fit" = GRAVITY_CENTER, "center" = GRAVITY_TOP
-            val gravity = when (layout.javaScaleType) {
-                "stretch" -> 1  // GRAVITY_FILL
-                "center"  -> 48 // GRAVITY_TOP (native resolution, top-aligned)
-                else       -> 1  // GRAVITY_FILL as safe default
-            }
+            // Canvas 缩放语义: scaleType 0=原始分辨率 1=适应屏幕(保持比例) 2=全屏拉伸;
+            // gravity: 0=左 1=上 2=居中 3=右 4=下。
+            // (旧映射把 stretch→0/center→2 搞反了, 且 gravity 48 不在任何分支内)
             val scaleType = when (layout.javaScaleType) {
-                "stretch" -> 0  // SCALE_STRETCH
-                "fit"     -> 1  // SCALE_FIT
-                "center"  -> 2  // SCALE_NONE
-                else      -> 1
+                "stretch" -> 2  // 全屏拉伸(不保持比例)
+                "center"  -> 0  // 原始分辨率(不缩放)
+                else      -> 1  // fit 适应屏幕保持比例
             }
-            javax.microedition.lcdui.Canvas.setScale(gravity, scaleType, 100)
+            javax.microedition.lcdui.Canvas.setScale(2, scaleType, 100)
             javax.microedition.lcdui.Canvas.setShowFps(layout.javaShowFps)
             javax.microedition.lcdui.event.EventQueue.setImmediate(layout.javaImmediateMode)
         }
@@ -8694,11 +8692,38 @@ private fun SettingsPanel(
                 Psx2BiosImportSection()
             }
             GamePlatform.JAVA -> {
-                Text("J2ME (Java 2 Micro Edition)", color = Color(0xFFFFD66B), fontSize = 13.sp,
+                Text("J2ME 专属设置", color = Color(0xFFFFD66B), fontSize = 13.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.size(6.dp))
-                Text("J2ME 游戏无需 BIOS 或核心配置。游戏设置请在「游戏设置」面板中调整。",
-                    color = Color(0xFF8899AA), fontSize = 11.sp, lineHeight = 15.sp)
+
+                DropdownSetting("输入模式",
+                    listOf(
+                        "gamepad" to "手柄布局 (方向键 + ABXY)",
+                        "phone" to "手机键盘 (数字 + 软键 + 方向)"
+                    ),
+                    padLayout.javaInputMode
+                ) { onLayoutChange(padLayout.copy {javaInputMode = it}) }
+
+                DropdownSetting("屏幕缩放",
+                    listOf(
+                        "fit" to "适应屏幕 (保持比例，推荐)",
+                        "stretch" to "全屏拉伸",
+                        "center" to "原始分辨率 (居中)"
+                    ),
+                    padLayout.javaScaleType
+                ) { onLayoutChange(padLayout.copy {javaScaleType = it}) }
+
+                SwitchSetting(
+                    label = "显示 J2ME 帧数",
+                    description = "由 MIDlet 画面内部绘制的实时帧率",
+                    checked = padLayout.javaShowFps
+                ) { onLayoutChange(padLayout.copy {javaShowFps = it}) }
+
+                SwitchSetting(
+                    label = "即时绘制模式",
+                    description = "提升部分游戏的按键/触摸响应速度，少数游戏可能需要关闭",
+                    checked = padLayout.javaImmediateMode
+                ) { onLayoutChange(padLayout.copy {javaImmediateMode = it}) }
             }
         }
 

@@ -171,7 +171,10 @@ public class ProfileModel {
 		version = VERSION;
 		screenWidth = 240;
 		screenHeight = 320;
-		screenBackgroundColor = 0xD0D0D0;
+		// GameBox: 黑色屏幕底色, 与其他模拟核心(NES/SFC/GBA/...)的黑色
+		// SurfaceView 背景保持一致; 原默认 0xD0D0D0 浅灰色在宽高比不一致时
+		// 会在游戏画面四周出现刺眼的白色/浅灰边框。
+		screenBackgroundColor = 0x000000;
 		screenScaleType = 1;
 		screenGravity = 1;
 		screenScaleRatio = 100;
