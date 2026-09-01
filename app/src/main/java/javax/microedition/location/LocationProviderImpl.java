@@ -46,7 +46,7 @@ public class LocationProviderImpl extends LocationProvider implements android.lo
     private int timeout;
     private boolean gotLocation;
 
-    public LocationProviderImpl() {
+    public LocationProviderImpl() throws LocationException {
         if (ContextHolder.getActivity() == null) {
             throw new LocationException("Location requires an Activity host (not available in embedded mode)");
         }
