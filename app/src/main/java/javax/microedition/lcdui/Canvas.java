@@ -138,6 +138,14 @@ public abstract class Canvas extends Displayable {
         /** J2ME video filter mode (0=none,1=scanline,2=CRT,3=dot,4=2XBR,5=4XBR,6=2XBR+dot,7=4XBR+dot,8=HQ4x,9=HQ4x+dot) */
         private static volatile int j2meFilterMode = 0;
 
+        // GameBox: 全局帧计数器 —— 三条绘制路径（CPU repaintScreen / View onDraw /
+        // GL 渲染线程）每成功向屏幕提交一帧都 +1。宿主 EmulatorScreen 的 FPS 悬浮窗
+        // 通过 J2meEngine.realtimeFps() → getAndResetFrameCount() 每秒采样一次，
+        // 修复 Java 游戏全局帧数一直显示 0fps 的问题（J2ME 是事件驱动渲染，
+        // 没有 libretro 式的 onFrame 回调，旧版两条统计路径都拿不到数据）。
+        private static final java.util.concurrent.atomic.AtomicLong globalFrameCount =
+                        new java.util.concurrent.atomic.AtomicLong(0);
+
         private final Object bufferLock = new Object();
         private final Object surfaceLock = new Object();
         private final PaintEvent paintEvent = new PaintEvent();
@@ -274,6 +282,21 @@ public abstract class Canvas extends Displayable {
                 Canvas.showFps = showFps;
         }
 
+        /**
+         * GameBox: 返回自上次调用以来向屏幕提交的帧数并清零。
+         * 宿主（J2meEngine.realtimeFps）每约 1 秒采样一次，读数即实时帧率。
+         * 覆盖全部三条绘制路径，与实例级 fpsCounter（仅 OverlayView 模式可用）
+         * 互不影响。
+         */
+        public static long getAndResetFrameCount() {
+                return globalFrameCount.getAndSet(0);
+        }
+
+        /** 全局帧计数 +1（向屏幕成功提交一帧时调用）。 */
+        private static void countFrame() {
+                globalFrameCount.incrementAndGet();
+        }
+
         public static void setLimitFps(int fpsLimit) {
                 if (fpsLimit == 0 && (graphicsMode == 1 || graphicsMode == 2)) {
                         // hack for async redraw
@@ -373,6 +396,7 @@ public abstract class Canvas extends Displayable {
                                 g.drawImage(offscreenCopy, virtualScreen);
                         }
                 }
+                countFrame();
                 if (fpsCounter != null) {
                         fpsCounter.increment();
                 }
@@ -769,6 +793,7 @@ public abstract class Canvas extends Displayable {
                         }
                                 surface.unlockCanvasAndPost(canvas);
                         }
+                        countFrame();
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
                         }
@@ -978,6 +1003,7 @@ public abstract class Canvas extends Displayable {
                         // instead of stale frame data.
                         glClear(GL_COLOR_BUFFER_BIT);
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                        countFrame();
                         if (fpsCounter != null) {
                                 fpsCounter.increment();
                         }

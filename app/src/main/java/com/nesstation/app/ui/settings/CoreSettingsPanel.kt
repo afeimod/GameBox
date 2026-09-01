@@ -683,6 +683,25 @@ fun CoreSettingsPanel(
                         listOf("gamepad" to "手柄 (D-pad + A/B/X/Y)", "phone" to "手机键盘 (12键)"),
                         padLayout.javaInputMode
                     ) { updateLayout(padLayout.copy { javaInputMode = it }) }
+                    // 窗口画面比例：Java 游戏窗口独立缩放（javaVideoScale），
+                    // 与全局画面缩放(videoScale)分开保存，互不冲突。
+                    DropdownRow("窗口画面比例",
+                        listOf(
+                            "stretch" to "铺满窗口 (默认)",
+                            "3:4" to "3:4 (J2ME 竖屏原生)",
+                            "9:16" to "9:16 (手机全屏)",
+                            "2:3" to "2:3",
+                            "1:1" to "1:1 (正方形)",
+                            "4:3" to "4:3 (横屏游戏)",
+                            "16:9" to "16:9 (横屏宽幅)"
+                        ),
+                        padLayout.javaVideoScale
+                    ) { updateLayout(padLayout.copy { javaVideoScale = it }) }
+                    // 方向控制：Java 手柄模式的十字键/摇杆（独立字段 javaStickMode）
+                    DropdownRow("方向控制 (手柄模式)",
+                        listOf("dpad" to "十字键 D-Pad", "analog" to "摇杆 Analog Stick"),
+                        padLayout.javaStickMode
+                    ) { updateLayout(padLayout.copy { javaStickMode = it }) }
                     DropdownRow("画面缩放",
                         listOf("fit" to "适应 (保持比例)", "stretch" to "拉伸 (填满屏幕)", "center" to "原始分辨率居中"),
                         padLayout.javaScaleType

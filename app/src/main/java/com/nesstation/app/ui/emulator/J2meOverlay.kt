@@ -29,6 +29,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -56,8 +58,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import com.nesstation.app.core.engine.J2meEngine
+import com.nesstation.app.core.model.GamePlatform
 import com.nesstation.app.core.storage.ButtonLayout
 import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.storage.PadLayoutStore
 
 // ===========================================================================
 // J2ME On-Screen Controller — two modes:
@@ -192,9 +196,27 @@ private fun J2meGamepadOverlay(
     val btnStart = if (isPortrait) padLayout.btnStartP else padLayout.btnStart
     val btnSelect = if (isPortrait) padLayout.btnSelectP else padLayout.btnSelect
 
+    // === 显隐按键（hiddenButtonsJava，显隐对话框 / 布局编辑器里切换）===
+    // 隐藏的按键不绘制、也不参与命中测试。手机键盘模式不受影响。
+    val dpadVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "dpad")
+    val aVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "a")
+    val bVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "b")
+    val xVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "x")
+    val yVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "y")
+    val startVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "start")
+    val selectVisible = !PadLayoutStore.isButtonHidden(padLayout, GamePlatform.JAVA, "select")
+
+    // === 方向控制：十字键 / 摇杆（javaStickMode，与其他核心互不影响）===
+    // 摇杆是虚拟层：拖动方向映射为 J2ME 方向键（UP/DOWN/LEFT/RIGHT）。
+    val useAnalogStick = PadLayoutStore.getInputMode(padLayout, GamePlatform.JAVA) == "analog"
+
     // Track active pointers and compute OR'd bit mask.
     val activePointers = remember { mutableMapOf<Long, Int>() }
     var visualState by remember { mutableStateOf(0) }
+    // 摇杆拇指位置（analog 模式，[-1,1]，松手回中）
+    var stickThumbX by remember { mutableStateOf(0f) }
+    var stickThumbY by remember { mutableStateOf(0f) }
+    var stickPointerId by remember { mutableStateOf<Long?>(null) }
 
     val sendState = remember(engine) {
         { bits: Int ->
@@ -203,7 +225,7 @@ private fun J2meGamepadOverlay(
         }
     }
 
-    // Compute hit rects
+    // Compute hit rects (隐藏的按键不参与命中)
     fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): Rect {
         val sizePx = with(density) { layout.sizeDp.dp.toPx() }
         val w = sizePx * widthScale
@@ -213,13 +235,17 @@ private fun J2meGamepadOverlay(
         return Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     }
 
-    val dpadRect = btnRect(dpad)
-    val aRect = btnRect(btnA)
-    val bRect = btnRect(btnB)
-    val xRect = btnRect(btnX)
-    val yRect = btnRect(btnY)
-    val startRect = btnRect(btnStart, 2.2f, 0.7f)
-    val selectRect = btnRect(btnSelect, 2.2f, 0.7f)
+    val dpadRect = if (dpadVisible) btnRect(dpad) else null
+    // 摇杆命中区扩大到视觉尺寸的 1.5 倍，方便拇指拖动（与其他核心一致）
+    val dpadHitRect = if (dpadVisible) {
+        if (useAnalogStick) btnRect(dpad, 1.5f, 1.5f) else btnRect(dpad)
+    } else null
+    val aRect = if (aVisible) btnRect(btnA) else null
+    val bRect = if (bVisible) btnRect(btnB) else null
+    val xRect = if (xVisible) btnRect(btnX) else null
+    val yRect = if (yVisible) btnRect(btnY) else null
+    val startRect = if (startVisible) btnRect(btnStart, 2.2f, 0.7f) else null
+    val selectRect = if (selectVisible) btnRect(btnSelect, 2.2f, 0.7f) else null
 
     // 数字小键盘命中区域（手柄模式按 "123" 按钮后显示）
     val numKeySizeDp = 34.dp
@@ -252,33 +278,92 @@ private fun J2meGamepadOverlay(
         )
     }
 
+    // 修复（"123"数字键盘点击无效）：pointerInput 只以 surfaceSize 为 key，
+    // 点击 "123" 切换 showNumPad 后手势协程不会重启，闭包里捕获的仍是旧值
+    // （false）→ 数字键盘画出来了但所有触摸都被忽略。用 rememberUpdatedState
+    // 让手势闭包始终读到最新的 showNumPad。
+    val curShowNumPad by rememberUpdatedState(showNumPad)
+
+    // 摇杆：拖动位置 → 方向 bit（径向死区 + 主导轴回退，与其他核心一致）
+    fun computeAnalogBits(pos: Offset, visualRect: Rect): Int {
+        val cx = visualRect.center.x
+        val cy = visualRect.center.y
+        val radius = (visualRect.width / 2f).coerceAtLeast(0.001f)
+        val dx = (pos.x - cx) / radius
+        val dy = (pos.y - cy) / radius
+        val mag = kotlin.math.sqrt(dx * dx + dy * dy)
+        val cdx: Float
+        val cdy: Float
+        if (mag > 1f) { cdx = dx / mag; cdy = dy / mag } else { cdx = dx; cdy = dy }
+        var bits = 0
+        if (mag > 0.25f) {
+            val cardThreshold = 0.4f
+            val absX = kotlin.math.abs(cdx)
+            val absY = kotlin.math.abs(cdy)
+            if (cdx < -cardThreshold) bits = bits or J2ME_BTN_LEFT
+            else if (cdx > cardThreshold) bits = bits or J2ME_BTN_RIGHT
+            if (cdy < -cardThreshold) bits = bits or J2ME_BTN_UP
+            else if (cdy > cardThreshold) bits = bits or J2ME_BTN_DOWN
+            if (bits == 0) {
+                if (absX > absY) bits = bits or (if (cdx < 0) J2ME_BTN_LEFT else J2ME_BTN_RIGHT)
+                else bits = bits or (if (cdy < 0) J2ME_BTN_UP else J2ME_BTN_DOWN)
+            }
+        }
+        return bits
+    }
+
+    // 摇杆拇指归一化位置（相对视觉半径，限制在 [-1,1]）
+    fun stickThumb(pos: Offset): Pair<Float, Float> {
+        val rect = dpadRect ?: return 0f to 0f
+        val radius = (rect.width / 2f).coerceAtLeast(0.001f)
+        val dx = (pos.x - rect.center.x) / radius
+        val dy = (pos.y - rect.center.y) / radius
+        val mag = kotlin.math.sqrt(dx * dx + dy * dy)
+        return if (mag > 1f) (dx / mag) to (dy / mag) else dx to dy
+    }
+
+    // 命中测试（含摇杆/数字键盘），供按下与移动两个路径复用
+    fun bitsAt(pos: Offset): Int {
+        if (useAnalogStick) {
+            val hit = dpadHitRect
+            if (hit != null && hit.contains(pos)) {
+                val visual = dpadRect ?: hit
+                return computeAnalogBits(pos, visual)
+            }
+        }
+        return hitTestGamepad(
+            pos, dpadHitRect, aRect, bRect, xRect, yRect, startRect, selectRect,
+            if (curShowNumPad) numKeys else null, if (curShowNumPad) numKeyRects else null
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(surfaceSize) {
+            // key 带 padLayout/useAnalogStick：布局或摇杆模式变化后手势闭包
+            // 重新捕获最新的命中矩形，避免使用过期坐标。
+            .pointerInput(surfaceSize, padLayout, useAnalogStick) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val id = down.id.value
-                    val bits = hitTestGamepad(
-                        down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
-                        if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
-                    )
+                    val bits = bitsAt(down.position)
                     if (bits != 0) {
                         activePointers[id] = bits
                         sendState(combineBits(activePointers))
+                    }
+                    if (useAnalogStick && dpadHitRect?.contains(down.position) == true) {
+                        stickPointerId = id
+                        val t = stickThumb(down.position)
+                        stickThumbX = t.first
+                        stickThumbY = t.second
                     }
                     while (true) {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
                             change.consume()
                             val pid = change.id.value
-                            val newBits = if (change.pressed) {
-                                hitTestGamepad(
-                                    change.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
-                                    if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
-                                )
-                            } else 0
+                            val newBits = if (change.pressed) bitsAt(change.position) else 0
                             val oldBits = activePointers[pid] ?: 0
                             if (oldBits != newBits) {
                                 activePointers[pid] = newBits
@@ -287,26 +372,41 @@ private fun J2meGamepadOverlay(
                             if (!change.pressed) {
                                 activePointers.remove(pid)
                                 sendState(combineBits(activePointers))
+                                if (pid == stickPointerId) {
+                                    stickPointerId = null
+                                    stickThumbX = 0f
+                                    stickThumbY = 0f
+                                }
+                            } else if (pid == stickPointerId) {
+                                val t = stickThumb(change.position)
+                                stickThumbX = t.first
+                                stickThumbY = t.second
                             }
                         }
                     }
                 }
             }
     ) {
-        // Draw D-pad
-        J2meDpadCanvas(dpad, surfaceSize, opacity, visualState and 0xF0)
+        // Draw D-pad / analog stick（显隐按键生效）
+        if (dpadVisible) {
+            if (useAnalogStick) {
+                J2meAnalogStick(dpad, surfaceSize, opacity, visualState and 0xF0, stickThumbX, stickThumbY)
+            } else {
+                J2meDpadCanvas(dpad, surfaceSize, opacity, visualState and 0xF0)
+            }
+        }
         // Draw A
-        J2meActionButton("A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and J2ME_BTN_A != 0)
+        if (aVisible) J2meActionButton("A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and J2ME_BTN_A != 0)
         // Draw B
-        J2meActionButton("B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and J2ME_BTN_B != 0)
+        if (bVisible) J2meActionButton("B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and J2ME_BTN_B != 0)
         // Draw X
-        J2meActionButton("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and J2ME_BTN_X != 0)
+        if (xVisible) J2meActionButton("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and J2ME_BTN_X != 0)
         // Draw Y
-        J2meActionButton("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and J2ME_BTN_Y != 0)
+        if (yVisible) J2meActionButton("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and J2ME_BTN_Y != 0)
         // Draw Start
-        J2mePillButton("START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0)
+        if (startVisible) J2mePillButton("START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0)
         // Draw Select
-        J2mePillButton("SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0)
+        if (selectVisible) J2mePillButton("SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0)
 
         // Draw number pad (toggle via "123" button) — J2ME 游戏经常需要数字输入
         if (showNumPad) {
@@ -336,13 +436,14 @@ private fun J2meGamepadOverlay(
 
 private fun hitTestGamepad(
     pos: Offset,
-    dpadRect: Rect, aRect: Rect, bRect: Rect, xRect: Rect, yRect: Rect,
-    startRect: Rect, selectRect: Rect,
+    dpadRect: Rect?, aRect: Rect?, bRect: Rect?, xRect: Rect?, yRect: Rect?,
+    startRect: Rect?, selectRect: Rect?,
     numKeys: List<Pair<String, Int>>? = null,
     numKeyRects: List<Rect>? = null
 ): Int {
     var bits = 0
-    if (dpadRect.contains(pos)) {
+    // 显隐按键：隐藏的按键 rect 为 null，不参与命中测试
+    if (dpadRect != null && dpadRect.contains(pos)) {
         val cx = dpadRect.center.x
         val cy = dpadRect.center.y
         val hw = dpadRect.width / 2f
@@ -354,12 +455,12 @@ private fun hitTestGamepad(
         if (dx < -0.3f) bits = bits or J2ME_BTN_LEFT
         if (dx > 0.3f) bits = bits or J2ME_BTN_RIGHT
     }
-    if (aRect.contains(pos)) bits = bits or J2ME_BTN_A
-    if (bRect.contains(pos)) bits = bits or J2ME_BTN_B
-    if (xRect.contains(pos)) bits = bits or J2ME_BTN_X
-    if (yRect.contains(pos)) bits = bits or J2ME_BTN_Y
-    if (startRect.contains(pos)) bits = bits or J2ME_BTN_START
-    if (selectRect.contains(pos)) bits = bits or J2ME_BTN_SELECT
+    if (aRect?.contains(pos) == true) bits = bits or J2ME_BTN_A
+    if (bRect?.contains(pos) == true) bits = bits or J2ME_BTN_B
+    if (xRect?.contains(pos) == true) bits = bits or J2ME_BTN_X
+    if (yRect?.contains(pos) == true) bits = bits or J2ME_BTN_Y
+    if (startRect?.contains(pos) == true) bits = bits or J2ME_BTN_START
+    if (selectRect?.contains(pos) == true) bits = bits or J2ME_BTN_SELECT
     // 数字键盘：命中即返回该键 bit（独占，避免误触叠加）
     if (numKeys != null && numKeyRects != null) {
         for (i in numKeyRects.indices) {
@@ -373,6 +474,104 @@ private fun combineBits(pointers: Map<Long, Int>): Int {
     var result = 0
     for ((_, bits) in pointers) result = result or bits
     return result
+}
+
+// ===========================================================================
+// J2meAnalogStick — J2ME 手柄模式的虚拟摇杆（javaStickMode == "analog" 时）
+//
+// 与其他核心的 AnalogStickCanvas 同款外观（底座 + 方向箭头 + 拇指帽），
+// 但输出是 J2ME 方向键 bit（J2ME_BTN_UP/DOWN/LEFT/RIGHT）：J2ME 没有真
+// 模拟轴，摇杆只是把连续拖动方向翻译成方向键，让需要方向输入的游戏
+// 也能用摇杆操作。thumbX/thumbY 由 J2meGamepadOverlay 的拖动手势驱动。
+// ===========================================================================
+@Composable
+private fun J2meAnalogStick(
+    layout: ButtonLayout,
+    surfaceSize: IntSize,
+    opacity: Float,
+    pressedDirs: Int,
+    thumbX: Float,
+    thumbY: Float
+) {
+    val density = LocalDensity.current
+    val sizeDp = layout.sizeDp.dp
+    val sizePx = with(density) { sizeDp.toPx() }
+    val px = (surfaceSize.width * layout.x - sizePx / 2f)
+    val py = (surfaceSize.height * layout.y - sizePx / 2f)
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(px.toInt(), py.toInt()) }
+            .size(sizeDp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val baseR = size.width * 0.48f   // 外圈底座半径
+            val thumbR = size.width * 0.22f  // 拇指帽半径
+
+            val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
+            val ringColor = Color(0xFF2C2C38).copy(alpha = opacity)
+            val thumbColor = Color(0xFFFFD66B).copy(alpha = opacity)
+            val thumbPressedColor = Color(0xFFFFE57F).copy(alpha = (opacity * 1.2f).coerceAtMost(1f))
+            val arrowColor = Color(0x99FFFFFF)
+
+            // 底座 + 外圈 + 内槽
+            drawCircle(baseColor, baseR, Offset(cx, cy))
+            drawCircle(ringColor, baseR, Offset(cx, cy), style = Stroke(width = 2.dp.toPx()))
+            drawCircle(Color(0xFF101015).copy(alpha = opacity), baseR * 0.78f, Offset(cx, cy))
+
+            // 方向箭头（与 J2ME 十字键同款高亮反馈）
+            val arrowSize = baseR * 0.16f
+            val arrowOffset = baseR * 0.72f
+            val dirs = listOf(
+                Triple(0f, -1f, J2ME_BTN_UP), Triple(0f, 1f, J2ME_BTN_DOWN),
+                Triple(-1f, 0f, J2ME_BTN_LEFT), Triple(1f, 0f, J2ME_BTN_RIGHT)
+            )
+            for ((dx, dy, bit) in dirs) {
+                val ax = cx + dx * arrowOffset
+                val ay = cy + dy * arrowOffset
+                val isActive = pressedDirs and bit != 0
+                if (isActive) {
+                    drawCircle(
+                        Color(0xFFFFD66B).copy(alpha = opacity * 0.4f),
+                        arrowSize * 1.8f,
+                        Offset(ax, ay)
+                    )
+                }
+                drawJ2meTriangle(
+                    ax, ay, dx, dy, arrowSize,
+                    if (isActive) Color(0xFFFFD66B).copy(alpha = opacity) else arrowColor
+                )
+            }
+
+            // 拇指帽（始终留在底座圆内）
+            val maxOffset = baseR - thumbR - 2.dp.toPx()
+            val thumbCx = cx + thumbX * maxOffset
+            val thumbCy = cy + thumbY * maxOffset
+            val isPressed = pressedDirs != 0
+            drawCircle(thumbColor.copy(alpha = opacity * 0.5f), thumbR + 2.dp.toPx(), Offset(thumbCx, thumbCy))
+            drawCircle(
+                if (isPressed) thumbPressedColor else thumbColor,
+                thumbR, Offset(thumbCx, thumbCy)
+            )
+        }
+    }
+}
+
+/** 画一个指向 (dirX, dirY) 方向的小三角形箭头（J2meAnalogStick 专用）。 */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawJ2meTriangle(
+    x: Float, y: Float, dirX: Float, dirY: Float, size: Float, color: Color
+) {
+    val perpX = -dirY
+    val perpY = dirX
+    val path = Path().apply {
+        moveTo(x + dirX * size, y + dirY * size)
+        lineTo(x - dirX * size * 0.6f + perpX * size * 0.7f, y - dirY * size * 0.6f + perpY * size * 0.7f)
+        lineTo(x - dirX * size * 0.6f - perpX * size * 0.7f, y - dirY * size * 0.6f - perpY * size * 0.7f)
+        close()
+    }
+    drawPath(path, color)
 }
 
 // ===========================================================================
@@ -477,7 +676,10 @@ private fun J2mePhoneOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(surfaceSize) {
+            // key 带 padLayout：在布局编辑器里拖动 javaPhoneGrid/javaPhoneTop 后，
+            // 手势闭包重新捕获最新的命中矩形（旧版只以 surfaceSize 为 key，
+            // 编辑完返回游戏后命中区域仍停留在拖动前的旧位置）。
+            .pointerInput(surfaceSize, padLayout) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()

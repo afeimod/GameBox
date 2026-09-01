@@ -840,9 +840,17 @@ fun EmulatorScreen(
     //
     // 横竖屏分别保存布局：isPortrait 变化（旋转屏幕）时重新加载对应方向的
     // 矩形，避免竖屏下设置的布局被"同等压缩"后套用到横屏。
+    // JAVA 平台使用专属矩形字段（javaCustomLayout*）：Java 游戏多为竖屏，
+    // 自定义窗口不与其他核心的全局自定义矩形冲突。
     var showCustomLayoutEditor by remember { mutableStateOf(false) }
+    val isJavaPlatform = platform == GamePlatform.JAVA
     var customRect by remember(isPortrait) {
-        mutableStateOf(floatArrayOf(
+        mutableStateOf(if (isJavaPlatform) floatArrayOf(
+            if (isPortrait) padLayout.javaCustomLayoutLeftP else padLayout.javaCustomLayoutLeft,
+            if (isPortrait) padLayout.javaCustomLayoutTopP else padLayout.javaCustomLayoutTop,
+            if (isPortrait) padLayout.javaCustomLayoutRightP else padLayout.javaCustomLayoutRight,
+            if (isPortrait) padLayout.javaCustomLayoutBottomP else padLayout.javaCustomLayoutBottom
+        ) else floatArrayOf(
             if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
             if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
             if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
@@ -1699,13 +1707,17 @@ fun EmulatorScreen(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (loaded) {
             if (platform == GamePlatform.JAVA && engine is J2meEngine) {
-                // === J2ME 游戏窗口同样接收全局「画面缩放」(videoScale) ===
+                // === Java 游戏窗口使用专属「画面缩放」(javaVideoScale) ===
+                // Java(J2ME) 游戏多为竖屏(240x320 等)，比例与横屏核心不同，
+                // 窗口缩放独立保存(javaVideoScale/javaCustomLayout*)，与全局
+                // videoScale 互不影响：在 Java 游戏里改缩放不会覆盖其他核心
+                // 的设置，反之亦然。
                 // 与 GameSurfaceView 一致的形状约束：stretch=铺满（旧行为）、
-                // 4:3/2:3/3:2/8:7/16:9=按比例约束窗口、custom=四角自定义矩形。
+                // 3:4/9:16/2:3/1:1/4:3/16:9=按比例约束窗口、custom=四角自定义矩形。
                 // J2ME Canvas 内部的 javaScaleType（适应/拉伸/原始分辨率）继续
-                // 在窗口内生效，两者叠加：窗口形状由 videoScale 决定，窗口内
+                // 在窗口内生效，两者叠加：窗口形状由 javaVideoScale 决定，窗口内
                 // 画面适配由 javaScaleType 决定。
-                val j2meCustom = padLayout.videoScale == "custom"
+                val j2meCustom = padLayout.javaVideoScale == "custom"
                 val j2meContainerAlignment = when {
                     j2meCustom -> Alignment.TopStart
                     isPortrait -> Alignment.TopCenter
@@ -1718,11 +1730,12 @@ fun EmulatorScreen(
                         .then(gameViewTracker),
                     contentAlignment = j2meContainerAlignment
                 ) {
-                    val j2meScaleModifier = when (padLayout.videoScale) {
-                        "4:3" -> Modifier.aspectRatio(4f / 3f)
+                    val j2meScaleModifier = when (padLayout.javaVideoScale) {
+                        "3:4" -> Modifier.aspectRatio(3f / 4f)
+                        "9:16" -> Modifier.aspectRatio(9f / 16f)
                         "2:3" -> Modifier.aspectRatio(2f / 3f)
-                        "3:2" -> Modifier.aspectRatio(3f / 2f)
-                        "8:7" -> Modifier.aspectRatio(8f / 7f)
+                        "1:1" -> Modifier.aspectRatio(1f)
+                        "4:3" -> Modifier.aspectRatio(4f / 3f)
                         "16:9" -> Modifier.aspectRatio(16f / 9f)
                         "custom" -> {
                             val maxW = surfaceSize.width.coerceAtLeast(1)
@@ -2003,8 +2016,13 @@ fun EmulatorScreen(
             )
         }
 
-        // 全局 FPS 悬浮显示 —— 左上角小字，实时显示模拟帧率
-        if (loaded && padLayout.showFps && !showMenu && !showLayoutEditor && !showSettings &&
+        // 全局 FPS 悬浮显示 —— 左上角小字，实时显示模拟帧率。
+        // JAVA 平台额外接入「显示 J2ME 帧数」开关（javaShowFps）：
+        // J2ME 是事件驱动渲染，帧率来自 Canvas 的全局帧计数器
+        // （J2meEngine.realtimeFps()），两个开关任一开启都显示悬浮窗。
+        val javaFpsOverlay = platform == GamePlatform.JAVA &&
+            engine is com.nesstation.app.core.engine.J2meEngine && padLayout.javaShowFps
+        if (loaded && (padLayout.showFps || javaFpsOverlay) && !showMenu && !showLayoutEditor && !showSettings &&
             !showCustomLayoutEditor && !showNdsCustomLayoutEditor) {
             Text(
                 text = "FPS $fpsDisplay",
@@ -2218,7 +2236,13 @@ fun EmulatorScreen(
                         showSettings = false
                         showNdsCustomLayoutEditor = true
                     } else {
-                        customRect = floatArrayOf(
+                        // JAVA 平台从专属字段加载（javaCustomLayout*），与全局自定义矩形互不影响
+                        customRect = if (isJavaPlatform) floatArrayOf(
+                            if (isPortrait) padLayout.javaCustomLayoutLeftP else padLayout.javaCustomLayoutLeft,
+                            if (isPortrait) padLayout.javaCustomLayoutTopP else padLayout.javaCustomLayoutTop,
+                            if (isPortrait) padLayout.javaCustomLayoutRightP else padLayout.javaCustomLayoutRight,
+                            if (isPortrait) padLayout.javaCustomLayoutBottomP else padLayout.javaCustomLayoutBottom
+                        ) else floatArrayOf(
                             if (isPortrait) padLayout.customLayoutLeftP else padLayout.customLayoutLeft,
                             if (isPortrait) padLayout.customLayoutTopP else padLayout.customLayoutTop,
                             if (isPortrait) padLayout.customLayoutRightP else padLayout.customLayoutRight,
@@ -2247,19 +2271,36 @@ fun EmulatorScreen(
                                 customRect = floatArrayOf(x1, y1, x2, y2)
                                 if (confirm) {
                                     // Touch-up — persist into padLayout (saved by the debounced effect)
-                                    padLayout = if (isPortrait) {
+                                    // JAVA 平台写入专属字段（javaCustomLayout*），不覆盖其他核心的矩形
+                                    padLayout = if (isJavaPlatform) {
+                                        if (isPortrait) {
+                                            padLayout.copy {
+                                                javaCustomLayoutLeftP = x1
+                                                javaCustomLayoutTopP = y1
+                                                javaCustomLayoutRightP = x2
+                                                javaCustomLayoutBottomP = y2
+                                            }
+                                        } else {
+                                            padLayout.copy {
+                                                javaCustomLayoutLeft = x1
+                                                javaCustomLayoutTop = y1
+                                                javaCustomLayoutRight = x2
+                                                javaCustomLayoutBottom = y2
+                                            }
+                                        }
+                                    } else if (isPortrait) {
                                         padLayout.copy {
                                             customLayoutLeftP = x1
- customLayoutTopP = y1
+                                            customLayoutTopP = y1
                                             customLayoutRightP = x2
- customLayoutBottomP = y2
+                                            customLayoutBottomP = y2
                                         }
                                     } else {
                                         padLayout.copy {
                                             customLayoutLeft = x1
- customLayoutTop = y1
+                                            customLayoutTop = y1
                                             customLayoutRight = x2
- customLayoutBottom = y2
+                                            customLayoutBottom = y2
                                         }
                                     }
                                 }
@@ -2290,19 +2331,35 @@ fun EmulatorScreen(
                 onClick = {
                     showCustomLayoutEditor = false
                     // Persist the current rect even if the last drag was cancelled
-                    padLayout = if (isPortrait) {
+                    padLayout = if (isJavaPlatform) {
+                        if (isPortrait) {
+                            padLayout.copy {
+                                javaCustomLayoutLeftP = customRect[0]
+                                javaCustomLayoutTopP = customRect[1]
+                                javaCustomLayoutRightP = customRect[2]
+                                javaCustomLayoutBottomP = customRect[3]
+                            }
+                        } else {
+                            padLayout.copy {
+                                javaCustomLayoutLeft = customRect[0]
+                                javaCustomLayoutTop = customRect[1]
+                                javaCustomLayoutRight = customRect[2]
+                                javaCustomLayoutBottom = customRect[3]
+                            }
+                        }
+                    } else if (isPortrait) {
                         padLayout.copy {
                             customLayoutLeftP = customRect[0]
- customLayoutTopP = customRect[1]
+                            customLayoutTopP = customRect[1]
                             customLayoutRightP = customRect[2]
- customLayoutBottomP = customRect[3]
+                            customLayoutBottomP = customRect[3]
                         }
                     } else {
                         padLayout.copy {
                             customLayoutLeft = customRect[0]
- customLayoutTop = customRect[1]
+                            customLayoutTop = customRect[1]
                             customLayoutRight = customRect[2]
- customLayoutBottom = customRect[3]
+                            customLayoutBottom = customRect[3]
                         }
                     }
                 },
@@ -2316,19 +2373,35 @@ fun EmulatorScreen(
             androidx.compose.material3.OutlinedButton(
                 onClick = {
                     customRect = floatArrayOf(0f, 0f, 1f, 1f)
-                    padLayout = if (isPortrait) {
+                    padLayout = if (isJavaPlatform) {
+                        if (isPortrait) {
+                            padLayout.copy {
+                                javaCustomLayoutLeftP = 0f
+                                javaCustomLayoutTopP = 0f
+                                javaCustomLayoutRightP = 1f
+                                javaCustomLayoutBottomP = 1f
+                            }
+                        } else {
+                            padLayout.copy {
+                                javaCustomLayoutLeft = 0f
+                                javaCustomLayoutTop = 0f
+                                javaCustomLayoutRight = 1f
+                                javaCustomLayoutBottom = 1f
+                            }
+                        }
+                    } else if (isPortrait) {
                         padLayout.copy {
                             customLayoutLeftP = 0f
- customLayoutTopP = 0f
+                            customLayoutTopP = 0f
                             customLayoutRightP = 1f
- customLayoutBottomP = 1f
+                            customLayoutBottomP = 1f
                         }
                     } else {
                         padLayout.copy {
                             customLayoutLeft = 0f
- customLayoutTop = 0f
+                            customLayoutTop = 0f
                             customLayoutRight = 1f
- customLayoutBottom = 1f
+                            customLayoutBottom = 1f
                         }
                     }
                 },
@@ -7416,6 +7489,8 @@ private fun SettingsPanel(
 ) {
     val context = LocalContext.current
     var biosStatus by remember { mutableStateOf(checkFdsBiosStatus(context)) }
+    // JAVA 平台标记：画面缩放/方向控制等全局项对 Java 游戏使用专属字段
+    val isJava = platform == GamePlatform.JAVA
 
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0x88000000))
@@ -7435,20 +7510,25 @@ private fun SettingsPanel(
         Spacer(Modifier.size(8.dp))
 
         // Common video settings for all platforms
-        DropdownSetting("画面缩放",
-            listOf(
-                "stretch" to "全屏拉伸(默认)",
-                "4:3" to "4:3",
-                "2:3" to "2:3 (NDS 双屏)",
-                "3:2" to "3:2 (GBA 原生)",
-                "8:7" to "8:7 (NES 像素比)",
-                "16:9" to "16:9",
-                "custom" to "自定义(拖动四角)"
-            ),
-            padLayout.videoScale
-        ) {
-            onLayoutChange(padLayout.copy {videoScale = it})
-            if (it == "custom") onEnterCustomLayout()
+        // JAVA 平台不显示全局画面缩放：Java 游戏窗口使用专属的 javaVideoScale
+        // （在下方 JAVA 专属设置里，含竖屏比例与自定义矩形），避免与全局
+        // videoScale（其他核心共用）互相覆盖。
+        if (!isJava) {
+            DropdownSetting("画面缩放",
+                listOf(
+                    "stretch" to "全屏拉伸(默认)",
+                    "4:3" to "4:3",
+                    "2:3" to "2:3 (NDS 双屏)",
+                    "3:2" to "3:2 (GBA 原生)",
+                    "8:7" to "8:7 (NES 像素比)",
+                    "16:9" to "16:9",
+                    "custom" to "自定义(拖动四角)"
+                ),
+                padLayout.videoScale
+            ) {
+                onLayoutChange(padLayout.copy {videoScale = it})
+                if (it == "custom") onEnterCustomLayout()
+            }
         }
 
         DropdownSetting("视频滤镜",
@@ -7473,8 +7553,9 @@ private fun SettingsPanel(
         }
 
         // Direction control: D-Pad vs Analog Stick. Available for all
-        // non-DOS/non-JAVA platforms. DOS uses its own overlay; JAVA uses J2ME.
-        if (platform != GamePlatform.DOS && platform != GamePlatform.JAVA) {
+        // non-DOS platforms. DOS uses its own overlay; JAVA 的摇杆独立保存
+        // （javaStickMode，只影响 J2ME 手柄模式，不影响其他核心）。
+        if (platform != GamePlatform.DOS) {
             DropdownSetting("方向控制",
                 listOf("dpad" to "十字键 D-Pad", "analog" to "摇杆 Analog Stick"),
                 PadLayoutStore.getInputMode(padLayout, platform)
@@ -8802,6 +8883,27 @@ private fun SettingsPanel(
                     padLayout.javaScaleType
                 ) { onLayoutChange(padLayout.copy {javaScaleType = it}) }
 
+                // 窗口画面比例：Java 游戏专属的窗口缩放（独立于全局画面缩放）。
+                // Java 游戏多为竖屏(240x320)，这里提供竖屏友好比例；选自定义后
+                // 进入四角拖动编辑器，矩形单独保存在 javaCustomLayout* 字段，
+                // 不影响其他核心的全局画面缩放。
+                DropdownSetting("窗口画面比例",
+                    listOf(
+                        "stretch" to "铺满窗口 (默认)",
+                        "3:4" to "3:4 (J2ME 竖屏原生)",
+                        "9:16" to "9:16 (手机全屏)",
+                        "2:3" to "2:3",
+                        "1:1" to "1:1 (正方形)",
+                        "4:3" to "4:3 (横屏游戏)",
+                        "16:9" to "16:9 (横屏宽幅)",
+                        "custom" to "自定义(拖动四角)"
+                    ),
+                    padLayout.javaVideoScale
+                ) {
+                    onLayoutChange(padLayout.copy {javaVideoScale = it})
+                    if (it == "custom") onEnterCustomLayout()
+                }
+
                 // 游戏逻辑分辨率（MIDlet 看到的屏幕尺寸）。旧版只能跳转
                 // J2ME-Loader 原生设置修改，现在补全到游戏内设置：
                 // default=跟随每游戏配置；auto=跟随设备屏幕；其余为强制分辨率。
@@ -8844,7 +8946,7 @@ private fun SettingsPanel(
 
                 SwitchSetting(
                     label = "显示 J2ME 帧数",
-                    description = "由 MIDlet 画面内部绘制的实时帧率",
+                    description = "游戏画面左上角实时显示 MIDlet 画面提交的真实帧率（J2ME 事件驱动渲染，静止画面为 0 属正常）",
                     checked = padLayout.javaShowFps
                 ) { onLayoutChange(padLayout.copy {javaShowFps = it}) }
 

@@ -157,6 +157,27 @@ object JavaGameStore {
             val manifestOut = File(targetDir, "converted.dex.conf")
             manifestOut.writeText(buildManifestString(title, vendor, version, attrs))
 
+            // GameBox: 安装时同步创建默认 config.json。
+            // MicroLoader.init() 启动游戏时要求 <emulatorDir>/configs/<目录名>/
+            // config.json 存在，缺失即报 "MicroLoader.init() returned false"
+            // 黑屏。原版 J2ME-Loader 依赖用户先打开 ConfigActivity 生成配置，
+            // 嵌入式模式没有这一步，所以必须在安装时就写好默认配置。
+            // （MicroLoader.init() 里也有同样的兜底，这里提前创建可让
+            // “游戏内设置/分辨率”等界面首次进入就有可编辑的配置文件。）
+            try {
+                val configDir = File(
+                    ru.playsoftware.j2meloader.config.Config.getConfigsDir(),
+                    targetDir.name
+                )
+                if (!configDir.exists()) configDir.mkdirs()
+                val defaultParams =
+                    ru.playsoftware.j2meloader.config.ProfileModel(configDir)
+                ru.playsoftware.j2meloader.config.ProfilesManager.saveConfig(defaultParams)
+            } catch (e: Exception) {
+                // 创建失败不阻塞安装：MicroLoader.init() 启动时会再次兜底
+                Log.w(TAG, "Failed to create default config for $title", e)
+            }
+
             // Clean up cache
             jarFile.delete()
 
@@ -254,6 +275,18 @@ object JavaGameStore {
             val dir = File(path)
             if (dir.exists() && dir.isDirectory) {
                 dir.deleteRecursively()
+            }
+            // GameBox: 同步删除 <configs>/<目录名>/，否则卸载后残留旧
+            // config.json，重装同名游戏会继承陈旧的分辨率/缩放等设置，
+            // 造成“新装游戏打开却是奇怪画面尺寸”的困惑。
+            try {
+                val configDir = File(
+                    ru.playsoftware.j2meloader.config.Config.getConfigsDir(),
+                    dir.name
+                )
+                if (configDir.exists()) configDir.deleteRecursively()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to delete config dir for ${dir.name}", e)
             }
             RomStore.remove(ctx, game.id)
         } catch (e: Exception) {

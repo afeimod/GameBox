@@ -249,6 +249,28 @@ class PadLayout {
     var javaPhoneGrid: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48)
     // J2ME 手机键盘模式布局：顶部功能键行（L/F/R/C）的中心位置与单键尺寸。
     var javaPhoneTop: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40)
+    // === Java 游戏窗口独立画面缩放 ===
+    // Java(J2ME) 游戏多为竖屏(240x320 等)，比例与其他横屏核心不同，
+    // 窗口缩放单独保存，避免与全局 videoScale（NES/SFC/GBA 等共用）
+    // 互相覆盖：在 Java 游戏里改缩放不会影响其他核心，反之亦然。
+    // 取值："stretch" 铺满 | "3:4"/"9:16"/"2:3"/"1:1"/"4:3"/"16:9" 固定比例 | "custom" 自定义矩形
+    var javaVideoScale: String = "stretch"
+    // Java 自定义窗口矩形（videoScale=="custom" 时的归一化 0..1 矩形），横竖屏分开保存。
+    var javaCustomLayoutLeft: Float = 0f
+    var javaCustomLayoutTop: Float = 0f
+    var javaCustomLayoutRight: Float = 1f
+    var javaCustomLayoutBottom: Float = 1f
+    var javaCustomLayoutLeftP: Float = 0f
+    var javaCustomLayoutTopP: Float = 0f
+    var javaCustomLayoutRightP: Float = 1f
+    var javaCustomLayoutBottomP: Float = 1f
+    // J2ME 手柄模式方向控制："dpad" 十字键 | "analog" 摇杆。
+    // 与其他核心的 inputMode 分开保存（Java 的摇杆是虚拟层，把拖动方向
+    // 映射成 J2ME 方向键），切换摇杆不会影响其他核心的设置。
+    var javaStickMode: String = "dpad"
+    // J2ME 手柄模式隐藏按键列表（逗号分隔，见显隐按键对话框）。
+    // 可选值：dpad/a/b/x/y/start/select。手机键盘模式不受此影响。
+    var hiddenButtonsJava: String = ""
     // === DOS gamepad overlay button positions (landscape) ===
     // Each button has x/y (0.0-1.0 of screen) and sizeDp.
     // dosBtnEnabled controls whether the button is shown (user can hide/add).
@@ -793,6 +815,17 @@ class PadLayout {
         javaButtonKeyMap = another.javaButtonKeyMap
         javaPhoneGrid = another.javaPhoneGrid
         javaPhoneTop = another.javaPhoneTop
+        javaVideoScale = another.javaVideoScale
+        javaCustomLayoutLeft = another.javaCustomLayoutLeft
+        javaCustomLayoutTop = another.javaCustomLayoutTop
+        javaCustomLayoutRight = another.javaCustomLayoutRight
+        javaCustomLayoutBottom = another.javaCustomLayoutBottom
+        javaCustomLayoutLeftP = another.javaCustomLayoutLeftP
+        javaCustomLayoutTopP = another.javaCustomLayoutTopP
+        javaCustomLayoutRightP = another.javaCustomLayoutRightP
+        javaCustomLayoutBottomP = another.javaCustomLayoutBottomP
+        javaStickMode = another.javaStickMode
+        hiddenButtonsJava = another.hiddenButtonsJava
         dosDpad = another.dosDpad
         dosBtnEsc = another.dosBtnEsc
         dosBtnEnter = another.dosBtnEnter
@@ -1423,6 +1456,17 @@ object PadLayoutStore {
             javaButtonKeyMap = p.getString("java_button_key_map", "") ?: ""
             javaPhoneGrid = loadBtn(p, "java_phone_grid", ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48))
             javaPhoneTop = loadBtn(p, "java_phone_top", ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40))
+            javaVideoScale = p.getString("java_video_scale", "stretch") ?: "stretch"
+            javaCustomLayoutLeft = p.getFloat("java_custom_layout_left", 0f)
+            javaCustomLayoutTop = p.getFloat("java_custom_layout_top", 0f)
+            javaCustomLayoutRight = p.getFloat("java_custom_layout_right", 1f)
+            javaCustomLayoutBottom = p.getFloat("java_custom_layout_bottom", 1f)
+            javaCustomLayoutLeftP = p.getFloat("java_custom_layout_left_p", 0f)
+            javaCustomLayoutTopP = p.getFloat("java_custom_layout_top_p", 0f)
+            javaCustomLayoutRightP = p.getFloat("java_custom_layout_right_p", 1f)
+            javaCustomLayoutBottomP = p.getFloat("java_custom_layout_bottom_p", 1f)
+            javaStickMode = p.getString("java_stick_mode", "dpad") ?: "dpad"
+            hiddenButtonsJava = p.getString("hidden_buttons_java", "") ?: ""
             // DOS gamepad overlay button positions (landscape)
             dosDpad = loadBtn(p, "dos_dpad", ButtonLayout(x = 0.13f, y = 0.78f, sizeDp = 140))
             dosBtnEsc = loadBtn(p, "dos_btn_esc", ButtonLayout(x = 0.87f, y = 0.62f, sizeDp = 56))
@@ -1961,6 +2005,17 @@ object PadLayoutStore {
             putString("java_button_key_map", layout.javaButtonKeyMap)
             saveBtn("java_phone_grid", layout.javaPhoneGrid)
             saveBtn("java_phone_top", layout.javaPhoneTop)
+            putString("java_video_scale", layout.javaVideoScale)
+            putFloat("java_custom_layout_left", layout.javaCustomLayoutLeft)
+            putFloat("java_custom_layout_top", layout.javaCustomLayoutTop)
+            putFloat("java_custom_layout_right", layout.javaCustomLayoutRight)
+            putFloat("java_custom_layout_bottom", layout.javaCustomLayoutBottom)
+            putFloat("java_custom_layout_left_p", layout.javaCustomLayoutLeftP)
+            putFloat("java_custom_layout_top_p", layout.javaCustomLayoutTopP)
+            putFloat("java_custom_layout_right_p", layout.javaCustomLayoutRightP)
+            putFloat("java_custom_layout_bottom_p", layout.javaCustomLayoutBottomP)
+            putString("java_stick_mode", layout.javaStickMode)
+            putString("hidden_buttons_java", layout.hiddenButtonsJava)
             // DOS gamepad overlay button positions (landscape)
             saveBtn("dos_dpad", layout.dosDpad)
             saveBtn("dos_btn_esc", layout.dosBtnEsc)
@@ -2261,6 +2316,7 @@ object PadLayoutStore {
             GamePlatform.NDS -> isHiddenInList(layout.hiddenButtonsNds, key)
             GamePlatform.PSX -> isHiddenInList(layout.hiddenButtonsPsx, key)
             GamePlatform.PS2 -> isHiddenInList(layout.hiddenButtonsPs2, key)
+            GamePlatform.JAVA -> isHiddenInList(layout.hiddenButtonsJava, key)
             else -> false
         }
     }
@@ -2296,6 +2352,7 @@ object PadLayoutStore {
             GamePlatform.NDS -> layout.copy {hiddenButtonsNds = updateHiddenList(layout.hiddenButtonsNds, key, hidden)}
             GamePlatform.PSX -> layout.copy {hiddenButtonsPsx = updateHiddenList(layout.hiddenButtonsPsx, key, hidden)}
             GamePlatform.PS2 -> layout.copy {hiddenButtonsPs2 = updateHiddenList(layout.hiddenButtonsPs2, key, hidden)}
+            GamePlatform.JAVA -> layout.copy {hiddenButtonsJava = updateHiddenList(layout.hiddenButtonsJava, key, hidden)}
             else -> layout
         }
     }
@@ -2303,21 +2360,27 @@ object PadLayoutStore {
     /**
      * Get the input mode ("dpad" or "analog") for a given platform.
      * Arcade still uses its legacy arcadeInputMode field for backward compatibility.
+     * JAVA uses its own javaStickMode field (J2ME 摇杆与其它核心互不影响).
      * All other platforms use the global inputMode field.
      */
     fun getInputMode(layout: PadLayout, platform: GamePlatform): String {
-        return if (platform == GamePlatform.ARCADE) layout.arcadeInputMode else layout.inputMode
+        return when (platform) {
+            GamePlatform.ARCADE -> layout.arcadeInputMode
+            GamePlatform.JAVA -> layout.javaStickMode
+            else -> layout.inputMode
+        }
     }
 
     /**
      * Set the input mode for a given platform.
-     * Arcade updates arcadeInputMode; all others update the global inputMode.
+     * Arcade updates arcadeInputMode; JAVA updates javaStickMode;
+     * all others update the global inputMode.
      */
     fun setInputMode(layout: PadLayout, platform: GamePlatform, mode: String): PadLayout {
-        return if (platform == GamePlatform.ARCADE) {
-            layout.copy {arcadeInputMode = mode}
-        } else {
-            layout.copy {inputMode = mode}
+        return when (platform) {
+            GamePlatform.ARCADE -> layout.copy {arcadeInputMode = mode}
+            GamePlatform.JAVA -> layout.copy {javaStickMode = mode}
+            else -> layout.copy {inputMode = mode}
         }
     }
 
@@ -2403,6 +2466,13 @@ object PadLayoutStore {
                 "l3" to "L3键", "r3" to "R3键",
                 "start" to "START", "select" to "SELECT"
                 // 双摇杆为 PS2 常驻控件，不参与显隐
+            )
+            GamePlatform.JAVA -> listOf(
+                // J2ME 手柄模式按键（显隐按键对话框）。dpad 在摇杆模式下
+                // 显示为摇杆，仍是同一个可编辑实体。
+                "dpad" to "十字键/摇杆", "a" to "A键 (确认)", "b" to "B键 (左软键)",
+                "x" to "X键 (右软键)", "y" to "Y键 (*键)",
+                "start" to "START (挂机)", "select" to "SELECT (#键)"
             )
             else -> emptyList()
         }
