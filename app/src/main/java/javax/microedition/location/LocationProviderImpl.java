@@ -28,6 +28,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import javax.microedition.shell.MicroActivity;
 import javax.microedition.util.ContextHolder;
 
 public class LocationProviderImpl extends LocationProvider implements android.location.LocationListener, GpsStatus.NmeaListener, Runnable {

@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Objects;
 
 import javax.microedition.lcdui.keyboard.VirtualKeyboard;
+import javax.microedition.lcdui.overlay.OverlayView;
 import javax.microedition.shell.AppClassLoader;
 import javax.microedition.shell.J2meHost;
 import javax.microedition.shell.MicroActivity;
@@ -243,7 +244,7 @@ public class ContextHolder {
 	 * virtual keyboard), or null when the host is not a MicroActivity
 	 * (embedded mode). Callers must null-check.
 	 */
-	public static android.view.View getOverlayView() {
+	public static OverlayView getOverlayView() {
 		MicroActivity activity = getActivity();
 		return activity != null ? activity.binding.overlayView : null;
 	}

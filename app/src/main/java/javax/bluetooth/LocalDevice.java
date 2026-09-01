@@ -25,6 +25,7 @@ import android.os.Build;
 import java.util.Hashtable;
 
 import javax.microedition.io.Connection;
+import javax.microedition.shell.MicroActivity;
 import javax.microedition.util.ActivityResultListener;
 import javax.microedition.util.ContextHolder;
 

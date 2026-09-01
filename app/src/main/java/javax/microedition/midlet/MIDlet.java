@@ -32,6 +32,7 @@ import java.util.Map;
 import javax.microedition.io.ConnectionNotFoundException;
 import javax.microedition.io.Connector;
 import javax.microedition.lcdui.Display;
+import javax.microedition.shell.MicroActivity;
 import javax.microedition.shell.MidletThread;
 import javax.microedition.util.ContextHolder;
 
