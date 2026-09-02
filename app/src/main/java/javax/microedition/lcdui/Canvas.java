@@ -362,9 +362,42 @@ public abstract class Canvas extends Displayable {
          * @param y            视图局部坐标
          */
         public void postTouchAction(int actionMasked, int pointerId, float x, float y) {
-                // 转发路径的坐标经过 Compose 覆盖层 root → 视图局部的两次
-                // 取整换算，virtualScreen 的左右边界可能有 1~2px 误差；
-                // 用带容差的命中判断，避免边缘触摸被整颗吞掉。
+                // GameBox: 嵌入式模式的几何自愈（对齐 NDS 直接触摸"按当前几何
+                // 映射"的思路，而不是依赖可能过期的布局数据）。虚拟画面矩形
+                // virtualScreen 依赖 displayWidth/Height，它们由 innerView 的
+                // surfaceChanged 回调驱动；若宿主视图几何晚于 Canvas 构造（如
+                // surface 尚未回调）或中途变化（旋转/自由布局拖动后回调尚未
+                // 落地），转发触摸时先按 innerView 当前实际尺寸刷新，避免用
+                // 过期几何换算出错误坐标（甚至除零）。
+                if (innerView != null) {
+                        int vw = innerView.getWidth();
+                        int vh = innerView.getHeight();
+                        if (vw > 0 && vh > 0 && (vw != displayWidth || vh != displayHeight)) {
+                                displayWidth = vw;
+                                displayHeight = vh;
+                                updateSize();
+                        }
+                }
+                // 转发路径的坐标是"宿主 AndroidView 局部"坐标；onTouch 直达
+                // 路径是"innerView 局部"坐标。当 LinearLayout 里存在 ticker
+                // 跑马灯等位于 innerView 之前的兄弟视图时两者相差 innerView
+                // 的偏移 —— 先校正，两条路径才能共用同一套换算。
+                if (innerView != null) {
+                        x -= innerView.getLeft();
+                        y -= innerView.getTop();
+                }
+                // virtualScreen 兜底：极端情况下（updateSize 尚未以真实尺寸
+                // 运行，矩形仍为空）不把触摸整颗丢弃，而是按整个视图映射，
+                // 保证注入链路始终可达。
+                if (virtualScreen.isEmpty()) {
+                        onX = 0;
+                        onY = 0;
+                        onWidth = Math.max(displayWidth, 1);
+                        onHeight = Math.max(displayHeight, 1);
+                        virtualScreen.set(onX, onY, onX + onWidth, onY + onHeight);
+                }
+                // 带容差的命中判断（Compose 覆盖层 root → 视图局部的两次取整
+                // 换算可能引入 1~2px 误差），避免边缘触摸被整颗吞掉。
                 if (!touchInput || !touchWithinVirtualScreen(x, y)) {
                         return;
                 }
@@ -412,10 +445,18 @@ public abstract class Canvas extends Displayable {
                                                 pointerId, cX, cY));
                                 break;
                         }
-                        case android.view.MotionEvent.ACTION_CANCEL:
-                                // 与 ViewCallbacks.onTouch 一致：CANCEL 交给 overlay
-                                // 处理（嵌入式 overlay 为 null），无需投递 MIDlet 事件。
+                        case android.view.MotionEvent.ACTION_CANCEL: {
+                                // 注入路径的手势被取消（覆盖层重组/协程中断）时
+                                // 必须补发释放 —— 否则 MIDlet 永远认为手指仍按在
+                                // 画面上（卡触摸）。NDS 转发路径同样以"离开即释放"
+                                // 语义处理，这里保持一致。坐标取取消前的最后位置。
+                                int cX = clampPointer(Math.round(convertPointerX(x)), width);
+                                int cY = clampPointer(Math.round(convertPointerY(y)), height);
+                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                CanvasEvent.POINTER_RELEASED,
+                                                pointerId, cX, cY));
                                 break;
+                        }
                         default:
                                 break;
                 }

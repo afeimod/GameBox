@@ -55,6 +55,8 @@ public class Display {
 	private static Display instance;
 	static EventQueue queue = new EventQueue();
 	private static boolean multiTouchSupported;
+	/** GameBox: 宿主已强制指定 multiTouchSupported 时，JAD 推断不再覆写。 */
+	private static boolean multiTouchForced;
 	private static String pointerNumber;
 
 	static {
@@ -65,9 +67,13 @@ public class Display {
 
 	public static Display getDisplay(MIDlet midlet) {
 		if (instance == null && midlet != null) {
-			String nokiaUiEnhancement = midlet.getAppProperty(Descriptor.NOKIA_UI_ENHANCEMENT);
-			if (nokiaUiEnhancement != null) {
-				multiTouchSupported = nokiaUiEnhancement.contains("EnableMultiPointTouchEvents");
+			// GameBox: 宿主（J2meEngine）已强制声明多点触控时不回读
+			// JAD —— 否则 MIDlet 初始化晚于强制调用，会把强制值覆写。
+			if (!multiTouchForced) {
+				String nokiaUiEnhancement = midlet.getAppProperty(Descriptor.NOKIA_UI_ENHANCEMENT);
+				if (nokiaUiEnhancement != null) {
+					multiTouchSupported = nokiaUiEnhancement.contains("EnableMultiPointTouchEvents");
+				}
 			}
 			instance = new Display();
 		}
@@ -91,6 +97,31 @@ public class Display {
 
 	public static boolean isMultiTouchSupported() {
 		return multiTouchSupported;
+	}
+
+	/**
+	 * GameBox: 嵌入式宿主强制声明设备支持多点触控。
+	 *
+	 * multiTouchSupported 原本只从游戏 JAD 的 NOKIA_UI_ENHANCEMENT 属性
+	 * ("EnableMultiPointTouchEvents") 推断 —— 绝大多数游戏没有该属性，
+	 * 落回 false 后 Canvas.pointerPressed/Dragged/Released(pointer,x,y)
+	 * 只派发 pointer==0 的事件。而 GameBox 的虚拟手柄覆盖层总是处于
+	 * 多点触控流中：玩家按住虚拟按键（手指 id=0）再用第二根手指点击
+	 * 游戏画面（id=1）时，注入事件全部被 pointer==0 门控静默丢弃，
+	 * 表现为"触屏失效"。NDS 触摸走 setTouchInputDirect 直接注入、
+	 * 不依赖 pointerId，因此不受影响。现代设备均为多点触控屏，嵌入式
+	 * 模式下由宿主统一置 true，让任意 pointerId 的触摸都按真机多点
+	 * 语义（附带 pointer number）派发。
+	 *
+	 * 注意：getDisplay(MIDlet) 在 MIDlet 初始化时也会按 JAD 推断该标志，
+	 * 可能晚于宿主的强制调用 —— multiTouchForced 保证强制值优先，不被
+	 * JAD 推断覆写。
+	 *
+	 * @param supported true = 任意 pointerId 都派发（附 pointer number）
+	 */
+	public static void setMultiTouchSupported(boolean supported) {
+		multiTouchSupported = supported;
+		multiTouchForced = true;
 	}
 
 	static void setPointerNumber(int pointerNumber) {

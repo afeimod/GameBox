@@ -187,6 +187,22 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
                 // 在 loadRom 完成后重放的 applyCoreOptions() 会再置回 false。
                 Canvas.setHasTouchInput(true)
 
+                // GameBox: 强制声明设备支持多点触控（修复 Java 触屏失效）。
+                // Canvas.pointerPressed/Dragged/Released(pointer,x,y) 在
+                // Display.multiTouchSupported==false 时只派发 pointer==0 的
+                // 事件；该标志原本仅由游戏 JAD 的 NOKIA_UI_ENHANCEMENT 属性
+                // 推断，绝大多数游戏没有 → false。于是虚拟手柄覆盖层的转发
+                // 链路虽然把"游戏画面触摸"（含 pointerId）完整送到了 Canvas，
+                // 但真实玩法中玩家按住虚拟按键（手指 id=0）再用第二根手指
+                // 点击游戏画面（id=1..N）时，事件全部被 pointer==0 门控丢弃
+                // —— 表现为"触屏没反应"。NDS 触屏走 setTouchInputDirect
+                // 直接注入、不依赖 pointerId，所以正常。这里对齐 NDS 的
+                // 架构语义：现代设备均为多点触控屏，嵌入式模式下任意
+                // pointerId 的触摸都按真机多点行为派发（附 pointer number）。
+                // 与 CanvasEvent → pointerPressed(pointer,x,y) 的完整分发
+                // 路径（转发注入 + ViewCallbacks.onTouch 直达路径）同时生效。
+                javax.microedition.lcdui.Display.setMultiTouchSupported(true)
+
                 // Register this engine as the J2ME host BEFORE loading the MIDlet,
                 // so Display.setCurrent() / MidletThread.resumeApp() find us.
                 ContextHolder.setCurrentActivity(this)
