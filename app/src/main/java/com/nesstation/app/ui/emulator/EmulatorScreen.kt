@@ -120,6 +120,7 @@ import com.nesstation.app.core.storage.JAVA_MAPPABLE_BUTTONS
 import com.nesstation.app.core.storage.JAVA_PHONE_KEY_OPTIONS
 import com.nesstation.app.core.storage.javaButtonKeyMapGet
 import com.nesstation.app.core.storage.javaButtonKeyMapSet
+import com.nesstation.app.core.storage.withJavaSettings
 import com.nesstation.app.ui.swf.ScreenPositionEditor
 import com.nesstation.app.ui.settings.KeyMapStore
 import android.view.KeyEvent

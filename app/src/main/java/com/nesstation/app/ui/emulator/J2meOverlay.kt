@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -309,7 +310,7 @@ private fun J2meGamepadOverlay(
                         currentOnUnhandledTouch?.invoke(
                             down.position + padPosInRoot,
                             android.view.MotionEvent.ACTION_DOWN,
-                            id
+                            id.toInt()
                         )
                     } else {
                         // 未命中按键且触摸被其他控件消费 / 无转发器：
@@ -332,13 +333,13 @@ private fun J2meGamepadOverlay(
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_MOVE,
-                                        pid
+                                        pid.toInt()
                                     )
                                 } else {
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_UP,
-                                        pid
+                                        pid.toInt()
                                     )
                                     unhandledPointers.remove(pid)
                                 }
@@ -573,7 +574,7 @@ private fun J2mePhoneOverlay(
                         currentOnUnhandledTouch?.invoke(
                             down.position + padPosInRoot,
                             android.view.MotionEvent.ACTION_DOWN,
-                            id
+                            id.toInt()
                         )
                     } else {
                         // 未命中按键且触摸被其他控件消费 / 无转发器：
@@ -593,13 +594,13 @@ private fun J2mePhoneOverlay(
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_MOVE,
-                                        pid
+                                        pid.toInt()
                                     )
                                 } else {
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_UP,
-                                        pid
+                                        pid.toInt()
                                     )
                                     unhandledPointers.remove(pid)
                                 }
