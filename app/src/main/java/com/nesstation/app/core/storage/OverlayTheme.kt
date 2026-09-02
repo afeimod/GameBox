@@ -1,0 +1,128 @@
+package com.nesstation.app.core.storage
+
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.nesstation.app.core.model.GamePlatform
+
+/**
+ * 单个按键的主题色。
+ *
+ * 所有颜色用 Long?（ARGB，如 0xFFE74C3C），null 表示「使用该核心的默认色」，
+ * 未配置时整个 ButtonTheme 可以为 null。存储层用 Gson 序列化进
+ * [PadLayout.overlayThemeJson] 的 JSON blob（每核心独立，互不影响）。
+ *
+ * @param color        常规状态下按键颜色；null = 默认色
+ * @param pressedColor 按压状态下按键颜色；null = 使用默认按压效果（提亮 + 高光）
+ */
+data class ButtonTheme(
+    val color: Long? = null,
+    val pressedColor: Long? = null
+)
+
+/**
+ * 画面遮罩 / 按键主题配置（每个模拟核心独立一份）。
+ *
+ * 背景遮罩（游戏画面周边）：
+ *  - [bgColor]   ：游戏画面周边的背景颜色（letterbox / 空白区域）；
+ *                  null = 默认纯黑
+ *  - [maskEnabled]：是否在游戏画面上叠加一层半透明遮罩
+ *  - [maskColor]  ：遮罩颜色（ARGB），常与 [maskAlpha] 配合
+ *  - [maskAlpha]  ：遮罩强度 0–255（叠加到 maskColor 的 alpha 上）
+ *
+ * 按键主题：
+ *  - [buttons]：按键 id → [ButtonTheme]，id 与
+ *    [PadLayoutStore.getAvailableButtons] 的 id 完全一致
+ *    （"dpad" / "a" / "b" / "x" / "y" / "start" / "select" / "l" / "r" /
+ *    "l2" / "r2" / "ta" / "tb" / "l3" / "r3" …）。
+ */
+data class OverlayTheme(
+    val bgColor: Long? = null,
+    val maskEnabled: Boolean = false,
+    val maskColor: Long = 0xFF000000,
+    val maskAlpha: Int = 80,
+    val buttons: MutableMap<String, ButtonTheme> = mutableMapOf()
+) {
+    /** 是否已经对任意按键做过自定义（用于 UI 显示“恢复默认”入口）。 */
+    val hasButtonCustomizations: Boolean get() = buttons.isNotEmpty()
+
+    fun button(id: String): ButtonTheme? = buttons[id]
+
+    /**
+     * 设置某按键的主题。常规色与按压色都为空时移除该按键配置
+     *（还原为核心默认色）。
+     */
+    fun setButton(id: String, theme: ButtonTheme): OverlayTheme {
+        if (theme.color == null && theme.pressedColor == null) {
+            buttons.remove(id)
+        } else {
+            buttons[id] = theme
+        }
+        return this
+    }
+
+    /** 完全清除所有按键主题。 */
+    fun clearButtons(): OverlayTheme {
+        buttons.clear()
+        return this
+    }
+}
+
+// ===========================================================================
+// Gson 序列化：整个 PadLayout 只存一个 overlayThemeJson 字段，
+// 内部按平台名（GamePlatform.name）分键 → 每核心独立存储、互不影响。
+// ===========================================================================
+
+private val overlayGson = Gson()
+
+/** 把 JSON blob 解析成 平台名 → 遮罩主题 映射；损坏/空串返回空表。 */
+fun parseOverlayThemes(json: String): MutableMap<String, OverlayTheme> {
+    if (json.isBlank()) return mutableMapOf()
+    return try {
+        val type = object : TypeToken<Map<String, OverlayTheme>>() {}.type
+        val map: Map<String, OverlayTheme>? = overlayGson.fromJson(json, type)
+        map?.mapValues { it.value }?.toMutableMap() ?: mutableMapOf()
+    } catch (_: Exception) {
+        mutableMapOf()
+    }
+}
+
+/** 平台名 → 遮罩主题 映射序列化为 JSON blob。 */
+fun formatOverlayThemes(map: Map<String, OverlayTheme>): String =
+    overlayGson.toJson(map)
+
+/** 读取某核心的遮罩主题；未配置时返回默认值（不修改原 JSON）。 */
+fun overlayThemeGet(json: String, platform: GamePlatform): OverlayTheme =
+    parseOverlayThemes(json)[platform.name] ?: OverlayTheme()
+
+/** 写入某核心的遮罩主题，返回新的 overlayThemeJson 字符串。 */
+fun overlayThemeSet(json: String, platform: GamePlatform, theme: OverlayTheme): String {
+    val map = parseOverlayThemes(json)
+    map[platform.name] = theme
+    return formatOverlayThemes(map)
+}
+
+/** 清除某核心的遮罩主题（恢复默认）。 */
+fun overlayThemeClear(json: String, platform: GamePlatform): String {
+    val map = parseOverlayThemes(json)
+    map.remove(platform.name)
+    return formatOverlayThemes(map)
+}
+
+/**
+ * 各核心可配置按键主题的按键列表 （id → 显示名）。
+ * 与 [PadLayoutStore.getAvailableButtons] 保持一致；DOS 补充常用的
+ * 方向键/AB 键，JAVA 沿用游戏手柄键位。
+ */
+fun themeButtonsFor(platform: GamePlatform): List<Pair<String, String>> = when (platform) {
+    GamePlatform.DOS -> listOf(
+        "dpad" to "十字键", "a" to "A 键", "b" to "B 键",
+        "start" to "START", "select" to "SELECT"
+    )
+    GamePlatform.JAVA -> listOf(
+        "dpad" to "十字键", "a" to "A 键", "b" to "B 键",
+        "x" to "X 键", "y" to "Y 键",
+        "start" to "START", "select" to "SELECT"
+    )
+    else -> PadLayoutStore.getAvailableButtons(platform)
+        .filter { it.first != "l3" && it.first != "r3" }
+}

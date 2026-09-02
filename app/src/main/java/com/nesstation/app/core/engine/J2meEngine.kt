@@ -175,6 +175,18 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
                 // 旧版自带键盘一律不再使用。
                 ContextHolder.setVk(null)
 
+                // GameBox: 强制开启 MIDlet 触屏支持（hasPointerEvents() 返回 true）。
+                // applyConfiguration() 会用 config.json 的 TouchInput 覆写
+                // Canvas.touchInput —— 老版本生成的 config.json 没有该键，
+                // Gson 反序列化时 boolean 落回 false。若此时（MIDlet 启动瞬间）
+                // hasPointerEvents() 返回 false，很多游戏会在初始化时缓存这个
+                // 标志，之后 UI 层再把开关切回 true 也收不到任何触摸事件。
+                // 这里在 MidletThread.create()（把 INIT 投递到 MIDlet 线程）之前
+                // 强制置 true，保证游戏从第一行 MIDlet 代码起就能查询到触屏支持。
+                // 若用户在某游戏专属设置里关闭了 javaTouchInput，EmulatorScreen
+                // 在 loadRom 完成后重放的 applyCoreOptions() 会再置回 false。
+                Canvas.setHasTouchInput(true)
+
                 // Register this engine as the J2ME host BEFORE loading the MIDlet,
                 // so Display.setCurrent() / MidletThread.resumeApp() find us.
                 ContextHolder.setCurrentActivity(this)

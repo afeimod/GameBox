@@ -130,6 +130,17 @@ object NativeApp {
     @JvmStatic external fun speedhackEecyclerate(rate: Int)
     @JvmStatic external fun speedhackEecycleskip(skip: Int)
 
+    /**
+     * Frame limiter mode — the ACTUAL live fast-forward control in this
+     * ARMSX2 fork (the FrameLimitEnable ini key is inert; frame pacing is
+     * driven by VMManager::SetLimiterMode).
+     * 0=Nominal (normal speed), 1=Turbo (fast-forward), 2=Slomo (slow-mo),
+     * 3=Unlimited (frame-limit off, uncapped — the fast-forward the
+     * upstream frontend demonstrably uses). Non-blocking: enqueues onto the
+     * CPU thread.
+     */
+    @JvmStatic external fun speedhackLimitermode(mode: Int)
+
     /** SPU2 master volume (0..200 percent) + mute. */
     @JvmStatic external fun setAudioVolume(volume: Int)
     @JvmStatic external fun setAudioMuted(muted: Boolean)

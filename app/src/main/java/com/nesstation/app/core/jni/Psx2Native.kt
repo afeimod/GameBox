@@ -192,16 +192,24 @@ object Psx2Native {
     @JvmStatic fun setRegion(region: Int) { /* ARMSX2 auto-detects from disc */ }
     @JvmStatic fun setSampleRate(rate: Int) { /* core runs Oboe internally */ }
 
-    /** Toggle full-speed mode: drop frame-limit when fast-forwarding. */
+    /**
+     * Toggle full-speed mode: drop frame-limit when fast-forwarding.
+     *
+     * ARMSX2 中 EmuCore/GS/FrameLimitEnable 这个 ini 键是惰性的
+     * （native-lib.cpp: "FrameLimitEnable is inert in this fork"），实际
+     * 帧率由 VMManager::SetLimiterMode 驱动。因此除同步写 FrameLimitEnable
+     * （供下次启动时 runVMThread 重读）外，必须调用 speedhackLimitermode：
+     *   - 快进开启 → mode 3 (Unlimited，去掉帧限、不封顶 —— 上游实测有效的路径)
+     *   - 快进关闭 → mode 0 (Nominal，正常 60fps 限帧)
+     * SetLimiterMode 是非阻塞的（Host::RunOnCPUThread 默认 block=false），
+     * 不再调用阻塞的 commitSettings()，避免快进切换时 UI 线程等待卡顿。
+     */
     @JvmStatic fun setFastForward(speed: Int) {
         if (!loaded) return
         try {
-            if (speed > 0) {
-                NativeApp.setSetting("EmuCore/GS", "FrameLimitEnable", "bool", "false")
-            } else {
-                NativeApp.setSetting("EmuCore/GS", "FrameLimitEnable", "bool", "true")
-            }
-            commitSettingsIfVmActive()
+            val on = speed > 0
+            NativeApp.setSetting("EmuCore/GS", "FrameLimitEnable", "bool", if (on) "false" else "true")
+            NativeApp.speedhackLimitermode(if (on) 3 else 0)
         } catch (t: Throwable) { /* best-effort */ }
     }
 

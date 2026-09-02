@@ -362,53 +362,56 @@ public abstract class Canvas extends Displayable {
          * @param y            视图局部坐标
          */
         public void postTouchAction(int actionMasked, int pointerId, float x, float y) {
+                // 转发路径的坐标经过 Compose 覆盖层 root → 视图局部的两次
+                // 取整换算，virtualScreen 的左右边界可能有 1~2px 误差；
+                // 用带容差的命中判断，避免边缘触摸被整颗吞掉。
+                if (!touchInput || !touchWithinVirtualScreen(x, y)) {
+                        return;
+                }
                 switch (actionMasked) {
                         case android.view.MotionEvent.ACTION_DOWN:
-                        case android.view.MotionEvent.ACTION_POINTER_DOWN:
-                                if (touchInput && virtualScreen.contains(x, y)) {
-                                        int cX = Math.round(convertPointerX(x));
-                                        int cY = Math.round(convertPointerY(y));
-                                        if (pointerId < 20) {
-                                                lastPointerPos[pointerId][0] = cX;
-                                                lastPointerPos[pointerId][1] = cY;
-                                        }
-                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                        CanvasEvent.POINTER_PRESSED,
-                                                        pointerId, cX, cY));
+                        case android.view.MotionEvent.ACTION_POINTER_DOWN: {
+                                int cX = clampPointer(Math.round(convertPointerX(x)), width);
+                                int cY = clampPointer(Math.round(convertPointerY(y)), height);
+                                if (pointerId < 20) {
+                                        lastPointerPos[pointerId][0] = cX;
+                                        lastPointerPos[pointerId][1] = cY;
                                 }
+                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                CanvasEvent.POINTER_PRESSED,
+                                                pointerId, cX, cY));
                                 break;
-                        case android.view.MotionEvent.ACTION_MOVE:
-                                if (touchInput && virtualScreen.contains(x, y)) {
-                                        int cX = Math.round(convertPointerX(x));
-                                        int cY = Math.round(convertPointerY(y));
-                                        if (pointerId < 20) {
-                                                int oX = lastPointerPos[pointerId][0];
-                                                int oY = lastPointerPos[pointerId][1];
-                                                if (oX == cX && oY == cY) {
-                                                        break;
-                                                }
-                                                lastPointerPos[pointerId][0] = cX;
-                                                lastPointerPos[pointerId][1] = cY;
+                        }
+                        case android.view.MotionEvent.ACTION_MOVE: {
+                                int cX = clampPointer(Math.round(convertPointerX(x)), width);
+                                int cY = clampPointer(Math.round(convertPointerY(y)), height);
+                                if (pointerId < 20) {
+                                        int oX = lastPointerPos[pointerId][0];
+                                        int oY = lastPointerPos[pointerId][1];
+                                        if (oX == cX && oY == cY) {
+                                                break;
                                         }
-                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                        CanvasEvent.POINTER_DRAGGED,
-                                                        pointerId, cX, cY));
+                                        lastPointerPos[pointerId][0] = cX;
+                                        lastPointerPos[pointerId][1] = cY;
                                 }
+                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                CanvasEvent.POINTER_DRAGGED,
+                                                pointerId, cX, cY));
                                 break;
+                        }
                         case android.view.MotionEvent.ACTION_UP:
-                        case android.view.MotionEvent.ACTION_POINTER_UP:
-                                if (touchInput && virtualScreen.contains(x, y)) {
-                                        int cX = Math.round(convertPointerX(x));
-                                        int cY = Math.round(convertPointerY(y));
-                                        if (pointerId < 20) {
-                                                lastPointerPos[pointerId][0] = cX;
-                                                lastPointerPos[pointerId][1] = cY;
-                                        }
-                                        Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                        CanvasEvent.POINTER_RELEASED,
-                                                        pointerId, cX, cY));
+                        case android.view.MotionEvent.ACTION_POINTER_UP: {
+                                int cX = clampPointer(Math.round(convertPointerX(x)), width);
+                                int cY = clampPointer(Math.round(convertPointerY(y)), height);
+                                if (pointerId < 20) {
+                                        lastPointerPos[pointerId][0] = cX;
+                                        lastPointerPos[pointerId][1] = cY;
                                 }
+                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
+                                                CanvasEvent.POINTER_RELEASED,
+                                                pointerId, cX, cY));
                                 break;
+                        }
                         case android.view.MotionEvent.ACTION_CANCEL:
                                 // 与 ViewCallbacks.onTouch 一致：CANCEL 交给 overlay
                                 // 处理（嵌入式 overlay 为 null），无需投递 MIDlet 事件。
@@ -416,6 +419,21 @@ public abstract class Canvas extends Displayable {
                         default:
                                 break;
                 }
+        }
+
+        /** GameBox: 虚拟画面命中的带容差判断（转发触摸专用）。 */
+        private boolean touchWithinVirtualScreen(float x, float y) {
+                return virtualScreen != null &&
+                        x >= virtualScreen.left - 2f && x <= virtualScreen.right + 2f &&
+                        y >= virtualScreen.top - 2f && y <= virtualScreen.bottom + 2f;
+        }
+
+        /** GameBox: 把虚拟坐标钳制到画布有效范围内。 */
+        private int clampPointer(int v, int maxExclusive) {
+                if (maxExclusive <= 1) {
+                        return 0;
+                }
+                return Math.max(0, Math.min(maxExclusive - 1, v));
         }
 
         public void doShowNotify() {

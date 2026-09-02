@@ -102,6 +102,18 @@ private const val J2ME_BTN_NUM_7 = 0x800000
 private const val J2ME_BTN_NUM_8 = 0x1000000
 private const val J2ME_BTN_NUM_9 = 0x2000000
 
+// ===========================================================================
+// 按钮主题（来自 PadLayout.overlayThemeJson，每核心独立）
+// ===========================================================================
+
+/** 从主题解析常规色；未配置用 default。 */
+private fun j2meThemeColor(theme: com.nesstation.app.core.storage.OverlayTheme, id: String, default: Color): Color =
+    theme.buttons[id]?.color?.let { Color(it) } ?: default
+
+/** 从主题解析按压色；null = 未配置，由绘制函数用默认按压效果。 */
+private fun j2meThemePressed(theme: com.nesstation.app.core.storage.OverlayTheme, id: String): Color? =
+    theme.buttons[id]?.pressedColor?.let { Color(it) }
+
 /**
  * Entry point for the J2ME on-screen controller. Switches between gamepad
  * and phone modes based on `padLayout.javaInputMode`. The mode toggle
@@ -115,15 +127,16 @@ fun J2meOnScreenController(
     isPortrait: Boolean,
     onToggleMode: () -> Unit,
     /**
-     * 落在虚拟按键之外（游戏画面区域）的触摸转发器。
-     * 参数：根坐标 + MotionEvent action。J2ME 游戏画面（AndroidView）是
-     * 本覆盖层的低 z 兄弟节点，Compose 命中测试不会穿透到手柄覆盖层下方，
-     * 游戏画面收不到任何触摸 —— 由这里把未命中按键的触摸转发出去
-     * （EmulatorScreen 换算成游戏视图局部坐标后注入 Canvas）。
-     */
-    onUnhandledTouch: ((rootPos: Offset, action: Int, pointerId: Int) -> Unit)? = null
-) {
-    // J2ME 专属透明度：不再复用全局 opacity 打对折（旧逻辑 0.7*0.5=0.35，
+         * 落在虚拟按键之外（游戏画面区域）的触摸转发器。
+         * 参数：根坐标 + MotionEvent action。J2ME 游戏画面（AndroidView）是
+         * 本覆盖层的低 z 兄弟节点，Compose 命中测试不会穿透到手柄覆盖层下方，
+         * 游戏画面收不到任何触摸 —— 由这里把未命中按键的触摸转发出去
+         * （EmulatorScreen 换算成游戏视图局部坐标后注入 Canvas）。
+         */
+        onUnhandledTouch: ((rootPos: Offset, action: Int, pointerId: Int) -> Unit)? = null,
+        /** 手柄模式的按钮主题（dpad/a/b/x/y/start/select；null 键 = 核心默认色）。 */
+        overlayTheme: com.nesstation.app.core.storage.OverlayTheme = com.nesstation.app.core.storage.OverlayTheme()
+    ) {    // J2ME 专属透明度：不再复用全局 opacity 打对折（旧逻辑 0.7*0.5=0.35，
     // 方向键在深色画面上几乎看不见）。默认 0.8，可在布局编辑器/设置里调。
     val opacity = padLayout.javaOpacity.coerceIn(0.3f, 1f)
 
@@ -164,7 +177,8 @@ fun J2meOnScreenController(
                 surfaceSize = surfaceSize,
                 showNumPad = showNumPad,
                 padPosInRoot = padPosInRoot,
-                onUnhandledTouch = { pos, action, pid -> currentOnUnhandledTouch?.invoke(pos, action, pid) }
+                onUnhandledTouch = { pos, action, pid -> currentOnUnhandledTouch?.invoke(pos, action, pid) },
+                overlayTheme = overlayTheme
             )
         }
 
@@ -206,7 +220,9 @@ private fun J2meGamepadOverlay(
     /** 覆盖层在窗口中的根坐标（用于把局部坐标换算回根坐标后转发）。 */
     padPosInRoot: Offset = Offset.Zero,
     /** 未命中任何按键的触摸转发器（根坐标 + MotionEvent action）。 */
-    onUnhandledTouch: ((rootPos: Offset, action: Int, pointerId: Int) -> Unit)? = null
+    onUnhandledTouch: ((rootPos: Offset, action: Int, pointerId: Int) -> Unit)? = null,
+    /** 按钮主题（dpad/a/b/x/y/start/select；null 键 = 核心默认色）。 */
+    overlayTheme: com.nesstation.app.core.storage.OverlayTheme = com.nesstation.app.core.storage.OverlayTheme()
 ) {
     val density = LocalDensity.current
 
@@ -348,6 +364,23 @@ private fun J2meGamepadOverlay(
                                 }
                                 return@forEach
                             }
+                            // 第二/更多根手指在同一手势期间按下（此前未在任何
+                            // 按键或游戏区域登记过）：未命中按键且未被更高 z
+                            // 控件（模式切换/"123"按钮）消费时，与第一根手指
+                            // 走同一规则 —— 标记为"游戏画面触摸"并转发 DOWN，
+                            // 后续移动/抬起由上面的 unhandled 分支继续转发。
+                            // 此前这段事件被完全吞掉，多点触控游戏收不到后续手指。
+                            if (change.pressed && !activePointers.containsKey(pid) &&
+                                newBits == 0 && !change.isConsumed &&
+                                currentOnUnhandledTouch != null) {
+                                unhandledPointers[pid] = true
+                                currentOnUnhandledTouch?.invoke(
+                                    change.position + padPosInRoot,
+                                    android.view.MotionEvent.ACTION_DOWN,
+                                    pid.toInt()
+                                )
+                                return@forEach
+                            }
                             val oldBits = activePointers[pid] ?: 0
                             if (oldBits != newBits) {
                                 activePointers[pid] = newBits
@@ -363,19 +396,43 @@ private fun J2meGamepadOverlay(
             }
     ) {
         // Draw D-pad
-        J2meDpadCanvas(dpad, surfaceSize, opacity, visualState and 0xF0)
+        J2meDpadCanvas(
+            dpad, surfaceSize, opacity, visualState and 0xF0,
+            armColorInput = j2meThemeColor(overlayTheme, "dpad", Color(0xFF39445A)),
+            pressedColorInput = j2meThemePressed(overlayTheme, "dpad") ?: Color(0xFFFFD66B)
+        )
         // Draw A
-        J2meActionButton("A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and J2ME_BTN_A != 0)
+        J2meActionButton(
+            "A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and J2ME_BTN_A != 0,
+            pressedColor = j2meThemePressed(overlayTheme, "a")
+        )
         // Draw B
-        J2meActionButton("B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and J2ME_BTN_B != 0)
+        J2meActionButton(
+            "B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and J2ME_BTN_B != 0,
+            pressedColor = j2meThemePressed(overlayTheme, "b")
+        )
         // Draw X
-        J2meActionButton("X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and J2ME_BTN_X != 0)
+        J2meActionButton(
+            "X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and J2ME_BTN_X != 0,
+            pressedColor = j2meThemePressed(overlayTheme, "x")
+        )
         // Draw Y
-        J2meActionButton("Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and J2ME_BTN_Y != 0)
+        J2meActionButton(
+            "Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and J2ME_BTN_Y != 0,
+            pressedColor = j2meThemePressed(overlayTheme, "y")
+        )
         // Draw Start
-        J2mePillButton("START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0)
+        J2mePillButton(
+            "START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0,
+            normalColor = j2meThemeColor(overlayTheme, "start", Color(0xFF95A5A6)),
+            pressedColor = j2meThemePressed(overlayTheme, "start")
+        )
         // Draw Select
-        J2mePillButton("SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0)
+        J2mePillButton(
+            "SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0,
+            normalColor = j2meThemeColor(overlayTheme, "select", Color(0xFF95A5A6)),
+            pressedColor = j2meThemePressed(overlayTheme, "select")
+        )
 
         // Draw number pad (toggle via "123" button) — J2ME 游戏经常需要数字输入
         if (showNumPad) {
@@ -609,6 +666,20 @@ private fun J2mePhoneOverlay(
                                 }
                                 return@forEach
                             }
+                            // 与手柄模式一致：手势中途新加入的手指（此前未在
+                            // 任何按键/游戏区域登记）未命中按键且未被更高 z
+                            // 控件消费时，同样转发为游戏画面触摸 DOWN。
+                            if (change.pressed && !activePointers.containsKey(pid) &&
+                                newBits == 0 && !change.isConsumed &&
+                                currentOnUnhandledTouch != null) {
+                                unhandledPointers[pid] = true
+                                currentOnUnhandledTouch?.invoke(
+                                    change.position + padPosInRoot,
+                                    android.view.MotionEvent.ACTION_DOWN,
+                                    pid.toInt()
+                                )
+                                return@forEach
+                            }
                             val oldBits = activePointers[pid] ?: 0
                             if (oldBits != newBits) {
                                 activePointers[pid] = newBits
@@ -672,7 +743,9 @@ private fun J2meDpadCanvas(
     layout: ButtonLayout,
     surfaceSize: IntSize,
     opacity: Float,
-    pressedDirs: Int
+    pressedDirs: Int,
+    armColorInput: Color = Color(0xFF39445A),
+    pressedColorInput: Color = Color(0xFFFFD66B)
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -698,8 +771,9 @@ private fun J2meDpadCanvas(
             // 方向键配色增亮：旧版底色 0xFF2C2C38（近黑）在深色游戏画面上
             // 即便不透明也几乎与背景融为一体。改为亮一档的蓝灰底 +
             // 白色描边 + 高亮箭头，任何背景下都能看清按键轮廓。
-            val armColor = Color(0xFF39445A).copy(alpha = opacity)
-            val pressedColor = Color(0xFFFFD66B).copy(alpha = (opacity * 0.9f).coerceAtMost(1f))
+            // （主题开启时使用用户配置的常规色/按压色）
+            val armColor = armColorInput.copy(alpha = opacity)
+            val pressedColor = pressedColorInput.copy(alpha = (opacity * 0.9f).coerceAtMost(1f))
             val outlineColor = Color.White.copy(alpha = (opacity * 0.45f).coerceAtMost(1f))
 
             drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
@@ -730,7 +804,8 @@ private fun J2meDpadCanvas(
 
 @Composable
 private fun J2meActionButton(
-    label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean
+    label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
+    pressedColor: Color? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -750,7 +825,7 @@ private fun J2meActionButton(
             val r = size.width * 0.46f
             drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
             drawCircle(
-                if (isPressed) color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f))
+                if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
                 else color.copy(alpha = opacity),
                 r, Offset(cx, cy)
             )
@@ -762,7 +837,8 @@ private fun J2meActionButton(
 
 @Composable
 private fun J2mePillButton(
-    label: String, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean
+    label: String, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
+    normalColor: Color = Color(0xFF95A5A6), pressedColor: Color? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -786,7 +862,8 @@ private fun J2mePillButton(
             val cy = size.height / 2f
             val rx = size.width * 0.46f
             val ry = size.height * 0.46f
-            val color = Color(0xFF95A5A6).copy(alpha = if (isPressed) (opacity * 1.5f).coerceAtMost(1f) else opacity)
+            val color = (if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                         else normalColor.copy(alpha = opacity))
             // 圆角胶囊外形 (旧版画圆, 与 2.2:0.7 的容器不匹配)
             val cornerR = size.height / 2f
             drawRoundRect(

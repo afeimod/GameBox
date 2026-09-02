@@ -501,6 +501,22 @@ static void cb_video(const void* data, unsigned width, unsigned height, size_t p
         s_newFrame.store(true, std::memory_order_release);
     }
 
+    // During fast-forward, skip most blits to prevent ANativeWindow_lock
+    // from blocking the emulation thread. Only blit every Nth frame so the
+    // user can still see the game. ARGB conversion above still runs every
+    // frame (for screenshots / fallback rendering). Mirrors the identical
+    // fast-forward path in the GBA/SNES/PCE/PSX/FBNeo/genesis loaders —
+    // without it ANativeWindow_lock is called every frame and the compositor
+    // (which consumes buffers at the display rate) paces the emulation back
+    // to real-time, so fast-forward appears completely broken.
+    if (s_fastForward.load(std::memory_order_relaxed)) {
+        int skip = s_ffMaxSkip.load(std::memory_order_relaxed);
+        if (skip > 0 && s_ffFrameSkip.fetch_add(1, std::memory_order_relaxed) % skip != 0)
+            return;
+    } else {
+        s_ffFrameSkip.store(0, std::memory_order_relaxed);
+    }
+
     // Apply filter and blit directly to ANativeWindow if a surface is attached
     const int filter = s_videoFilter.load(std::memory_order_relaxed);
 

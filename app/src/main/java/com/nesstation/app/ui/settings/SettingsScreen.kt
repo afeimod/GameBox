@@ -588,7 +588,7 @@ internal fun DropdownRow(
     }
 }
 
-@Composable private fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null,
+@Composable internal fun Arrow() = Icon(Icons.Rounded.ChevronRight, contentDescription = null,
     tint = if (AppBackgroundState.active) Color.White.copy(alpha = 0.72f) else Color(0xFF4A5568),
     modifier = Modifier.size(18.dp))
 @Composable private fun ValueText(v: String) = Text(v,

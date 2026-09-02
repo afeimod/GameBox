@@ -1,0 +1,296 @@
+package com.nesstation.app.ui.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.nesstation.app.core.model.GamePlatform
+import com.nesstation.app.core.storage.ButtonTheme
+import com.nesstation.app.core.storage.OverlayTheme
+import com.nesstation.app.core.storage.PadLayout
+import com.nesstation.app.core.storage.overlayThemeGet
+import com.nesstation.app.core.storage.overlayThemeSet
+import com.nesstation.app.core.storage.themeButtonsFor
+
+/**
+ * 预设色板（所有遮罩/按钮主题共用的一套颜色）。
+ * 末尾的 null 表示「默认」，恢复核心自带的配色。
+ */
+internal val THEME_COLOR_PALETTE: List<Pair<String, Long?>> = listOf(
+    "纯黑" to 0xFF000000,
+    "炭黑" to 0xFF1A1A22,
+    "铁灰" to 0xFF2C2C38,
+    "蓝灰" to 0xFF39445A,
+    "白" to 0xFFFFFFFF,
+    "银灰" to 0xFF95A5A6,
+    "红" to 0xFFE74C3C,
+    "橙" to 0xFFE67E22,
+    "黄" to 0xFFFFD66B,
+    "亮绿" to 0xFF2ECC71,
+    "青" to 0xFF1ABC9C,
+    "蓝" to 0xFF3498DB,
+    "深蓝" to 0xFF2980B9,
+    "紫" to 0xFF9B59B6,
+    "粉" to 0xFFE91E9B,
+    "棕" to 0xFF8B5E3C,
+    "默认" to null,
+)
+
+@Composable
+private fun ColorSwatch(color: Long?, selected: Boolean, onClick: () -> Unit) {
+    val base = if (color != null) Color(color) else Color(0xFF666666)
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .background(base, CircleShape)
+            .border(2.dp, if (selected) Color(0xFFE74C3C) else Color(0x22000000), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (color == null) {
+            Text("✕", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** 一行色板选择器。 */
+@Composable
+private fun ColorPaletteRow(current: Long?, onSelect: (Long?) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(THEME_COLOR_PALETTE) { (_, color) ->
+            ColorSwatch(color = color, selected = current == color) { onSelect(color) }
+        }
+    }
+}
+
+/**
+ * 每个核心设置页里的「遮罩 / 按钮主题」入口区块。
+ * 点击后打开编辑对话框；改动通过 updateLayout 写回
+ * [PadLayoutStore.overlayThemeJson]，每核心独立存储。
+ */
+@Composable
+fun OverlayThemeSection(
+    platform: GamePlatform,
+    padLayout: PadLayout,
+    updateLayout: (PadLayout) -> Unit
+) {
+    var open by remember { mutableStateOf(false) }
+    val theme = overlayThemeGet(padLayout.overlayThemeJson, platform)
+
+    SettingsSection("遮罩 / 按钮主题") {
+        SettingsRow(
+            title = "画面遮罩 / 按键配色",
+            subtitle = if (theme.maskEnabled || theme.bgColor != null || theme.hasButtonCustomizations) {
+                "已自定义 · 每按键单独配色（含按压效果）"
+            } else {
+                "背景遮罩 + 按键配色（每核心独立）"
+            },
+            trailing = { Arrow() },
+            onClick = { open = true }
+        )
+    }
+
+    if (open) {
+        OverlayThemeDialog(
+            platform = platform,
+            theme = theme,
+            onApply = { newTheme ->
+                updateLayout(
+                    padLayout.copy {
+                        overlayThemeJson = overlayThemeSet(overlayThemeJson, platform, newTheme)
+                    }
+                )
+            },
+            onDismiss = { open = false }
+        )
+    }
+}
+
+@Composable
+private fun OverlayThemeDialog(
+    platform: GamePlatform,
+    theme: OverlayTheme,
+    onApply: (OverlayTheme) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var edit by remember { mutableStateOf(theme) }
+    // 当前正在编辑的按键（null = 未打开按键子选择器）
+    var editingButton by remember { mutableStateOf<String?>(null) }
+    var editingSlot by remember { mutableStateOf("color") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("遮罩 / 按钮主题", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // === 背景颜色（游戏画面周边） ===
+                Text("背景颜色（游戏画面周边）", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                ColorPaletteRow(current = edit.bgColor) { c ->
+                    edit = edit.copy(bgColor = c)
+                }
+
+                // === 画面遮罩 ===
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "画面遮罩（叠加在游戏画面上）",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(checked = edit.maskEnabled, onCheckedChange = { edit = edit.copy(maskEnabled = it) })
+                }
+                if (edit.maskEnabled) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("强度", fontSize = 12.sp)
+                        Slider(
+                            value = edit.maskAlpha.toFloat(),
+                            onValueChange = { edit = edit.copy(maskAlpha = it.toInt().coerceIn(0, 255)) },
+                            valueRange = 0f..255f,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                        )
+                        Text("${edit.maskAlpha}", fontSize = 12.sp)
+                    }
+                    ColorPaletteRow(current = edit.maskColor) { c ->
+                        edit = edit.copy(maskColor = c ?: 0xFF000000)
+                    }
+                }
+
+                // === 按键主题 ===
+                Text("每个按键单独配色（含按压效果）",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(themeButtonsFor(platform)) { (id, label) ->
+                        val btnTheme = edit.button(id)
+                        val normal = btnTheme?.color
+                        val pressed = btnTheme?.pressedColor
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0x14000000), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(label, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            // 常规色
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(if (normal != null) Color(normal) else Color(0xFF666666), CircleShape)
+                                    .border(1.dp, Color(0x33000000), CircleShape)
+                                    .clickable { editingButton = id; editingSlot = "color" },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (normal == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                            }
+                            Box(Modifier.size(6.dp))
+                            // 按压色
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(if (pressed != null) Color(pressed) else Color(0xFF888888), CircleShape)
+                                    .border(1.dp, Color(0x33000000), CircleShape)
+                                    .clickable { editingButton = id; editingSlot = "pressed" },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (pressed == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                            }
+                            Box(Modifier.size(8.dp))
+                            // 恢复默认
+                            Text("重置", fontSize = 11.sp, color = Color(0x88000000))
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .background(Color.Transparent, CircleShape)
+                                    .border(1.dp, Color(0x33000000), CircleShape)
+                                    .clickable { edit.setButton(id, ButtonTheme(null, null)) }
+                            )
+                        }
+                    }
+                }
+                if (edit.hasButtonCustomizations) {
+                    TextButton(onClick = { edit = edit.copy(buttons = mutableMapOf()) }) {
+                        Text("恢复全部按键默认配色", fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(edit) }) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+
+    // 按键配色子选择器
+    if (editingButton != null) {
+        val id = editingButton!!
+        val current = if (editingSlot == "color") edit.button(id)?.color else edit.button(id)?.pressedColor
+        AlertDialog(
+            onDismissRequest = { editingButton = null },
+            title = {
+                val label = themeButtonsFor(platform).firstOrNull { it.first == id }?.second ?: id
+                Text(
+                    "$label · ${if (editingSlot == "color") "常规色" else "按压色"}",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("选择后立即应用到该按键（末尾 ✕ = 恢复默认）", fontSize = 12.sp)
+                    ColorPaletteRow(current = current) { c ->
+                        val old = edit.button(id) ?: ButtonTheme()
+                        val newTheme = if (editingSlot == "color") {
+                            ButtonTheme(color = c, pressedColor = old.pressedColor)
+                        } else {
+                            ButtonTheme(color = old.color, pressedColor = c)
+                        }
+                        edit.setButton(id, newTheme)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { editingButton = null }) { Text("完成") }
+            }
+        )
+    }
+}

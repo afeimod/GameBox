@@ -91,7 +91,9 @@ fun DosOnScreenController(
     padLayout: PadLayout,
     surfaceSize: IntSize,
     isPortrait: Boolean,
-    onToggleMode: () -> Unit
+    onToggleMode: () -> Unit,
+    /** 按钮主题（游戏手柄模式的按下高亮色；键盘模式暂用默认）。 */
+    overlayTheme: com.nesstation.app.core.storage.OverlayTheme = com.nesstation.app.core.storage.OverlayTheme()
 ) {
     val opacity = (padLayout.opacity * 0.5f).coerceIn(0.15f, 0.85f)
 
@@ -115,7 +117,8 @@ fun DosOnScreenController(
                 padLayout = padLayout,
                 opacity = opacity,
                 isPortrait = isPortrait,
-                surfaceSize = surfaceSize
+                surfaceSize = surfaceSize,
+                overlayTheme = overlayTheme
             )
         }
 
@@ -268,12 +271,18 @@ private fun DosGamepadOverlay(
     padLayout: PadLayout,
     opacity: Float,
     isPortrait: Boolean,
-    surfaceSize: IntSize
+    surfaceSize: IntSize,
+    overlayTheme: com.nesstation.app.core.storage.OverlayTheme = com.nesstation.app.core.storage.OverlayTheme()
 ) {
     val density = LocalDensity.current
     val bgColor = Color.Black.copy(alpha = opacity * 0.5f)
     val fgColor = Color.White.copy(alpha = opacity)
-    val pressedColor = Color(0xFFFFD66B).copy(alpha = opacity)
+    // DOS 手柄模式所有按键共用按下高亮色；用户配置了 A 键或十字键主题时替换。
+    val pressedHighlightRaw = overlayTheme.buttons["a"]?.pressedColor
+        ?: overlayTheme.buttons["a"]?.color
+        ?: overlayTheme.buttons["dpad"]?.pressedColor
+        ?: 0xFFFFD66B
+    val pressedColor = Color(pressedHighlightRaw).copy(alpha = opacity)
     val borderColor = Color.White.copy(alpha = opacity * 0.6f)
 
     var dpadState by remember { mutableStateOf(0) }

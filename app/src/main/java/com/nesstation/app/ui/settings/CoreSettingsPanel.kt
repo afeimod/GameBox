@@ -1222,5 +1222,9 @@ fun CoreSettingsPanel(
                 }
             }
         }
+
+        // === 遮罩 / 按钮主题（所有核心统一入口，配置按核心独立存储在
+        // PadLayout.overlayThemeJson，见 OverlayTheme.kt） ===
+        item { OverlayThemeSection(platform, padLayout, updateLayout) }
     }
 }

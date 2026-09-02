@@ -249,6 +249,11 @@ class PadLayout {
     // 格式：逗号分隔的 "键位=MIDP键码"，如 "a=-5,b=-6,y=42"。
     // 键位取值见 JAVA_MAPPABLE_BUTTONS；空串 = 全部使用默认映射。
     var javaButtonKeyMap: String = ""
+    // === 遮罩 / 按键主题（每核心独立，见 OverlayTheme.kt） ===
+    // JSON blob：{ "NES": {...}, "SFC": {...}, ... }，由 PadLayoutStore 的
+    // overlayThemeGet/Set 系列函数读写。这里只存一个字符串，避免为每个
+    // 核心各加一组颜色字段（也能绕开 DEX 255 寄存器限制）。
+    var overlayThemeJson: String = ""
     // J2ME 手机键盘模式布局：数字键盘（4行×3列）的中心位置与单键尺寸。
     var javaPhoneGrid: ButtonLayout = ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48)
     // J2ME 手机键盘模式布局：顶部功能键行（L/F/R/C）的中心位置与单键尺寸。
@@ -796,6 +801,7 @@ class PadLayout {
         javaTouchInput = another.javaTouchInput
         javaNumDualDispatch = another.javaNumDualDispatch
         javaButtonKeyMap = another.javaButtonKeyMap
+        overlayThemeJson = another.overlayThemeJson
         javaPhoneGrid = another.javaPhoneGrid
         javaPhoneTop = another.javaPhoneTop
         dosDpad = another.dosDpad
@@ -1427,6 +1433,7 @@ object PadLayoutStore {
             javaTouchInput = p.getBoolean("java_touch_input", true)
             javaNumDualDispatch = p.getBoolean("java_num_dual_dispatch", true)
             javaButtonKeyMap = p.getString("java_button_key_map", "") ?: ""
+            overlayThemeJson = p.getString("overlay_theme_json", "") ?: ""
             javaPhoneGrid = loadBtn(p, "java_phone_grid", ButtonLayout(x = 0.5f, y = 0.80f, sizeDp = 48))
             javaPhoneTop = loadBtn(p, "java_phone_top", ButtonLayout(x = 0.5f, y = 0.60f, sizeDp = 40))
             // DOS gamepad overlay button positions (landscape)
@@ -1966,6 +1973,7 @@ object PadLayoutStore {
             putBoolean("java_touch_input", layout.javaTouchInput)
             putBoolean("java_num_dual_dispatch", layout.javaNumDualDispatch)
             putString("java_button_key_map", layout.javaButtonKeyMap)
+            putString("overlay_theme_json", layout.overlayThemeJson)
             saveBtn("java_phone_grid", layout.javaPhoneGrid)
             saveBtn("java_phone_top", layout.javaPhoneTop)
             // DOS gamepad overlay button positions (landscape)
