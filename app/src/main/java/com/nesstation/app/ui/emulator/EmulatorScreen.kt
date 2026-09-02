@@ -114,6 +114,8 @@ import com.nesstation.app.core.storage.PadLayout
 import com.nesstation.app.core.jni.DosKeys
 import com.nesstation.app.core.storage.PadLayoutStore
 import com.nesstation.app.core.storage.DosExtraKeyEntry
+import com.nesstation.app.core.storage.JavaGameSettings
+import com.nesstation.app.core.storage.JavaGameSettingsStore
 import com.nesstation.app.core.storage.JAVA_MAPPABLE_BUTTONS
 import com.nesstation.app.core.storage.JAVA_PHONE_KEY_OPTIONS
 import com.nesstation.app.core.storage.javaButtonKeyMapGet
