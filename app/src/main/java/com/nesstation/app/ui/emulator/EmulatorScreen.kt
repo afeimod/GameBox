@@ -12,6 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -84,6 +86,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -93,6 +96,7 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -122,6 +126,7 @@ import com.nesstation.app.core.storage.javaButtonKeyMapGet
 import com.nesstation.app.core.storage.javaButtonKeyMapSet
 import com.nesstation.app.core.storage.withJavaSettings
 import com.nesstation.app.ui.swf.ScreenPositionEditor
+import com.nesstation.app.ui.fsd.FsdImaging
 import com.nesstation.app.ui.settings.KeyMapStore
 import android.view.KeyEvent
 import android.view.View
@@ -1045,28 +1050,21 @@ fun EmulatorScreen(
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         //
-        // WORKAROUND for native XBR color bleeding:
-        // The native C XBR implementation (Hyllian 5xBR v3.5a in libnescore/
-        // libsnescore/libgbacore) produces color bleeding artifacts at hard
-        // edges — red/purple/yellow dots appear exposed at font and sprite
-        // edges in SFC/GBA games. This is a known issue with the 5xBR
-        // algorithm when pixels with high color channel contrast are adjacent.
-        //
-        // Since we cannot modify the native C code, we map XBR requests to
-        // HQ2X (filter=5) for native engine games. HQ2X provides similar
-        // edge-smoothing without the color bleeding artifact. J2ME games
-        // use the Java-side XBR implementation (J2meBitmapFilter) which has
-        // been patched with additional color clamping to suppress bleeding.
+        // Native XBR now lives in core/jni/shared/core_shared.h as 2xBR v3.3a
+        // with int32 blend fixes, shared by all libretro-based cores (NDS /
+        // PSX / SNES / GBA / MD / PCE / Arcade / FBNeo). The old 5xBR color
+        // bleeding workaround (mapping XBR → HQ2X) is no longer needed and
+        // caused NDS "xbr" to silently run HQ2X instead of real XBR.
         val filterInt = when (padLayout.videoFilter) {
             "scanline" -> 1
             "crt" -> 2
             "dot" -> 3
-            "xbr" -> 5      // native XBR(4) → HQ2X(5) to avoid color bleeding
+            "xbr" -> 4      // 2xBR
             "hq2x" -> 5
             "hq4x" -> 6
-            "xbr_dot" -> 5  // native XBR+dot(7) → HQ2X(5), dot added by FilterOverlay
-            "4xbr" -> 6     // native 4XBR(8) → HQ4X(6) to avoid color bleeding
-            "4xbr_dot" -> 6 // native 4XBR+dot(9) → HQ4X(6), dot added by FilterOverlay
+            "xbr_dot" -> 7  // 2xBR + dot overlay (dot added by FilterOverlay)
+            "4xbr" -> 8     // 4xBR
+            "4xbr_dot" -> 9 // 4xBR + dot overlay
             "hq4x_dot" -> 10
             else -> 0
         }
@@ -1745,8 +1743,20 @@ fun EmulatorScreen(
 
     // 当前核心的遮罩 / 按钮主题（每核心独立；未配置时用默认纯黑背景）
     val overlayTheme = com.nesstation.app.core.storage.overlayThemeGet(padLayout.overlayThemeJson, platform)
+    // 自定义背景图片（覆盖在背景色之上、游戏画面之下）
+    val themeBgImage = remember(overlayTheme.bgImageUri) {
+        overlayTheme.bgImageUri?.let { FsdImaging.decodeUri(context, it, 1280, 800) }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(overlayTheme.bgColor?.let { Color(it) } ?: Color.Black)) {
+        if (themeBgImage != null) {
+            Image(
+                bitmap = themeBgImage.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         if (loaded) {
             if (platform == GamePlatform.JAVA && engine is J2meEngine) {
                 // === J2ME 游戏窗口同样接收全局「画面缩放」(videoScale) ===
@@ -1852,15 +1862,29 @@ fun EmulatorScreen(
             // 覆盖在游戏画面之上的半透明层：降亮度 / 减眩光 / 沉浸。
             // z 顺序在游戏视图之上、手柄覆盖层之下，不影响按键可读性。
             if (overlayTheme.maskEnabled) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Color(overlayTheme.maskColor).copy(
-                                alpha = (overlayTheme.maskAlpha / 255f).coerceIn(0f, 1f)
+                val maskImage = remember(overlayTheme.maskImageUri) {
+                    overlayTheme.maskImageUri?.let { FsdImaging.decodeUri(context, it, 1280, 800) }
+                }
+                if (maskImage != null) {
+                    Image(
+                        bitmap = maskImage.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .alpha((overlayTheme.maskAlpha / 255f).coerceIn(0f, 1f))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Color(overlayTheme.maskColor).copy(
+                                    alpha = (overlayTheme.maskAlpha / 255f).coerceIn(0f, 1f)
+                                )
                             )
-                        )
-                )
+                    )
+                }
             }
         } else {
             Box(
@@ -2772,11 +2796,14 @@ private fun routePadBits(
     netplayController: com.nesstation.app.battle.NetplayController? = null,
     platform: GamePlatform = GamePlatform.NES
 ) {
-    // NDS / PS2 使用项目位布局到 libretro 标准位布局的转换（PS2 = 16 键
-    // DualShock：×=bit0、□=bit1、○=bit8、△=bit9 + L2/R2/L3/R3 bit12..15）。
-    // NDS 内部用 ADD_KEY_TO_MASK(libretro_id, nds_bit) 转换；PS2 的 PCEE2
-    // 核心直接读 libretro 标准位。
-    val ndsBits = if (platform == GamePlatform.NDS) projectToLibretroLayout(bits)
+    // NDS / PSX / PS2 使用项目位布局到 libretro 标准位布局的转换。
+    // PSX（PCSX-ReARMed）libretro 映射为 A=Cross(bit8)、B=Circle(bit0)、
+    // X=Triangle(bit9)、Y=Square(bit1)，与 projectToLibretroLayout 完全一致
+    // （项目 A=bit0→libretro A=bit8、B=bit1→libretro B=bit0、
+    //  X=bit8→libretro X=bit9、Y=bit9→libretro Y=bit1）。
+    // PS2（PCEE2）按键 label 语义不同（×=bit0、□=bit1、○=bit8、△=bit9），
+    // 用 ps2ToLibretroLayout 单独转换。
+    val ndsBits = if (platform == GamePlatform.NDS || platform == GamePlatform.PSX) projectToLibretroLayout(bits)
                   else if (platform == GamePlatform.PS2) ps2ToLibretroLayout(bits)
                   else bits
     if (netplayController != null) {
@@ -4422,6 +4449,7 @@ fun OnScreenController(
         // Draw D-pad OR Analog Stick depending on arcadeInputMode.
         if (showDpadBtn) {
             if (useAnalogStick) {
+                val (analogImg, analogImgPressed) = rememberThemeButtonImages(overlayTheme, "dpad")
                 AnalogStickCanvas(
                     layout = dpad,
                     surfaceSize = surfaceSize,
@@ -4430,16 +4458,21 @@ fun OnScreenController(
                     thumbX = analogThumbX,
                     thumbY = analogThumbY,
                     thumbColor = themeButtonColor(overlayTheme, "l3", Color(0xFFFFD66B)),
-                    thumbPressedColor = themePressedButtonColor(overlayTheme, "l3") ?: Color(0xFFFFE57F)
+                    thumbPressedColor = themePressedButtonColor(overlayTheme, "l3") ?: Color(0xFFFFE57F),
+                    image = analogImg,
+                    pressedImage = analogImgPressed
                 )
             } else {
+                val (dpadImg, dpadImgPressed) = rememberThemeButtonImages(overlayTheme, "dpad")
                 DpadCanvas(
                     layout = dpad,
                     surfaceSize = surfaceSize,
                     opacity = opacity,
                     pressedDirs = visualState and 0xF0,
                     armColor = themeButtonColor(overlayTheme, "dpad", Color(0xFF2C2C38)),
-                    pressedTipColor = themePressedButtonColor(overlayTheme, "dpad") ?: Color(0xFFFFD66B)
+                    pressedTipColor = themePressedButtonColor(overlayTheme, "dpad") ?: Color(0xFFFFD66B),
+                    image = dpadImg,
+                    pressedImage = dpadImgPressed
                 )
             }
         }
@@ -4504,9 +4537,12 @@ fun OnScreenController(
                 GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF2ECC71)  // Green (Cross)
                 else -> Color(0xFFE74C3C)
             }
+            val (aImg, aImgPressed) = rememberThemeButtonImages(overlayTheme, "a")
             ActionButtonCanvas(
                 labelA, aColor, btnA, surfaceSize, opacity, visualState and BTN_A != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "a")
+                pressedColor = themePressedButtonColor(overlayTheme, "a"),
+                image = aImg,
+                pressedImage = aImgPressed
             )
         }
         // Draw B
@@ -4515,55 +4551,76 @@ fun OnScreenController(
                 GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFFE74C3C)  // Red (Circle)
                 else -> Color(0xFFE67E22)
             }
+            val (bImg, bImgPressed) = rememberThemeButtonImages(overlayTheme, "b")
             ActionButtonCanvas(
                 labelB, bColor, btnB, surfaceSize, opacity, visualState and BTN_B != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "b")
+                pressedColor = themePressedButtonColor(overlayTheme, "b"),
+                image = bImg,
+                pressedImage = bImgPressed
             )
         }
         // Turbo A/B（小 AB 连发键）— 所有平台按需渲染：显隐由
         // "显示/隐藏按键"里的连射A/连射B开关控制；6 键平台用避让后的
         // 默认位置（见 shiftTurboDefault），不会与 X/Y 重叠。
         if (showTurboABtn) {
+            val (taImg, taImgPressed) = rememberThemeButtonImages(overlayTheme, "ta")
             TurboButtonCanvas(
                 labelA, Color(0xFFE74C3C), btnTurboA, surfaceSize, opacity, turboState and BTN_A != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "ta")
+                pressedColor = themePressedButtonColor(overlayTheme, "ta"),
+                image = taImg,
+                pressedImage = taImgPressed
             )
         }
         if (showTurboBBtn) {
+            val (tbImg, tbImgPressed) = rememberThemeButtonImages(overlayTheme, "tb")
             TurboButtonCanvas(
                 labelB, Color(0xFFE67E22), btnTurboB, surfaceSize, opacity, turboState and BTN_B != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "tb")
+                pressedColor = themePressedButtonColor(overlayTheme, "tb"),
+                image = tbImg,
+                pressedImage = tbImgPressed
             )
         }
         // Start
         if (showStartBtn) {
+            val (startImg, startImgPressed) = rememberThemeButtonImages(overlayTheme, "start")
             PillButtonCanvas(
                 if (platform == GamePlatform.PCE) "RUN" else "START", btnStart, surfaceSize, opacity, visualState and BTN_START != 0,
                 normalColor = themeButtonColor(overlayTheme, "start", Color(0xFF2A3040)),
-                pressedColor = themePressedButtonColor(overlayTheme, "start")
+                pressedColor = themePressedButtonColor(overlayTheme, "start"),
+                image = startImg,
+                pressedImage = startImgPressed
             )
         }
         // Select
         if (showSelectBtn) {
+            val (selectImg, selectImgPressed) = rememberThemeButtonImages(overlayTheme, "select")
             PillButtonCanvas(
                 "SELECT", btnSelect, surfaceSize, opacity, visualState and BTN_SELECT != 0,
                 normalColor = themeButtonColor(overlayTheme, "select", Color(0xFF2A3040)),
-                pressedColor = themePressedButtonColor(overlayTheme, "select")
+                pressedColor = themePressedButtonColor(overlayTheme, "select"),
+                image = selectImg,
+                pressedImage = selectImgPressed
             )
         }
         // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
         if (showLR && showLBtn) {
+            val (lImg, lImgPressed) = rememberThemeButtonImages(overlayTheme, "l")
             ShoulderButtonCanvas(
                 labelL, btnL, surfaceSize, opacity, visualState and lBit != 0,
                 normalColor = themeButtonColor(overlayTheme, "l", Color(0xFF2A3040)),
-                pressedColor = themePressedButtonColor(overlayTheme, "l")
+                pressedColor = themePressedButtonColor(overlayTheme, "l"),
+                image = lImg,
+                pressedImage = lImgPressed
             )
         }
         if (showLR && showRBtn) {
+            val (rImg, rImgPressed) = rememberThemeButtonImages(overlayTheme, "r")
             ShoulderButtonCanvas(
                 labelR, btnR, surfaceSize, opacity, visualState and rBit != 0,
                 normalColor = themeButtonColor(overlayTheme, "r", Color(0xFF2A3040)),
-                pressedColor = themePressedButtonColor(overlayTheme, "r")
+                pressedColor = themePressedButtonColor(overlayTheme, "r"),
+                image = rImg,
+                pressedImage = rImgPressed
             )
         }
         // X/Y face buttons (SNES/Arcade/MD/PCE/NDS/PSX/PS2)
@@ -4573,9 +4630,12 @@ fun OnScreenController(
                 GamePlatform.PS2 -> Color(0xFF3498DB)  // Blue (Square — PS2 X 位置在左)
                 else -> Color(0xFF3498DB)
             }
+            val (xImg, xImgPressed) = rememberThemeButtonImages(overlayTheme, "x")
             ActionButtonCanvas(
                 labelX, xColor, btnX, surfaceSize, opacity, visualState and BTN_X != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "x")
+                pressedColor = themePressedButtonColor(overlayTheme, "x"),
+                image = xImg,
+                pressedImage = xImgPressed
             )
         }
         if (showXY && showYBtn) {
@@ -4584,9 +4644,12 @@ fun OnScreenController(
                 GamePlatform.PS2 -> Color(0xFFE91E9B)  // Pink (Triangle — PS2 Y 位置在上)
                 else -> Color(0xFF2ECC71)
             }
+            val (yImg, yImgPressed) = rememberThemeButtonImages(overlayTheme, "y")
             ActionButtonCanvas(
                 labelY, yColor, btnY, surfaceSize, opacity, visualState and BTN_Y != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "y")
+                pressedColor = themePressedButtonColor(overlayTheme, "y"),
+                image = yImg,
+                pressedImage = yImgPressed
             )
         }
         // L2/R2 extra buttons:
@@ -4598,9 +4661,12 @@ fun OnScreenController(
                 GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF95A5A6)  // Silver/gray (DualShock L2)
                 else -> Color(0xFFFF9800)
             }
+            val (l2Img, l2ImgPressed) = rememberThemeButtonImages(overlayTheme, "l2")
             ActionButtonCanvas(
                 labelL2, l2Color, btnL2, surfaceSize, opacity, visualState and BTN_L2 != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "l2")
+                pressedColor = themePressedButtonColor(overlayTheme, "l2"),
+                image = l2Img,
+                pressedImage = l2ImgPressed
             )
         }
         if (showL2R2 && showR2Btn) {
@@ -4608,14 +4674,19 @@ fun OnScreenController(
                 GamePlatform.PSX, GamePlatform.PS2 -> Color(0xFF95A5A6)  // Silver/gray (DualShock R2)
                 else -> Color(0xFFFF9800)
             }
+            val (r2Img, r2ImgPressed) = rememberThemeButtonImages(overlayTheme, "r2")
             ActionButtonCanvas(
                 labelR2, r2Color, btnR2, surfaceSize, opacity, visualState and BTN_R2 != 0,
-                pressedColor = themePressedButtonColor(overlayTheme, "r2")
+                pressedColor = themePressedButtonColor(overlayTheme, "r2"),
+                image = r2Img,
+                pressedImage = r2ImgPressed
             )
         }
         // PS2 专属：双模拟摇杆（常驻，左下/右下）+ L3/R3 小按钮。
         // 摇杆输出真实模拟轴（onAnalogAxes），箭头高亮跟随数字方向位。
         if (isPs2) {
+            val (l3Img, l3ImgPressed) = rememberThemeButtonImages(overlayTheme, "l3")
+            val (r3Img, r3ImgPressed) = rememberThemeButtonImages(overlayTheme, "r3")
             AnalogStickCanvas(
                 layout = ps2LStick,
                 surfaceSize = surfaceSize,
@@ -4624,7 +4695,9 @@ fun OnScreenController(
                 thumbX = lStickTX,
                 thumbY = lStickTY,
                 thumbColor = themeButtonColor(overlayTheme, "l3", Color(0xFFFFD66B)),
-                thumbPressedColor = themePressedButtonColor(overlayTheme, "l3") ?: Color(0xFFFFE57F)
+                thumbPressedColor = themePressedButtonColor(overlayTheme, "l3") ?: Color(0xFFFFE57F),
+                image = l3Img,
+                pressedImage = l3ImgPressed
             )
             AnalogStickCanvas(
                 layout = ps2RStick,
@@ -4634,24 +4707,31 @@ fun OnScreenController(
                 thumbX = rStickTX,
                 thumbY = rStickTY,
                 thumbColor = themeButtonColor(overlayTheme, "r3", Color(0xFFFFD66B)),
-                thumbPressedColor = themePressedButtonColor(overlayTheme, "r3") ?: Color(0xFFFFE57F)
+                thumbPressedColor = themePressedButtonColor(overlayTheme, "r3") ?: Color(0xFFFFE57F),
+                image = r3Img,
+                pressedImage = r3ImgPressed
             )
             if (showL3Btn) {
                 ActionButtonCanvas(
                     "L3", Color(0xFF95A5A6), ps2BtnL3, surfaceSize, opacity, visualState and BTN_L3 != 0,
-                    pressedColor = themePressedButtonColor(overlayTheme, "l3")
+                    pressedColor = themePressedButtonColor(overlayTheme, "l3"),
+                    image = l3Img,
+                    pressedImage = l3ImgPressed
                 )
             }
             if (showR3Btn) {
                 ActionButtonCanvas(
                     "R3", Color(0xFF95A5A6), ps2BtnR3, surfaceSize, opacity, visualState and BTN_R3 != 0,
-                    pressedColor = themePressedButtonColor(overlayTheme, "r3")
+                    pressedColor = themePressedButtonColor(overlayTheme, "r3"),
+                    image = r3Img,
+                    pressedImage = r3ImgPressed
                 )
             }
         }
         // Combo buttons (per-platform, user-defined)
         comboList.forEach { combo ->
             val pressed = (visualState and combo.bits) == combo.bits
+            val (comboImg, comboImgPressed) = rememberThemeButtonImages(overlayTheme, "combo_${combo.id}")
             ActionButtonCanvas(
                 combo.label,
                 Color(combo.color),
@@ -4659,7 +4739,9 @@ fun OnScreenController(
                 surfaceSize,
                 opacity,
                 pressed,
-                pressedColor = themePressedButtonColor(overlayTheme, "combo_${combo.id}")
+                pressedColor = themePressedButtonColor(overlayTheme, "combo_${combo.id}"),
+                image = comboImg,
+                pressedImage = comboImgPressed
             )
         }
     }
@@ -4762,6 +4844,25 @@ private fun themePressedButtonColor(
 ): Color? =
     theme.buttons[buttonId]?.pressedColor?.let { Color(it) }
 
+/** 从主题读取并解码某按键的常规/按压图片；未配置时对应项为 null。 */
+@Composable
+private fun rememberThemeButtonImages(
+    theme: com.nesstation.app.core.storage.OverlayTheme,
+    buttonId: String
+): Pair<androidx.compose.ui.graphics.ImageBitmap?, androidx.compose.ui.graphics.ImageBitmap?> {
+    val ctx = LocalContext.current
+    val btn = theme.buttons[buttonId]
+    val normalUri = btn?.imageUri
+    val pressedUri = btn?.pressedImageUri
+    val normal = remember(normalUri) {
+        normalUri?.let { FsdImaging.decodeUri(ctx, it, 256, 256)?.asImageBitmap() }
+    }
+    val pressed = remember(pressedUri) {
+        pressedUri?.let { FsdImaging.decodeUri(ctx, it, 256, 256)?.asImageBitmap() }
+    }
+    return normal to pressed
+}
+
 @Composable
 private fun DpadCanvas(
     layout: ButtonLayout,
@@ -4769,17 +4870,30 @@ private fun DpadCanvas(
     opacity: Float,
     pressedDirs: Int,
     armColor: Color = Color(0xFF2C2C38),
-    pressedTipColor: Color = Color(0xFFFFD66B)
+    pressedTipColor: Color = Color(0xFFFFD66B),
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
+    val activeImage = if (pressedDirs != 0) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
-            .size(sizeDp)
+            .size(sizeDp),
+        contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -4842,17 +4956,30 @@ private fun AnalogStickCanvas(
     thumbX: Float,
     thumbY: Float,
     thumbColor: Color = Color(0xFFFFD66B),
-    thumbPressedColor: Color = Color(0xFFFFE57F)
+    thumbPressedColor: Color = Color(0xFFFFE57F),
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
+    val activeImage = if (pressedDirs != 0) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
-            .size(sizeDp)
+            .size(sizeDp),
+        contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -4928,43 +5055,67 @@ private fun AnalogStickCanvas(
 @Composable
 private fun ActionButtonCanvas(
     label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
-    pressedColor: Color? = null
+    pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.46f
-            drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
-            drawCircle(
-                if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                else color.copy(alpha = opacity),
-                r, Offset(cx, cy)
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            drawCircle(Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f), r * 0.7f, Offset(cx - r * 0.15f, cy - r * 0.15f))
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.46f
+                drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
+                drawCircle(
+                    if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                    else color.copy(alpha = opacity),
+                    r, Offset(cx, cy)
+                )
+                drawCircle(Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f), r * 0.7f, Offset(cx - r * 0.15f, cy - r * 0.15f))
+            }
+            Text(label, color = Color.White, fontSize = (sizeDp.value * 0.35f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
-        Text(label, color = Color.White, fontSize = (sizeDp.value * 0.35f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
 }
 
 @Composable
 private fun TurboButtonCanvas(
     label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
-    pressedColor: Color? = null
+    pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val (px, py) = buttonOffset(layout, surfaceSize, density)
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.44f
             drawCircle(color.copy(alpha = opacity * 0.4f), r + 2.dp.toPx(), Offset(cx, cy), style = Stroke(width = 1.5.dp.toPx()))
@@ -4981,7 +5132,9 @@ private fun TurboButtonCanvas(
 @Composable
 private fun PillButtonCanvas(
     label: String, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
-    normalColor: Color = Color(0xFF2A3040), pressedColor: Color? = null
+    normalColor: Color = Color(0xFF2A3040), pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -4991,11 +5144,21 @@ private fun PillButtonCanvas(
     val hPx = with(density) { heightDp.toPx() }
     val px = surfaceSize.width * layout.x - wPx / 2
     val py = surfaceSize.height * layout.y - hPx / 2
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(width = widthDp, height = heightDp),
         contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height; val r = h * 0.4f
             val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
@@ -5019,7 +5182,9 @@ private fun ShoulderButtonCanvas(
     opacity: Float,
     isPressed: Boolean,
     normalColor: Color = Color(0xFF2A3040),
-    pressedColor: Color? = null
+    pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -5029,11 +5194,21 @@ private fun ShoulderButtonCanvas(
     val hPx = with(density) { heightDp.toPx() }
     val px = surfaceSize.width * layout.x - wPx / 2
     val py = surfaceSize.height * layout.y - hPx / 2
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier.offset { IntOffset(px.toInt(), py.toInt()) }.size(width = widthDp, height = heightDp),
         contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height; val r = h * 0.4f
             val cr = androidx.compose.ui.geometry.CornerRadius(r, r)

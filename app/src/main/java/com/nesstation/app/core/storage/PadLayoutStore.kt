@@ -443,7 +443,7 @@ class PadLayout {
     var ndsMicInput: String = "Blow Noise"              // Blow Noise | White Noise (麦克风输入类型)
     var ndsLanguage: String = "English"                  // Japanese | English | French | German | Italian | Spanish
     var ndsAudioBitrate: String = "Automatic"            // Automatic | 10-bit | 16-bit
-    var ndsJitBlockSize: String = "12"                  // 1..24 JIT 块大小
+    var ndsJitBlockSize: String = "32"                  // 1..32 JIT 块大小（与 melonDS 核心默认一致）
     var ndsJitFastMemory: String = "enabled"             // enabled | disabled
     var ndsJitBranchOptimisations: String = "enabled"    // enabled | disabled
     var ndsJitLiteralOptimisations: String = "enabled"   // enabled | disabled

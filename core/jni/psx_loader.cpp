@@ -238,87 +238,97 @@ static std::atomic<uint32_t> s_pendingPortDevices{0xFFu << 24};
 //     interpretation; we use the canonical default "1.00").
 // ---------------------------------------------------------------------------
 static void initDefaultOptions() {
+    // Only fill defaults for keys that have not already been set by the UI
+    // (applyCoreOptions -> setCoreOption runs BEFORE loadRom on first load).
+    // Using direct assignment here would overwrite the user's dynarec /
+    // threading choices with the defaults below, making them silently ignored.
+    auto setIfMissing = [](const std::string& key, const std::string& val) {
+        if (s_options.find(key) == s_options.end()) {
+            s_options[key] = val;
+        }
+    };
+
     // --- System / BIOS ---
-    s_options["pcsx_rearmed_region"]             = "auto";      // auto | NTSC | PAL
-    s_options["pcsx_rearmed_bios"]                = "auto";      // auto | HLE
-    s_options["pcsx_rearmed_show_bios_bootlogo"]  = "disabled";  // disabled | enabled | enabled_no_pcsx
-    s_options["pcsx_rearmed_memcard1"]            = "libretro";  // libretro | serial | shared | none
-    s_options["pcsx_rearmed_memcard2"]            = "shared";   // serial | shared | none
-    s_options["pcsx_rearmed_cd_readahead"]        = "12";       // 0..16,32,64,128,256,512,1024,333000
+    setIfMissing("pcsx_rearmed_region",             "auto");      // auto | NTSC | PAL
+    setIfMissing("pcsx_rearmed_bios",                "auto");      // auto | HLE
+    setIfMissing("pcsx_rearmed_show_bios_bootlogo",  "disabled");  // disabled | enabled | enabled_no_pcsx
+    setIfMissing("pcsx_rearmed_memcard1",            "libretro");  // libretro | serial | shared | none
+    setIfMissing("pcsx_rearmed_memcard2",            "shared");   // serial | shared | none
+    setIfMissing("pcsx_rearmed_cd_readahead",        "12");       // 0..16,32,64,128,256,512,1024,333000
 
     // --- CPU / Dynarec ---
-    s_options["pcsx_rearmed_drc"]                 = "enabled";   // disabled | enabled (dynarec)
-    s_options["pcsx_rearmed_psxclock"]            = "auto";      // auto | 30..100 (CPU overclock %)
-    s_options["pcsx_rearmed_icache_emulation"]     = "enabled";   // required for F1 2001 / F1 Arcade / F1 99
-    s_options["pcsx_rearmed_exception_emulation"] = "disabled";  // debug-only feature
-    s_options["pcsx_rearmed_nocompathacks"]        = "disabled";  // auto per-game compat hacks ON
-    s_options["pcsx_rearmed_nostalls"]             = "disabled";  // disable CPU/GTE stalls (unsafe)
-    s_options["pcsx_rearmed_cd_turbo"]             = "disabled";  // unsafe speed hack
+    setIfMissing("pcsx_rearmed_drc",                 "enabled");   // disabled | enabled (dynarec)
+    setIfMissing("pcsx_rearmed_psxclock",            "auto");      // auto | 30..100 (CPU overclock %)
+    setIfMissing("pcsx_rearmed_icache_emulation",     "enabled");   // required for F1 2001 / F1 Arcade / F1 99
+    setIfMissing("pcsx_rearmed_exception_emulation", "disabled");  // debug-only feature
+    setIfMissing("pcsx_rearmed_nocompathacks",        "disabled");  // auto per-game compat hacks ON
+    setIfMissing("pcsx_rearmed_nostalls",             "disabled");  // disable CPU/GTE stalls (unsafe)
+    setIfMissing("pcsx_rearmed_cd_turbo",             "disabled");  // unsafe speed hack
 
     // --- Video / GPU ---
-    s_options["pcsx_rearmed_dithering"]            = "enabled";   // disabled | enabled | force
-    s_options["pcsx_rearmed_frameskip_type"]       = "disabled";  // disabled|auto|auto_threshold|fixed_interval
-    s_options["pcsx_rearmed_frameskip_threshold"]  = "33";        // % (used when frameskip_type=auto_threshold)
-    s_options["pcsx_rearmed_frameskip_interval"]   = "3";         // max frames skipped (fixed_interval mode)
-    s_options["pcsx_rearmed_display_fps_v2"]       = "disabled";  // show internal FPS overlay
-    s_options["pcsx_rearmed_display_info"]         = "enabled";   // show informational OSD messages
-    s_options["pcsx_rearmed_fractional_framerate"]  = "auto";      // auto | disabled | enabled
-    s_options["pcsx_rearmed_alt_flip"]             = "auto";      // auto | early | late
-    s_options["pcsx_rearmed_rgb32_output"]         = "disabled";  // 32-bit color (higher CPU use)
-    s_options["pcsx_rearmed_scale_hires"]          = "disabled";  // downscale 480i/512i -> 320x240
-    s_options["pcsx_rearmed_gpu_slow_llists"]     = "disabled";  // slow linked-list GPU processing
-    s_options["pcsx_rearmed_show_overscan"]        = "disabled";  // show overscan area
-    s_options["pcsx_rearmed_neon_interlace_enable_v2"] = "disabled";  // neon interlace (gpu_neon)
-    s_options["pcsx_rearmed_neon_enhancement_enable"]  = "disabled";  // neon upscaling (gpu_neon)
+    setIfMissing("pcsx_rearmed_dithering",            "enabled");   // disabled | enabled | force
+    setIfMissing("pcsx_rearmed_frameskip_type",       "disabled");  // disabled|auto|auto_threshold|fixed_interval
+    setIfMissing("pcsx_rearmed_frameskip_threshold",  "33");        // % (used when frameskip_type=auto_threshold)
+    setIfMissing("pcsx_rearmed_frameskip_interval",   "3");         // max frames skipped (fixed_interval mode)
+    setIfMissing("pcsx_rearmed_display_fps_v2",       "disabled");  // show internal FPS overlay
+    setIfMissing("pcsx_rearmed_display_info",         "enabled");   // show informational OSD messages
+    setIfMissing("pcsx_rearmed_fractional_framerate",  "auto");      // auto | disabled | enabled
+    setIfMissing("pcsx_rearmed_alt_flip",             "auto");      // auto | early | late
+    setIfMissing("pcsx_rearmed_rgb32_output",         "disabled");  // 32-bit color (higher CPU use)
+    setIfMissing("pcsx_rearmed_scale_hires",          "disabled");  // downscale 480i/512i -> 320x240
+    setIfMissing("pcsx_rearmed_gpu_slow_llists",     "disabled");  // slow linked-list GPU processing
+    setIfMissing("pcsx_rearmed_show_overscan",        "disabled");  // show overscan area
+    setIfMissing("pcsx_rearmed_neon_interlace_enable_v2", "disabled");  // neon interlace (gpu_neon)
+    setIfMissing("pcsx_rearmed_neon_enhancement_enable",  "disabled");  // neon upscaling (gpu_neon)
 
     // --- GPU PEOPS advanced (only used if GPU plugin is gpu_peops) ---
-    s_options["pcsx_rearmed_gpu_peops_odd_even_bit"]        = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_expand_screen_width"] = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_ignore_brightness"]   = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_disable_coord_check"] = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_lazy_screen_update"]  = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_repeated_triangles"]  = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_quads_with_triangles"] = "disabled";
-    s_options["pcsx_rearmed_gpu_peops_fake_busy_state"]     = "disabled";
+    setIfMissing("pcsx_rearmed_gpu_peops_odd_even_bit",        "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_expand_screen_width", "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_ignore_brightness",   "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_disable_coord_check", "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_lazy_screen_update",  "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_repeated_triangles",  "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_quads_with_triangles", "disabled");
+    setIfMissing("pcsx_rearmed_gpu_peops_fake_busy_state",     "disabled");
 
     // --- GPU UNAI advanced (only used if GPU plugin is gpu_unai) ---
-    s_options["pcsx_rearmed_gpu_unai_old_renderer"]  = "disabled";
-    s_options["pcsx_rearmed_gpu_unai_blending"]      = "enabled";
-    s_options["pcsx_rearmed_gpu_unai_skipline"]      = "disabled";
-    s_options["pcsx_rearmed_gpu_unai_lighting"]      = "enabled";
-    s_options["pcsx_rearmed_gpu_unai_fast_lighting"] = "disabled";
+    setIfMissing("pcsx_rearmed_gpu_unai_old_renderer",  "disabled");
+    setIfMissing("pcsx_rearmed_gpu_unai_blending",      "enabled");
+    setIfMissing("pcsx_rearmed_gpu_unai_skipline",      "disabled");
+    setIfMissing("pcsx_rearmed_gpu_unai_lighting",      "enabled");
+    setIfMissing("pcsx_rearmed_gpu_unai_fast_lighting", "disabled");
 
     // --- Audio / SPU ---
-    s_options["pcsx_rearmed_spu_reverb"]            = "enabled";   // disabled | enabled
-    s_options["pcsx_rearmed_spu_interpolation"]     = "simple";    // simple | gaussian | cubic | off
-    s_options["pcsx_rearmed_nocdaudio"]              = "enabled";   // enabled = play CD-DA (note inverted logic)
-    s_options["pcsx_rearmed_noxadecoding"]           = "enabled";   // enabled = play XA audio (inverted logic)
-    s_options["pcsx_rearmed_spu_thread"]             = "disabled";  // threaded SPU (USE_ASYNC_SPU only)
+    setIfMissing("pcsx_rearmed_spu_reverb",            "enabled");   // disabled | enabled
+    setIfMissing("pcsx_rearmed_spu_interpolation",     "simple");    // simple | gaussian | cubic | off
+    setIfMissing("pcsx_rearmed_nocdaudio",              "enabled");   // enabled = play CD-DA (note inverted logic)
+    setIfMissing("pcsx_rearmed_noxadecoding",           "enabled");   // enabled = play XA audio (inverted logic)
+    setIfMissing("pcsx_rearmed_spu_thread",             "disabled");  // threaded SPU (USE_ASYNC_SPU only)
 
     // --- Performance / threading ---
     // pcsx_rearmed_gpu_thread_rendering: runs GPU commands on a worker thread.
     //   'auto' enables it when ≥2 CPU cores are detected — a large win on all
     //   modern Android devices. Same for drc_thread (dynarec runs in its own
     //   thread). Both default to upstream 'auto'.
-    s_options["pcsx_rearmed_drc_thread"]              = "auto";      // auto | disabled | enabled
-    s_options["pcsx_rearmed_gpu_thread_rendering"]    = "auto";      // auto | disabled | enabled
+    setIfMissing("pcsx_rearmed_drc_thread",              "auto");      // auto | disabled | enabled
+    setIfMissing("pcsx_rearmed_gpu_thread_rendering",    "auto");      // auto | disabled | enabled
 
     // --- Display geometry / misc ---
-    s_options["pcsx_rearmed_screen_centering"]        = "auto";      // auto | game | borderless | manual
+    setIfMissing("pcsx_rearmed_screen_centering",        "auto");      // auto | game | borderless | manual
 
     // --- Input ---
-    s_options["pcsx_rearmed_show_input_settings"]    = "disabled";  // hide advanced input options
-    s_options["pcsx_rearmed_analog_axis_modifier"]  = "square";    // circle | square (analog stick bounds)
-    s_options["pcsx_rearmed_vibration"]              = "enabled";   // rumble on DualShock
-    s_options["pcsx_rearmed_analog_combo"]           = "l1+r1+select";  // DualShock mode toggle combo
-    s_options["pcsx_rearmed_multitap"]               = "disabled";  // disabled | port 1 | port 2 | ports 1 and 2
-    s_options["pcsx_rearmed_negcon_deadzone"]        = "0";         // 0% .. 30% (neGcon twist deadzone)
-    s_options["pcsx_rearmed_negcon_response"]        = "linear";    // linear | quadratic | cubic
-    s_options["pcsx_rearmed_input_sensitivity"]      = "1.00";      // mouse sensitivity (0.05 .. 2.00)
+    setIfMissing("pcsx_rearmed_show_input_settings",    "disabled");  // hide advanced input options
+    setIfMissing("pcsx_rearmed_analog_axis_modifier",  "square");    // circle | square (analog stick bounds)
+    setIfMissing("pcsx_rearmed_vibration",              "enabled");   // rumble on DualShock
+    setIfMissing("pcsx_rearmed_analog_combo",           "l1+r1+select");  // DualShock mode toggle combo
+    setIfMissing("pcsx_rearmed_multitap",               "disabled");  // disabled | port 1 | port 2 | ports 1 and 2
+    setIfMissing("pcsx_rearmed_negcon_deadzone",        "0");         // 0% .. 30% (neGcon twist deadzone)
+    setIfMissing("pcsx_rearmed_negcon_response",        "linear");    // linear | quadratic | cubic
+    setIfMissing("pcsx_rearmed_input_sensitivity",      "1.00");      // mouse sensitivity (0.05 .. 2.00)
 
     // --- Light gun (rarely used on Android — no lightgun support in this UI) ---
-    s_options["pcsx_rearmed_crosshair1"]            = "disabled";  // disabled | blue | green | red | white
-    s_options["pcsx_rearmed_crosshair2"]            = "disabled";
+    setIfMissing("pcsx_rearmed_crosshair1",            "disabled");  // disabled | blue | green | red | white
+    setIfMissing("pcsx_rearmed_crosshair2",            "disabled");
 }
 
 // ---------------------------------------------------------------------------

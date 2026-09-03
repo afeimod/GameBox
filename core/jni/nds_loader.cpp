@@ -544,13 +544,12 @@ static void initDefaultOptions() {
     setIfMissing("melonds_audio_interpolation", "Cosine");
 
     // --- Renderer / Input / Touch ---
-    // OpenGL renderer. DISABLED by default: this Android build has no
-    // usable GL path (the wrapper never sends RETRO_ENVIRONMENT_SET_HW_RENDER,
-    // so no EGL context is created and glad_glXxx pointers are never
-    // initialized — enabling the GL renderer crashes loadRom at pc=0).
-    // We use the software 3D renderer (GPU3D_Soft). Even if the option is
-    // later set to "enabled", initialize_opengl() safely falls back.
-    setIfMissing("melonds_opengl_renderer",        "disabled");
+    // OpenGL renderer. ENABLED by default: this build has a full EGL/GLES3.2
+    // path (createEglContext + RETRO_ENVIRONMENT_SET_HW_RENDER handler call
+    // context_reset and wire up glad), so hardware 3D rendering is available.
+    // If EGL/GLES init fails on a device, initialize_opengl() safely falls
+    // back to the software 3D renderer (GPU3D_Soft) — this is non-fatal.
+    setIfMissing("melonds_opengl_renderer",        "enabled");
     // OpenGL 3D rendering resolution (1x = native 256x192, etc.).
     // The value format MUST match libretro_core_options.h exactly:
     // "1x native (256x192)" .. "8x native (2048x1536)".

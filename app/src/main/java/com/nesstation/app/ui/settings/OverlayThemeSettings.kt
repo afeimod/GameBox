@@ -1,5 +1,8 @@
 package com.nesstation.app.ui.settings
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +98,35 @@ private fun ColorPaletteRow(current: Long?, onSelect: (Long?) -> Unit) {
     }
 }
 
+/** 按键图片槽位：点击选择图片；已设置时可单独清除。 */
+@Composable
+private fun ImageSlotChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    onClear: (() -> Unit)?
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .background(if (active) Color(0x332ECC71) else Color(0x0A000000), RoundedCornerShape(8.dp))
+            .border(1.dp, if (active) Color(0x662ECC71) else Color(0x22000000), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(label, fontSize = 11.sp, color = if (active) Color(0xFF1E7D4B) else Color(0x88000000))
+        if (onClear != null) {
+            Text(
+                "✕",
+                fontSize = 11.sp,
+                color = Color(0xFFFF6B6B),
+                modifier = Modifier.clickable { onClear() }
+            )
+        }
+    }
+}
+
 /**
  * 每个核心设置页里的「遮罩 / 按钮主题」入口区块。
  * 点击后打开编辑对话框；改动通过 updateLayout 写回
@@ -149,6 +182,41 @@ private fun OverlayThemeDialog(
     var editingButton by remember { mutableStateOf<String?>(null) }
     var editingSlot by remember { mutableStateOf("color") }
 
+    val context = LocalContext.current
+    // 图片选择目标：bg / mask / btn:<id>:normal / btn:<id>:pressed
+    var pendingImageTarget by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val target = pendingImageTarget ?: return@rememberLauncherForActivityResult
+        pendingImageTarget = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: Exception) { }
+        val u = uri.toString()
+        edit = when {
+            target == "bg" -> edit.copy(bgImageUri = u)
+            target == "mask" -> edit.copy(maskImageUri = u)
+            target.startsWith("btn:") -> {
+                val parts = target.removePrefix("btn:").split(":")
+                val id = parts[0]
+                val slot = parts.getOrElse(1) { "normal" }
+                val old = edit.button(id) ?: ButtonTheme()
+                val newTheme = if (slot == "pressed") old.copy(pressedImageUri = u)
+                               else old.copy(imageUri = u)
+                edit.copy().also { it.setButton(id, newTheme) }
+            }
+            else -> edit
+        }
+    }
+    fun pickImage(target: String) {
+        pendingImageTarget = target
+        imagePicker.launch(arrayOf("image/png", "image/jpeg"))
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("遮罩 / 按钮主题", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
@@ -161,6 +229,19 @@ private fun OverlayThemeDialog(
                 Text("背景颜色（游戏画面周边）", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 ColorPaletteRow(current = edit.bgColor) { c ->
                     edit = edit.copy(bgColor = c)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (edit.bgImageUri != null) "背景图片：已设置" else "背景图片（png/jpg）",
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (edit.bgImageUri != null) {
+                        TextButton(onClick = { edit = edit.copy(bgImageUri = null) }) {
+                            Text("清除", fontSize = 12.sp)
+                        }
+                    }
+                    TextButton(onClick = { pickImage("bg") }) { Text("选择图片", fontSize = 12.sp) }
                 }
 
                 // === 画面遮罩 ===
@@ -187,6 +268,19 @@ private fun OverlayThemeDialog(
                     ColorPaletteRow(current = edit.maskColor) { c ->
                         edit = edit.copy(maskColor = c ?: 0xFF000000)
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (edit.maskImageUri != null) "遮罩图片：已设置" else "遮罩图片（png/jpg）",
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (edit.maskImageUri != null) {
+                            TextButton(onClick = { edit = edit.copy(maskImageUri = null) }) {
+                                Text("清除", fontSize = 12.sp)
+                            }
+                        }
+                        TextButton(onClick = { pickImage("mask") }) { Text("选择图片", fontSize = 12.sp) }
+                    }
                 }
 
                 // === 按键主题 ===
@@ -201,47 +295,81 @@ private fun OverlayThemeDialog(
                         val btnTheme = edit.button(id)
                         val normal = btnTheme?.color
                         val pressed = btnTheme?.pressedColor
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        val hasNormalImg = btnTheme?.imageUri != null
+                        val hasPressedImg = btnTheme?.pressedImageUri != null
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color(0x14000000), RoundedCornerShape(10.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(label, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            // 常规色
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(if (normal != null) Color(normal) else Color(0xFF666666), CircleShape)
-                                    .border(1.dp, Color(0x33000000), CircleShape)
-                                    .clickable { editingButton = id; editingSlot = "color" },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (normal == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                // 常规色
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(if (normal != null) Color(normal) else Color(0xFF666666), CircleShape)
+                                        .border(1.dp, Color(0x33000000), CircleShape)
+                                        .clickable { editingButton = id; editingSlot = "color" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (normal == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                                }
+                                Box(Modifier.size(6.dp))
+                                // 按压色
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(if (pressed != null) Color(pressed) else Color(0xFF888888), CircleShape)
+                                        .border(1.dp, Color(0x33000000), CircleShape)
+                                        .clickable { editingButton = id; editingSlot = "pressed" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (pressed == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                                }
+                                Box(Modifier.size(8.dp))
+                                // 恢复默认
+                                Text("重置", fontSize = 11.sp, color = Color(0x88000000))
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .background(Color.Transparent, CircleShape)
+                                        .border(1.dp, Color(0x33000000), CircleShape)
+                                        .clickable { edit.setButton(id, ButtonTheme(null, null)) }
+                                )
                             }
-                            Box(Modifier.size(6.dp))
-                            // 按压色
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(if (pressed != null) Color(pressed) else Color(0xFF888888), CircleShape)
-                                    .border(1.dp, Color(0x33000000), CircleShape)
-                                    .clickable { editingButton = id; editingSlot = "pressed" },
-                                contentAlignment = Alignment.Center
+                            // 图片（常规 / 按压）选择与清除
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (pressed == null) Text("✕", color = Color.White, fontSize = 10.sp)
+                                ImageSlotChip(
+                                    label = "常规图",
+                                    active = hasNormalImg,
+                                    onClick = { pickImage("btn:$id:normal") },
+                                    onClear = if (hasNormalImg) {
+                                        {
+                                            edit = edit.copy().also {
+                                                it.setButton(id, (it.button(id) ?: ButtonTheme()).copy(imageUri = null))
+                                            }
+                                        }
+                                    } else null
+                                )
+                                ImageSlotChip(
+                                    label = "按压图",
+                                    active = hasPressedImg,
+                                    onClick = { pickImage("btn:$id:pressed") },
+                                    onClear = if (hasPressedImg) {
+                                        {
+                                            edit = edit.copy().also {
+                                                it.setButton(id, (it.button(id) ?: ButtonTheme()).copy(pressedImageUri = null))
+                                            }
+                                        }
+                                    } else null
+                                )
                             }
-                            Box(Modifier.size(8.dp))
-                            // 恢复默认
-                            Text("重置", fontSize = 11.sp, color = Color(0x88000000))
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .background(Color.Transparent, CircleShape)
-                                    .border(1.dp, Color(0x33000000), CircleShape)
-                                    .clickable { edit.setButton(id, ButtonTheme(null, null)) }
-                            )
                         }
                     }
                 }

@@ -5,29 +5,35 @@ import com.google.gson.reflect.TypeToken
 import com.nesstation.app.core.model.GamePlatform
 
 /**
- * 单个按键的主题色。
+ * 单个按键的主题（颜色或自定义图片，二者可并存）。
  *
  * 所有颜色用 Long?（ARGB，如 0xFFE74C3C），null 表示「使用该核心的默认色」，
  * 未配置时整个 ButtonTheme 可以为 null。存储层用 Gson 序列化进
  * [PadLayout.overlayThemeJson] 的 JSON blob（每核心独立，互不影响）。
  *
- * @param color        常规状态下按键颜色；null = 默认色
- * @param pressedColor 按压状态下按键颜色；null = 使用默认按压效果（提亮 + 高光）
+ * @param color           常规状态下按键颜色；null = 默认色
+ * @param pressedColor    按压状态下按键颜色；null = 使用默认按压效果（提亮 + 高光）
+ * @param imageUri        常规状态按键图片（png/jpg，SAF 持久 URI）；null = 不用图片
+ * @param pressedImageUri 按压状态按键图片；null = 复用 [imageUri]（若设置了）或默认按压效果
  */
 data class ButtonTheme(
     val color: Long? = null,
-    val pressedColor: Long? = null
+    val pressedColor: Long? = null,
+    val imageUri: String? = null,
+    val pressedImageUri: String? = null
 )
 
 /**
  * 画面遮罩 / 按键主题配置（每个模拟核心独立一份）。
  *
  * 背景遮罩（游戏画面周边）：
- *  - [bgColor]   ：游戏画面周边的背景颜色（letterbox / 空白区域）；
- *                  null = 默认纯黑
- *  - [maskEnabled]：是否在游戏画面上叠加一层半透明遮罩
- *  - [maskColor]  ：遮罩颜色（ARGB），常与 [maskAlpha] 配合
- *  - [maskAlpha]  ：遮罩强度 0–255（叠加到 maskColor 的 alpha 上）
+ *  - [bgColor]     ：游戏画面周边的背景颜色（letterbox / 空白区域）；
+ *                    null = 默认纯黑
+ *  - [bgImageUri]  ：背景图片（png/jpg，SAF 持久 URI）；设置后优先于 [bgColor]
+ *  - [maskEnabled] ：是否在游戏画面上叠加一层半透明遮罩
+ *  - [maskColor]   ：遮罩颜色（ARGB），常与 [maskAlpha] 配合
+ *  - [maskAlpha]   ：遮罩强度 0–255（叠加到 maskColor 的 alpha 上）
+ *  - [maskImageUri]：遮罩图片（png/jpg，SAF 持久 URI）；设置后优先于 [maskColor]
  *
  * 按键主题：
  *  - [buttons]：按键 id → [ButtonTheme]，id 与
@@ -37,9 +43,11 @@ data class ButtonTheme(
  */
 data class OverlayTheme(
     val bgColor: Long? = null,
+    val bgImageUri: String? = null,
     val maskEnabled: Boolean = false,
     val maskColor: Long = 0xFF000000,
     val maskAlpha: Int = 80,
+    val maskImageUri: String? = null,
     val buttons: MutableMap<String, ButtonTheme> = mutableMapOf()
 ) {
     /** 是否已经对任意按键做过自定义（用于 UI 显示“恢复默认”入口）。 */
@@ -48,11 +56,12 @@ data class OverlayTheme(
     fun button(id: String): ButtonTheme? = buttons[id]
 
     /**
-     * 设置某按键的主题。常规色与按压色都为空时移除该按键配置
+     * 设置某按键的主题。颜色与图片字段都为空时移除该按键配置
      *（还原为核心默认色）。
      */
     fun setButton(id: String, theme: ButtonTheme): OverlayTheme {
-        if (theme.color == null && theme.pressedColor == null) {
+        if (theme.color == null && theme.pressedColor == null &&
+            theme.imageUri == null && theme.pressedImageUri == null) {
             buttons.remove(id)
         } else {
             buttons[id] = theme
