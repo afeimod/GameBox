@@ -1,6 +1,7 @@
 package com.nesstation.app.ui.emulator
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -24,12 +25,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -396,42 +399,63 @@ private fun J2meGamepadOverlay(
             }
     ) {
         // Draw D-pad
+        val (dpadImg, dpadImgPressed) = rememberThemeButtonImages(overlayTheme, "dpad")
         J2meDpadCanvas(
             dpad, surfaceSize, opacity, visualState and 0xF0,
             armColorInput = j2meThemeColor(overlayTheme, "dpad", Color(0xFF39445A)),
-            pressedColorInput = j2meThemePressed(overlayTheme, "dpad") ?: Color(0xFFFFD66B)
+            pressedColorInput = j2meThemePressed(overlayTheme, "dpad") ?: Color(0xFFFFD66B),
+            image = dpadImg,
+            pressedImage = dpadImgPressed
         )
         // Draw A
+        val (aImg, aImgPressed) = rememberThemeButtonImages(overlayTheme, "a")
         J2meActionButton(
             "A", Color(0xFFE74C3C), btnA, surfaceSize, opacity, visualState and J2ME_BTN_A != 0,
-            pressedColor = j2meThemePressed(overlayTheme, "a")
+            pressedColor = j2meThemePressed(overlayTheme, "a"),
+            image = aImg,
+            pressedImage = aImgPressed
         )
         // Draw B
+        val (bImg, bImgPressed) = rememberThemeButtonImages(overlayTheme, "b")
         J2meActionButton(
             "B", Color(0xFFE67E22), btnB, surfaceSize, opacity, visualState and J2ME_BTN_B != 0,
-            pressedColor = j2meThemePressed(overlayTheme, "b")
+            pressedColor = j2meThemePressed(overlayTheme, "b"),
+            image = bImg,
+            pressedImage = bImgPressed
         )
         // Draw X
+        val (xImg, xImgPressed) = rememberThemeButtonImages(overlayTheme, "x")
         J2meActionButton(
             "X", Color(0xFF3498DB), btnX, surfaceSize, opacity, visualState and J2ME_BTN_X != 0,
-            pressedColor = j2meThemePressed(overlayTheme, "x")
+            pressedColor = j2meThemePressed(overlayTheme, "x"),
+            image = xImg,
+            pressedImage = xImgPressed
         )
         // Draw Y
+        val (yImg, yImgPressed) = rememberThemeButtonImages(overlayTheme, "y")
         J2meActionButton(
             "Y", Color(0xFF2ECC71), btnY, surfaceSize, opacity, visualState and J2ME_BTN_Y != 0,
-            pressedColor = j2meThemePressed(overlayTheme, "y")
+            pressedColor = j2meThemePressed(overlayTheme, "y"),
+            image = yImg,
+            pressedImage = yImgPressed
         )
         // Draw Start
+        val (startImg, startImgPressed) = rememberThemeButtonImages(overlayTheme, "start")
         J2mePillButton(
             "START", btnStart, surfaceSize, opacity, visualState and J2ME_BTN_START != 0,
             normalColor = j2meThemeColor(overlayTheme, "start", Color(0xFF95A5A6)),
-            pressedColor = j2meThemePressed(overlayTheme, "start")
+            pressedColor = j2meThemePressed(overlayTheme, "start"),
+            image = startImg,
+            pressedImage = startImgPressed
         )
         // Draw Select
+        val (selectImg, selectImgPressed) = rememberThemeButtonImages(overlayTheme, "select")
         J2mePillButton(
             "SELECT", btnSelect, surfaceSize, opacity, visualState and J2ME_BTN_SELECT != 0,
             normalColor = j2meThemeColor(overlayTheme, "select", Color(0xFF95A5A6)),
-            pressedColor = j2meThemePressed(overlayTheme, "select")
+            pressedColor = j2meThemePressed(overlayTheme, "select"),
+            image = selectImg,
+            pressedImage = selectImgPressed
         )
 
         // Draw number pad (toggle via "123" button) — J2ME 游戏经常需要数字输入
@@ -745,19 +769,32 @@ private fun J2meDpadCanvas(
     opacity: Float,
     pressedDirs: Int,
     armColorInput: Color = Color(0xFF39445A),
-    pressedColorInput: Color = Color(0xFFFFD66B)
+    pressedColorInput: Color = Color(0xFFFFD66B),
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val sizePx = with(density) { sizeDp.toPx() }
     val px = (surfaceSize.width * layout.x - sizePx / 2f)
     val py = (surfaceSize.height * layout.y - sizePx / 2f)
+    val activeImage = if (pressedDirs != 0) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier
             .offset { IntOffset(px.toInt(), py.toInt()) }
-            .size(sizeDp)
+            .size(sizeDp),
+        contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -805,13 +842,16 @@ private fun J2meDpadCanvas(
 @Composable
 private fun J2meActionButton(
     label: String, color: Color, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
-    pressedColor: Color? = null
+    pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
     val sizePx = with(density) { sizeDp.toPx() }
     val px = (surfaceSize.width * layout.x - sizePx / 2f)
     val py = (surfaceSize.height * layout.y - sizePx / 2f)
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier
@@ -819,6 +859,15 @@ private fun J2meActionButton(
             .size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -838,7 +887,9 @@ private fun J2meActionButton(
 @Composable
 private fun J2mePillButton(
     label: String, layout: ButtonLayout, surfaceSize: IntSize, opacity: Float, isPressed: Boolean,
-    normalColor: Color = Color(0xFF95A5A6), pressedColor: Color? = null
+    normalColor: Color = Color(0xFF95A5A6), pressedColor: Color? = null,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null
 ) {
     val density = LocalDensity.current
     val sizeDp = layout.sizeDp.dp
@@ -850,6 +901,7 @@ private fun J2mePillButton(
     val pillHeightPx = sizePx * 0.7f
     val px = (surfaceSize.width * layout.x - pillWidthPx / 2f)
     val py = (surfaceSize.height * layout.y - pillHeightPx / 2f)
+    val activeImage = if (isPressed) (pressedImage ?: image) else image
 
     Box(
         modifier = Modifier
@@ -857,6 +909,15 @@ private fun J2mePillButton(
             .size(width = sizeDp * 2.2f, height = sizeDp * 0.7f),
         contentAlignment = Alignment.Center
     ) {
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
+            )
+            return@Box
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f

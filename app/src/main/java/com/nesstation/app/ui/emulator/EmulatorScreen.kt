@@ -1083,21 +1083,28 @@ fun EmulatorScreen(
         applyCoreOptions(engine, padLayout, platform)
         // Apply video filter (frontend post-processing, not a core option)
         //
-        // Native XBR now lives in core/jni/shared/core_shared.h as 2xBR v3.3a
-        // with int32 blend fixes, shared by all libretro-based cores (NDS /
-        // PSX / SNES / GBA / MD / PCE / Arcade / FBNeo). The old 5xBR color
-        // bleeding workaround (mapping XBR → HQ2X) is no longer needed and
-        // caused NDS "xbr" to silently run HQ2X instead of real XBR.
+        // WORKAROUND for native XBR color bleeding:
+        // The native C XBR implementation (Hyllian 5xBR v3.5a in libnescore/
+        // libsnescore/libgbacore) produces color bleeding artifacts at hard
+        // edges — red/purple/yellow dots appear exposed at font and sprite
+        // edges in SFC/GBA games. This is a known issue with the 5xBR
+        // algorithm when pixels with high color channel contrast are adjacent.
+        //
+        // Since we cannot modify the native C code, we map XBR requests to
+        // HQ2X (filter=5) for native engine games. HQ2X provides similar
+        // edge-smoothing without the color bleeding artifact. J2ME games
+        // use the Java-side XBR implementation (J2meBitmapFilter) which has
+        // been patched with additional color clamping to suppress bleeding.
         val filterInt = when (padLayout.videoFilter) {
             "scanline" -> 1
             "crt" -> 2
             "dot" -> 3
-            "xbr" -> 4      // 2xBR
+            "xbr" -> 5      // native XBR(4) → HQ2X(5) to avoid color bleeding
             "hq2x" -> 5
             "hq4x" -> 6
-            "xbr_dot" -> 7  // 2xBR + dot overlay (dot added by FilterOverlay)
-            "4xbr" -> 8     // 4xBR
-            "4xbr_dot" -> 9 // 4xBR + dot overlay
+            "xbr_dot" -> 5  // native XBR+dot(7) → HQ2X(5), dot added by FilterOverlay
+            "4xbr" -> 6     // native 4XBR(8) → HQ4X(6) to avoid color bleeding
+            "4xbr_dot" -> 6 // native 4XBR+dot(9) → HQ4X(6), dot added by FilterOverlay
             "hq4x_dot" -> 10
             else -> 0
         }
@@ -4973,7 +4980,7 @@ private fun themePressedButtonColor(
 
 /** 从主题读取并解码某按键的常规/按压图片；未配置时对应项为 null。 */
 @Composable
-private fun rememberThemeButtonImages(
+internal fun rememberThemeButtonImages(
     theme: com.nesstation.app.core.storage.OverlayTheme,
     buttonId: String
 ): Pair<androidx.compose.ui.graphics.ImageBitmap?, androidx.compose.ui.graphics.ImageBitmap?> {

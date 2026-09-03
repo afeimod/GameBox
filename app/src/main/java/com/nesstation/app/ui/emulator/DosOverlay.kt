@@ -1,6 +1,7 @@
 package com.nesstation.app.ui.emulator
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -25,11 +26,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -340,6 +343,7 @@ private fun DosGamepadOverlay(
 
         // === D-pad ===
         if (padLayout.dosShowDpad) {
+            val (dpadImg, dpadImgPressed) = rememberThemeButtonImages(overlayTheme, "dpad")
             CircularDpad(
                 sizeDp = dpadL.sizeDp.dp,
                 bgColor = bgColor,
@@ -356,7 +360,10 @@ private fun DosGamepadOverlay(
                     dpadState = if (pressed) dpadState or bit else dpadState and bit.inv()
                     pushDpad()
                 },
-                modifier = Modifier.offset { btnOffset(dpadL) }
+                modifier = Modifier.offset { btnOffset(dpadL) },
+                image = dpadImg,
+                pressedImage = dpadImgPressed,
+                opacity = opacity
             )
         }
 
@@ -918,12 +925,16 @@ private fun CircularDpad(
     bgColor: Color, fgColor: Color, borderColor: Color, pressedColor: Color,
     pressed: Int,
     onPressedChange: (dir: String, pressed: Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    pressedImage: androidx.compose.ui.graphics.ImageBitmap? = null,
+    opacity: Float = 1f
 ) {
     val density = LocalDensity.current
     val sizePx = with(density) { sizeDp.toPx() }
 
     val pointers = remember { mutableMapOf<Long, String>() }
+    val activeImage = if (pressed != 0) (pressedImage ?: image) else image
 
     Box(
         modifier = modifier
@@ -960,8 +971,17 @@ private fun CircularDpad(
                 }
             }
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawDpad(sizePx, bgColor, fgColor, borderColor, pressedColor, pressed)
+        if (activeImage != null) {
+            Image(
+                bitmap = activeImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().alpha(if (pressed != 0) 0.9f else opacity)
+            )
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawDpad(sizePx, bgColor, fgColor, borderColor, pressedColor, pressed)
+            }
         }
     }
 }

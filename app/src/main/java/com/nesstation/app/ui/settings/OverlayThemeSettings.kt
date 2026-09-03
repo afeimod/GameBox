@@ -14,11 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -221,8 +223,15 @@ private fun OverlayThemeDialog(
         onDismissRequest = onDismiss,
         title = { Text("遮罩 / 按钮主题", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
         text = {
+            // 横屏可用高度远小于竖屏，整块内容改为可滚动，避免下半部分
+            // （按键主题列表 / 恢复默认按钮）被截断到屏幕外无法操作。
+            val configuration = LocalConfiguration.current
+            val contentMaxHeight = if (configuration.screenHeightDp > configuration.screenWidthDp) 520.dp else 240.dp
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = contentMaxHeight)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // === 背景颜色（游戏画面周边） ===
@@ -287,11 +296,11 @@ private fun OverlayThemeDialog(
                 Text("每个按键单独配色（含按压效果）",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold)
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(themeButtonsFor(platform)) { (id, label) ->
+                    themeButtonsFor(platform).forEach { (id, label) ->
                         val btnTheme = edit.button(id)
                         val normal = btnTheme?.color
                         val pressed = btnTheme?.pressedColor
