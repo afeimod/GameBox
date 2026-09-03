@@ -408,7 +408,7 @@ private fun actionToBits(action: KeyActionInternal, platform: GamePlatform): Int
 // this pad overlay's fillMaxSize pointerInput Box sits ABOVE the game view
 // (AndroidView sibling), so without forwarding the game view would NEVER
 // receive any touch event while the pad is visible.
-private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, L3, R3, LSTICK, RSTICK, COMBO, GAME_AREA }
+private enum class BtnType { DPAD, A, B, TURBO_A, TURBO_B, START, SELECT, L, R, X, Y, L2, R2, L3, R3, LSTICK, RSTICK, COMBO, QUICK_SAVE, QUICK_LOAD, GAME_AREA }
 
 // Bit masks for NES/SNES/GBA controller
 // NES/GB/GBC: A B SEL STA U D L R (8 buttons)
@@ -477,6 +477,39 @@ private fun ps2ToLibretroLayout(bits: Int): Int {
     if (bits and BTN_B != 0)       r = r or (1 shl 8)   // ○ Circle
     if (bits and BTN_X != 0)       r = r or (1 shl 1)   // □ Square
     if (bits and BTN_Y != 0)       r = r or (1 shl 9)   // △ Triangle
+    if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select
+    if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start
+    if (bits and BTN_UP != 0)      r = r or (1 shl 4)   // Up
+    if (bits and BTN_DOWN != 0)    r = r or (1 shl 5)   // Down
+    if (bits and BTN_LEFT != 0)    r = r or (1 shl 6)   // Left
+    if (bits and BTN_RIGHT != 0)   r = r or (1 shl 7)   // Right
+    if (bits and BTN_L_SNES != 0)  r = r or (1 shl 10)  // L1
+    if (bits and BTN_R_SNES != 0)  r = r or (1 shl 11)  // R1
+    if (bits and BTN_L2 != 0)      r = r or (1 shl 12)  // L2
+    if (bits and BTN_R2 != 0)      r = r or (1 shl 13)  // R2
+    if (bits and BTN_L3 != 0)      r = r or (1 shl 14)  // L3
+    if (bits and BTN_R3 != 0)      r = r or (1 shl 15)  // R3
+    return r
+}
+
+// PSX (PCSX-ReARMed) 专用：项目位布局 → libretro 16 键 DualShock 布局。
+// PCSX-ReARMed 的 libretro 前端把 PS1 键位映射为：
+//   Cross(✕)=JOYPAD_B(bit0)、Square(□)=JOYPAD_Y(bit1)、
+//   Circle(○)=JOYPAD_A(bit8)、Triangle(△)=JOYPAD_X(bit9)。
+// PSX 屏幕标签与 PS2 不同：A=✕、B=○、X=△、Y=□，所以 X/Y 的转换与
+// ps2ToLibretroLayout 相反，不能直接复用 projectToLibretroLayout（那是
+// SNES 习惯 A→8/B→0/X→9/Y→1，会把 ✕ 输出成 Circle）。
+//   ✕ (项目 A/bit0)  -> libretro bit0  (B = Cross)
+//   ○ (项目 B/bit1)  -> libretro bit8  (A = Circle)
+//   △ (项目 X/bit8)  -> libretro bit9  (X = Triangle)
+//   □ (项目 Y/bit9)  -> libretro bit1  (Y = Square)
+//   方向/Select/Start/L1/R1/L2/R2/L3/R3 与 libretro 同位。
+private fun psxToLibretroLayout(bits: Int): Int {
+    var r = 0
+    if (bits and BTN_A != 0)       r = r or (1 shl 0)   // ✕ Cross
+    if (bits and BTN_B != 0)       r = r or (1 shl 8)   // ○ Circle
+    if (bits and BTN_X != 0)       r = r or (1 shl 9)   // △ Triangle
+    if (bits and BTN_Y != 0)       r = r or (1 shl 1)   // □ Square
     if (bits and BTN_SELECT != 0)  r = r or (1 shl 2)   // Select
     if (bits and BTN_START != 0)   r = r or (1 shl 3)   // Start
     if (bits and BTN_UP != 0)      r = r or (1 shl 4)   // Up
@@ -848,7 +881,7 @@ fun EmulatorScreen(
         if (platform == GamePlatform.JAVA) JavaGameSettingsStore.gameKey(game.romPath) else null
     }
     val javaInit = remember {
-        val loaded = PadLayoutStore.load(context)
+        val loaded = PadLayoutStore.load(context, platform)
         if (platform == GamePlatform.JAVA && javaGameKey != null) {
             val perGame = JavaGameSettingsStore.load(context, javaGameKey)
             Triple(loaded, JavaGameSettings.of(loaded), perGame)
@@ -930,9 +963,9 @@ fun EmulatorScreen(
             // 字段回写为进入会话前的全局快照，其他 Java 游戏不受影响。
             JavaGameSettingsStore.save(context, javaGameKey, JavaGameSettings.of(padLayout))
             if (!javaHasOverride) javaHasOverride = true
-            PadLayoutStore.save(context, padLayout.withJavaSettings(globalJavaSnapshot))
+            PadLayoutStore.save(context, padLayout.withJavaSettings(globalJavaSnapshot), platform)
         } else {
-            PadLayoutStore.save(context, padLayout)
+            PadLayoutStore.save(context, padLayout, platform)
         }
     }
 
@@ -2077,6 +2110,42 @@ fun EmulatorScreen(
                             )
                         }
                     } else null,
+                    // 即时存档 / 即时读档：直接操作当前槽位 saveLoadSlot，
+                    // 复用与 SlotPickerDialog 相同的引擎链路与 Toast 反馈。
+                    onQuickSave = {
+                        val savesDirS = java.io.File(context.filesDir, "saves").apply { mkdirs() }
+                        val slot = saveLoadSlot
+                        val stateFile = java.io.File(savesDirS, "${game.id}_slot${slot}.state")
+                        try {
+                            val ok = engine.saveState(slot, stateFile)
+                            if (ok) {
+                                Toast.makeText(context, "已快速存档 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "存档失败：核心未能生成即时存档", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "存档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onQuickLoad = {
+                        val savesDirS = java.io.File(context.filesDir, "saves").apply { mkdirs() }
+                        val slot = saveLoadSlot
+                        val stateFile = java.io.File(savesDirS, "${game.id}_slot${slot}.state")
+                        if (stateFile.exists()) {
+                            try {
+                                val ok = engine.loadState(slot, stateFile)
+                                if (ok) {
+                                    Toast.makeText(context, "已读取存档 [槽位 $slot]", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "读档失败：存档损坏或版本不兼容", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "读档失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "当前槽位 ($slot) 无存档", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     overlayTheme = overlayTheme
                 )
             }
@@ -2797,13 +2866,14 @@ private fun routePadBits(
     platform: GamePlatform = GamePlatform.NES
 ) {
     // NDS / PSX / PS2 使用项目位布局到 libretro 标准位布局的转换。
-    // PSX（PCSX-ReARMed）libretro 映射为 A=Cross(bit8)、B=Circle(bit0)、
-    // X=Triangle(bit9)、Y=Square(bit1)，与 projectToLibretroLayout 完全一致
-    // （项目 A=bit0→libretro A=bit8、B=bit1→libretro B=bit0、
-    //  X=bit8→libretro X=bit9、Y=bit9→libretro Y=bit1）。
+    // NDS（melonDS）按标准 libretro JOYPAD 位理解，用 projectToLibretroLayout。
+    // PSX（PCSX-ReARMed）libretro 映射为：✕=bit0(B)、□=bit1(Y)、
+    // ○=bit8(A)、△=bit9(X)，且 PSX 屏幕标签是 A=✕、B=○、X=△、Y=□，
+    // 因此用 psxToLibretroLayout（A→bit0、B→bit8、X→bit9、Y→bit1）。
     // PS2（PCEE2）按键 label 语义不同（×=bit0、□=bit1、○=bit8、△=bit9），
     // 用 ps2ToLibretroLayout 单独转换。
-    val ndsBits = if (platform == GamePlatform.NDS || platform == GamePlatform.PSX) projectToLibretroLayout(bits)
+    val ndsBits = if (platform == GamePlatform.NDS) projectToLibretroLayout(bits)
+                  else if (platform == GamePlatform.PSX) psxToLibretroLayout(bits)
                   else if (platform == GamePlatform.PS2) ps2ToLibretroLayout(bits)
                   else bits
     if (netplayController != null) {
@@ -3206,7 +3276,14 @@ private fun GameSurfaceView(
     //   Top/Bottom, Bottom/Top → 2:3  (256x384)
     //   Left/Right, Right/Left → 8:3  (512x192)
     //   Top Only, Bottom Only  → 4:3  (256x192)
-    val effectiveVideoScale = if (videoScale == "stretch" && platform == GamePlatform.NDS) {
+    //
+    // NDS 双屏专门处理：每个屏幕原生就是 4:3（256x192）。合成帧把两屏并成
+    // 一张图（256x384 等），若把这张合成帧整体拉伸到用户选的 4:3 / 16:9 /
+    // 3:2 等比例，双屏会被当成一个整体挤压、每屏各自变形。因此 NDS 平台
+    // 所有非 custom 的「画面缩放」都忽略所选整体比例，只按布局原生比例做
+    // 等比适配 —— 两屏各自保持 4:3 等比放大填满，互不挤压。需要分别控制
+    // 两屏大小/位置时用「自定义」布局（NdsDualScreenView，可分别缩放）。
+    val effectiveVideoScale = if (platform == GamePlatform.NDS && videoScale != "custom") {
         when (ndsScreenLayout) {
             "Left/Right", "Right/Left" -> "8:3"
             "Top Only", "Bottom Only" -> "4:3"
@@ -3880,6 +3957,12 @@ fun OnScreenController(
      */
     onAnalogAxes: ((lx: Float, ly: Float, rx: Float, ry: Float) -> Unit)? = null,
     /**
+     * 即时存档 / 即时读档按钮回调。在对应按钮被触摸按下时触发一次，
+     * 由调用方执行 engine.saveState / engine.loadState 并给出 Toast 反馈。
+     */
+    onQuickSave: (() -> Unit)? = null,
+    onQuickLoad: (() -> Unit)? = null,
+    /**
      * Forwarder for touches that land on NO pad button (i.e. on the game
      * screen area). Receives the pointer position in ROOT coordinates plus
      * the action (MotionEvent.ACTION_DOWN / ACTION_MOVE / ACTION_UP).
@@ -3941,6 +4024,9 @@ fun OnScreenController(
     // "显隐按键" dialog in the pad layout editor. PCE uses legacy pceShow*
     // booleans; all other platforms use hiddenButtons* comma-separated strings.
     // The helper function PadLayoutStore.isButtonHidden() handles both cases.
+    // 即时存档 / 即时读档按钮（所有核心通用，可在显隐对话框里开关）。
+    val showQuickSaveBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "qs")
+    val showQuickLoadBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ql")
     val showDpadBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "dpad")
     val showABtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "a")
     val showBBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "b")
@@ -3973,6 +4059,11 @@ fun OnScreenController(
     // for rendering. Updated by the analog gesture handler below.
     var analogThumbX by remember { mutableStateOf(0f) }
     var analogThumbY by remember { mutableStateOf(0f) }
+
+    // 即时存档 / 即时读档按钮回调用 rememberUpdatedState 包装，
+    // 手势协程重启期间始终拿到最新 lambda
+    val currentOnQuickSave by rememberUpdatedState(onQuickSave)
+    val currentOnQuickLoad by rememberUpdatedState(onQuickLoad)
 
     // === PS2 双摇杆状态 ===
     // 左/右摇杆的拇指位置（-1..1），拖动时更新并经 onAnalogAxes 回调输出
@@ -4032,6 +4123,9 @@ fun OnScreenController(
     val ps2RStick = if (isPortrait) padLayout.ps2RStickP else padLayout.ps2RStick
     val ps2BtnL3 = if (isPortrait) padLayout.ps2BtnL3P else padLayout.ps2BtnL3
     val ps2BtnR3 = if (isPortrait) padLayout.ps2BtnR3P else padLayout.ps2BtnR3
+    // 即时存档 / 即时读档按钮（所有核心通用，位置可编辑器拖动）
+    val btnQuickSave = if (isPortrait) padLayout.btnQuickSaveP else padLayout.btnQuickSave
+    val btnQuickLoad = if (isPortrait) padLayout.btnQuickLoadP else padLayout.btnQuickLoad
 
     // === Combo buttons for this platform ===
     // Parse the per-platform JSON combo list. Each entry has {id,label,bits,x,y,size,color}.
@@ -4146,6 +4240,9 @@ fun OnScreenController(
                 val yRect = if (showXY && showYBtn) btnRect(btnY) else null
                 val l2Rect = if (showL2R2 && showL2Btn) btnRect(btnL2) else null
                 val r2Rect = if (showL2R2 && showR2Btn) btnRect(btnR2) else null
+                // 即时存档 / 即时读档按钮命中区（Pill 形，跟 START/SELECT 一样放宽）
+                val qsRect = if (showQuickSaveBtn) btnRect(btnQuickSave, 2.2f, 0.7f) else null
+                val qlRect = if (showQuickLoadBtn) btnRect(btnQuickLoad, 2.2f, 0.7f) else null
                 // PS2 专属：L3/R3 小按钮 + 双摇杆（摇杆命中区 1.3x，方便拖动）
                 val l3Rect = if (showL3Btn) btnRect(ps2BtnL3, 1.4f, 1.4f) else null
                 val r3Rect = if (showR3Btn) btnRect(ps2BtnR3, 1.4f, 1.4f) else null
@@ -4243,6 +4340,8 @@ fun OnScreenController(
                         yRect?.contains(pos) == true -> BtnType.Y
                         l2Rect?.contains(pos) == true -> BtnType.L2
                         r2Rect?.contains(pos) == true -> BtnType.R2
+                        qsRect?.contains(pos) == true -> BtnType.QUICK_SAVE
+                        qlRect?.contains(pos) == true -> BtnType.QUICK_LOAD
                         // PS2 专属按键（先于摇杆判定，L3/R3 面积小优先命中）
                         l3Rect?.contains(pos) == true -> BtnType.L3
                         r3Rect?.contains(pos) == true -> BtnType.R3
@@ -4313,6 +4412,10 @@ fun OnScreenController(
                             BtnType.L3 -> bits = BTN_L3
                             BtnType.R3 -> bits = BTN_R3
                             BtnType.COMBO -> bits = comboMatch?.bits ?: 0
+                            // 即时存档 / 即时读档：按下瞬间触发一次回调，
+                            // 不写任何输入位（不影响游戏内的按键状态）。
+                            BtnType.QUICK_SAVE -> currentOnQuickSave?.invoke()
+                            BtnType.QUICK_LOAD -> currentOnQuickLoad?.invoke()
                             // GAME_AREA 指针在上方 btnType == null 分支已提前
                             // return，永远到不了这里；补空分支仅为穷举完整性。
                             BtnType.GAME_AREA -> {}
@@ -4382,6 +4485,8 @@ fun OnScreenController(
                                                     analogThumbY = 0f
                                                 }
                                             }
+                                            // 即时存档 / 即时读档无输入位，UP 仅移除指针
+                                            BtnType.QUICK_SAVE, BtnType.QUICK_LOAD -> {}
                                             BtnType.LSTICK -> {
                                                 // 松手：拇指回中 + 清摇杆方向位 + 轴归零
                                                 lStickDirs = 0
@@ -4600,6 +4705,28 @@ fun OnScreenController(
                 pressedColor = themePressedButtonColor(overlayTheme, "select"),
                 image = selectImg,
                 pressedImage = selectImgPressed
+            )
+        }
+        // 即时存档 / 即时读档按钮（所有核心通用，位置可在布局编辑器里拖动）
+        // 用绿色/蓝色区分存/读，字面提示交给 PillButtonCanvas 的文字。
+        if (showQuickSaveBtn) {
+            val (qsImg, qsImgPressed) = rememberThemeButtonImages(overlayTheme, "qs")
+            PillButtonCanvas(
+                "存档", btnQuickSave, surfaceSize, opacity, isPressed = false,
+                normalColor = themeButtonColor(overlayTheme, "qs", Color(0xFF1D6B46)),
+                pressedColor = themePressedButtonColor(overlayTheme, "qs"),
+                image = qsImg,
+                pressedImage = qsImgPressed
+            )
+        }
+        if (showQuickLoadBtn) {
+            val (qlImg, qlImgPressed) = rememberThemeButtonImages(overlayTheme, "ql")
+            PillButtonCanvas(
+                "读档", btnQuickLoad, surfaceSize, opacity, isPressed = false,
+                normalColor = themeButtonColor(overlayTheme, "ql", Color(0xFF1D4E6B)),
+                pressedColor = themePressedButtonColor(overlayTheme, "ql"),
+                image = qlImg,
+                pressedImage = qlImgPressed
             )
         }
         // L/R shoulder buttons (GBA/SNES/ARCADE/MD/PCE)
@@ -6721,6 +6848,11 @@ private fun PadLayoutEditor(
     val ps2RStick = if (isPortrait) padLayout.ps2RStickP else padLayout.ps2RStick
     val ps2BtnL3 = if (isPortrait) padLayout.ps2BtnL3P else padLayout.ps2BtnL3
     val ps2BtnR3 = if (isPortrait) padLayout.ps2BtnR3P else padLayout.ps2BtnR3
+    // 即时存档 / 即时读档按钮（所有核心通用，编辑器内可拖动 + 调尺寸）
+    val btnQuickSave = if (isPortrait) padLayout.btnQuickSaveP else padLayout.btnQuickSave
+    val btnQuickLoad = if (isPortrait) padLayout.btnQuickLoadP else padLayout.btnQuickLoad
+    val showQuickSaveBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "qs")
+    val showQuickLoadBtn = !PadLayoutStore.isButtonHidden(padLayout, platform, "ql")
 
     // 把当前选中按钮的新位置写回 PadLayout 的对应方向字段。
     // PS2 写回专属字段（ps2*），其他平台写通用字段。
@@ -6754,6 +6886,8 @@ private fun PadLayoutEditor(
             BtnType.R3 -> if (isPortrait) padLayout.copy {this.ps2BtnR3P = newLayout} else padLayout.copy {this.ps2BtnR3 = newLayout}
             BtnType.LSTICK -> if (isPortrait) padLayout.copy {this.ps2LStickP = newLayout} else padLayout.copy {this.ps2LStick = newLayout}
             BtnType.RSTICK -> if (isPortrait) padLayout.copy {this.ps2RStickP = newLayout} else padLayout.copy {this.ps2RStick = newLayout}
+            BtnType.QUICK_SAVE -> if (isPortrait) padLayout.copy {this.btnQuickSaveP = newLayout} else padLayout.copy {this.btnQuickSave = newLayout}
+            BtnType.QUICK_LOAD -> if (isPortrait) padLayout.copy {this.btnQuickLoadP = newLayout} else padLayout.copy {this.btnQuickLoad = newLayout}
             BtnType.COMBO -> padLayout  // combo buttons handled via dedicated UI
             // 游戏区域不是可编辑的实体按键，没有位置/大小可写回 —— 直接返回原布局。
             BtnType.GAME_AREA -> padLayout
@@ -6923,6 +7057,27 @@ private fun PadLayoutEditor(
                     onSelect = { selectedBtn = BtnType.R2 }
                 )
             }
+            // 即时存档 / 即时读档按钮（所有平台可拖动，位置默认在顶部两侧）
+            if (showQuickSaveBtn) {
+                EditablePillBtn("存档", btnQuickSave, surfaceSize, selectedBtn == BtnType.QUICK_SAVE,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.1f, 0.5f)
+                        val ny = targetY.coerceIn(0.02f, 0.95f)
+                        updateBtn(BtnType.QUICK_SAVE, btnQuickSave.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.QUICK_SAVE }
+                )
+            }
+            if (showQuickLoadBtn) {
+                EditablePillBtn("读档", btnQuickLoad, surfaceSize, selectedBtn == BtnType.QUICK_LOAD,
+                    onMove = { targetX, targetY ->
+                        val nx = targetX.coerceIn(0.5f, 0.9f)
+                        val ny = targetY.coerceIn(0.02f, 0.95f)
+                        updateBtn(BtnType.QUICK_LOAD, btnQuickLoad.copy(x = nx, y = ny))
+                    },
+                    onSelect = { selectedBtn = BtnType.QUICK_LOAD }
+                )
+            }
             // PS2 专属可编辑控件：双摇杆（常驻）+ L3/R3
             if (isPs2) {
                 EditableRoundBtn("左摇杆", Color(0xFFFFD66B), ps2LStick, surfaceSize, selectedBtn == BtnType.LSTICK,
@@ -7053,6 +7208,8 @@ private fun PadLayoutEditor(
  btnRP = defaults.btnRP
                             btnXP = defaults.btnXP
  btnYP = defaults.btnYP
+                            btnQuickSaveP = defaults.btnQuickSaveP
+                            btnQuickLoadP = defaults.btnQuickLoadP
                             pceShowDpad = defaults.pceShowDpad
  pceShowA = defaults.pceShowA
                             pceShowB = defaults.pceShowB
@@ -7078,6 +7235,8 @@ private fun PadLayoutEditor(
                             this.btnR = defaults.btnR
                             this.btnX = defaults.btnX
                             this.btnY = defaults.btnY
+                            this.btnQuickSave = defaults.btnQuickSave
+                            this.btnQuickLoad = defaults.btnQuickLoad
                             pceShowDpad = defaults.pceShowDpad
  pceShowA = defaults.pceShowA
                             pceShowB = defaults.pceShowB
@@ -7155,6 +7314,8 @@ private fun PadLayoutEditor(
                     BtnType.RSTICK -> { currentSize = ps2RStick.sizeDp; minSize = 80; maxSize = 220; label = "右摇杆大小" }
                     BtnType.L3 -> { currentSize = ps2BtnL3.sizeDp; minSize = 24; maxSize = 80; label = "L3大小" }
                     BtnType.R3 -> { currentSize = ps2BtnR3.sizeDp; minSize = 24; maxSize = 80; label = "R3大小" }
+                    BtnType.QUICK_SAVE -> { currentSize = btnQuickSave.sizeDp; minSize = 24; maxSize = 80; label = "即时存档大小" }
+                    BtnType.QUICK_LOAD -> { currentSize = btnQuickLoad.sizeDp; minSize = 24; maxSize = 80; label = "即时读档大小" }
                     BtnType.COMBO -> { currentSize = 56; minSize = 36; maxSize = 100; label = "组合键大小" }
                     // GAME_AREA 不出现在布局编辑器（selectedBtn 只会指向实体按键），
                     // 此分支仅为穷举完整性而设，正常流程不会执行。
@@ -7189,6 +7350,8 @@ private fun PadLayoutEditor(
                             BtnType.RSTICK -> ps2RStick
                             BtnType.L3 -> ps2BtnL3
                             BtnType.R3 -> ps2BtnR3
+                            BtnType.QUICK_SAVE -> btnQuickSave
+                            BtnType.QUICK_LOAD -> btnQuickLoad
                             BtnType.COMBO -> ButtonLayout(0.5f, 0.85f, 56)  // combo size handled separately
                             BtnType.GAME_AREA -> ButtonLayout(0.5f, 0.85f, 0)  // 不可达：编辑器不会选中游戏区域
                         }

@@ -337,7 +337,9 @@ private fun OverlayThemeDialog(
                                         .size(22.dp)
                                         .background(Color.Transparent, CircleShape)
                                         .border(1.dp, Color(0x33000000), CircleShape)
-                                        .clickable { edit.setButton(id, ButtonTheme(null, null)) }
+                                        .clickable {
+                                            edit = edit.copy().also { it.setButton(id, ButtonTheme(null, null)) }
+                                        }
                                 )
                             }
                             // 图片（常规 / 按压）选择与清除
@@ -412,7 +414,7 @@ private fun OverlayThemeDialog(
                         } else {
                             ButtonTheme(color = old.color, pressedColor = c)
                         }
-                        edit.setButton(id, newTheme)
+                        edit = edit.copy().also { it.setButton(id, newTheme) }
                     }
                 }
             },

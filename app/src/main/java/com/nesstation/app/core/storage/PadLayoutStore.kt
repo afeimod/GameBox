@@ -90,6 +90,9 @@ class PadLayout {
     var btnR: ButtonLayout = ButtonLayout(x = 0.90f, y = 0.15f, sizeDp = 56)
     var btnX: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.54f, sizeDp = 60)
     var btnY: ButtonLayout = ButtonLayout(x = 0.73f, y = 0.60f, sizeDp = 60)
+    // 即时存档 / 即时读档按钮（所有核心通用，横屏位置）
+    var btnQuickSave: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.18f, sizeDp = 40)
+    var btnQuickLoad: ButtonLayout = ButtonLayout(x = 0.58f, y = 0.18f, sizeDp = 40)
     // === 竖屏布局（portrait）—— 默认值给竖屏一个更舒服的排布 ===
     // dpad 放左下、A/B 放右下，跟横屏差不多但 y 坐标稍微上移避开屏幕底部
     var dpadP: ButtonLayout = ButtonLayout(x = 0.18f, y = 0.74f, sizeDp = 130)
@@ -103,6 +106,9 @@ class PadLayout {
     var btnRP: ButtonLayout = ButtonLayout(x = 0.88f, y = 0.12f, sizeDp = 54)
     var btnXP: ButtonLayout = ButtonLayout(x = 0.83f, y = 0.50f, sizeDp = 56)
     var btnYP: ButtonLayout = ButtonLayout(x = 0.69f, y = 0.56f, sizeDp = 56)
+    // 即时存档 / 即时读档按钮（所有核心通用，竖屏位置）
+    var btnQuickSaveP: ButtonLayout = ButtonLayout(x = 0.42f, y = 0.18f, sizeDp = 38)
+    var btnQuickLoadP: ButtonLayout = ButtonLayout(x = 0.58f, y = 0.18f, sizeDp = 38)
     // === 全局设置（横竖屏共享） ===
     var opacity: Float = 0.7f     // 0.3 – 1.0（通用核心虚拟按键透明度，可调）
     var showPad: Boolean = true
@@ -697,6 +703,8 @@ class PadLayout {
         btnR = another.btnR
         btnX = another.btnX
         btnY = another.btnY
+        btnQuickSave = another.btnQuickSave
+        btnQuickLoad = another.btnQuickLoad
         dpadP = another.dpadP
         btnAP = another.btnAP
         btnBP = another.btnBP
@@ -708,6 +716,8 @@ class PadLayout {
         btnRP = another.btnRP
         btnXP = another.btnXP
         btnYP = another.btnYP
+        btnQuickSaveP = another.btnQuickSaveP
+        btnQuickLoadP = another.btnQuickLoadP
         opacity = another.opacity
         showPad = another.showPad
         showFps = another.showFps
@@ -1110,6 +1120,14 @@ object PadLayoutStore {
     private const val KEY_Y_Y = "y_y"
     private const val KEY_Y_SIZE = "y_size"
 
+    // 即时存档 / 即时读档按钮 keys
+    private const val KEY_QS_X = "qs_x"
+    private const val KEY_QS_Y = "qs_y"
+    private const val KEY_QS_SIZE = "qs_size"
+    private const val KEY_QL_X = "ql_x"
+    private const val KEY_QL_Y = "ql_y"
+    private const val KEY_QL_SIZE = "ql_size"
+
     // === 竖屏 Button keys (新 key，p_ 前缀) ===
     private const val KEY_PDAD_X = "p_dpad_x"
     private const val KEY_PDAD_Y = "p_dpad_y"
@@ -1144,6 +1162,12 @@ object PadLayoutStore {
     private const val KEY_PY_X = "p_y_x"
     private const val KEY_PY_Y = "p_y_y"
     private const val KEY_PY_SIZE = "p_y_size"
+    private const val KEY_PQS_X = "p_qs_x"
+    private const val KEY_PQS_Y = "p_qs_y"
+    private const val KEY_PQS_SIZE = "p_qs_size"
+    private const val KEY_PQL_X = "p_ql_x"
+    private const val KEY_PQL_Y = "p_ql_y"
+    private const val KEY_PQL_SIZE = "p_ql_size"
 
     // Global keys
     private const val KEY_OPACITY = "opacity"
@@ -1217,122 +1241,173 @@ object PadLayoutStore {
         putInt("${prefix}_size", layout.sizeDp)
     }
 
-    fun load(ctx: Context): PadLayout {
+    // =========================================================================
+    // 每核心独立存储（屏幕比例 / 自由布局 / 通用虚拟按键布局）
+    // -------------------------------------------------------------------------
+    // 把通用布局类 key 追加平台后缀（如 "dpad_x" → "dpad_x_NES"），实现每个
+    // 核心各自保存视频缩放比例、宽高比、自由布局矩形和通用 A/B/X/Y… 按钮位置，
+    // 避免不同核心互相覆盖。全局 key 保留作为「默认值」：某平台 key 不存在时
+    // 回退到全局 key，用户在该核心调整后写平台 key，其它核心与全局不受影响。
+    private fun pk(platform: GamePlatform?, key: String): String =
+        if (platform == null) key else "${key}_${platform.name}"
+
+    private fun SharedPreferences.getFp(platform: GamePlatform?, key: String, def: Float): Float {
+        val global = getFloat(key, def)
+        return if (platform == null) global
+               else if (contains(pk(platform, key))) getFloat(pk(platform, key), global)
+               else global
+    }
+
+    private fun SharedPreferences.getIp(platform: GamePlatform?, key: String, def: Int): Int {
+        val global = getInt(key, def)
+        return if (platform == null) global
+               else if (contains(pk(platform, key))) getInt(pk(platform, key), global)
+               else global
+    }
+
+    private fun SharedPreferences.getSp(platform: GamePlatform?, key: String, def: String): String {
+        val global = getString(key, def) ?: def
+        return if (platform == null) global
+               else if (contains(pk(platform, key))) getString(pk(platform, key), global) ?: global
+               else global
+    }
+
+    fun load(ctx: Context, platform: GamePlatform? = null): PadLayout {
         val p = prefs(ctx)
         return PadLayout().apply {
-            // === 横屏布局 ===
+            // === 横屏布局（每核心独立，回退全局） ===
             dpad = ButtonLayout(
-                p.getFloat(KEY_DPAD_X, 0.13f),
-                p.getFloat(KEY_DPAD_Y, 0.78f),
-                p.getInt(KEY_DPAD_SIZE, 140)
+                p.getFp(platform, KEY_DPAD_X, 0.13f),
+                p.getFp(platform, KEY_DPAD_Y, 0.78f),
+                p.getIp(platform, KEY_DPAD_SIZE, 140)
             )
             btnA = ButtonLayout(
-                p.getFloat(KEY_A_X, 0.87f),
-                p.getFloat(KEY_A_Y, 0.76f),
-                p.getInt(KEY_A_SIZE, 72)
+                p.getFp(platform, KEY_A_X, 0.87f),
+                p.getFp(platform, KEY_A_Y, 0.76f),
+                p.getIp(platform, KEY_A_SIZE, 72)
             )
             btnB = ButtonLayout(
-                p.getFloat(KEY_B_X, 0.72f),
-                p.getFloat(KEY_B_Y, 0.82f),
-                p.getInt(KEY_B_SIZE, 72)
+                p.getFp(platform, KEY_B_X, 0.72f),
+                p.getFp(platform, KEY_B_Y, 0.82f),
+                p.getIp(platform, KEY_B_SIZE, 72)
             )
             btnTurboA = ButtonLayout(
-                p.getFloat(KEY_TA_X, 0.87f),
-                p.getFloat(KEY_TA_Y, 0.60f),
-                p.getInt(KEY_TA_SIZE, 48)
+                p.getFp(platform, KEY_TA_X, 0.87f),
+                p.getFp(platform, KEY_TA_Y, 0.60f),
+                p.getIp(platform, KEY_TA_SIZE, 48)
             )
             btnTurboB = ButtonLayout(
-                p.getFloat(KEY_TB_X, 0.72f),
-                p.getFloat(KEY_TB_Y, 0.66f),
-                p.getInt(KEY_TB_SIZE, 48)
+                p.getFp(platform, KEY_TB_X, 0.72f),
+                p.getFp(platform, KEY_TB_Y, 0.66f),
+                p.getIp(platform, KEY_TB_SIZE, 48)
             )
             btnStart = ButtonLayout(
-                p.getFloat(KEY_START_X, 0.62f),
-                p.getFloat(KEY_START_Y, 0.92f),
-                p.getInt(KEY_START_SIZE, 56)
+                p.getFp(platform, KEY_START_X, 0.62f),
+                p.getFp(platform, KEY_START_Y, 0.92f),
+                p.getIp(platform, KEY_START_SIZE, 56)
             )
             btnSelect = ButtonLayout(
-                p.getFloat(KEY_SELECT_X, 0.38f),
-                p.getFloat(KEY_SELECT_Y, 0.92f),
-                p.getInt(KEY_SELECT_SIZE, 56)
+                p.getFp(platform, KEY_SELECT_X, 0.38f),
+                p.getFp(platform, KEY_SELECT_Y, 0.92f),
+                p.getIp(platform, KEY_SELECT_SIZE, 56)
             )
             btnL = ButtonLayout(
-                p.getFloat(KEY_L_X, 0.10f),
-                p.getFloat(KEY_L_Y, 0.15f),
-                p.getInt(KEY_L_SIZE, 56)
+                p.getFp(platform, KEY_L_X, 0.10f),
+                p.getFp(platform, KEY_L_Y, 0.15f),
+                p.getIp(platform, KEY_L_SIZE, 56)
             )
             btnR = ButtonLayout(
-                p.getFloat(KEY_R_X, 0.90f),
-                p.getFloat(KEY_R_Y, 0.15f),
-                p.getInt(KEY_R_SIZE, 56)
+                p.getFp(platform, KEY_R_X, 0.90f),
+                p.getFp(platform, KEY_R_Y, 0.15f),
+                p.getIp(platform, KEY_R_SIZE, 56)
             )
             btnX = ButtonLayout(
-                p.getFloat(KEY_X_X, 0.88f),
-                p.getFloat(KEY_X_Y, 0.54f),
-                p.getInt(KEY_X_SIZE, 60)
+                p.getFp(platform, KEY_X_X, 0.88f),
+                p.getFp(platform, KEY_X_Y, 0.54f),
+                p.getIp(platform, KEY_X_SIZE, 60)
             )
             btnY = ButtonLayout(
-                p.getFloat(KEY_Y_X, 0.73f),
-                p.getFloat(KEY_Y_Y, 0.60f),
-                p.getInt(KEY_Y_SIZE, 60)
+                p.getFp(platform, KEY_Y_X, 0.73f),
+                p.getFp(platform, KEY_Y_Y, 0.60f),
+                p.getIp(platform, KEY_Y_SIZE, 60)
             )
-            // === 竖屏布局（独立持久化，跟横屏互不干扰） ===
+            btnQuickSave = ButtonLayout(
+                p.getFp(platform, KEY_QS_X, 0.42f),
+                p.getFp(platform, KEY_QS_Y, 0.18f),
+                p.getIp(platform, KEY_QS_SIZE, 40)
+            )
+            btnQuickLoad = ButtonLayout(
+                p.getFp(platform, KEY_QL_X, 0.58f),
+                p.getFp(platform, KEY_QL_Y, 0.18f),
+                p.getIp(platform, KEY_QL_SIZE, 40)
+            )
+            // === 竖屏布局（每核心独立，回退全局） ===
             dpadP = ButtonLayout(
-                p.getFloat(KEY_PDAD_X, 0.18f),
-                p.getFloat(KEY_PDAD_Y, 0.74f),
-                p.getInt(KEY_PDAD_SIZE, 130)
+                p.getFp(platform, KEY_PDAD_X, 0.18f),
+                p.getFp(platform, KEY_PDAD_Y, 0.74f),
+                p.getIp(platform, KEY_PDAD_SIZE, 130)
             )
             btnAP = ButtonLayout(
-                p.getFloat(KEY_PA_X, 0.82f),
-                p.getFloat(KEY_PA_Y, 0.72f),
-                p.getInt(KEY_PA_SIZE, 68)
+                p.getFp(platform, KEY_PA_X, 0.82f),
+                p.getFp(platform, KEY_PA_Y, 0.72f),
+                p.getIp(platform, KEY_PA_SIZE, 68)
             )
             btnBP = ButtonLayout(
-                p.getFloat(KEY_PB_X, 0.68f),
-                p.getFloat(KEY_PB_Y, 0.80f),
-                p.getInt(KEY_PB_SIZE, 68)
+                p.getFp(platform, KEY_PB_X, 0.68f),
+                p.getFp(platform, KEY_PB_Y, 0.80f),
+                p.getIp(platform, KEY_PB_SIZE, 68)
             )
             btnTurboAP = ButtonLayout(
-                p.getFloat(KEY_PTA_X, 0.82f),
-                p.getFloat(KEY_PTA_Y, 0.56f),
-                p.getInt(KEY_PTA_SIZE, 46)
+                p.getFp(platform, KEY_PTA_X, 0.82f),
+                p.getFp(platform, KEY_PTA_Y, 0.56f),
+                p.getIp(platform, KEY_PTA_SIZE, 46)
             )
             btnTurboBP = ButtonLayout(
-                p.getFloat(KEY_PTB_X, 0.68f),
-                p.getFloat(KEY_PTB_Y, 0.62f),
-                p.getInt(KEY_PTB_SIZE, 46)
+                p.getFp(platform, KEY_PTB_X, 0.68f),
+                p.getFp(platform, KEY_PTB_Y, 0.62f),
+                p.getIp(platform, KEY_PTB_SIZE, 46)
             )
             btnStartP = ButtonLayout(
-                p.getFloat(KEY_PSTART_X, 0.62f),
-                p.getFloat(KEY_PSTART_Y, 0.90f),
-                p.getInt(KEY_PSTART_SIZE, 54)
+                p.getFp(platform, KEY_PSTART_X, 0.62f),
+                p.getFp(platform, KEY_PSTART_Y, 0.90f),
+                p.getIp(platform, KEY_PSTART_SIZE, 54)
             )
             btnSelectP = ButtonLayout(
-                p.getFloat(KEY_PSELECT_X, 0.38f),
-                p.getFloat(KEY_PSELECT_Y, 0.90f),
-                p.getInt(KEY_PSELECT_SIZE, 54)
+                p.getFp(platform, KEY_PSELECT_X, 0.38f),
+                p.getFp(platform, KEY_PSELECT_Y, 0.90f),
+                p.getIp(platform, KEY_PSELECT_SIZE, 54)
             )
             btnLP = ButtonLayout(
-                p.getFloat(KEY_PL_X, 0.12f),
-                p.getFloat(KEY_PL_Y, 0.12f),
-                p.getInt(KEY_PL_SIZE, 54)
+                p.getFp(platform, KEY_PL_X, 0.12f),
+                p.getFp(platform, KEY_PL_Y, 0.12f),
+                p.getIp(platform, KEY_PL_SIZE, 54)
             )
             btnRP = ButtonLayout(
-                p.getFloat(KEY_PR_X, 0.88f),
-                p.getFloat(KEY_PR_Y, 0.12f),
-                p.getInt(KEY_PR_SIZE, 54)
+                p.getFp(platform, KEY_PR_X, 0.88f),
+                p.getFp(platform, KEY_PR_Y, 0.12f),
+                p.getIp(platform, KEY_PR_SIZE, 54)
             )
             btnXP = ButtonLayout(
-                p.getFloat(KEY_PX_X, 0.83f),
-                p.getFloat(KEY_PX_Y, 0.50f),
-                p.getInt(KEY_PX_SIZE, 56)
+                p.getFp(platform, KEY_PX_X, 0.83f),
+                p.getFp(platform, KEY_PX_Y, 0.50f),
+                p.getIp(platform, KEY_PX_SIZE, 56)
             )
             btnYP = ButtonLayout(
-                p.getFloat(KEY_PY_X, 0.69f),
-                p.getFloat(KEY_PY_Y, 0.56f),
-                p.getInt(KEY_PY_SIZE, 56)
+                p.getFp(platform, KEY_PY_X, 0.69f),
+                p.getFp(platform, KEY_PY_Y, 0.56f),
+                p.getIp(platform, KEY_PY_SIZE, 56)
             )
-            // === 全局设置 ===
+            btnQuickSaveP = ButtonLayout(
+                p.getFp(platform, KEY_PQS_X, 0.42f),
+                p.getFp(platform, KEY_PQS_Y, 0.18f),
+                p.getIp(platform, KEY_PQS_SIZE, 38)
+            )
+            btnQuickLoadP = ButtonLayout(
+                p.getFp(platform, KEY_PQL_X, 0.58f),
+                p.getFp(platform, KEY_PQL_Y, 0.18f),
+                p.getIp(platform, KEY_PQL_SIZE, 38)
+            )
+            // === 全局设置（两个方向共享，不按平台区分） ===
             opacity = p.getFloat(KEY_OPACITY, 0.7f)
             showPad = p.getBoolean(KEY_SHOW_PAD, true)
             showFps = p.getBoolean(KEY_SHOW_FPS, false)
@@ -1341,20 +1416,20 @@ object PadLayoutStore {
             playerSwitchY = p.getFloat(KEY_PLAYER_SWITCH_Y, 0.07f)
             highQualityScaling = p.getBoolean(KEY_HIGH_QUALITY_SCALING, false)
             ntscFilter = p.getString(KEY_NTSC_FILTER, "disabled") ?: "disabled"
-            aspectRatio = p.getString(KEY_ASPECT_RATIO, "4:3") ?: "4:3"
+            aspectRatio = p.getSp(platform, KEY_ASPECT_RATIO, "4:3")
             palette = p.getString(KEY_PALETTE, "default") ?: "default"
             region = p.getString(KEY_REGION, "Auto") ?: "Auto"
             soundQuality = p.getString(KEY_SOUND_QUALITY, "Low") ?: "Low"
             cropOverscan = p.getString(KEY_CROP_OVERSCAN, "disabled") ?: "disabled"
-            videoScale = p.getString(KEY_VIDEO_SCALE, "stretch") ?: "stretch"
-            customLayoutLeft = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT, 0f)
-            customLayoutTop = p.getFloat(KEY_CUSTOM_LAYOUT_TOP, 0f)
-            customLayoutRight = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT, 1f)
-            customLayoutBottom = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM, 1f)
-            customLayoutLeftP = p.getFloat(KEY_CUSTOM_LAYOUT_LEFT_P, 0f)
-            customLayoutTopP = p.getFloat(KEY_CUSTOM_LAYOUT_TOP_P, 0f)
-            customLayoutRightP = p.getFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, 1f)
-            customLayoutBottomP = p.getFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, 1f)
+            videoScale = p.getSp(platform, KEY_VIDEO_SCALE, "stretch")
+            customLayoutLeft = p.getFp(platform, KEY_CUSTOM_LAYOUT_LEFT, 0f)
+            customLayoutTop = p.getFp(platform, KEY_CUSTOM_LAYOUT_TOP, 0f)
+            customLayoutRight = p.getFp(platform, KEY_CUSTOM_LAYOUT_RIGHT, 1f)
+            customLayoutBottom = p.getFp(platform, KEY_CUSTOM_LAYOUT_BOTTOM, 1f)
+            customLayoutLeftP = p.getFp(platform, KEY_CUSTOM_LAYOUT_LEFT_P, 0f)
+            customLayoutTopP = p.getFp(platform, KEY_CUSTOM_LAYOUT_TOP_P, 0f)
+            customLayoutRightP = p.getFp(platform, KEY_CUSTOM_LAYOUT_RIGHT_P, 1f)
+            customLayoutBottomP = p.getFp(platform, KEY_CUSTOM_LAYOUT_BOTTOM_P, 1f)
             videoFilter = p.getString(KEY_VIDEO_FILTER, "none") ?: "none"
             overclocking = p.getString(KEY_OVERCLOCKING, "disabled") ?: "disabled"
             sfcReduceSpriteFlicker = p.getString("sfc_reduce_sprite_flicker", "disabled") ?: "disabled"
@@ -1779,97 +1854,111 @@ object PadLayoutStore {
     }
     }
 
-    fun save(ctx: Context, layout: PadLayout) {
+    fun save(ctx: Context, layout: PadLayout, platform: GamePlatform? = null) {
         prefs(ctx).edit().apply {
-            // === 横屏布局 ===
-            putFloat(KEY_DPAD_X, layout.dpad.x)
-            putFloat(KEY_DPAD_Y, layout.dpad.y)
-            putInt(KEY_DPAD_SIZE, layout.dpad.sizeDp)
+            // === 横屏布局（按平台独立存储；platform==null 时写入全局默认） ===
+            putFloat(pk(platform, KEY_DPAD_X), layout.dpad.x)
+            putFloat(pk(platform, KEY_DPAD_Y), layout.dpad.y)
+            putInt(pk(platform, KEY_DPAD_SIZE), layout.dpad.sizeDp)
 
-            putFloat(KEY_A_X, layout.btnA.x)
-            putFloat(KEY_A_Y, layout.btnA.y)
-            putInt(KEY_A_SIZE, layout.btnA.sizeDp)
+            putFloat(pk(platform, KEY_A_X), layout.btnA.x)
+            putFloat(pk(platform, KEY_A_Y), layout.btnA.y)
+            putInt(pk(platform, KEY_A_SIZE), layout.btnA.sizeDp)
 
-            putFloat(KEY_B_X, layout.btnB.x)
-            putFloat(KEY_B_Y, layout.btnB.y)
-            putInt(KEY_B_SIZE, layout.btnB.sizeDp)
+            putFloat(pk(platform, KEY_B_X), layout.btnB.x)
+            putFloat(pk(platform, KEY_B_Y), layout.btnB.y)
+            putInt(pk(platform, KEY_B_SIZE), layout.btnB.sizeDp)
 
-            putFloat(KEY_TA_X, layout.btnTurboA.x)
-            putFloat(KEY_TA_Y, layout.btnTurboA.y)
-            putInt(KEY_TA_SIZE, layout.btnTurboA.sizeDp)
+            putFloat(pk(platform, KEY_TA_X), layout.btnTurboA.x)
+            putFloat(pk(platform, KEY_TA_Y), layout.btnTurboA.y)
+            putInt(pk(platform, KEY_TA_SIZE), layout.btnTurboA.sizeDp)
 
-            putFloat(KEY_TB_X, layout.btnTurboB.x)
-            putFloat(KEY_TB_Y, layout.btnTurboB.y)
-            putInt(KEY_TB_SIZE, layout.btnTurboB.sizeDp)
+            putFloat(pk(platform, KEY_TB_X), layout.btnTurboB.x)
+            putFloat(pk(platform, KEY_TB_Y), layout.btnTurboB.y)
+            putInt(pk(platform, KEY_TB_SIZE), layout.btnTurboB.sizeDp)
 
-            putFloat(KEY_START_X, layout.btnStart.x)
-            putFloat(KEY_START_Y, layout.btnStart.y)
-            putInt(KEY_START_SIZE, layout.btnStart.sizeDp)
+            putFloat(pk(platform, KEY_START_X), layout.btnStart.x)
+            putFloat(pk(platform, KEY_START_Y), layout.btnStart.y)
+            putInt(pk(platform, KEY_START_SIZE), layout.btnStart.sizeDp)
 
-            putFloat(KEY_SELECT_X, layout.btnSelect.x)
-            putFloat(KEY_SELECT_Y, layout.btnSelect.y)
-            putInt(KEY_SELECT_SIZE, layout.btnSelect.sizeDp)
+            putFloat(pk(platform, KEY_SELECT_X), layout.btnSelect.x)
+            putFloat(pk(platform, KEY_SELECT_Y), layout.btnSelect.y)
+            putInt(pk(platform, KEY_SELECT_SIZE), layout.btnSelect.sizeDp)
 
-            putFloat(KEY_L_X, layout.btnL.x)
-            putFloat(KEY_L_Y, layout.btnL.y)
-            putInt(KEY_L_SIZE, layout.btnL.sizeDp)
+            putFloat(pk(platform, KEY_L_X), layout.btnL.x)
+            putFloat(pk(platform, KEY_L_Y), layout.btnL.y)
+            putInt(pk(platform, KEY_L_SIZE), layout.btnL.sizeDp)
 
-            putFloat(KEY_R_X, layout.btnR.x)
-            putFloat(KEY_R_Y, layout.btnR.y)
-            putInt(KEY_R_SIZE, layout.btnR.sizeDp)
+            putFloat(pk(platform, KEY_R_X), layout.btnR.x)
+            putFloat(pk(platform, KEY_R_Y), layout.btnR.y)
+            putInt(pk(platform, KEY_R_SIZE), layout.btnR.sizeDp)
 
-            putFloat(KEY_X_X, layout.btnX.x)
-            putFloat(KEY_X_Y, layout.btnX.y)
-            putInt(KEY_X_SIZE, layout.btnX.sizeDp)
+            putFloat(pk(platform, KEY_X_X), layout.btnX.x)
+            putFloat(pk(platform, KEY_X_Y), layout.btnX.y)
+            putInt(pk(platform, KEY_X_SIZE), layout.btnX.sizeDp)
 
-            putFloat(KEY_Y_X, layout.btnY.x)
-            putFloat(KEY_Y_Y, layout.btnY.y)
-            putInt(KEY_Y_SIZE, layout.btnY.sizeDp)
+            putFloat(pk(platform, KEY_Y_X), layout.btnY.x)
+            putFloat(pk(platform, KEY_Y_Y), layout.btnY.y)
+            putInt(pk(platform, KEY_Y_SIZE), layout.btnY.sizeDp)
 
-            // === 竖屏布局（独立保存，跟横屏互不干扰） ===
-            putFloat(KEY_PDAD_X, layout.dpadP.x)
-            putFloat(KEY_PDAD_Y, layout.dpadP.y)
-            putInt(KEY_PDAD_SIZE, layout.dpadP.sizeDp)
+            putFloat(pk(platform, KEY_QS_X), layout.btnQuickSave.x)
+            putFloat(pk(platform, KEY_QS_Y), layout.btnQuickSave.y)
+            putInt(pk(platform, KEY_QS_SIZE), layout.btnQuickSave.sizeDp)
+            putFloat(pk(platform, KEY_QL_X), layout.btnQuickLoad.x)
+            putFloat(pk(platform, KEY_QL_Y), layout.btnQuickLoad.y)
+            putInt(pk(platform, KEY_QL_SIZE), layout.btnQuickLoad.sizeDp)
 
-            putFloat(KEY_PA_X, layout.btnAP.x)
-            putFloat(KEY_PA_Y, layout.btnAP.y)
-            putInt(KEY_PA_SIZE, layout.btnAP.sizeDp)
+            // === 竖屏布局（按平台独立存储，跟横屏互不干扰） ===
+            putFloat(pk(platform, KEY_PDAD_X), layout.dpadP.x)
+            putFloat(pk(platform, KEY_PDAD_Y), layout.dpadP.y)
+            putInt(pk(platform, KEY_PDAD_SIZE), layout.dpadP.sizeDp)
 
-            putFloat(KEY_PB_X, layout.btnBP.x)
-            putFloat(KEY_PB_Y, layout.btnBP.y)
-            putInt(KEY_PB_SIZE, layout.btnBP.sizeDp)
+            putFloat(pk(platform, KEY_PA_X), layout.btnAP.x)
+            putFloat(pk(platform, KEY_PA_Y), layout.btnAP.y)
+            putInt(pk(platform, KEY_PA_SIZE), layout.btnAP.sizeDp)
 
-            putFloat(KEY_PTA_X, layout.btnTurboAP.x)
-            putFloat(KEY_PTA_Y, layout.btnTurboAP.y)
-            putInt(KEY_PTA_SIZE, layout.btnTurboAP.sizeDp)
+            putFloat(pk(platform, KEY_PB_X), layout.btnBP.x)
+            putFloat(pk(platform, KEY_PB_Y), layout.btnBP.y)
+            putInt(pk(platform, KEY_PB_SIZE), layout.btnBP.sizeDp)
 
-            putFloat(KEY_PTB_X, layout.btnTurboBP.x)
-            putFloat(KEY_PTB_Y, layout.btnTurboBP.y)
-            putInt(KEY_PTB_SIZE, layout.btnTurboBP.sizeDp)
+            putFloat(pk(platform, KEY_PTA_X), layout.btnTurboAP.x)
+            putFloat(pk(platform, KEY_PTA_Y), layout.btnTurboAP.y)
+            putInt(pk(platform, KEY_PTA_SIZE), layout.btnTurboAP.sizeDp)
 
-            putFloat(KEY_PSTART_X, layout.btnStartP.x)
-            putFloat(KEY_PSTART_Y, layout.btnStartP.y)
-            putInt(KEY_PSTART_SIZE, layout.btnStartP.sizeDp)
+            putFloat(pk(platform, KEY_PTB_X), layout.btnTurboBP.x)
+            putFloat(pk(platform, KEY_PTB_Y), layout.btnTurboBP.y)
+            putInt(pk(platform, KEY_PTB_SIZE), layout.btnTurboBP.sizeDp)
 
-            putFloat(KEY_PSELECT_X, layout.btnSelectP.x)
-            putFloat(KEY_PSELECT_Y, layout.btnSelectP.y)
-            putInt(KEY_PSELECT_SIZE, layout.btnSelectP.sizeDp)
+            putFloat(pk(platform, KEY_PSTART_X), layout.btnStartP.x)
+            putFloat(pk(platform, KEY_PSTART_Y), layout.btnStartP.y)
+            putInt(pk(platform, KEY_PSTART_SIZE), layout.btnStartP.sizeDp)
 
-            putFloat(KEY_PL_X, layout.btnLP.x)
-            putFloat(KEY_PL_Y, layout.btnLP.y)
-            putInt(KEY_PL_SIZE, layout.btnLP.sizeDp)
+            putFloat(pk(platform, KEY_PSELECT_X), layout.btnSelectP.x)
+            putFloat(pk(platform, KEY_PSELECT_Y), layout.btnSelectP.y)
+            putInt(pk(platform, KEY_PSELECT_SIZE), layout.btnSelectP.sizeDp)
 
-            putFloat(KEY_PR_X, layout.btnRP.x)
-            putFloat(KEY_PR_Y, layout.btnRP.y)
-            putInt(KEY_PR_SIZE, layout.btnRP.sizeDp)
+            putFloat(pk(platform, KEY_PL_X), layout.btnLP.x)
+            putFloat(pk(platform, KEY_PL_Y), layout.btnLP.y)
+            putInt(pk(platform, KEY_PL_SIZE), layout.btnLP.sizeDp)
 
-            putFloat(KEY_PX_X, layout.btnXP.x)
-            putFloat(KEY_PX_Y, layout.btnXP.y)
-            putInt(KEY_PX_SIZE, layout.btnXP.sizeDp)
+            putFloat(pk(platform, KEY_PR_X), layout.btnRP.x)
+            putFloat(pk(platform, KEY_PR_Y), layout.btnRP.y)
+            putInt(pk(platform, KEY_PR_SIZE), layout.btnRP.sizeDp)
 
-            putFloat(KEY_PY_X, layout.btnYP.x)
-            putFloat(KEY_PY_Y, layout.btnYP.y)
-            putInt(KEY_PY_SIZE, layout.btnYP.sizeDp)
+            putFloat(pk(platform, KEY_PX_X), layout.btnXP.x)
+            putFloat(pk(platform, KEY_PX_Y), layout.btnXP.y)
+            putInt(pk(platform, KEY_PX_SIZE), layout.btnXP.sizeDp)
+
+            putFloat(pk(platform, KEY_PY_X), layout.btnYP.x)
+            putFloat(pk(platform, KEY_PY_Y), layout.btnYP.y)
+            putInt(pk(platform, KEY_PY_SIZE), layout.btnYP.sizeDp)
+
+            putFloat(pk(platform, KEY_PQS_X), layout.btnQuickSaveP.x)
+            putFloat(pk(platform, KEY_PQS_Y), layout.btnQuickSaveP.y)
+            putInt(pk(platform, KEY_PQS_SIZE), layout.btnQuickSaveP.sizeDp)
+            putFloat(pk(platform, KEY_PQL_X), layout.btnQuickLoadP.x)
+            putFloat(pk(platform, KEY_PQL_Y), layout.btnQuickLoadP.y)
+            putInt(pk(platform, KEY_PQL_SIZE), layout.btnQuickLoadP.sizeDp)
 
             // === 全局设置 ===
             putFloat(KEY_OPACITY, layout.opacity)
@@ -1884,20 +1973,20 @@ object PadLayoutStore {
             putBoolean(KEY_HIGH_QUALITY_SCALING, layout.highQualityScaling)
 
             putString(KEY_NTSC_FILTER, layout.ntscFilter)
-            putString(KEY_ASPECT_RATIO, layout.aspectRatio)
+            putString(pk(platform, KEY_ASPECT_RATIO), layout.aspectRatio)
             putString(KEY_PALETTE, layout.palette)
             putString(KEY_REGION, layout.region)
             putString(KEY_SOUND_QUALITY, layout.soundQuality)
             putString(KEY_CROP_OVERSCAN, layout.cropOverscan)
-            putString(KEY_VIDEO_SCALE, layout.videoScale)
-            putFloat(KEY_CUSTOM_LAYOUT_LEFT, layout.customLayoutLeft)
-            putFloat(KEY_CUSTOM_LAYOUT_TOP, layout.customLayoutTop)
-            putFloat(KEY_CUSTOM_LAYOUT_RIGHT, layout.customLayoutRight)
-            putFloat(KEY_CUSTOM_LAYOUT_BOTTOM, layout.customLayoutBottom)
-            putFloat(KEY_CUSTOM_LAYOUT_LEFT_P, layout.customLayoutLeftP)
-            putFloat(KEY_CUSTOM_LAYOUT_TOP_P, layout.customLayoutTopP)
-            putFloat(KEY_CUSTOM_LAYOUT_RIGHT_P, layout.customLayoutRightP)
-            putFloat(KEY_CUSTOM_LAYOUT_BOTTOM_P, layout.customLayoutBottomP)
+            putString(pk(platform, KEY_VIDEO_SCALE), layout.videoScale)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_LEFT), layout.customLayoutLeft)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_TOP), layout.customLayoutTop)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_RIGHT), layout.customLayoutRight)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_BOTTOM), layout.customLayoutBottom)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_LEFT_P), layout.customLayoutLeftP)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_TOP_P), layout.customLayoutTopP)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_RIGHT_P), layout.customLayoutRightP)
+            putFloat(pk(platform, KEY_CUSTOM_LAYOUT_BOTTOM_P), layout.customLayoutBottomP)
             putString(KEY_VIDEO_FILTER, layout.videoFilter)
             putString(KEY_OVERCLOCKING, layout.overclocking)
 
@@ -2252,7 +2341,8 @@ object PadLayoutStore {
     fun isButtonHidden(layout: PadLayout, platform: GamePlatform, key: String): Boolean {
         return when (platform) {
             GamePlatform.PCE -> {
-                // PCE uses the legacy per-button boolean toggles
+                // PCE uses the legacy per-button boolean toggles for the
+                // standard buttons; qs/ql live in the generic list.
                 when (key) {
                     "dpad" -> !layout.pceShowDpad
                     "a" -> !layout.pceShowA
@@ -2265,6 +2355,7 @@ object PadLayoutStore {
                     "y" -> !layout.pceShowY
                     "l2" -> !layout.pceShowL2
                     "r2" -> !layout.pceShowR2
+                    "qs", "ql" -> isHiddenInList(layout.hiddenButtonsPce, key)
                     else -> false
                 }
             }
@@ -2300,6 +2391,7 @@ object PadLayoutStore {
                     "y" -> layout.copy {pceShowY = !hidden}
                     "l2" -> layout.copy {pceShowL2 = !hidden}
                     "r2" -> layout.copy {pceShowR2 = !hidden}
+                    "qs", "ql" -> layout.copy {hiddenButtonsPce = updateHiddenList(layout.hiddenButtonsPce, key, hidden)}
                     else -> layout
                 }
             }
@@ -2362,6 +2454,7 @@ object PadLayoutStore {
         // 连射 A/B（小 AB 连发键）在所有平台都提供显隐开关——包括有
         // X/Y 键的 6 键平台（SFC/MD/NDS/街机）。渲染层不再因为平台有
         // X/Y 就强制隐藏连发键，改由用户按需控制。
+        // 即时存档 / 即时读档按钮（qs/ql）同样所有平台通用，追加在末尾。
         return when (platform) {
             GamePlatform.NES, GamePlatform.GB -> listOf(
                 "dpad" to "十字键", "a" to "A键", "b" to "B键",
@@ -2420,7 +2513,7 @@ object PadLayoutStore {
                 // 双摇杆为 PS2 常驻控件，不参与显隐
             )
             else -> emptyList()
-        }
+        } + listOf("qs" to "即时存档", "ql" to "即时读档")
     }
 }
 

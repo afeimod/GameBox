@@ -298,7 +298,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, 0.5 * u_texelDelta, vec2(1.0) - 0.5 * u_texelDelta)).xyz; }\n" +
             "\n" +
             "const float coef = 2.0;\n" +
             "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
@@ -338,27 +337,27 @@ public final class J2meFilterShaders {
             "        vec2 y2  = dy + dy;\n" +
             "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "        vec3 A  = sampleTC(TexCoord_0 -dx -dy);\n" +
-            "        vec3 B  = sampleTC(TexCoord_0     -dy);\n" +
-            "        vec3 C  = sampleTC(TexCoord_0 +dx -dy);\n" +
-            "        vec3 D  = sampleTC(TexCoord_0 -dx    );\n" +
-            "        vec3 E  = sampleTC(TexCoord_0         );\n" +
-            "        vec3 F  = sampleTC(TexCoord_0 +dx    );\n" +
-            "        vec3 G  = sampleTC(TexCoord_0 -dx +dy);\n" +
-            "        vec3 H  = sampleTC(TexCoord_0     +dy);\n" +
-            "        vec3 I  = sampleTC(TexCoord_0 +dx +dy);\n" +
-            "        vec3 A1 = sampleTC(TexCoord_0     -dx -y2);\n" +
-            "        vec3 C1 = sampleTC(TexCoord_0     +dx -y2);\n" +
-            "        vec3 A0 = sampleTC(TexCoord_0 -x2     -dy);\n" +
-            "        vec3 G0 = sampleTC(TexCoord_0 -x2     +dy);\n" +
-            "        vec3 C4 = sampleTC(TexCoord_0 +x2     -dy);\n" +
-            "        vec3 I4 = sampleTC(TexCoord_0 +x2     +dy);\n" +
-            "        vec3 G5 = sampleTC(TexCoord_0     -dx +y2);\n" +
-            "        vec3 I5 = sampleTC(TexCoord_0     +dx +y2);\n" +
-            "        vec3 B1 = sampleTC(TexCoord_0         -y2);\n" +
-            "        vec3 D0 = sampleTC(TexCoord_0 -x2        );\n" +
-            "        vec3 H5 = sampleTC(TexCoord_0         +y2);\n" +
-            "        vec3 F4 = sampleTC(TexCoord_0 +x2        );\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
             "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
             "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
@@ -393,15 +392,6 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            "\n" +
-            "        // Anti-color-bleeding clamp: limit per-channel deviation from E\n" +
-            "        // to prevent isolated color dots (red/purple/yellow) at hard edges.\n" +
-            "        if (res != E) {\n" +
-            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
-            "            vec3 diff = res - E;\n" +
-            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
-            "            res = clamped;\n" +
-            "        }\n" +
             "    }\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -418,7 +408,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, 0.5 * u_texelDelta, vec2(1.0) - 0.5 * u_texelDelta)).xyz; }\n" +
             "\n" +
             "const float coef = 2.0;\n" +
             "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
@@ -458,27 +447,27 @@ public final class J2meFilterShaders {
             "        vec2 y2  = dy + dy;\n" +
             "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "        vec3 A  = sampleTC(TexCoord_0 -dx -dy);\n" +
-            "        vec3 B  = sampleTC(TexCoord_0     -dy);\n" +
-            "        vec3 C  = sampleTC(TexCoord_0 +dx -dy);\n" +
-            "        vec3 D  = sampleTC(TexCoord_0 -dx    );\n" +
-            "        vec3 E  = sampleTC(TexCoord_0         );\n" +
-            "        vec3 F  = sampleTC(TexCoord_0 +dx    );\n" +
-            "        vec3 G  = sampleTC(TexCoord_0 -dx +dy);\n" +
-            "        vec3 H  = sampleTC(TexCoord_0     +dy);\n" +
-            "        vec3 I  = sampleTC(TexCoord_0 +dx +dy);\n" +
-            "        vec3 A1 = sampleTC(TexCoord_0     -dx -y2);\n" +
-            "        vec3 C1 = sampleTC(TexCoord_0     +dx -y2);\n" +
-            "        vec3 A0 = sampleTC(TexCoord_0 -x2     -dy);\n" +
-            "        vec3 G0 = sampleTC(TexCoord_0 -x2     +dy);\n" +
-            "        vec3 C4 = sampleTC(TexCoord_0 +x2     -dy);\n" +
-            "        vec3 I4 = sampleTC(TexCoord_0 +x2     +dy);\n" +
-            "        vec3 G5 = sampleTC(TexCoord_0     -dx +y2);\n" +
-            "        vec3 I5 = sampleTC(TexCoord_0     +dx +y2);\n" +
-            "        vec3 B1 = sampleTC(TexCoord_0         -y2);\n" +
-            "        vec3 D0 = sampleTC(TexCoord_0 -x2        );\n" +
-            "        vec3 H5 = sampleTC(TexCoord_0         +y2);\n" +
-            "        vec3 F4 = sampleTC(TexCoord_0 +x2        );\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
             "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
             "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
@@ -513,15 +502,6 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            "\n" +
-            "        // Anti-color-bleeding clamp: limit per-channel deviation from E\n" +
-            "        // to prevent isolated color dots (red/purple/yellow) at hard edges.\n" +
-            "        if (res != E) {\n" +
-            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
-            "            vec3 diff = res - E;\n" +
-            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
-            "            res = clamped;\n" +
-            "        }\n" +
             "    }\n" +
             "    gl_FragColor.rgb = res;\n" +
             "    gl_FragColor.a = 1.0;\n" +
@@ -542,7 +522,6 @@ public final class J2meFilterShaders {
             "varying vec4 v_tc4;\n" +
             "varying vec4 v_tc5;\n" +
             "varying vec4 v_tc6;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, vec2(0.001), vec2(0.999))).xyz; }\n" +
             "\n" +
             "const float mx = 1.00;\n" +
             "const float k = -1.10;\n" +
@@ -552,19 +531,19 @@ public final class J2meFilterShaders {
             "\n" +
             "void main()\n" +
             "{\n" +
-            "    vec3 c  = sampleTC(v_tc0.xy);\n" +
-            "    vec3 i1 = sampleTC(v_tc1.xy);\n" +
-            "    vec3 i2 = sampleTC(v_tc2.xy);\n" +
-            "    vec3 i3 = sampleTC(v_tc3.xy);\n" +
-            "    vec3 i4 = sampleTC(v_tc4.xy);\n" +
-            "    vec3 o1 = sampleTC(v_tc5.xy);\n" +
-            "    vec3 o3 = sampleTC(v_tc6.xy);\n" +
-            "    vec3 o2 = sampleTC(v_tc5.zw);\n" +
-            "    vec3 o4 = sampleTC(v_tc6.zw);\n" +
-            "    vec3 s1 = sampleTC(v_tc1.zw);\n" +
-            "    vec3 s2 = sampleTC(v_tc2.zw);\n" +
-            "    vec3 s3 = sampleTC(v_tc3.zw);\n" +
-            "    vec3 s4 = sampleTC(v_tc4.zw);\n" +
+            "    vec3 c  = texture2D(sampler0, v_tc0.xy).xyz;\n" +
+            "    vec3 i1 = texture2D(sampler0, v_tc1.xy).xyz;\n" +
+            "    vec3 i2 = texture2D(sampler0, v_tc2.xy).xyz;\n" +
+            "    vec3 i3 = texture2D(sampler0, v_tc3.xy).xyz;\n" +
+            "    vec3 i4 = texture2D(sampler0, v_tc4.xy).xyz;\n" +
+            "    vec3 o1 = texture2D(sampler0, v_tc5.xy).xyz;\n" +
+            "    vec3 o3 = texture2D(sampler0, v_tc6.xy).xyz;\n" +
+            "    vec3 o2 = texture2D(sampler0, v_tc5.zw).xyz;\n" +
+            "    vec3 o4 = texture2D(sampler0, v_tc6.zw).xyz;\n" +
+            "    vec3 s1 = texture2D(sampler0, v_tc1.zw).xyz;\n" +
+            "    vec3 s2 = texture2D(sampler0, v_tc2.zw).xyz;\n" +
+            "    vec3 s3 = texture2D(sampler0, v_tc3.zw).xyz;\n" +
+            "    vec3 s4 = texture2D(sampler0, v_tc4.zw).xyz;\n" +
             "    vec3 dt = vec3(1.0, 1.0, 1.0);\n" +
             "\n" +
             "    float ko1 = dot(abs(o1-c), dt);\n" +
@@ -607,7 +586,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, 0.5 * u_texelDelta, vec2(1.0) - 0.5 * u_texelDelta)).xyz; }\n" +
             "\n" +
             "const float coef = 2.0;\n" +
             "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
@@ -647,27 +625,27 @@ public final class J2meFilterShaders {
             "        vec2 y2  = dy + dy;\n" +
             "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "        vec3 A  = sampleTC(TexCoord_0 -dx -dy);\n" +
-            "        vec3 B  = sampleTC(TexCoord_0     -dy);\n" +
-            "        vec3 C  = sampleTC(TexCoord_0 +dx -dy);\n" +
-            "        vec3 D  = sampleTC(TexCoord_0 -dx    );\n" +
-            "        vec3 E  = sampleTC(TexCoord_0         );\n" +
-            "        vec3 F  = sampleTC(TexCoord_0 +dx    );\n" +
-            "        vec3 G  = sampleTC(TexCoord_0 -dx +dy);\n" +
-            "        vec3 H  = sampleTC(TexCoord_0     +dy);\n" +
-            "        vec3 I  = sampleTC(TexCoord_0 +dx +dy);\n" +
-            "        vec3 A1 = sampleTC(TexCoord_0     -dx -y2);\n" +
-            "        vec3 C1 = sampleTC(TexCoord_0     +dx -y2);\n" +
-            "        vec3 A0 = sampleTC(TexCoord_0 -x2     -dy);\n" +
-            "        vec3 G0 = sampleTC(TexCoord_0 -x2     +dy);\n" +
-            "        vec3 C4 = sampleTC(TexCoord_0 +x2     -dy);\n" +
-            "        vec3 I4 = sampleTC(TexCoord_0 +x2     +dy);\n" +
-            "        vec3 G5 = sampleTC(TexCoord_0     -dx +y2);\n" +
-            "        vec3 I5 = sampleTC(TexCoord_0     +dx +y2);\n" +
-            "        vec3 B1 = sampleTC(TexCoord_0         -y2);\n" +
-            "        vec3 D0 = sampleTC(TexCoord_0 -x2        );\n" +
-            "        vec3 H5 = sampleTC(TexCoord_0         +y2);\n" +
-            "        vec3 F4 = sampleTC(TexCoord_0 +x2        );\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
             "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
             "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
@@ -702,14 +680,6 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            "\n" +
-            "        // Anti-color-bleeding clamp\n" +
-            "        if (res != E) {\n" +
-            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
-            "            vec3 diff = res - E;\n" +
-            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
-            "            res = clamped;\n" +
-            "        }\n" +
             "    }\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
@@ -736,7 +706,6 @@ public final class J2meFilterShaders {
             "uniform mediump vec2 u_pixelDelta;\n" +
             "uniform sampler2D sampler0;\n" +
             "varying vec2 v_tc0;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, 0.5 * u_texelDelta, vec2(1.0) - 0.5 * u_texelDelta)).xyz; }\n" +
             "\n" +
             "const float coef = 2.0;\n" +
             "const vec3 rgbw = vec3(16.163, 23.351, 8.4772);\n" +
@@ -776,27 +745,27 @@ public final class J2meFilterShaders {
             "        vec2 y2  = dy + dy;\n" +
             "        vec2 x2  = dx + dx;\n" +
             "\n" +
-            "        vec3 A  = sampleTC(TexCoord_0 -dx -dy);\n" +
-            "        vec3 B  = sampleTC(TexCoord_0     -dy);\n" +
-            "        vec3 C  = sampleTC(TexCoord_0 +dx -dy);\n" +
-            "        vec3 D  = sampleTC(TexCoord_0 -dx    );\n" +
-            "        vec3 E  = sampleTC(TexCoord_0         );\n" +
-            "        vec3 F  = sampleTC(TexCoord_0 +dx    );\n" +
-            "        vec3 G  = sampleTC(TexCoord_0 -dx +dy);\n" +
-            "        vec3 H  = sampleTC(TexCoord_0     +dy);\n" +
-            "        vec3 I  = sampleTC(TexCoord_0 +dx +dy);\n" +
-            "        vec3 A1 = sampleTC(TexCoord_0     -dx -y2);\n" +
-            "        vec3 C1 = sampleTC(TexCoord_0     +dx -y2);\n" +
-            "        vec3 A0 = sampleTC(TexCoord_0 -x2     -dy);\n" +
-            "        vec3 G0 = sampleTC(TexCoord_0 -x2     +dy);\n" +
-            "        vec3 C4 = sampleTC(TexCoord_0 +x2     -dy);\n" +
-            "        vec3 I4 = sampleTC(TexCoord_0 +x2     +dy);\n" +
-            "        vec3 G5 = sampleTC(TexCoord_0     -dx +y2);\n" +
-            "        vec3 I5 = sampleTC(TexCoord_0     +dx +y2);\n" +
-            "        vec3 B1 = sampleTC(TexCoord_0         -y2);\n" +
-            "        vec3 D0 = sampleTC(TexCoord_0 -x2        );\n" +
-            "        vec3 H5 = sampleTC(TexCoord_0         +y2);\n" +
-            "        vec3 F4 = sampleTC(TexCoord_0 +x2        );\n" +
+            "        vec3 A  = texture2D(sampler0, TexCoord_0 -dx -dy).xyz;\n" +
+            "        vec3 B  = texture2D(sampler0, TexCoord_0     -dy).xyz;\n" +
+            "        vec3 C  = texture2D(sampler0, TexCoord_0 +dx -dy).xyz;\n" +
+            "        vec3 D  = texture2D(sampler0, TexCoord_0 -dx    ).xyz;\n" +
+            "        vec3 E  = texture2D(sampler0, TexCoord_0         ).xyz;\n" +
+            "        vec3 F  = texture2D(sampler0, TexCoord_0 +dx    ).xyz;\n" +
+            "        vec3 G  = texture2D(sampler0, TexCoord_0 -dx +dy).xyz;\n" +
+            "        vec3 H  = texture2D(sampler0, TexCoord_0     +dy).xyz;\n" +
+            "        vec3 I  = texture2D(sampler0, TexCoord_0 +dx +dy).xyz;\n" +
+            "        vec3 A1 = texture2D(sampler0, TexCoord_0     -dx -y2).xyz;\n" +
+            "        vec3 C1 = texture2D(sampler0, TexCoord_0     +dx -y2).xyz;\n" +
+            "        vec3 A0 = texture2D(sampler0, TexCoord_0 -x2     -dy).xyz;\n" +
+            "        vec3 G0 = texture2D(sampler0, TexCoord_0 -x2     +dy).xyz;\n" +
+            "        vec3 C4 = texture2D(sampler0, TexCoord_0 +x2     -dy).xyz;\n" +
+            "        vec3 I4 = texture2D(sampler0, TexCoord_0 +x2     +dy).xyz;\n" +
+            "        vec3 G5 = texture2D(sampler0, TexCoord_0     -dx +y2).xyz;\n" +
+            "        vec3 I5 = texture2D(sampler0, TexCoord_0     +dx +y2).xyz;\n" +
+            "        vec3 B1 = texture2D(sampler0, TexCoord_0         -y2).xyz;\n" +
+            "        vec3 D0 = texture2D(sampler0, TexCoord_0 -x2        ).xyz;\n" +
+            "        vec3 H5 = texture2D(sampler0, TexCoord_0         +y2).xyz;\n" +
+            "        vec3 F4 = texture2D(sampler0, TexCoord_0 +x2        ).xyz;\n" +
             "\n" +
             "        vec4 b  = vec4(dot(B,rgbw), dot(D,rgbw), dot(H,rgbw), dot(F,rgbw));\n" +
             "        vec4 c  = vec4(dot(C,rgbw), dot(A,rgbw), dot(G,rgbw), dot(I,rgbw));\n" +
@@ -831,14 +800,6 @@ public final class J2meFilterShaders {
             "        px = lessThanEqual(df(e,f), df(e,h));\n" +
             "\n" +
             "        res = nc.x ? px.x ? F : H : nc.y ? px.y ? B : F : nc.z ? px.z ? D : B : nc.w ? px.w ? H : D : E;\n" +
-            "\n" +
-            "        // Anti-color-bleeding clamp\n" +
-            "        if (res != E) {\n" +
-            "            const float BLEED_LIMIT = 80.0 / 255.0;\n" +
-            "            vec3 diff = res - E;\n" +
-            "            vec3 clamped = E + clamp(diff, -BLEED_LIMIT, BLEED_LIMIT);\n" +
-            "            res = clamped;\n" +
-            "        }\n" +
             "    }\n" +
             "\n" +
             "    vec2 pixel_no = v_tc0 / u_texelDelta;\n" +
@@ -870,7 +831,6 @@ public final class J2meFilterShaders {
             "varying vec4 v_tc4;\n" +
             "varying vec4 v_tc5;\n" +
             "varying vec4 v_tc6;\n" +
-            "vec3 sampleTC(vec2 tc) { return texture2D(sampler0, clamp(tc, vec2(0.001), vec2(0.999))).xyz; }\n" +
             "\n" +
             "const float mx = 1.00;\n" +
             "const float k = -1.10;\n" +
@@ -880,19 +840,19 @@ public final class J2meFilterShaders {
             "\n" +
             "void main()\n" +
             "{\n" +
-            "    vec3 c  = sampleTC(v_tc0.xy);\n" +
-            "    vec3 i1 = sampleTC(v_tc1.xy);\n" +
-            "    vec3 i2 = sampleTC(v_tc2.xy);\n" +
-            "    vec3 i3 = sampleTC(v_tc3.xy);\n" +
-            "    vec3 i4 = sampleTC(v_tc4.xy);\n" +
-            "    vec3 o1 = sampleTC(v_tc5.xy);\n" +
-            "    vec3 o3 = sampleTC(v_tc6.xy);\n" +
-            "    vec3 o2 = sampleTC(v_tc5.zw);\n" +
-            "    vec3 o4 = sampleTC(v_tc6.zw);\n" +
-            "    vec3 s1 = sampleTC(v_tc1.zw);\n" +
-            "    vec3 s2 = sampleTC(v_tc2.zw);\n" +
-            "    vec3 s3 = sampleTC(v_tc3.zw);\n" +
-            "    vec3 s4 = sampleTC(v_tc4.zw);\n" +
+            "    vec3 c  = texture2D(sampler0, v_tc0.xy).xyz;\n" +
+            "    vec3 i1 = texture2D(sampler0, v_tc1.xy).xyz;\n" +
+            "    vec3 i2 = texture2D(sampler0, v_tc2.xy).xyz;\n" +
+            "    vec3 i3 = texture2D(sampler0, v_tc3.xy).xyz;\n" +
+            "    vec3 i4 = texture2D(sampler0, v_tc4.xy).xyz;\n" +
+            "    vec3 o1 = texture2D(sampler0, v_tc5.xy).xyz;\n" +
+            "    vec3 o3 = texture2D(sampler0, v_tc6.xy).xyz;\n" +
+            "    vec3 o2 = texture2D(sampler0, v_tc5.zw).xyz;\n" +
+            "    vec3 o4 = texture2D(sampler0, v_tc6.zw).xyz;\n" +
+            "    vec3 s1 = texture2D(sampler0, v_tc1.zw).xyz;\n" +
+            "    vec3 s2 = texture2D(sampler0, v_tc2.zw).xyz;\n" +
+            "    vec3 s3 = texture2D(sampler0, v_tc3.zw).xyz;\n" +
+            "    vec3 s4 = texture2D(sampler0, v_tc4.zw).xyz;\n" +
             "    vec3 dt = vec3(1.0, 1.0, 1.0);\n" +
             "\n" +
             "    float ko1 = dot(abs(o1-c), dt);\n" +

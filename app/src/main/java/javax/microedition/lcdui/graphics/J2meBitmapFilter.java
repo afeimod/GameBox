@@ -438,34 +438,6 @@ public final class J2meBitmapFilter {
                     result = pE;
                 }
 
-                // ── Anti-color-bleeding clamp ──────────────────────────────
-                // When XBR selects a neighbor color (F/H/B/D) that differs
-                // significantly from the center pixel E in any single channel,
-                // it can produce isolated color dots (red/purple/yellow) at
-                // hard edges — "color bleeding". This post-step clamps the
-                // per-channel deviation from E to a maximum of BLEED_LIMIT,
-                // preventing isolated bright dots while preserving the edge
-                // smoothing effect.
-                if (result != pE) {
-                    final int BLEED_LIMIT = 80; // max per-channel deviation from E
-                    int eR = (pE >> 16) & 0xFF;
-                    int eG = (pE >> 8) & 0xFF;
-                    int eB = pE & 0xFF;
-                    int rR = (result >> 16) & 0xFF;
-                    int rG = (result >> 8) & 0xFF;
-                    int rB = result & 0xFF;
-                    int dR = rR - eR;
-                    int dG = rG - eG;
-                    int dB = rB - eB;
-                    if (dR > BLEED_LIMIT) rR = eR + BLEED_LIMIT;
-                    else if (dR < -BLEED_LIMIT) rR = eR - BLEED_LIMIT;
-                    if (dG > BLEED_LIMIT) rG = eG + BLEED_LIMIT;
-                    else if (dG < -BLEED_LIMIT) rG = eG - BLEED_LIMIT;
-                    if (dB > BLEED_LIMIT) rB = eB + BLEED_LIMIT;
-                    else if (dB < -BLEED_LIMIT) rB = eB - BLEED_LIMIT;
-                    result = (result & 0xFF000000) | (rR << 16) | (rG << 8) | rB;
-                }
-
                 dp[oy * dw + ox] = result;
             }
         }
