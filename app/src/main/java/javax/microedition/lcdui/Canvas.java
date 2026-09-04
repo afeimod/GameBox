@@ -62,6 +62,7 @@ import javax.microedition.lcdui.commands.AbstractSoftKeysBar;
 import javax.microedition.lcdui.event.CanvasEvent;
 import javax.microedition.lcdui.event.Event;
 import javax.microedition.lcdui.event.EventFilter;
+import javax.microedition.lcdui.event.EventQueue;
 import javax.microedition.lcdui.graphics.CanvasView;
 import javax.microedition.lcdui.graphics.CanvasWrapper;
 import javax.microedition.lcdui.graphics.GlesView;
@@ -1316,10 +1317,19 @@ public abstract class Canvas extends Displayable {
                                 processing = true;
                         }
                         try {
-                                // 循环消化脏区：paint() 里新 repaint() 并入的区域
-                                // 会立刻在下一轮取出并绘制。无新区域时一次即退出，
-                                // 行为与旧实现一致。
-                                while (true) {
+                                // 循环消化脏区只保留在即时模式
+                                // （EventQueue.isImmediate()）下：那种模式下 repaint()
+                                // 在调用线程同步执行，paint() 内再 repaint() 只会并入
+                                // 脏区后返回（processing 守卫），必须由本循环把并入
+                                // 的区域补绘出来。
+                                // 非即时（队列）模式下 process() 每次只消费一个脏区
+                                // 就返回：队列线程回到 eventLoop，后续 touch/key 事件
+                                // 才能按 FIFO 得到处理。这里若用 while(true)，像植物
+                                // 大战僵尸这类"渲染线程每帧都 repaint()"的游戏会让
+                                // 队列线程无限停留在本方法内（clip 几乎不为空），
+                                // POINTER_PRESSED / POINTER_RELEASED 永远排不上队，
+                                // 表现为"触屏点一次就失效，切一次设置才恢复一次"。
+                                do {
                                         int l, t, r, b;
                                         synchronized (this) {
                                                 isPending = false;
@@ -1349,7 +1359,7 @@ public abstract class Canvas extends Displayable {
                                                 return;
                                         }
                                         requestFlushToScreen();
-                                }
+                                } while (EventQueue.isImmediate());
                         } finally {
                                 synchronized (this) {
                                         processing = false;
