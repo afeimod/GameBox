@@ -308,92 +308,102 @@ private fun J2meGamepadOverlay(
             .fillMaxSize()
             .pointerInput(surfaceSize) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    // 记录按下是否已被更高 z 的控件（模式切换 / "123" 按钮）
-                    // 消费 —— 已消费的按下属于那些控件自身，不能转发成
-                    // 游戏区域触摸，否则点切换按钮会向画面注入一次多余触摸。
-                    val downConsumedByOther = down.isConsumed
-                    down.consume()
-                    val id = down.id.value
-                    val bits = hitTestGamepad(
-                        down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
-                        if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
-                    )
-                    if (bits != 0) {
-                        activePointers[id] = bits
-                        sendState(combineBits(activePointers))
-                        unhandledPointers.remove(id)
-                    } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
-                        // 未命中任何按键 → 游戏画面触摸，转发给底层视图
-                        unhandledPointers[id] = true
-                        currentOnUnhandledTouch?.invoke(
-                            down.position + padPosInRoot,
-                            android.view.MotionEvent.ACTION_DOWN,
-                            id.toInt()
+                    try {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        // 记录按下是否已被更高 z 的控件（模式切换 / "123" 按钮）
+                        // 消费 —— 已消费的按下属于那些控件自身，不能转发成
+                        // 游戏区域触摸，否则点切换按钮会向画面注入一次多余触摸。
+                        val downConsumedByOther = down.isConsumed
+                        down.consume()
+                        val id = down.id.value
+                        val bits = hitTestGamepad(
+                            down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
+                            if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
                         )
-                    } else {
-                        // 未命中按键且触摸被其他控件消费 / 无转发器：
-                        // 不跟踪、不转发
-                    }
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { change ->
-                            change.consume()
-                            val pid = change.id.value
-                            val newBits = if (change.pressed) {
-                                hitTestGamepad(
-                                    change.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
-                                    if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
-                                )
-                            } else 0
-                            if (unhandledPointers[pid] == true) {
-                                // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
-                                if (change.pressed) {
+                        if (bits != 0) {
+                            activePointers[id] = bits
+                            sendState(combineBits(activePointers))
+                            unhandledPointers.remove(id)
+                        } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
+                            // 未命中任何按键 → 游戏画面触摸，转发给底层视图
+                            unhandledPointers[id] = true
+                            currentOnUnhandledTouch?.invoke(
+                                down.position + padPosInRoot,
+                                android.view.MotionEvent.ACTION_DOWN,
+                                id.toInt()
+                            )
+                        } else {
+                            // 未命中按键且触摸被其他控件消费 / 无转发器：
+                            // 不跟踪、不转发
+                        }
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                change.consume()
+                                val pid = change.id.value
+                                val newBits = if (change.pressed) {
+                                    hitTestGamepad(
+                                        change.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
+                                        if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
+                                    )
+                                } else 0
+                                if (unhandledPointers[pid] == true) {
+                                    // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
+                                    if (change.pressed) {
+                                        currentOnUnhandledTouch?.invoke(
+                                            change.position + padPosInRoot,
+                                            android.view.MotionEvent.ACTION_MOVE,
+                                            pid.toInt()
+                                        )
+                                    } else {
+                                        currentOnUnhandledTouch?.invoke(
+                                            change.position + padPosInRoot,
+                                            android.view.MotionEvent.ACTION_UP,
+                                            pid.toInt()
+                                        )
+                                        unhandledPointers.remove(pid)
+                                    }
+                                    if (!change.pressed) {
+                                        activePointers.remove(pid)
+                                    }
+                                    return@forEach
+                                }
+                                // 第二/更多根手指在同一手势期间按下（此前未在任何
+                                // 按键或游戏区域登记过）：未命中按键且未被更高 z
+                                // 控件（模式切换/"123"按钮）消费时，与第一根手指
+                                // 走同一规则 —— 标记为"游戏画面触摸"并转发 DOWN，
+                                // 后续移动/抬起由上面的 unhandled 分支继续转发。
+                                // 此前这段事件被完全吞掉，多点触控游戏收不到后续手指。
+                                if (change.pressed && !activePointers.containsKey(pid) &&
+                                    newBits == 0 && !change.isConsumed &&
+                                    currentOnUnhandledTouch != null) {
+                                    unhandledPointers[pid] = true
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
-                                        android.view.MotionEvent.ACTION_MOVE,
+                                        android.view.MotionEvent.ACTION_DOWN,
                                         pid.toInt()
                                     )
-                                } else {
-                                    currentOnUnhandledTouch?.invoke(
-                                        change.position + padPosInRoot,
-                                        android.view.MotionEvent.ACTION_UP,
-                                        pid.toInt()
-                                    )
-                                    unhandledPointers.remove(pid)
+                                    return@forEach
+                                }
+                                val oldBits = activePointers[pid] ?: 0
+                                if (oldBits != newBits) {
+                                    activePointers[pid] = newBits
+                                    sendState(combineBits(activePointers))
                                 }
                                 if (!change.pressed) {
                                     activePointers.remove(pid)
+                                    sendState(combineBits(activePointers))
                                 }
-                                return@forEach
-                            }
-                            // 第二/更多根手指在同一手势期间按下（此前未在任何
-                            // 按键或游戏区域登记过）：未命中按键且未被更高 z
-                            // 控件（模式切换/"123"按钮）消费时，与第一根手指
-                            // 走同一规则 —— 标记为"游戏画面触摸"并转发 DOWN，
-                            // 后续移动/抬起由上面的 unhandled 分支继续转发。
-                            // 此前这段事件被完全吞掉，多点触控游戏收不到后续手指。
-                            if (change.pressed && !activePointers.containsKey(pid) &&
-                                newBits == 0 && !change.isConsumed &&
-                                currentOnUnhandledTouch != null) {
-                                unhandledPointers[pid] = true
-                                currentOnUnhandledTouch?.invoke(
-                                    change.position + padPosInRoot,
-                                    android.view.MotionEvent.ACTION_DOWN,
-                                    pid.toInt()
-                                )
-                                return@forEach
-                            }
-                            val oldBits = activePointers[pid] ?: 0
-                            if (oldBits != newBits) {
-                                activePointers[pid] = newBits
-                                sendState(combineBits(activePointers))
-                            }
-                            if (!change.pressed) {
-                                activePointers.remove(pid)
-                                sendState(combineBits(activePointers))
                             }
                         }
+                    } catch (t: Throwable) {
+                        // 手势结束由 awaitPointerEvent() 抛 CancellationException 表示，
+                        // 必须原样抛出交给 awaitEachGesture 处理。其它异常绝不能逃逸：
+                        // awaitEachGesture 只捕获 CancellationException，别的异常会让
+                        // 整个 pointerInput 协程永久退出 —— 触摸转发就此失效，直到
+                        // 控件被重组重建（表现为"改一次设置触屏才多生效一次"）。
+                        if (t is java.util.concurrent.CancellationException) throw t
+                        android.util.Log.e("J2meOverlay", "gamepad gesture error", t)
                     }
                 }
             }
@@ -637,83 +647,93 @@ private fun J2mePhoneOverlay(
             .fillMaxSize()
             .pointerInput(surfaceSize) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    // 记录按下是否已被更高 z 的控件（模式切换 / "123" 按钮）
-                    // 消费 —— 已消费的按下属于那些控件自身，不能转发成
-                    // 游戏区域触摸，否则点切换按钮会向画面注入一次多余触摸。
-                    val downConsumedByOther = down.isConsumed
-                    down.consume()
-                    val id = down.id.value
-                    val bits = hitTestPhone(down.position, topKeys, topKeyRects, numKeys, numKeyRects)
-                    if (bits != 0) {
-                        activePointers[id] = bits
-                        sendState(combineBits(activePointers))
-                        unhandledPointers.remove(id)
-                    } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
-                        // 未命中任何按键 → 游戏画面触摸，转发给底层视图
-                        unhandledPointers[id] = true
-                        currentOnUnhandledTouch?.invoke(
-                            down.position + padPosInRoot,
-                            android.view.MotionEvent.ACTION_DOWN,
-                            id.toInt()
-                        )
-                    } else {
-                        // 未命中按键且触摸被其他控件消费 / 无转发器：
-                        // 不跟踪、不转发
-                    }
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { change ->
-                            change.consume()
-                            val pid = change.id.value
-                            val newBits = if (change.pressed) {
-                                hitTestPhone(change.position, topKeys, topKeyRects, numKeys, numKeyRects)
-                            } else 0
-                            if (unhandledPointers[pid] == true) {
-                                // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
-                                if (change.pressed) {
+                    try {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        // 记录按下是否已被更高 z 的控件（模式切换 / "123" 按钮）
+                        // 消费 —— 已消费的按下属于那些控件自身，不能转发成
+                        // 游戏区域触摸，否则点切换按钮会向画面注入一次多余触摸。
+                        val downConsumedByOther = down.isConsumed
+                        down.consume()
+                        val id = down.id.value
+                        val bits = hitTestPhone(down.position, topKeys, topKeyRects, numKeys, numKeyRects)
+                        if (bits != 0) {
+                            activePointers[id] = bits
+                            sendState(combineBits(activePointers))
+                            unhandledPointers.remove(id)
+                        } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
+                            // 未命中任何按键 → 游戏画面触摸，转发给底层视图
+                            unhandledPointers[id] = true
+                            currentOnUnhandledTouch?.invoke(
+                                down.position + padPosInRoot,
+                                android.view.MotionEvent.ACTION_DOWN,
+                                id.toInt()
+                            )
+                        } else {
+                            // 未命中按键且触摸被其他控件消费 / 无转发器：
+                            // 不跟踪、不转发
+                        }
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                change.consume()
+                                val pid = change.id.value
+                                val newBits = if (change.pressed) {
+                                    hitTestPhone(change.position, topKeys, topKeyRects, numKeys, numKeyRects)
+                                } else 0
+                                if (unhandledPointers[pid] == true) {
+                                    // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
+                                    if (change.pressed) {
+                                        currentOnUnhandledTouch?.invoke(
+                                            change.position + padPosInRoot,
+                                            android.view.MotionEvent.ACTION_MOVE,
+                                            pid.toInt()
+                                        )
+                                    } else {
+                                        currentOnUnhandledTouch?.invoke(
+                                            change.position + padPosInRoot,
+                                            android.view.MotionEvent.ACTION_UP,
+                                            pid.toInt()
+                                        )
+                                        unhandledPointers.remove(pid)
+                                    }
+                                    if (!change.pressed) {
+                                        activePointers.remove(pid)
+                                    }
+                                    return@forEach
+                                }
+                                // 与手柄模式一致：手势中途新加入的手指（此前未在
+                                // 任何按键/游戏区域登记）未命中按键且未被更高 z
+                                // 控件消费时，同样转发为游戏画面触摸 DOWN。
+                                if (change.pressed && !activePointers.containsKey(pid) &&
+                                    newBits == 0 && !change.isConsumed &&
+                                    currentOnUnhandledTouch != null) {
+                                    unhandledPointers[pid] = true
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
-                                        android.view.MotionEvent.ACTION_MOVE,
+                                        android.view.MotionEvent.ACTION_DOWN,
                                         pid.toInt()
                                     )
-                                } else {
-                                    currentOnUnhandledTouch?.invoke(
-                                        change.position + padPosInRoot,
-                                        android.view.MotionEvent.ACTION_UP,
-                                        pid.toInt()
-                                    )
-                                    unhandledPointers.remove(pid)
+                                    return@forEach
+                                }
+                                val oldBits = activePointers[pid] ?: 0
+                                if (oldBits != newBits) {
+                                    activePointers[pid] = newBits
+                                    sendState(combineBits(activePointers))
                                 }
                                 if (!change.pressed) {
                                     activePointers.remove(pid)
+                                    sendState(combineBits(activePointers))
                                 }
-                                return@forEach
-                            }
-                            // 与手柄模式一致：手势中途新加入的手指（此前未在
-                            // 任何按键/游戏区域登记）未命中按键且未被更高 z
-                            // 控件消费时，同样转发为游戏画面触摸 DOWN。
-                            if (change.pressed && !activePointers.containsKey(pid) &&
-                                newBits == 0 && !change.isConsumed &&
-                                currentOnUnhandledTouch != null) {
-                                unhandledPointers[pid] = true
-                                currentOnUnhandledTouch?.invoke(
-                                    change.position + padPosInRoot,
-                                    android.view.MotionEvent.ACTION_DOWN,
-                                    pid.toInt()
-                                )
-                                return@forEach
-                            }
-                            val oldBits = activePointers[pid] ?: 0
-                            if (oldBits != newBits) {
-                                activePointers[pid] = newBits
-                                sendState(combineBits(activePointers))
-                            }
-                            if (!change.pressed) {
-                                activePointers.remove(pid)
-                                sendState(combineBits(activePointers))
                             }
                         }
+                    } catch (t: Throwable) {
+                        // 手势结束由 awaitPointerEvent() 抛 CancellationException 表示，
+                        // 必须原样抛出交给 awaitEachGesture 处理。其它异常绝不能逃逸：
+                        // awaitEachGesture 只捕获 CancellationException，别的异常会让
+                        // 整个 pointerInput 协程永久退出 —— 触摸转发就此失效，直到
+                        // 控件被重组重建（表现为"改一次设置触屏才多生效一次"）。
+                        if (t is java.util.concurrent.CancellationException) throw t
+                        android.util.Log.e("J2meOverlay", "phone gesture error", t)
                     }
                 }
             }

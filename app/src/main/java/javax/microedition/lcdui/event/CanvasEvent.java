@@ -169,12 +169,31 @@ public class CanvasEvent extends Event {
 
 	@Override
 	public void enterQueue() {
-		enqueued[eventType]++;
+		if (eventType >= 0 && eventType < enqueued.length) {
+			enqueued[eventType]++;
+		}
 	}
 
 	@Override
 	public void leaveQueue() {
-		enqueued[eventType]--;
+		if (eventType >= 0 && eventType < enqueued.length && enqueued[eventType] > 0) {
+			enqueued[eventType]--;
+		}
+	}
+
+	/**
+	 * GameBox: 清零排队计数。
+	 * <p>
+	 * 事件队列线程死亡时，队列里尚未处理的事件不会调用 leaveQueue()，
+	 * 它们的计数会永远留在 enqueued[] 里。enqueued[POINTER_DRAGGED] 一旦
+	 * 卡在 >= 2，placeableAfter() 会永久返回 false —— 之后每一个
+	 * POINTER_DRAGGED（以及 KEY_REPEATED）事件都会被静默丢弃，即使队列
+	 * 线程已经重建也恢复不了。线程重建时调用本方法复位。
+	 */
+	static void resetEnqueued() {
+		for (int i = 0; i < enqueued.length; i++) {
+			enqueued[i] = 0;
+		}
 	}
 
 	@Override

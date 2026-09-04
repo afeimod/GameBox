@@ -25,16 +25,21 @@ import javax.microedition.util.LinkedList;
  * The event queue. A really complicated thing.
  */
 public class EventQueue implements Runnable {
+	private static final String TAG = "EventQueue";
 	private static boolean immediate;
 
 	private final LinkedList<Event> queue = new LinkedList<>();
 	private final Object waiter = new Object();
-	private final Object interlock = new Object();
+	// Thread lifecycle only. Never held across the event loop — the old
+	// `interlock` monitor was held for the whole lifetime of run(), so any
+	// synchronized(interlock) from another thread deadlocked as soon as the
+	// loop was busy or stuck inside an event callback.
+	private final Object threadLock = new Object();
 	private final Object callbackLock = new Object();
 
-	private boolean enabled;
-	private Thread thread;
-	private boolean running;
+	private volatile boolean enabled;
+	private volatile Thread thread;
+	private volatile boolean running;
 	private boolean continuerun;
 
 	/**
@@ -51,9 +56,8 @@ public class EventQueue implements Runnable {
 	public static void setImmediate(boolean value) {
 		immediate = value;
 		if (value) {
-			// Reset the queued counter so the overflow protection in
-			// RunnableEvent.enterQueue() doesn't immediately re-disable
-			// immediate mode based on stale counts from before the toggle.
+			// Reset the diagnostic queued counter so it reflects only the
+			// events posted after this toggle.
 			RunnableEvent.resetQueued();
 		}
 	}
@@ -83,6 +87,12 @@ public class EventQueue implements Runnable {
 			}
 			return;      // and nothing to do here
 		}
+
+		// GameBox: 队列线程自愈。该线程是非即时模式下 touch / key / paint 的
+		// 唯一消费者；一旦它退出（Error 逃逸、OOM 等），后续所有事件会永远
+		// 堆积在队列里不被派发 —— 表现为"Java 游戏触屏点一次就失效，且无法
+		// 恢复"。投递前先确认线程存活，死了就重建。
+		ensureThreadAlive();
 
 		boolean empty;
 
@@ -126,6 +136,38 @@ public class EventQueue implements Runnable {
 	}
 
 	/**
+	 * GameBox: 事件队列线程自愈。
+	 * <p>
+	 * 该线程是全进程唯一的事件消费者：非即时模式下触屏(pointerPressed)、
+	 * 按键、重绘全部依赖它。线程一旦退出，所有后续事件会永远堆积在队列里
+	 * 不被派发 —— 表现为"Java 游戏触屏点一次就失效，怎么都恢复不了"。
+	 * <p>
+	 * 已退出的线程会释放它持有的全部监视器（含 callbackLock），因此重建的
+	 * 线程能立即接管队列里积压的事件，输入链路随之恢复。
+	 */
+	private void ensureThreadAlive() {
+		Thread t = thread;
+		if (t != null && t.isAlive()) {
+			return;
+		}
+		synchronized (threadLock) {
+			t = thread;
+			if (t != null && t.isAlive()) {
+				return;
+			}
+			enabled = true;
+			thread = new Thread(this, "MIDletEventQueue");
+			thread.start();
+			// 队列里积压的事件不会再调用 leaveQueue()，它们的计数会永久残留。
+			// 残留的 enqueued[POINTER_DRAGGED] >= 2 会让 placeableAfter() 永远
+			// 返回 false，之后每个拖拽事件都被静默丢弃 —— 必须一并复位。
+			CanvasEvent.resetEnqueued();
+			RunnableEvent.resetQueued();
+			Log.w(TAG, "Event queue thread died, restarted");
+		}
+	}
+
+	/**
 	 * Check if there is anything in the queue.
 	 *
 	 * @return true, if the queue is empty
@@ -141,6 +183,10 @@ public class EventQueue implements Runnable {
 		synchronized (queue) {
 			queue.clear();
 		}
+		// 被清掉的事件不会再调用 leaveQueue()，计数必须一并复位，
+		// 否则残留的 enqueued[POINTER_DRAGGED] 会让 placeableAfter() 永久返回 false。
+		CanvasEvent.resetEnqueued();
+		RunnableEvent.resetQueued();
 	}
 
 	/**
@@ -150,15 +196,16 @@ public class EventQueue implements Runnable {
 	public void startProcessing() {
 		enabled = true;
 
-		if (thread == null) {
-			thread = new Thread(this, "MIDletEventQueue");
-			thread.start();
+		synchronized (threadLock) {
+			if (thread == null || !thread.isAlive()) {
+				thread = new Thread(this, "MIDletEventQueue");
+				thread.start();
+			}
 		}
 	}
 
 	/**
 	 * Stop the event loop.
-	 * This method is blocked until the loop is completely stopped.
 	 */
 	public void stopProcessing() {
 		enabled = false;
@@ -167,7 +214,7 @@ public class EventQueue implements Runnable {
 			waiter.notifyAll();
 		}
 
-		synchronized (interlock) {
+		synchronized (threadLock) {
 			thread = null;
 		}
 	}
@@ -177,9 +224,8 @@ public class EventQueue implements Runnable {
 	 */
 	@Override
 	public void run() {
-		synchronized (interlock) {
-			running = true;
-
+		running = true;
+		try {
 			while (enabled) {
 
 				Event event;
@@ -200,7 +246,7 @@ public class EventQueue implements Runnable {
 						try {
 							event.run();
 						} catch (Throwable t) {
-							Log.e("EventQueue", "Event processing error", t);
+							Log.e(TAG, "Event processing error", t);
 						}
 					}
 				} else {
@@ -221,6 +267,10 @@ public class EventQueue implements Runnable {
 					}
 				}
 			}
+		} finally {
+			// Never leave `running` stale: postEvent() reads it to decide
+			// between setting continuerun and notifying the waiter.
+			running = false;
 		}
 	}
 

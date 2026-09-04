@@ -17,11 +17,7 @@
 
 package javax.microedition.lcdui.event;
 
-import android.widget.Toast;
-
-import javax.microedition.lcdui.ViewHandler;
 import javax.microedition.util.ArrayStack;
-import javax.microedition.util.ContextHolder;
 
 public class RunnableEvent extends Event {
 	private static final ArrayStack<RunnableEvent> recycled = new ArrayStack<>();
@@ -30,10 +26,11 @@ public class RunnableEvent extends Event {
 	private Runnable runnable;
 
 	/**
-	 * Reset the queued counter when immediate mode is explicitly enabled.
-	 * Without this, a stale high counter (from events processed before the
-	 * toggle) would trigger the overflow protection immediately, disabling
-	 * immediate mode again and causing touch events to stop working.
+	 * GameBox: 重新启用即时模式时清零排队计数。
+	 * 该计数现在只做诊断用途（见 enterQueue / leaveQueue），不再驱动任何
+	 * 自动降级行为 —— 旧版本在 queued > 50 时会静默调用
+	 * EventQueue.setImmediate(false)，把用户刚打开的即时模式立刻关掉，
+	 * 这正是"改一次即时绘制模式触屏只多生效一次就又失效"的直接原因。
 	 */
 	static void resetQueued() {
 		synchronized (recycled) {
@@ -67,20 +64,16 @@ public class RunnableEvent extends Event {
 	@Override
 	public void enterQueue() {
 		synchronized (recycled) {
-			if (++queued > 50 && EventQueue.isImmediate()) {
-				EventQueue.setImmediate(false);
-				ViewHandler.postEvent(() ->
-						Toast.makeText(ContextHolder.getAppContext(),
-								"Immediate mode disabled due to stack overflow",
-								Toast.LENGTH_SHORT).show());
-			}
+			queued++;
 		}
 	}
 
 	@Override
 	public void leaveQueue() {
 		synchronized (recycled) {
-			queued--;
+			if (queued > 0) {
+				queued--;
+			}
 		}
 	}
 
