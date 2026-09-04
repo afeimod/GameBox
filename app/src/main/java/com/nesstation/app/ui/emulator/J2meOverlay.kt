@@ -793,48 +793,48 @@ private fun J2meDpadCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
             )
-            return@Box
-        }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val halfSize = size.width / 2f
-            val armLen = halfSize * 0.95f
-            val armThick = size.width * 0.30f
-            val halfThick = armThick / 2f
-            val cornerR = armThick * 0.15f
-            val cr = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val halfSize = size.width / 2f
+                val armLen = halfSize * 0.95f
+                val armThick = size.width * 0.30f
+                val halfThick = armThick / 2f
+                val cornerR = armThick * 0.15f
+                val cr = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
 
-            // 方向键配色增亮：旧版底色 0xFF2C2C38（近黑）在深色游戏画面上
-            // 即便不透明也几乎与背景融为一体。改为亮一档的蓝灰底 +
-            // 白色描边 + 高亮箭头，任何背景下都能看清按键轮廓。
-            // （主题开启时使用用户配置的常规色/按压色）
-            val armColor = armColorInput.copy(alpha = opacity)
-            val pressedColor = pressedColorInput.copy(alpha = (opacity * 0.9f).coerceAtMost(1f))
-            val outlineColor = Color.White.copy(alpha = (opacity * 0.45f).coerceAtMost(1f))
+                // 方向键配色增亮：旧版底色 0xFF2C2C38（近黑）在深色游戏画面上
+                // 即便不透明也几乎与背景融为一体。改为亮一档的蓝灰底 +
+                // 白色描边 + 高亮箭头，任何背景下都能看清按键轮廓。
+                // （主题开启时使用用户配置的常规色/按压色）
+                val armColor = armColorInput.copy(alpha = opacity)
+                val pressedColor = pressedColorInput.copy(alpha = (opacity * 0.9f).coerceAtMost(1f))
+                val outlineColor = Color.White.copy(alpha = (opacity * 0.45f).coerceAtMost(1f))
 
-            drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
-            drawRoundRect(armColor, Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr)
-            // 十字轮廓描边（把横臂与竖臂的边缘都勾出来）
-            drawRoundRect(
-                outlineColor,
-                Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
-            )
-            drawRoundRect(
-                outlineColor,
-                Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
-            )
-            // 中心亮斑：提示操作区域
-            drawCircle(Color.White.copy(alpha = opacity * 0.18f), halfThick * 0.55f, Offset(cx, cy))
+                drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
+                drawRoundRect(armColor, Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr)
+                // 十字轮廓描边（把横臂与竖臂的边缘都勾出来）
+                drawRoundRect(
+                    outlineColor,
+                    Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
+                )
+                drawRoundRect(
+                    outlineColor,
+                    Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
+                )
+                // 中心亮斑：提示操作区域
+                drawCircle(Color.White.copy(alpha = opacity * 0.18f), halfThick * 0.55f, Offset(cx, cy))
 
-            val armTipLen = armLen * 0.42f
-            val tipThick = armThick * 0.7f
-            if (pressedDirs and J2ME_BTN_UP != 0) drawRoundRect(pressedColor, Offset(cx - tipThick / 2, cy - armLen), Size(tipThick, armTipLen), cr)
-            if (pressedDirs and J2ME_BTN_DOWN != 0) drawRoundRect(pressedColor, Offset(cx - tipThick / 2, cy + armLen - armTipLen), Size(tipThick, armTipLen), cr)
-            if (pressedDirs and J2ME_BTN_LEFT != 0) drawRoundRect(pressedColor, Offset(cx - armLen, cy - tipThick / 2), Size(armTipLen, tipThick), cr)
-            if (pressedDirs and J2ME_BTN_RIGHT != 0) drawRoundRect(pressedColor, Offset(cx + armLen - armTipLen, cy - tipThick / 2), Size(armTipLen, tipThick), cr)
+                val armTipLen = armLen * 0.42f
+                val tipThick = armThick * 0.7f
+                if (pressedDirs and J2ME_BTN_UP != 0) drawRoundRect(pressedColor, Offset(cx - tipThick / 2, cy - armLen), Size(tipThick, armTipLen), cr)
+                if (pressedDirs and J2ME_BTN_DOWN != 0) drawRoundRect(pressedColor, Offset(cx - tipThick / 2, cy + armLen - armTipLen), Size(tipThick, armTipLen), cr)
+                if (pressedDirs and J2ME_BTN_LEFT != 0) drawRoundRect(pressedColor, Offset(cx - armLen, cy - tipThick / 2), Size(armTipLen, tipThick), cr)
+                if (pressedDirs and J2ME_BTN_RIGHT != 0) drawRoundRect(pressedColor, Offset(cx + armLen - armTipLen, cy - tipThick / 2), Size(armTipLen, tipThick), cr)
+            }
         }
     }
 }
@@ -866,21 +866,21 @@ private fun J2meActionButton(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            return@Box
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val r = size.width * 0.46f
+                drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
+                drawCircle(
+                    if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                    else color.copy(alpha = opacity),
+                    r, Offset(cx, cy)
+                )
+                drawCircle(Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f), r * 0.7f, Offset(cx - r * 0.15f, cy - r * 0.15f))
+            }
+            Text(label, color = Color.White, fontSize = (sizeDp.value * 0.35f).sp, fontWeight = FontWeight.Bold)
         }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val r = size.width * 0.46f
-            drawCircle(color.copy(alpha = opacity * 0.3f), r + 3.dp.toPx(), Offset(cx, cy))
-            drawCircle(
-                if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                else color.copy(alpha = opacity),
-                r, Offset(cx, cy)
-            )
-            drawCircle(Color.White.copy(alpha = if (isPressed) 0.1f else 0.15f), r * 0.7f, Offset(cx - r * 0.15f, cy - r * 0.15f))
-        }
-        Text(label, color = Color.White, fontSize = (sizeDp.value * 0.35f).sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -916,32 +916,32 @@ private fun J2mePillButton(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            return@Box
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val rx = size.width * 0.46f
+                val ry = size.height * 0.46f
+                val color = (if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                             else normalColor.copy(alpha = opacity))
+                // 圆角胶囊外形 (旧版画圆, 与 2.2:0.7 的容器不匹配)
+                val cornerR = size.height / 2f
+                drawRoundRect(
+                    color.copy(alpha = opacity * 0.5f),
+                    Offset(cx - rx, cy - ry),
+                    Size(rx * 2, ry * 2),
+                    androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
+                drawRoundRect(
+                    color,
+                    Offset(cx - rx, cy - ry),
+                    Size(rx * 2, ry * 2),
+                    androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                )
+            }
+            Text(label, color = Color.White, fontSize = (sizeDp.value * 0.28f).sp, fontWeight = FontWeight.Bold)
         }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val rx = size.width * 0.46f
-            val ry = size.height * 0.46f
-            val color = (if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                         else normalColor.copy(alpha = opacity))
-            // 圆角胶囊外形 (旧版画圆, 与 2.2:0.7 的容器不匹配)
-            val cornerR = size.height / 2f
-            drawRoundRect(
-                color.copy(alpha = opacity * 0.5f),
-                Offset(cx - rx, cy - ry),
-                Size(rx * 2, ry * 2),
-                androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-            )
-            drawRoundRect(
-                color,
-                Offset(cx - rx, cy - ry),
-                Size(rx * 2, ry * 2),
-                androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-            )
-        }
-        Text(label, color = Color.White, fontSize = (sizeDp.value * 0.28f).sp, fontWeight = FontWeight.Bold)
     }
 }
 

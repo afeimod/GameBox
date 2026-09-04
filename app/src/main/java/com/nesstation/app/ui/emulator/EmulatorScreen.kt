@@ -5026,41 +5026,41 @@ private fun DpadCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
             )
-            return@Box
-        }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val halfSize = size.width / 2f
-            val armLen = halfSize * 0.95f
-            val armThick = size.width * 0.30f
-            val halfThick = armThick / 2f
-            val cornerR = armThick * 0.15f
-            val cr = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val halfSize = size.width / 2f
+                val armLen = halfSize * 0.95f
+                val armThick = size.width * 0.30f
+                val halfThick = armThick / 2f
+                val cornerR = armThick * 0.15f
+                val cr = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
 
-            val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
-            val armColor = armColor.copy(alpha = opacity)
-            val pressedColor = pressedTipColor.copy(alpha = opacity * 0.8f)
+                val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
+                val armColor = armColor.copy(alpha = opacity)
+                val pressedColor = pressedTipColor.copy(alpha = opacity * 0.8f)
 
-            drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
-            drawRoundRect(armColor, Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr)
-            drawRoundRect(baseColor, Offset(cx - halfThick * 0.85f, cy - halfThick * 0.85f), Size(halfThick * 1.7f, halfThick * 1.7f), cr)
+                drawRoundRect(armColor, Offset(cx - armLen, cy - halfThick), Size(armLen * 2, armThick), cr)
+                drawRoundRect(armColor, Offset(cx - halfThick, cy - armLen), Size(armThick, armLen * 2), cr)
+                drawRoundRect(baseColor, Offset(cx - halfThick * 0.85f, cy - halfThick * 0.85f), Size(halfThick * 1.7f, halfThick * 1.7f), cr)
 
-            val armTipLen = armLen * 0.42f
-            val tipThick = armThick * 0.7f
-            if (pressedDirs and BTN_UP != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy - armLen), Size(tipThick, armTipLen), cr)
-            if (pressedDirs and BTN_DOWN != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy + armLen - armTipLen), Size(tipThick, armTipLen), cr)
-            if (pressedDirs and BTN_LEFT != 0) drawRoundRect(pressedColor, Offset(cx - armLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
-            if (pressedDirs and BTN_RIGHT != 0) drawRoundRect(pressedColor, Offset(cx + armLen - armTipLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
+                val armTipLen = armLen * 0.42f
+                val tipThick = armThick * 0.7f
+                if (pressedDirs and BTN_UP != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy - armLen), Size(tipThick, armTipLen), cr)
+                if (pressedDirs and BTN_DOWN != 0) drawRoundRect(pressedColor, Offset(cx - tipThick/2, cy + armLen - armTipLen), Size(tipThick, armTipLen), cr)
+                if (pressedDirs and BTN_LEFT != 0) drawRoundRect(pressedColor, Offset(cx - armLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
+                if (pressedDirs and BTN_RIGHT != 0) drawRoundRect(pressedColor, Offset(cx + armLen - armTipLen, cy - tipThick/2), Size(armTipLen, tipThick), cr)
 
-            val arrowSize = armThick * 0.18f
-            val arrowOffset = armLen * 0.68f
-            val dirs = listOf(Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN), Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT))
-            for ((dx, dy, bit) in dirs) {
-                val ax = cx + dx * arrowOffset
-                val ay = cy + dy * arrowOffset
-                val isActive = pressedDirs and bit != 0
-                drawTriangle(ax, ay, dx, dy, arrowSize, if (isActive) Color(0xFF1A1A22) else Color(0x99FFFFFF))
+                val arrowSize = armThick * 0.18f
+                val arrowOffset = armLen * 0.68f
+                val dirs = listOf(Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN), Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT))
+                for ((dx, dy, bit) in dirs) {
+                    val ax = cx + dx * arrowOffset
+                    val ay = cy + dy * arrowOffset
+                    val isActive = pressedDirs and bit != 0
+                    drawTriangle(ax, ay, dx, dy, arrowSize, if (isActive) Color(0xFF1A1A22) else Color(0x99FFFFFF))
+                }
             }
         }
     }
@@ -5112,76 +5112,76 @@ private fun AnalogStickCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (pressedDirs != 0) 0.9f else opacity)
             )
-            return@Box
-        }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val baseR = size.width * 0.48f  // outer base radius
-            val thumbR = size.width * 0.22f // thumb cap radius
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val baseR = size.width * 0.48f  // outer base radius
+                val thumbR = size.width * 0.22f // thumb cap radius
 
-            val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
-            val ringColor = Color(0xFF2C2C38).copy(alpha = opacity)
-            val thumbColor = thumbColor.copy(alpha = opacity)
-            val thumbPressedColor = thumbPressedColor.copy(alpha = (opacity * 1.2f).coerceAtMost(1f))
-            val arrowColor = Color(0x99FFFFFF)
+                val baseColor = Color(0xFF1A1A22).copy(alpha = opacity)
+                val ringColor = Color(0xFF2C2C38).copy(alpha = opacity)
+                val thumbColor = thumbColor.copy(alpha = opacity)
+                val thumbPressedColor = thumbPressedColor.copy(alpha = (opacity * 1.2f).coerceAtMost(1f))
+                val arrowColor = Color(0x99FFFFFF)
 
-            // Outer base (filled circle)
-            drawCircle(baseColor, baseR, Offset(cx, cy))
-            // Outer ring
-            drawCircle(ringColor, baseR, Offset(cx, cy), style = Stroke(width = 2.dp.toPx()))
-            // Inner well (slightly darker)
-            drawCircle(Color(0xFF101015).copy(alpha = opacity), baseR * 0.78f, Offset(cx, cy))
+                // Outer base (filled circle)
+                drawCircle(baseColor, baseR, Offset(cx, cy))
+                // Outer ring
+                drawCircle(ringColor, baseR, Offset(cx, cy), style = Stroke(width = 2.dp.toPx()))
+                // Inner well (slightly darker)
+                drawCircle(Color(0xFF101015).copy(alpha = opacity), baseR * 0.78f, Offset(cx, cy))
 
-            // Directional arrows on the rim (same style as D-Pad)
-            val arrowSize = baseR * 0.16f
-            val arrowOffset = baseR * 0.72f
-            val dirs = listOf(
-                Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN),
-                Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT)
-            )
-            for ((dx, dy, bit) in dirs) {
-                val ax = cx + dx * arrowOffset
-                val ay = cy + dy * arrowOffset
-                val isActive = pressedDirs and bit != 0
-                // When active, draw a small highlight circle behind the arrow
-                if (isActive) {
-                    drawCircle(
-                        Color(0xFFFFD66B).copy(alpha = opacity * 0.4f),
-                        arrowSize * 1.8f,
-                        Offset(ax, ay)
+                // Directional arrows on the rim (same style as D-Pad)
+                val arrowSize = baseR * 0.16f
+                val arrowOffset = baseR * 0.72f
+                val dirs = listOf(
+                    Triple(0f, -1f, BTN_UP), Triple(0f, 1f, BTN_DOWN),
+                    Triple(-1f, 0f, BTN_LEFT), Triple(1f, 0f, BTN_RIGHT)
+                )
+                for ((dx, dy, bit) in dirs) {
+                    val ax = cx + dx * arrowOffset
+                    val ay = cy + dy * arrowOffset
+                    val isActive = pressedDirs and bit != 0
+                    // When active, draw a small highlight circle behind the arrow
+                    if (isActive) {
+                        drawCircle(
+                            Color(0xFFFFD66B).copy(alpha = opacity * 0.4f),
+                            arrowSize * 1.8f,
+                            Offset(ax, ay)
+                        )
+                    }
+                    drawTriangle(
+                        ax, ay, dx, dy, arrowSize,
+                        if (isActive) Color(0xFFFFD66B).copy(alpha = opacity) else arrowColor
                     )
                 }
-                drawTriangle(
-                    ax, ay, dx, dy, arrowSize,
-                    if (isActive) Color(0xFFFFD66B).copy(alpha = opacity) else arrowColor
+
+                // Thumb cap position: center + offset * (baseR - thumbR)
+                // (so the thumb stays within the base circle)
+                val maxOffset = baseR - thumbR - 2.dp.toPx()
+                val thumbCx = cx + thumbX * maxOffset
+                val thumbCy = cy + thumbY * maxOffset
+                val isPressed = pressedDirs != 0
+                // Thumb shadow (slight offset for depth)
+                drawCircle(
+                    Color(0x44000000),
+                    thumbR + 1.dp.toPx(),
+                    Offset(thumbCx + 1f, thumbCy + 2f)
+                )
+                // Thumb cap
+                drawCircle(
+                    if (isPressed) thumbPressedColor else thumbColor,
+                    thumbR,
+                    Offset(thumbCx, thumbCy)
+                )
+                // Thumb highlight (top-left, gives 3D feel)
+                drawCircle(
+                    Color.White.copy(alpha = opacity * 0.25f),
+                    thumbR * 0.5f,
+                    Offset(thumbCx - thumbR * 0.25f, thumbCy - thumbR * 0.25f)
                 )
             }
-
-            // Thumb cap position: center + offset * (baseR - thumbR)
-            // (so the thumb stays within the base circle)
-            val maxOffset = baseR - thumbR - 2.dp.toPx()
-            val thumbCx = cx + thumbX * maxOffset
-            val thumbCy = cy + thumbY * maxOffset
-            val isPressed = pressedDirs != 0
-            // Thumb shadow (slight offset for depth)
-            drawCircle(
-                Color(0x44000000),
-                thumbR + 1.dp.toPx(),
-                Offset(thumbCx + 1f, thumbCy + 2f)
-            )
-            // Thumb cap
-            drawCircle(
-                if (isPressed) thumbPressedColor else thumbColor,
-                thumbR,
-                Offset(thumbCx, thumbCy)
-            )
-            // Thumb highlight (top-left, gives 3D feel)
-            drawCircle(
-                Color.White.copy(alpha = opacity * 0.25f),
-                thumbR * 0.5f,
-                Offset(thumbCx - thumbR * 0.25f, thumbCy - thumbR * 0.25f)
-            )
         }
     }
 }
@@ -5248,18 +5248,18 @@ private fun TurboButtonCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            return@Box
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.44f
+                drawCircle(color.copy(alpha = opacity * 0.4f), r + 2.dp.toPx(), Offset(cx, cy), style = Stroke(width = 1.5.dp.toPx()))
+                drawCircle(
+                    if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                    else color.copy(alpha = opacity * 0.7f),
+                    r, Offset(cx, cy)
+                )
+            }
+            Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.32f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
         }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f; val cy = size.height / 2f; val r = size.width * 0.44f
-            drawCircle(color.copy(alpha = opacity * 0.4f), r + 2.dp.toPx(), Offset(cx, cy), style = Stroke(width = 1.5.dp.toPx()))
-            drawCircle(
-                if (isPressed) (pressedColor ?: color.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                else color.copy(alpha = opacity * 0.7f),
-                r, Offset(cx, cy)
-            )
-        }
-        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.32f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
     }
 }
 
@@ -5291,19 +5291,19 @@ private fun PillButtonCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            return@Box
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width; val h = size.height; val r = h * 0.4f
+                val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
+                drawRoundRect(
+                    if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                    else normalColor.copy(alpha = opacity),
+                    Offset(0f, 0f), Size(w, h), cr
+                )
+                drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
+            }
+            Text(label, color = Color.White.copy(alpha = 0.8f), fontSize = (sizeDp.value * 0.22f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
         }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width; val h = size.height; val r = h * 0.4f
-            val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
-            drawRoundRect(
-                if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                else normalColor.copy(alpha = opacity),
-                Offset(0f, 0f), Size(w, h), cr
-            )
-            drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
-        }
-        Text(label, color = Color.White.copy(alpha = 0.8f), fontSize = (sizeDp.value * 0.22f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
     }
 }
 
@@ -5341,19 +5341,19 @@ private fun ShoulderButtonCanvas(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().alpha(if (isPressed) 0.9f else opacity)
             )
-            return@Box
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width; val h = size.height; val r = h * 0.4f
+                val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
+                drawRoundRect(
+                    if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
+                    else normalColor.copy(alpha = opacity),
+                    Offset(0f, 0f), Size(w, h), cr
+                )
+                drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
+            }
+            Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.28f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width; val h = size.height; val r = h * 0.4f
-            val cr = androidx.compose.ui.geometry.CornerRadius(r, r)
-            drawRoundRect(
-                if (isPressed) (pressedColor ?: normalColor.copy(alpha = (opacity * 1.5f).coerceAtMost(1f)))
-                else normalColor.copy(alpha = opacity),
-                Offset(0f, 0f), Size(w, h), cr
-            )
-            drawRoundRect(Color.White.copy(alpha = if (isPressed) 0.05f else 0.1f), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.25f), androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f))
-        }
-        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = (sizeDp.value * 0.28f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
 }
 
