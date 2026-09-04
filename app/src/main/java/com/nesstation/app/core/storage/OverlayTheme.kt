@@ -53,6 +53,17 @@ data class OverlayTheme(
     /** 是否已经对任意按键做过自定义（用于 UI 显示“恢复默认”入口）。 */
     val hasButtonCustomizations: Boolean get() = buttons.isNotEmpty()
 
+    /**
+     * 是否完全未自定义（与默认实例等价）。
+     *
+     * 用于运行时的 GBA→GB 主题回退：设置页里 mGBA 核心只有「GB / GBA」一个
+     * 入口（写 "GB" 键），没有单独的 GBA 入口；当 "GBA" 键从未被配置过时，
+     * 运行时回退读 "GB" 键，避免 GBA 游戏永远显示默认黑色背景/默认按键。
+     */
+    val isDefault: Boolean
+        get() = bgColor == null && bgImageUri == null && !maskEnabled &&
+                maskImageUri == null && buttons.isEmpty()
+
     fun button(id: String): ButtonTheme? = buttons[id]
 
     /**
@@ -123,6 +134,15 @@ fun overlayThemeClear(json: String, platform: GamePlatform): String {
  * 方向键/AB 键，JAVA 沿用游戏手柄键位。
  */
 fun themeButtonsFor(platform: GamePlatform): List<Pair<String, String>> = when (platform) {
+    // GB 与 GBA 共用「GB / GBA」同一个设置入口（配置存 "GB" 键，GBA 运行时
+    // 未单独配置则回退读取，见 EmulatorScreen）。GBA 比 GB 多 L/R 肩键，
+    // 这里把 L/R 也列出来供自定义（GB 游戏不渲染 L/R，配置无副作用）。
+    GamePlatform.GB -> listOf(
+        "dpad" to "十字键", "a" to "A 键", "b" to "B 键",
+        "ta" to "连射A", "tb" to "连射B",
+        "l" to "L 键（仅GBA）", "r" to "R 键（仅GBA）",
+        "start" to "START", "select" to "SELECT"
+    )
     GamePlatform.DOS -> listOf(
         "dpad" to "十字键", "a" to "A 键", "b" to "B 键",
         "start" to "START", "select" to "SELECT"

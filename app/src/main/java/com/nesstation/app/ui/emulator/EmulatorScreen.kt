@@ -1781,8 +1781,19 @@ fun EmulatorScreen(
     LaunchedEffect(fastForwardSpeed) { engine.setFastForward(fastForwardSpeed) }
     LaunchedEffect(running) { engine.setPaused(!running) }
 
-    // 当前核心的遮罩 / 按钮主题（每核心独立；未配置时用默认纯黑背景）
-    val overlayTheme = com.nesstation.app.core.storage.overlayThemeGet(padLayout.overlayThemeJson, platform)
+    // 当前核心的遮罩 / 按钮主题（每核心独立；未配置时用默认纯黑背景）。
+    // GBA 回退：设置页里 mGBA 核心只有「GB / GBA」一个入口（写入 "GB" 键），
+    // 没有单独配置 GBA 的 UI；当 "GBA" 键完全未自定义时回退读 "GB" 键，
+    // 否则 GBA 游戏永远拿不到用户在设置页做的遮罩 / 按键自定义
+    //（GB/GBC 游戏直接读 "GB" 键所以正常，GBA 读自己的空键所以失效）。
+    val overlayTheme = run {
+        val own = com.nesstation.app.core.storage.overlayThemeGet(padLayout.overlayThemeJson, platform)
+        if (platform == GamePlatform.GBA && own.isDefault) {
+            com.nesstation.app.core.storage.overlayThemeGet(padLayout.overlayThemeJson, GamePlatform.GB)
+        } else {
+            own
+        }
+    }
     // 自定义背景图片（覆盖在背景色之上、游戏画面之下）
     val themeBgImage = remember(overlayTheme.bgImageUri) {
         overlayTheme.bgImageUri?.let { FsdImaging.decodeUri(context, it, 1280, 800) }
