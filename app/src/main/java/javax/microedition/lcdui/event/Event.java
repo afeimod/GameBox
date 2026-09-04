@@ -44,8 +44,12 @@ public abstract class Event implements Runnable {
 	public void run() {
 		try {
 			process();
-		} catch (Exception e) {
-			Log.e(getClass().getName(), "process: ", e);
+		} catch (Throwable t) {
+			// Catch Throwable (not just Exception) so Errors like
+			// StackOverflowError or OutOfMemoryError don't propagate
+			// up and kill the event queue thread — if the thread dies,
+			// all subsequent events (touch, key, paint) pile up forever.
+			Log.e(getClass().getName(), "process: ", t);
 		} finally {
 			leaveQueue();
 			recycle();

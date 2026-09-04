@@ -17,6 +17,8 @@
 
 package javax.microedition.lcdui.event;
 
+import android.util.Log;
+
 import javax.microedition.util.LinkedList;
 
 /**
@@ -48,6 +50,12 @@ public class EventQueue implements Runnable {
 	 */
 	public static void setImmediate(boolean value) {
 		immediate = value;
+		if (value) {
+			// Reset the queued counter so the overflow protection in
+			// RunnableEvent.enterQueue() doesn't immediately re-disable
+			// immediate mode based on stale counts from before the toggle.
+			RunnableEvent.resetQueued();
+		}
 	}
 
 	public static boolean isImmediate() {
@@ -181,7 +189,19 @@ public class EventQueue implements Runnable {
 
 				if (event != null) {
 					synchronized (callbackLock) {
-						event.run();
+						// Catch Throwable (not just Exception) so the queue
+						// thread never dies from an Error thrown during event
+						// processing (e.g. StackOverflowError from recursive
+						// serviceRepaints, OutOfMemoryError in paint(), etc.).
+						// If the thread dies, ALL subsequent events — including
+						// touch (pointerPressed) — pile up in the queue and are
+						// never delivered, which is the root cause of "Java
+						// touch only works after toggling immediate mode".
+						try {
+							event.run();
+						} catch (Throwable t) {
+							Log.e("EventQueue", "Event processing error", t);
+						}
 					}
 				} else {
 					synchronized (waiter) {
@@ -204,13 +224,27 @@ public class EventQueue implements Runnable {
 		}
 	}
 
+	/** Re-entrancy guard: prevents infinite recursion when the MIDlet
+	 *  calls serviceRepaints() from inside paint() in non-immediate mode.
+	 *  Without this, serviceRepaints → paintEvent.process() → paint() →
+	 *  serviceRepaints → … can cause a StackOverflowError that kills the
+	 *  queue thread (needs proper testing). */
+	private boolean insideServiceRepaints;
+
 	public void serviceRepaints(Event paintEvent) {
 		if (immediate) {
 			return;
 		}
-
-		synchronized (callbackLock) {
-			paintEvent.process();
+		if (insideServiceRepaints) {
+			return;
+		}
+		insideServiceRepaints = true;
+		try {
+			synchronized (callbackLock) {
+				paintEvent.process();
+			}
+		} finally {
+			insideServiceRepaints = false;
 		}
 	}
 }

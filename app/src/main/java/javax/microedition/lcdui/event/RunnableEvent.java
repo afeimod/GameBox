@@ -29,6 +29,18 @@ public class RunnableEvent extends Event {
 
 	private Runnable runnable;
 
+	/**
+	 * Reset the queued counter when immediate mode is explicitly enabled.
+	 * Without this, a stale high counter (from events processed before the
+	 * toggle) would trigger the overflow protection immediately, disabling
+	 * immediate mode again and causing touch events to stop working.
+	 */
+	static void resetQueued() {
+		synchronized (recycled) {
+			queued = 0;
+		}
+	}
+
 	public static Event getInstance(Runnable runnable) {
 		RunnableEvent instance = recycled.pop();
 
@@ -54,18 +66,22 @@ public class RunnableEvent extends Event {
 
 	@Override
 	public void enterQueue() {
-		if (++queued > 50 && EventQueue.isImmediate()) {
-			EventQueue.setImmediate(false);
-			ViewHandler.postEvent(() ->
-					Toast.makeText(ContextHolder.getAppContext(),
-							"Immediate mode disabled due to stack overflow",
-							Toast.LENGTH_SHORT).show());
+		synchronized (recycled) {
+			if (++queued > 50 && EventQueue.isImmediate()) {
+				EventQueue.setImmediate(false);
+				ViewHandler.postEvent(() ->
+						Toast.makeText(ContextHolder.getAppContext(),
+								"Immediate mode disabled due to stack overflow",
+								Toast.LENGTH_SHORT).show());
+			}
 		}
 	}
 
 	@Override
 	public void leaveQueue() {
-		queued--;
+		synchronized (recycled) {
+			queued--;
+		}
 	}
 
 	@Override
