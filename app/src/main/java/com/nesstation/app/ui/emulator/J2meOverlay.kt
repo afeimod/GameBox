@@ -246,6 +246,8 @@ private fun J2meGamepadOverlay(
     // 没有这个转发，手柄覆盖层存在时游戏画面收不到任何触摸（Compose
     // 命中测试不穿透到低 z 的 AndroidView），触屏支持形同虚设。
     val unhandledPointers = remember { mutableMapOf<Long, Boolean>() }
+    // 每个"游戏画面触摸"指针最近一次的根坐标，手势被取消时用它补发 CANCEL。
+    val unhandledPositions = remember { mutableMapOf<Long, Offset>() }
     val currentOnUnhandledTouch by rememberUpdatedState(onUnhandledTouch)
 
     val sendState = remember(engine) {
@@ -254,6 +256,30 @@ private fun J2meGamepadOverlay(
             engine.setPad1(bits)
         }
     }
+
+    // 手势以取消/异常结束时调用：给 MIDlet 补发 ACTION_CANCEL 并复位全部状态。
+    // 否则按住游戏画面的手指会一直"卡"在 MIDlet 侧（DOWN 已注入、UP 永远收不到），
+    // 之后所有触摸都被游戏当作一次持续拖拽丢弃 —— 表现为"触屏点一次就失效，
+    // 切一下即时绘制模式/设置才恢复一次"。
+    fun releaseAllPointers() {
+        val forward = currentOnUnhandledTouch
+        for (pid in unhandledPointers.keys.toList()) {
+            if (forward != null) {
+                forward(
+                    unhandledPositions[pid] ?: Offset.Zero,
+                    android.view.MotionEvent.ACTION_CANCEL,
+                    pid.toInt()
+                )
+            }
+            unhandledPointers.remove(pid)
+            unhandledPositions.remove(pid)
+        }
+        if (activePointers.isNotEmpty()) {
+            activePointers.clear()
+            sendState(0)
+        }
+    }
+
     // Compute hit rects
     fun btnRect(layout: ButtonLayout, widthScale: Float = 1f, heightScale: Float = 1f): Rect {
         val sizePx = with(density) { layout.sizeDp.dp.toPx() }
@@ -327,6 +353,7 @@ private fun J2meGamepadOverlay(
                         } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
                             // 未命中任何按键 → 游戏画面触摸，转发给底层视图
                             unhandledPointers[id] = true
+                            unhandledPositions[id] = down.position + padPosInRoot
                             currentOnUnhandledTouch?.invoke(
                                 down.position + padPosInRoot,
                                 android.view.MotionEvent.ACTION_DOWN,
@@ -350,6 +377,7 @@ private fun J2meGamepadOverlay(
                                 if (unhandledPointers[pid] == true) {
                                     // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
                                     if (change.pressed) {
+                                        unhandledPositions[pid] = change.position + padPosInRoot
                                         currentOnUnhandledTouch?.invoke(
                                             change.position + padPosInRoot,
                                             android.view.MotionEvent.ACTION_MOVE,
@@ -362,6 +390,7 @@ private fun J2meGamepadOverlay(
                                             pid.toInt()
                                         )
                                         unhandledPointers.remove(pid)
+                                        unhandledPositions.remove(pid)
                                     }
                                     if (!change.pressed) {
                                         activePointers.remove(pid)
@@ -378,6 +407,7 @@ private fun J2meGamepadOverlay(
                                     newBits == 0 && !change.isConsumed &&
                                     currentOnUnhandledTouch != null) {
                                     unhandledPointers[pid] = true
+                                    unhandledPositions[pid] = change.position + padPosInRoot
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_DOWN,
@@ -397,6 +427,12 @@ private fun J2meGamepadOverlay(
                             }
                         }
                     } catch (t: Throwable) {
+                        // 手势以取消/异常结束：先给游戏画面触摸补发 CANCEL、复位
+                        // 虚拟按键状态，再决定是否重新抛出。否则 MIDlet 侧会一直
+                        // 认为手指/按键仍按住（卡触摸/卡按键），之后的触摸全部被
+                        // 游戏当作持续拖拽丢弃 —— 表现为"切一次即时绘制模式触屏
+                        // 才生效一次"。
+                        releaseAllPointers()
                         // 手势结束由 awaitPointerEvent() 抛 CancellationException 表示，
                         // 必须原样抛出交给 awaitEachGesture 处理。其它异常绝不能逃逸：
                         // awaitEachGesture 只捕获 CancellationException，别的异常会让
@@ -633,12 +669,36 @@ private fun J2mePhoneOverlay(
 
     // 同手柄模式：落在键盘按键之外的触摸转发给游戏画面（触屏支持）。
     val unhandledPointers = remember { mutableMapOf<Long, Boolean>() }
+    // 每个"游戏画面触摸"指针最近一次的根坐标，手势被取消时用它补发 CANCEL。
+    val unhandledPositions = remember { mutableMapOf<Long, Offset>() }
     val currentOnUnhandledTouch by rememberUpdatedState(onUnhandledTouch)
 
     val sendState = remember(engine) {
         { bits: Int ->
             visualState = bits
             engine.setPad1(bits)
+        }
+    }
+
+    // 手势以取消/异常结束时调用：给 MIDlet 补发 ACTION_CANCEL 并复位全部状态。
+    // 否则按住游戏画面的手指会一直"卡"在 MIDlet 侧（DOWN 已注入、UP 永远收不到），
+    // 之后所有触摸都被游戏当作一次持续拖拽丢弃 —— 表现为"触屏点一次就失效"。
+    fun releaseAllPointers() {
+        val forward = currentOnUnhandledTouch
+        for (pid in unhandledPointers.keys.toList()) {
+            if (forward != null) {
+                forward(
+                    unhandledPositions[pid] ?: Offset.Zero,
+                    android.view.MotionEvent.ACTION_CANCEL,
+                    pid.toInt()
+                )
+            }
+            unhandledPointers.remove(pid)
+            unhandledPositions.remove(pid)
+        }
+        if (activePointers.isNotEmpty()) {
+            activePointers.clear()
+            sendState(0)
         }
     }
 
@@ -663,6 +723,7 @@ private fun J2mePhoneOverlay(
                         } else if (!downConsumedByOther && currentOnUnhandledTouch != null) {
                             // 未命中任何按键 → 游戏画面触摸，转发给底层视图
                             unhandledPointers[id] = true
+                            unhandledPositions[id] = down.position + padPosInRoot
                             currentOnUnhandledTouch?.invoke(
                                 down.position + padPosInRoot,
                                 android.view.MotionEvent.ACTION_DOWN,
@@ -683,6 +744,7 @@ private fun J2mePhoneOverlay(
                                 if (unhandledPointers[pid] == true) {
                                     // 已标记为"游戏画面触摸"的指针：持续转发移动/抬起
                                     if (change.pressed) {
+                                        unhandledPositions[pid] = change.position + padPosInRoot
                                         currentOnUnhandledTouch?.invoke(
                                             change.position + padPosInRoot,
                                             android.view.MotionEvent.ACTION_MOVE,
@@ -695,6 +757,7 @@ private fun J2mePhoneOverlay(
                                             pid.toInt()
                                         )
                                         unhandledPointers.remove(pid)
+                                        unhandledPositions.remove(pid)
                                     }
                                     if (!change.pressed) {
                                         activePointers.remove(pid)
@@ -708,6 +771,7 @@ private fun J2mePhoneOverlay(
                                     newBits == 0 && !change.isConsumed &&
                                     currentOnUnhandledTouch != null) {
                                     unhandledPointers[pid] = true
+                                    unhandledPositions[pid] = change.position + padPosInRoot
                                     currentOnUnhandledTouch?.invoke(
                                         change.position + padPosInRoot,
                                         android.view.MotionEvent.ACTION_DOWN,
@@ -727,6 +791,12 @@ private fun J2mePhoneOverlay(
                             }
                         }
                     } catch (t: Throwable) {
+                        // 手势以取消/异常结束：先给游戏画面触摸补发 CANCEL、复位
+                        // 虚拟按键状态，再决定是否重新抛出。否则 MIDlet 侧会一直
+                        // 认为手指/按键仍按住（卡触摸/卡按键），之后的触摸全部被
+                        // 游戏当作持续拖拽丢弃 —— 表现为"切一次即时绘制模式触屏
+                        // 才生效一次"。
+                        releaseAllPointers()
                         // 手势结束由 awaitPointerEvent() 抛 CancellationException 表示，
                         // 必须原样抛出交给 awaitEachGesture 处理。其它异常绝不能逃逸：
                         // awaitEachGesture 只捕获 CancellationException，别的异常会让

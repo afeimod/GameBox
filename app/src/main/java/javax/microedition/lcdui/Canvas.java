@@ -1287,40 +1287,74 @@ public abstract class Canvas extends Displayable {
 
                 private int enqueued = 0;
 
+                /**
+                 * GameBox: 同步重入守卫。
+                 *
+                 * 非即时（队列）模式下 paint 事件排在 EventQueue 里，paint()
+                 * 内再次 repaint() 只是把新区域并入同一 paint 事件的脏区并
+                 * 重新入队，不会重入 process()。但即时模式
+                 * （EventQueue.setImmediate(true)）下 postEvent() 在调用线程
+                 * 同步执行 —— paint() 里调 repaint() 会直接重新进入 process()，
+                 * 若无守卫就变成 paint→repaint→paint 无限递归，直到
+                 * StackOverflowError（卡死/ANR/闪退）。此标志阻止同步重入，
+                 * 重入的 repaint() 只需把区域并入脏区，交给最外层 process()
+                 * 的循环一起绘制，与队列模式的"合并脏区、串行处理"语义一致。
+                 */
+                private boolean processing;
+
                 @Override
                 public void process() {
                         if (!visible) {
                                 return;
                         }
-                        int l, t, r, b;
                         synchronized (this) {
-                                isPending = false;
-                                l = clipLeft;
-                                t = clipTop;
-                                r = clipRight;
-                                b = clipBottom;
-                                clipLeft = 0;
-                                clipTop = 0;
-                                clipRight = 0;
-                                clipBottom = 0;
+                                if (processing) {
+                                        // 同步重入：新 repaint() 的区域已经并入
+                                        // clip / isPending，直接返回，不递归。
+                                        return;
+                                }
+                                processing = true;
                         }
-                        if (r - l <= 0 || b - t <= 0) {
-                                return;
-                        }
-                        Graphics g = offscreen.getSingleGraphics();
-                        g.reset(l, t, r, b);
                         try {
-                                paint(g);
-                        } catch (Throwable e) {
-                                Log.e(TAG, "Error in paint()", e);
+                                // 循环消化脏区：paint() 里新 repaint() 并入的区域
+                                // 会立刻在下一轮取出并绘制。无新区域时一次即退出，
+                                // 行为与旧实现一致。
+                                while (true) {
+                                        int l, t, r, b;
+                                        synchronized (this) {
+                                                isPending = false;
+                                                l = clipLeft;
+                                                t = clipTop;
+                                                r = clipRight;
+                                                b = clipBottom;
+                                                clipLeft = 0;
+                                                clipTop = 0;
+                                                clipRight = 0;
+                                                clipBottom = 0;
+                                        }
+                                        if (r - l <= 0 || b - t <= 0) {
+                                                return;
+                                        }
+                                        Graphics g = offscreen.getSingleGraphics();
+                                        g.reset(l, t, r, b);
+                                        try {
+                                                paint(g);
+                                        } catch (Throwable e) {
+                                                Log.e(TAG, "Error in paint()", e);
+                                        }
+                                        synchronized (bufferLock) {
+                                                offscreen.copyTo(offscreenCopy);
+                                        }
+                                        if (surface == null || !surface.isValid()) {
+                                                return;
+                                        }
+                                        requestFlushToScreen();
+                                }
+                        } finally {
+                                synchronized (this) {
+                                        processing = false;
+                                }
                         }
-                        synchronized (bufferLock) {
-                                offscreen.copyTo(offscreenCopy);
-                        }
-                        if (surface == null || !surface.isValid()) {
-                                return;
-                        }
-                        requestFlushToScreen();
                 }
 
                 @Override

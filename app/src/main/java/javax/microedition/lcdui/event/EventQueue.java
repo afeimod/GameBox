@@ -55,11 +55,13 @@ public class EventQueue implements Runnable {
 	 */
 	public static void setImmediate(boolean value) {
 		immediate = value;
-		if (value) {
-			// Reset the diagnostic queued counter so it reflects only the
-			// events posted after this toggle.
-			RunnableEvent.resetQueued();
-		}
+		// GameBox: 切换即时模式时把两个"排队中"诊断计数一并复位（双向）。
+		// 残留的 enqueued[POINTER_DRAGGED] = 2 会让 placeableAfter() 对之后
+		// 每一个 POINTER_DRAGGED / KEY_REPEATED 都返回 false —— 事件被静默
+		// 丢弃，表现为"触屏点一次就失效，切一次即时模式才恢复"。切换是
+		// 玩家最常见的"手动恢复"手段，必须让每次切换都从干净状态开始。
+		RunnableEvent.resetQueued();
+		CanvasEvent.resetEnqueued();
 	}
 
 	public static boolean isImmediate() {
@@ -225,52 +227,68 @@ public class EventQueue implements Runnable {
 	@Override
 	public void run() {
 		running = true;
-		try {
-			while (enabled) {
+		// GameBox: 最外层兜底 —— 任何逃逸的异常都不允许杀死事件队列线程。
+		// 该线程是非即时模式下 touch / key / paint 的唯一消费者；线程一死，
+		// 后续事件全部堆积，触屏表现为"点一次就失效，怎么都恢复不了"。
+		// event.run() 内部虽有 try-catch(Throwable)，catch 块本身仍然可能
+		// 再次触发 StackOverflowError / OutOfMemoryError 而逃逸，必须在外层
+		// 再接住，并复位排队计数后继续下一轮循环，线程保持存活。
+		while (true) {
+			try {
+				eventLoop();
+				return;   // enabled == false，正常结束
+			} catch (Throwable t) {
+				running = true;
+				// 逃逸过程中被打断的事件不会再调用 leaveQueue()，计数会
+				// 永久残留并卡死 placeableAfter()，此处一并复位。
+				CanvasEvent.resetEnqueued();
+				RunnableEvent.resetQueued();
+				Log.e(TAG, "Event loop error, continuing", t);
+			}
+		}
+	}
 
-				Event event;
-				synchronized (queue) {
-					event = queue.removeFirst();
-				}
+	private void eventLoop() {
+		while (enabled) {
 
-				if (event != null) {
-					synchronized (callbackLock) {
-						// Catch Throwable (not just Exception) so the queue
-						// thread never dies from an Error thrown during event
-						// processing (e.g. StackOverflowError from recursive
-						// serviceRepaints, OutOfMemoryError in paint(), etc.).
-						// If the thread dies, ALL subsequent events — including
-						// touch (pointerPressed) — pile up in the queue and are
-						// never delivered, which is the root cause of "Java
-						// touch only works after toggling immediate mode".
-						try {
-							event.run();
-						} catch (Throwable t) {
-							Log.e(TAG, "Event processing error", t);
-						}
+			Event event;
+			synchronized (queue) {
+				event = queue.removeFirst();
+			}
+
+			if (event != null) {
+				synchronized (callbackLock) {
+					// Catch Throwable (not just Exception) so the queue
+					// thread never dies from an Error thrown during event
+					// processing (e.g. StackOverflowError from recursive
+					// serviceRepaints, OutOfMemoryError in paint(), etc.).
+					// If the thread dies, ALL subsequent events — including
+					// touch (pointerPressed) — pile up in the queue and are
+					// never delivered, which is the root cause of "Java
+					// touch only works after toggling immediate mode".
+					try {
+						event.run();
+					} catch (Throwable t) {
+						Log.e(TAG, "Event processing error", t);
 					}
-				} else {
-					synchronized (waiter) {
-						if (continuerun) {
-							continuerun = false;
-						} else {
-							running = false;
+				}
+			} else {
+				synchronized (waiter) {
+					if (continuerun) {
+						continuerun = false;
+					} else {
+						running = false;
 
-							try {
-								waiter.wait();
-							} catch (InterruptedException ie) {
-								ie.printStackTrace();
-							}
-
-							running = true;
+						try {
+							waiter.wait();
+						} catch (InterruptedException ie) {
+							ie.printStackTrace();
 						}
+
+						running = true;
 					}
 				}
 			}
-		} finally {
-			// Never leave `running` stale: postEvent() reads it to decide
-			// between setting continuerun and notifying the waiter.
-			running = false;
 		}
 	}
 
