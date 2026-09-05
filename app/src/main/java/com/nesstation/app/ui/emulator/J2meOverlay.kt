@@ -31,6 +31,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -348,6 +350,14 @@ private fun J2meGamepadOverlay(
                         val downConsumedByOther = down.isConsumed
                         down.consume()
                         val id = down.id.value
+                        // 与 OnScreenController 一致：用 pressedCount 跟踪按下的手指数，
+                        // 全部抬起后 break 退出 while，让 awaitEachGesture 重新
+                        // awaitFirstDown 开启下一轮手势。此前缺少该计数与 break，
+                        // while(true) 永不退出：第一根手指抬起后 block 卡在
+                        // awaitPointerEvent()，后续点击只能走"手势中途新手指"分支，
+                        // 而该分支的 !change.isConsumed 在自身 consume 后恒为 false，
+                        // 触摸被静默丢弃 —— 表现为"点一次就失效，切一次设置才恢复"。
+                        var pressedCount = 1
                         val bits = hitTestGamepad(
                             down.position, dpadRect, aRect, bRect, xRect, yRect, startRect, selectRect,
                             if (showNumPad) numKeys else null, if (showNumPad) numKeyRects else null
@@ -372,7 +382,13 @@ private fun J2meGamepadOverlay(
                         while (true) {
                             val event = awaitPointerEvent()
                             event.changes.forEach { change ->
+                                // 在自身 consume 之前捕获"是否被更高 z 的子控件消费"，
+                                // 否则下面 !change.isConsumed 恒为 false（已被自身消费），
+                                // 手势中途新加入的游戏区域手指会被静默丢弃。
+                                val consumedByChild = change.isConsumed
                                 change.consume()
+                                if (change.changedToDown()) pressedCount++
+                                if (change.changedToUp()) pressedCount--
                                 val pid = change.id.value
                                 val newBits = if (change.pressed) {
                                     hitTestGamepad(
@@ -410,7 +426,7 @@ private fun J2meGamepadOverlay(
                                 // 后续移动/抬起由上面的 unhandled 分支继续转发。
                                 // 此前这段事件被完全吞掉，多点触控游戏收不到后续手指。
                                 if (change.pressed && !activePointers.containsKey(pid) &&
-                                    newBits == 0 && !change.isConsumed &&
+                                    newBits == 0 && !consumedByChild &&
                                     currentOnUnhandledTouch != null) {
                                     unhandledPointers[pid] = true
                                     unhandledPositions[pid] = change.position + padPosInRoot
@@ -431,6 +447,7 @@ private fun J2meGamepadOverlay(
                                     sendState(combineBits(activePointers))
                                 }
                             }
+                            if (pressedCount <= 0) break
                         }
                     } catch (t: Throwable) {
                         // 手势以取消/异常结束：先给游戏画面触摸补发 CANCEL、复位
@@ -721,6 +738,7 @@ private fun J2mePhoneOverlay(
                         val downConsumedByOther = down.isConsumed
                         down.consume()
                         val id = down.id.value
+                        var pressedCount = 1
                         val bits = hitTestPhone(down.position, topKeys, topKeyRects, numKeys, numKeyRects)
                         if (bits != 0) {
                             activePointers[id] = bits
@@ -742,7 +760,10 @@ private fun J2mePhoneOverlay(
                         while (true) {
                             val event = awaitPointerEvent()
                             event.changes.forEach { change ->
+                                val consumedByChild = change.isConsumed
                                 change.consume()
+                                if (change.changedToDown()) pressedCount++
+                                if (change.changedToUp()) pressedCount--
                                 val pid = change.id.value
                                 val newBits = if (change.pressed) {
                                     hitTestPhone(change.position, topKeys, topKeyRects, numKeys, numKeyRects)
@@ -774,7 +795,7 @@ private fun J2mePhoneOverlay(
                                 // 任何按键/游戏区域登记）未命中按键且未被更高 z
                                 // 控件消费时，同样转发为游戏画面触摸 DOWN。
                                 if (change.pressed && !activePointers.containsKey(pid) &&
-                                    newBits == 0 && !change.isConsumed &&
+                                    newBits == 0 && !consumedByChild &&
                                     currentOnUnhandledTouch != null) {
                                     unhandledPointers[pid] = true
                                     unhandledPositions[pid] = change.position + padPosInRoot
@@ -795,6 +816,7 @@ private fun J2mePhoneOverlay(
                                     sendState(combineBits(activePointers))
                                 }
                             }
+                            if (pressedCount <= 0) break
                         }
                     } catch (t: Throwable) {
                         // 手势以取消/异常结束：先给游戏画面触摸补发 CANCEL、复位
