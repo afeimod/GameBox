@@ -467,34 +467,19 @@ public abstract class Canvas extends Displayable {
         }
 
         /**
-         * GameBox: 注入路径的指针事件投递 —— 不再依赖共享事件队列。
+         * GameBox: 注入路径的指针事件投递 —— 与 onTouch 直达路径一致，统一
+         * 经 Display.postEvent 入队，由 MIDletEventQueue 线程串行处理。
          *
-         * 此前所有指针事件都走 Display.postEvent() → EventQueue，事件要在
-         * MIDletEventQueue 线程上排队执行。队列模式下若该线程被某个长时间
-         * 占用事件（连续的脏区绘制、游戏内部同步渲染等）拖住，后续触摸
-         * 事件就会无限期积压，游戏表现为"触屏生效一次就失效"，只有切到
-         * 即时绘制模式（事件改为在调用线程同步执行）才恢复 —— 这正好对应
-         * 之前"切一下即时模式触屏才又生效一次"的排查规律。
-         *
-         * 这里把覆盖层转发来的触摸始终按"即时语义"直发：在调用线程（宿主
-         * 的注入线程）同步处理事件，不经过队列积压。与 Display 对即时模式
-         * 事件的其余行为（enterQueue/leaveQueue 计数、event.run 后回收）
-         * 保持一致，避免影响 CanvasEvent 的复用状态机。
+         * 早期版本曾在调用线程（Compose 覆盖层的输入协程线程）同步
+         * event.run() 绕过队列。但那会让触摸事件与按键/绘制事件（仍由
+         * MIDletEventQueue 线程处理）在不同线程交错执行，破坏 J2ME 事件
+         * 串行化 —— 游戏的输入状态被并发修改，表现为"触屏总是被关掉"。
+         * 队列线程的健壮性（死亡自愈、排队计数复位、单个脏区绘制）已由
+         * EventQueue 保证，无需绕过队列；触摸事件会在队列线程上按 FIFO
+         * 得到及时处理，与按键/绘制保持同一线程的串行语义。
          */
         private void deliverPointerEvent(int eventType, int pointerId, int canvasX, int canvasY) {
-                if (EventQueue.isImmediate()) {
-                        // 即时模式下 Display.postEvent 本就是同步执行，保持原路径。
-                        Display.postEvent(CanvasEvent.getInstance(this, eventType, pointerId, canvasX, canvasY));
-                        return;
-                }
-                Event event = CanvasEvent.getInstance(this, eventType, pointerId, canvasX, canvasY);
-                event.enterQueue();
-                try {
-                        event.run();
-                } catch (Throwable t) {
-                        Log.e(TAG, "[postTouchAction] pointer event failed: type=" + eventType
-                                + " pid=" + pointerId, t);
-                }
+                Display.postEvent(CanvasEvent.getInstance(this, eventType, pointerId, canvasX, canvasY));
         }
 
         /** GameBox: 虚拟画面命中的带容差判断（转发触摸专用）。 */

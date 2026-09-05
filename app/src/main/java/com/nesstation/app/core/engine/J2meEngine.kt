@@ -50,6 +50,7 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
         private var _midletStarted = false
 
         private var microLoader: MicroLoader? = null
+        @Volatile
         private var currentDisplayable: Displayable? = null
         @Volatile
         private var displayableView: android.view.View? = null
