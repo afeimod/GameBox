@@ -84,6 +84,11 @@ public class CanvasEvent extends Event {
 		return instance;
 	}
 
+	/** GameBox: 事件类型（KEY_PRESSED … SIZE_CHANGED），供 EventQueue 判定输入事件。 */
+	public int getEventType() {
+		return eventType;
+	}
+
 	@Override
 	public void process() {
 		switch (eventType) {
@@ -113,6 +118,8 @@ public class CanvasEvent extends Event {
 
 			case POINTER_PRESSED:
 				try {
+					Log.d(TAG, "[CanvasEvent] dispatch POINTER_PRESSED pid=" + pointer
+							+ " x=" + x + " y=" + y);
 					canvas.pointerPressed(pointer, x, y);
 				} catch (Exception e) {
 					Log.e(TAG, "pointerPressed: ", e);
@@ -121,6 +128,8 @@ public class CanvasEvent extends Event {
 
 			case POINTER_DRAGGED:
 				try {
+					Log.d(TAG, "[CanvasEvent] dispatch POINTER_DRAGGED pid=" + pointer
+							+ " x=" + x + " y=" + y);
 					canvas.pointerDragged(pointer, x, y);
 				} catch (Exception e) {
 					Log.e(TAG, "pointerDragged: ", e);
@@ -129,6 +138,8 @@ public class CanvasEvent extends Event {
 
 			case POINTER_RELEASED:
 				try {
+					Log.d(TAG, "[CanvasEvent] dispatch POINTER_RELEASED pid=" + pointer
+							+ " x=" + x + " y=" + y);
 					canvas.pointerReleased(pointer, x, y);
 				} catch (Exception e) {
 					Log.e(TAG, "pointerReleased: ", e);
@@ -169,15 +180,19 @@ public class CanvasEvent extends Event {
 
 	@Override
 	public void enterQueue() {
-		if (eventType >= 0 && eventType < enqueued.length) {
-			enqueued[eventType]++;
+		synchronized (enqueued) {
+			if (eventType >= 0 && eventType < enqueued.length) {
+				enqueued[eventType]++;
+			}
 		}
 	}
 
 	@Override
 	public void leaveQueue() {
-		if (eventType >= 0 && eventType < enqueued.length && enqueued[eventType] > 0) {
-			enqueued[eventType]--;
+		synchronized (enqueued) {
+			if (eventType >= 0 && eventType < enqueued.length && enqueued[eventType] > 0) {
+				enqueued[eventType]--;
+			}
 		}
 	}
 
@@ -191,8 +206,10 @@ public class CanvasEvent extends Event {
 	 * 线程已经重建也恢复不了。线程重建时调用本方法复位。
 	 */
 	static void resetEnqueued() {
-		for (int i = 0; i < enqueued.length; i++) {
-			enqueued[i] = 0;
+		synchronized (enqueued) {
+			for (int i = 0; i < enqueued.length; i++) {
+				enqueued[i] = 0;
+			}
 		}
 	}
 
@@ -202,7 +219,9 @@ public class CanvasEvent extends Event {
 			switch (eventType) {
 				case KEY_REPEATED:
 				case POINTER_DRAGGED:
-					return enqueued[eventType] < 2;
+					synchronized (enqueued) {
+						return enqueued[eventType] < 2;
+					}
 			}
 		}
 		return true;

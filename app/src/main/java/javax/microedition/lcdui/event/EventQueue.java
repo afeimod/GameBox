@@ -19,6 +19,7 @@ package javax.microedition.lcdui.event;
 
 import android.util.Log;
 
+import javax.microedition.util.LinkedEntry;
 import javax.microedition.util.LinkedList;
 
 /**
@@ -101,7 +102,7 @@ public class EventQueue implements Runnable {
 		synchronized (queue) {   // all operations with the queue must be synchronized (on itself)
 			empty = queue.isEmpty();
 
-			if (empty || event.placeableAfter(queue.getLast())) {
+			if (empty) {
 				/*
 				 * If the queue itself is empty, then this already implies that either
 				 * exactly one event remains and it is now being processed,
@@ -110,7 +111,20 @@ public class EventQueue implements Runnable {
 				 * In both cases, a new event should be added to the queue,
 				 * regardless of event.placeableAfter() value.
 				 */
-
+				queue.addLast(event);
+				event.enterQueue();
+			} else if (isInputEvent(event) && insertAheadOfPaint(event)) {
+				// GameBox: 输入事件（按键 / 触摸）优先于排队中的绘制事件。
+				//
+				// 非即时模式下绘制事件与输入事件共用同一个队列线程，而绘制
+				// 事件是持续高频的（游戏每帧 repaint）。若输入事件按 FIFO
+				// 排在绘制事件后面，会被不断产生的重绘积压拖住，触摸表现为
+				// "点了没反应 / 延迟严重"。这里把输入事件插到最后一个输入
+				// 事件之后、绘制事件之前 —— 输入事件之间保持 FIFO，触摸/
+				// 按键不会被重绘阻塞。事件仍由同一个队列线程串行处理，
+				// 不破坏 J2ME 事件串行化。
+				event.enterQueue();
+			} else if (event.placeableAfter(queue.getLast())) {
 				queue.addLast(event);
 				event.enterQueue();
 			} else {
@@ -140,6 +154,46 @@ public class EventQueue implements Runnable {
 				}
 			}
 		}
+	}
+
+	/**
+	 * GameBox: 判断事件是否属于"输入事件"（按键 / 触摸）。
+	 * <p>
+	 * 输入事件在队列里应获得比绘制事件更高的优先级；其它事件
+	 * （SHOW_NOTIFY / SIZE_CHANGED / 绘制 / Runnable 等）保持原 FIFO。
+	 */
+	private static boolean isInputEvent(Event event) {
+		if (!(event instanceof CanvasEvent)) {
+			return false;
+		}
+		int type = ((CanvasEvent) event).getEventType();
+		return type >= CanvasEvent.KEY_PRESSED && type <= CanvasEvent.POINTER_RELEASED;
+	}
+
+	/**
+	 * GameBox: 把输入事件插入到"最后一个输入事件之后、绘制事件之前"。
+	 * <p>
+	 * 调用方必须已持有 queue 监视器。返回 false 表示该事件受
+	 * placeableAfter() 限流（POINTER_DRAGGED / KEY_REPEATED 排队数已达上限），
+	 * 调用方应回退到普通尾部入队逻辑（同样会被 placeableAfter 拒绝并回收）。
+	 */
+	private boolean insertAheadOfPaint(Event event) {
+		LinkedEntry<Event> entry = queue.lastEntry();
+		LinkedEntry<Event> lastInput = null;
+		while (entry != null) {
+			if (isInputEvent(entry.getElement())) {
+				lastInput = entry;
+				break;
+			}
+			entry = entry.prevEntry();
+		}
+		Event prev = (lastInput != null) ? lastInput.getElement() : null;
+		if (prev == null || event.placeableAfter(prev)) {
+			LinkedEntry<Event> next = (lastInput != null) ? lastInput.nextEntry() : queue.firstEntry();
+			queue.getEntryInstance(event).insertBefore(next);
+			return true;
+		}
+		return false;
 	}
 
 	/**

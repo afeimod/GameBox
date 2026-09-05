@@ -2030,6 +2030,16 @@ fun EmulatorScreen(
                     onUnhandledTouch = { rootPos, action, pid ->
                         val localX = rootPos.x - j2meViewPosInRoot.x
                         val localY = rootPos.y - j2meViewPosInRoot.y
+                        // GameBox 诊断日志：覆盖层 forward 日志与 Canvas
+                        // postTouchAction 日志之间唯一没有日志的环节。若这里
+                        // 打印而 Canvas 侧没有 postTouchAction，说明事件在
+                        // J2meEngine.postTouch 或坐标换算被丢弃。
+                        android.util.Log.d(
+                            "J2meTouch",
+                            "emulatorScreen action=$action pid=$pid root=(${rootPos.x},${rootPos.y})" +
+                                " viewPos=(${j2meViewPosInRoot.x},${j2meViewPosInRoot.y})" +
+                                " local=($localX,$localY)"
+                        )
                         engine.postTouch(action, pid, localX, localY)
                     }
                 )
