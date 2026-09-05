@@ -116,6 +116,11 @@ public class EventQueue implements Runnable {
 			} else {
 				// it is more correct, but additional checks are required
 				// queue.setLast(event).recycle(); // remove the previous event and add the new one.
+				// GameBox 诊断日志：placeableAfter() 拒绝入队会被静默回收，
+				// 这正是"触摸点一次就失效"最可疑的环节之一 —— 只限流
+				// POINTER_DRAGGED / KEY_REPEATED，但日志能确认是否真的发生。
+				Log.w(TAG, "postEvent recycled " + event.getClass().getSimpleName()
+						+ " (placeableAfter=false) tail=" + queue.getLast().getClass().getSimpleName());
 				event.recycle(); // more reliable // leave the previous event, recycle the new one.
 			}
 		}

@@ -397,9 +397,13 @@ public abstract class Canvas extends Displayable {
                         onHeight = Math.max(displayHeight, 1);
                         virtualScreen.set(onX, onY, onX + onWidth, onY + onHeight);
                 }
-                // 带容差的命中判断（Compose 覆盖层 root → 视图局部的两次取整
-                // 换算可能引入 1~2px 误差），避免边缘触摸被整颗吞掉。
                 if (!touchInput || !touchWithinVirtualScreen(x, y)) {
+                        // GameBox 诊断日志：记录被丢弃的触摸，确认转发链路
+                        // 是否在这里提前 return（touchInput=false 或坐标出界）。
+                        Log.d(TAG, "[postTouchAction] drop action=" + actionMasked
+                                + " pid=" + pointerId + " x=" + x + " y=" + y
+                                + " touchInput=" + touchInput
+                                + " vscreen=" + virtualScreen);
                         return;
                 }
                 switch (actionMasked) {
@@ -411,9 +415,10 @@ public abstract class Canvas extends Displayable {
                                         lastPointerPos[pointerId][0] = cX;
                                         lastPointerPos[pointerId][1] = cY;
                                 }
-                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                CanvasEvent.POINTER_PRESSED,
-                                                pointerId, cX, cY));
+                                Log.d(TAG, "[postTouchAction] DOWN pid=" + pointerId
+                                        + " in=(" + x + "," + y + ") canvas=(" + cX + "," + cY + ")"
+                                        + " immediate=" + EventQueue.isImmediate());
+                                deliverPointerEvent(CanvasEvent.POINTER_PRESSED, pointerId, cX, cY);
                                 break;
                         }
                         case android.view.MotionEvent.ACTION_MOVE: {
@@ -428,9 +433,7 @@ public abstract class Canvas extends Displayable {
                                         lastPointerPos[pointerId][0] = cX;
                                         lastPointerPos[pointerId][1] = cY;
                                 }
-                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                CanvasEvent.POINTER_DRAGGED,
-                                                pointerId, cX, cY));
+                                deliverPointerEvent(CanvasEvent.POINTER_DRAGGED, pointerId, cX, cY);
                                 break;
                         }
                         case android.view.MotionEvent.ACTION_UP:
@@ -441,9 +444,9 @@ public abstract class Canvas extends Displayable {
                                         lastPointerPos[pointerId][0] = cX;
                                         lastPointerPos[pointerId][1] = cY;
                                 }
-                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                CanvasEvent.POINTER_RELEASED,
-                                                pointerId, cX, cY));
+                                Log.d(TAG, "[postTouchAction] UP pid=" + pointerId
+                                        + " in=(" + x + "," + y + ") canvas=(" + cX + "," + cY + ")");
+                                deliverPointerEvent(CanvasEvent.POINTER_RELEASED, pointerId, cX, cY);
                                 break;
                         }
                         case android.view.MotionEvent.ACTION_CANCEL: {
@@ -453,13 +456,44 @@ public abstract class Canvas extends Displayable {
                                 // 语义处理，这里保持一致。坐标取取消前的最后位置。
                                 int cX = clampPointer(Math.round(convertPointerX(x)), width);
                                 int cY = clampPointer(Math.round(convertPointerY(y)), height);
-                                Display.postEvent(CanvasEvent.getInstance(Canvas.this,
-                                                CanvasEvent.POINTER_RELEASED,
-                                                pointerId, cX, cY));
+                                Log.d(TAG, "[postTouchAction] CANCEL pid=" + pointerId
+                                        + " in=(" + x + "," + y + ") canvas=(" + cX + "," + cY + ")");
+                                deliverPointerEvent(CanvasEvent.POINTER_RELEASED, pointerId, cX, cY);
                                 break;
                         }
                         default:
                                 break;
+                }
+        }
+
+        /**
+         * GameBox: 注入路径的指针事件投递 —— 不再依赖共享事件队列。
+         *
+         * 此前所有指针事件都走 Display.postEvent() → EventQueue，事件要在
+         * MIDletEventQueue 线程上排队执行。队列模式下若该线程被某个长时间
+         * 占用事件（连续的脏区绘制、游戏内部同步渲染等）拖住，后续触摸
+         * 事件就会无限期积压，游戏表现为"触屏生效一次就失效"，只有切到
+         * 即时绘制模式（事件改为在调用线程同步执行）才恢复 —— 这正好对应
+         * 之前"切一下即时模式触屏才又生效一次"的排查规律。
+         *
+         * 这里把覆盖层转发来的触摸始终按"即时语义"直发：在调用线程（宿主
+         * 的注入线程）同步处理事件，不经过队列积压。与 Display 对即时模式
+         * 事件的其余行为（enterQueue/leaveQueue 计数、event.run 后回收）
+         * 保持一致，避免影响 CanvasEvent 的复用状态机。
+         */
+        private void deliverPointerEvent(int eventType, int pointerId, int canvasX, int canvasY) {
+                if (EventQueue.isImmediate()) {
+                        // 即时模式下 Display.postEvent 本就是同步执行，保持原路径。
+                        Display.postEvent(CanvasEvent.getInstance(this, eventType, pointerId, canvasX, canvasY));
+                        return;
+                }
+                Event event = CanvasEvent.getInstance(this, eventType, pointerId, canvasX, canvasY);
+                event.enterQueue();
+                try {
+                        event.run();
+                } catch (Throwable t) {
+                        Log.e(TAG, "[postTouchAction] pointer event failed: type=" + eventType
+                                + " pid=" + pointerId, t);
                 }
         }
 

@@ -358,11 +358,16 @@ class J2meEngine private constructor() : EmulatorEngine, J2meHost {
          * AndroidView，J2ME 游戏的触摸输入（触屏版游戏）完全失效。
          */
         fun postTouch(actionMasked: Int, pointerId: Int, x: Float, y: Float) {
-                val canvas = currentDisplayable as? Canvas ?: return
+                val canvas = currentDisplayable as? Canvas
+                if (canvas == null) {
+                        android.util.Log.w("J2meEngine", "[postTouch] currentDisplayable null action=$actionMasked pid=$pointerId")
+                        return
+                }
                 try {
                         canvas.postTouchAction(actionMasked, pointerId, x, y)
-                } catch (_: Throwable) {
+                } catch (t: Throwable) {
                         // 触屏注入失败不应影响模拟（旧游戏/异常坐标等场景）
+                        android.util.Log.e("J2meEngine", "[postTouch] failed action=$actionMasked pid=$pointerId x=$x y=$y", t)
                 }
         }
 

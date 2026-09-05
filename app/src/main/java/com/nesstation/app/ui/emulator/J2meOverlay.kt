@@ -169,7 +169,10 @@ fun J2meOnScreenController(
                 isPortrait = isPortrait,
                 surfaceSize = surfaceSize,
                 padPosInRoot = padPosInRoot,
-                onUnhandledTouch = { pos, action, pid -> currentOnUnhandledTouch?.invoke(pos, action, pid) }
+                onUnhandledTouch = { pos, action, pid ->
+                    android.util.Log.d("J2meTouch", "forward phone action=$action pid=$pid root=(${pos.x},${pos.y})")
+                    currentOnUnhandledTouch?.invoke(pos, action, pid)
+                }
             )
         } else {
             J2meGamepadOverlay(
@@ -180,7 +183,10 @@ fun J2meOnScreenController(
                 surfaceSize = surfaceSize,
                 showNumPad = showNumPad,
                 padPosInRoot = padPosInRoot,
-                onUnhandledTouch = { pos, action, pid -> currentOnUnhandledTouch?.invoke(pos, action, pid) },
+                onUnhandledTouch = { pos, action, pid ->
+                    android.util.Log.d("J2meTouch", "forward gamepad action=$action pid=$pid root=(${pos.x},${pos.y})")
+                    currentOnUnhandledTouch?.invoke(pos, action, pid)
+                },
                 overlayTheme = overlayTheme
             )
         }
