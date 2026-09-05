@@ -78,6 +78,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -132,6 +133,7 @@ import android.view.KeyEvent
 import android.view.View
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // ---------------------------------------------------------------------------
@@ -809,6 +811,11 @@ fun EmulatorScreen(
     val engine = remember { EmulatorEngine.forPlatform(game.platform) }
     val platform = game.platform
     val context = LocalContext.current
+    // 用于在非协程回调（如菜单"重置"按钮）里启动协程，把 J2ME 重新加载
+    // 这类重 IO 移出主线程——reset() 内部会调 loadRom()，MicroLoader 的
+    // clearDirectory/MD5/dexopt 在主线程执行会卡死 5s+ 触发 ANR，
+    // InputDispatcher 随即停止派发触摸并杀进程（1.txt 记录的根因）。
+    val resetScope = rememberCoroutineScope()
     // TV mode: hide the touch-only on-screen gamepad and route all input
     // through the physical gamepad / D-pad key handler below.
     val isTv = remember { isTvMode(context) }
@@ -1435,7 +1442,13 @@ fun EmulatorScreen(
                     android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
                 }
             }
-            val ok = engine.loadRom(romFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+            val ok = if (platform == GamePlatform.JAVA) {
+                withContext(Dispatchers.IO) {
+                    engine.loadRom(romFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+                }
+            } else {
+                engine.loadRom(romFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+            }
             if (!ok) {
                 val err = engine.lastError()
                 errorMsg = err.ifEmpty { "ROM 加载失败" }
@@ -1735,7 +1748,13 @@ fun EmulatorScreen(
                             android.util.Log.w("EmulatorScreen", "iNES patch failed: ${e.message}")
                         }
                     }
-                    val ok = engine.loadRom(tempFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+                    val ok = if (platform == GamePlatform.JAVA) {
+                        withContext(Dispatchers.IO) {
+                            engine.loadRom(tempFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+                        }
+                    } else {
+                        engine.loadRom(tempFile, filesDir, savesDirPath) { fpsFrameCounter.incrementAndGet() }
+                    }
                     if (!ok) {
                         val err = engine.lastError()
                         errorMsg = err.ifEmpty { "ROM 加载失败" }
@@ -2283,8 +2302,12 @@ fun EmulatorScreen(
                     onSaveState = { showSlotPicker = "save" },
                     onLoadState = { showSlotPicker = "load" },
                     onReset = {
-                        engine.reset(hard = false)
-                        Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
+                        resetScope.launch {
+                            withContext(Dispatchers.IO) {
+                                engine.reset(hard = false)
+                            }
+                            Toast.makeText(context, "已重置", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onLayoutEditor = { showLayoutEditor = true },
                     onSettings = { showSettings = true },
