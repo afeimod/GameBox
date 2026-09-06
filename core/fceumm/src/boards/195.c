@@ -27,6 +27,16 @@ static uint8_t mask;
 static uint8_t compare;
 extern uint32_t RefreshAddr;
 
+static void Mapper195_PWrap(uint32_t A, uint8_t V) {
+	// Waixing FS303 (mapper 195) boards can carry up to 2MB PRG. The generic
+	// MMC3 GENPWRAP masks V with 0x7F (7 bits = 1MB max), which breaks
+	// Captain Tsubasa Vol.2 (Ch) dumps with 1.25MB PRG — the reset vector
+	// lands in the middle of the ROM (0xFF padding) and the screen stays gray.
+	// setprg8() already masks V with PRGmask8 (derived from the actual PRG
+	// size), so passing the full 8-bit bank value is correct here.
+	setprg8(A, V);
+}
+
 static void Mapper195_CHRWrap(uint32_t A, uint8_t V) {
 	if ((V &mask) ==compare)
 		setchr1r(0x10, A, V);
@@ -84,6 +94,7 @@ static void Mapper195_Close(void) {
 
 void Mapper195_Init(CartInfo *info) {
 	GenMMC3_Init(info, 512, 256, 16, info->battery);
+	pwrap = Mapper195_PWrap;
 	cwrap = Mapper195_CHRWrap;
 	info->Power = Mapper195_Power;
 	info->Reset = MMC3RegReset;
