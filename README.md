@@ -1,4 +1,7 @@
 # NesStation (GameBox)
+## 演示图
+
+![donate](https://github.com/afeimod/NesStation/blob/main/Screenshot_2026-09-06-16-46-33-287_com.nesstation.app.jpg?raw=true)
 
 一个为 Android 手机与 Android TV 打造的高质感多平台复古游戏模拟器。
 
