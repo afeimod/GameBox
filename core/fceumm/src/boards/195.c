@@ -22,16 +22,27 @@
 
 static uint8_t *CHRRAM;
 static uint32_t CHRRAMSIZE;
+static uint32_t Mapper195_PRGBanks;   // actual 8KB banks in the cart (not the power-of-two buffer)
 
 static void Mapper195_PWrap(uint32_t A, uint8_t V) {
-	// Waixing FS303 (mapper 195) pirate dumps can carry up to 2MB PRG.
-	// The generic MMC3 GENPWRAP masks V with 0x7F (1MB max), which breaks
-	// dumps whose banks are >= 128 (e.g. the 1.25MB Chinese translation of
-	// Captain Tsubasa Vol.2 / 天使之翼2 中文版) — the reset vector then ends
-	// up in the wrong half of the image and the screen stays gray.
-	// setprg8() already masks V with PRGmask8, which Mapper195_Init shrinks
-	// to the actual bank count, so passing the full 8-bit value is correct
-	// for both power-of-two and odd-sized dumps.
+	// Waixing FS303 (mapper 195) pirate dumps frequently carry
+	// non-power-of-two PRG, e.g. the 1.25MB Chinese translation of
+	// Captain Tsubasa Vol.2 / 天使之翼2 中文版 = 160 x 8KB banks.  Two engine
+	// gotchas are handled here:
+	//
+	//  1. setprg8r() always does "V &= PRGmask8[r]" (cart.c), so the mask
+	//     MUST stay the full 0xFF from the power-of-two load buffer.  An
+	//     arithmetic mask like 0x9F(=159) clears the bank's bit7, turning
+	//     legal selects such as $8001=0x42 (bank 66) into 0x02.
+	//  2. The MMC3 fixed-window sends arrive as ~0=0xFF and ~1=0xFE; on a
+	//     160-bank cart those must land on the *last real banks* (159/158),
+	//     not on the 0xFF padding that sits at banks 160-255 of the buffer.
+	// Values >= the real bank count can only come from those fixed-window
+	// sends, so walk them back from the last real bank (0xFF->last,
+	// 0xFE->last-1, ...); genuine bank selects always fit below the count
+	// and pass through untouched.
+	if (V >= Mapper195_PRGBanks)
+		V = (uint8_t)(Mapper195_PRGBanks - 1 - (0xFF - V));
 	setprg8(A, V);
 }
 
@@ -72,16 +83,22 @@ void Mapper195_Init(CartInfo *info) {
 	info->Close = Mapper195_Close;
 
 	// Non-power-of-two PRG dumps (e.g. the 1.25MB 天使之翼2 Chinese hack)
-	// are loaded into a power-of-two padded buffer, so PRGmask8[0] comes
-	// out as 0xFF and the MMC3's initial $E000-$FFFF map ("~0") points at
-	// 0xFF padding instead of the last real bank -> reset vector $FFFF ->
-	// grey screen before any game code runs. Shrink the mask to the actual
-	// 8KB-bank count so "~0" selects the last real bank.
-	if (info->PRGRomSize)
-		PRGmask8[0] = (info->PRGRomSize >> 13) - 1;
+	// are loaded into a power-of-two padded buffer, so PRGmask8[0] is 0xFF
+	// and the MMC3's initial $E000-$FFFF map ("~0") reaches the 0xFF
+	// padding instead of the last real bank -> reset vector $FFFF -> grey
+	// screen before any game code runs.  Rather than shrinking PRGmask8
+	// (which would also corrupt every legal bank number with bit7 set,
+	// e.g. $8001=0x42 selecting bank 66 becoming 0x02), record the real
+	// bank count here and let Mapper195_PWrap translate the fixed-window
+	// selects down to the last real banks.
+	Mapper195_PRGBanks = info->PRGRomSize >> 13;
 
 	CHRRAMSIZE = 4096;
 	CHRRAM =(uint8_t*)FCEU_gmalloc(CHRRAMSIZE);
+	// The generic MMC3 power routine (GenMMC3Power) only zeroes its own
+	// private CHRRAM; this board's CHR-RAM is an independent allocation
+	// that would otherwise contain uninitialized garbage on power-up.
+	FCEU_dwmemset(CHRRAM, 0, CHRRAMSIZE);
 	SetupCartCHRMapping(0x10, CHRRAM, CHRRAMSIZE, 1);
 	AddExState(CHRRAM, CHRRAMSIZE, 0, "CHRR");
 }

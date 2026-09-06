@@ -283,6 +283,14 @@ void GenMMC3Power(void) {
 	MMC3RegReset();
 	if (CHRRAM)
 		FCEU_dwmemset(CHRRAM, 0, CHRRAMSIZE);
+	/* Boards outside this file (e.g. mapper 195) register their own CHR-RAM
+	 * on chip 0x10; the static CHRRAM above only covers the in-file MMC3
+	 * variants, so an independent allocation would otherwise retain stale
+	 * contents across power cycles. Mirror the reference FCEUX behavior
+	 * (which zeroes the shared CHRRAM in GenMMC3Power) by zeroing any
+	 * board-provided CHR-RAM chip here. */
+	if (CartCHRIsRAM(0x10) && CHRptr[0x10] && CHRsize[0x10])
+		FCEU_dwmemset(CHRptr[0x10], 0, CHRsize[0x10]);
 }
 
 void GenMMC3Close(void) {

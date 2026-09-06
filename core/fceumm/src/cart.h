@@ -47,6 +47,7 @@ extern uint8_t *Page[32], *VPage[8], *MMC5SPRVPage[8], *MMC5BGVPage[8];
 void ResetCartMapping(void);
 void SetupCartPRGMapping(int chip, uint8_t *p, uint32_t size, int ram);
 void SetupCartCHRMapping(int chip, uint8_t *p, uint32_t size, int ram);
+int CartCHRIsRAM(int chip);
 void SetupCartMirroring(int m, int hard, uint8_t *extra);
 
 DECLFR(CartBROB);

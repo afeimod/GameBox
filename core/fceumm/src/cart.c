@@ -134,6 +134,11 @@ void SetupCartCHRMapping(int chip, uint8_t *p, uint32_t size, int ram) {
 	CHRram[chip] = ram;
 }
 
+int CartCHRIsRAM(int chip) {
+	if ((unsigned)chip >= 32) return 0;
+	return CHRram[chip];
+}
+
 DECLFR(CartBR) {
 	return Page[A >> 11][A];
 }
