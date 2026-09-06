@@ -20,12 +20,8 @@
 #include "mapinc.h"
 #include "mmc3.h"
 
-static writefunc writePPU;
 static uint8_t *CHRRAM;
 static uint32_t CHRRAMSIZE;
-static uint8_t mask;
-static uint8_t compare;
-extern uint32_t RefreshAddr;
 
 static void Mapper195_PWrap(uint32_t A, uint8_t V) {
 	// Waixing FS303 (mapper 195) boards can carry up to 2MB PRG. The generic
@@ -38,52 +34,22 @@ static void Mapper195_PWrap(uint32_t A, uint8_t V) {
 }
 
 static void Mapper195_CHRWrap(uint32_t A, uint8_t V) {
-	if ((V &mask) ==compare)
+	// Hacked Captain Tsubasa Vol.2 (Ch) boards use 4KB CHR-RAM for CHR
+	// banks 0-3 and CHR-ROM for the rest. This is the classic behavior used
+	// by FCEUX/Nestopia and the pre-2022 fceumm; the nesdev GAL-based
+	// reimplementation only works with the unhacked Japanese ROM and breaks
+	// Chinese translation hacks (天使之翼2 中文版 shows a grey screen).
+	if (V <= 3)
 		setchr1r(0x10, A, V);
 	else
 		setchr1r(0, A, V);
 }
 
-static const uint8_t compares[8] = { 0x28, 0x00, 0x4C, 0x64, 0x46, 0x7C, 0x04, 0xFF };
-static DECLFW(Mapper195_InterceptPPUWrite) {
-	if (RefreshAddr <0x2000) {
-		int addr =RefreshAddr;
-		int reg, bank;
-
-		if (MMC3_cmd &0x80) addr ^=0x1000;
-		if (addr <0x1000)
-			reg =addr >>11;
-		else
-			reg =(addr >>10) -2;
-
-		bank =DRegBuf[reg];
-		if (bank &0x80) {
-			if (bank &0x10) {
-				mask =0x00;
-				compare =0xFF;
-			} else {
-				int index =(bank &0x02? 1: 0) | (bank &0x08? 2: 0) | (bank &0x40? 4: 0);
-				mask =bank &0x40? 0xFE: 0xFC;
-				compare =compares[index];
-			}
-			FixMMC3CHR(MMC3_cmd);
-		}
-	}
-	writePPU(A, V);
-}
-
 static void Mapper195_Power(void) {
-	mask =0xFC;
-	compare =0x00;
 	GenMMC3Power();
 	setprg4r(0x10, 0x5000, 2);
 	SetWriteHandler(0x5000, 0x5FFF, CartBW);
 	SetReadHandler(0x5000, 0x5FFF, CartBR);
-	
-	if (GetWriteHandler(0x2007) !=Mapper195_InterceptPPUWrite) {
-		writePPU =GetWriteHandler(0x2007);
-		SetWriteHandler(0x2007, 0x2007, Mapper195_InterceptPPUWrite);
-	}
 }
 
 static void Mapper195_Close(void) {
@@ -103,6 +69,4 @@ void Mapper195_Init(CartInfo *info) {
 	CHRRAM =(uint8_t*)FCEU_gmalloc(CHRRAMSIZE);
 	SetupCartCHRMapping(0x10, CHRRAM, CHRRAMSIZE, 1);
 	AddExState(CHRRAM, CHRRAMSIZE, 0, "CHRR");
-	AddExState(&mask, 1, 0, "EXP0");
-	AddExState(&compare, 1, 0, "EXP1");
 }
