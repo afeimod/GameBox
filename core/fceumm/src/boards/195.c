@@ -24,21 +24,26 @@ static uint8_t *CHRRAM;
 static uint32_t CHRRAMSIZE;
 
 static void Mapper195_PWrap(uint32_t A, uint8_t V) {
-	// Waixing FS303 (mapper 195) boards can carry up to 2MB PRG. The generic
-	// MMC3 GENPWRAP masks V with 0x7F (7 bits = 1MB max), which breaks
-	// Captain Tsubasa Vol.2 (Ch) dumps with 1.25MB PRG — the reset vector
-	// lands in the middle of the ROM (0xFF padding) and the screen stays gray.
-	// setprg8() already masks V with PRGmask8 (derived from the actual PRG
-	// size), so passing the full 8-bit bank value is correct here.
+	// Waixing FS303 (mapper 195) pirate dumps can carry up to 2MB PRG.
+	// The generic MMC3 GENPWRAP masks V with 0x7F (1MB max), which breaks
+	// dumps whose banks are >= 128 (e.g. the 1.25MB Chinese translation of
+	// Captain Tsubasa Vol.2 / 天使之翼2 中文版) — the reset vector then ends
+	// up in the wrong half of the image and the screen stays gray.
+	// setprg8() already masks V with PRGmask8, which Mapper195_Init shrinks
+	// to the actual bank count, so passing the full 8-bit value is correct
+	// for both power-of-two and odd-sized dumps.
 	setprg8(A, V);
 }
 
 static void Mapper195_CHRWrap(uint32_t A, uint8_t V) {
-	// Hacked Captain Tsubasa Vol.2 (Ch) boards use 4KB CHR-RAM for CHR
-	// banks 0-3 and CHR-ROM for the rest. This is the classic behavior used
-	// by FCEUX/Nestopia and the pre-2022 fceumm; the nesdev GAL-based
-	// reimplementation only works with the unhacked Japanese ROM and breaks
-	// Chinese translation hacks (天使之翼2 中文版 shows a grey screen).
+	// Hacked Captain Tsubasa Vol.2 (Ch) and Crystalis (Ch) boards wire the
+	// first 4KB of CHR (banks 0-3) to CHR-RAM and the rest to CHR-ROM.
+	// This is the behavior used by the reference NostalgiaLite/FCEUX
+	// implementation (M195CW, V <= 3 with 4KB CHRRAM). The 2022 fceumm
+	// GAL-based auto-detection only matches the unhacked Japanese ROM and
+	// greys out the Chinese translation hacks. Note: routing only banks 0-1
+	// (2KB, the mapper-196 layout) is NOT enough — bank 1 (CHR addr $0400-
+	// $0BFF region) is used as RAM by the hack, so the threshold must be 3.
 	if (V <= 3)
 		setchr1r(0x10, A, V);
 	else
@@ -65,7 +70,17 @@ void Mapper195_Init(CartInfo *info) {
 	info->Power = Mapper195_Power;
 	info->Reset = MMC3RegReset;
 	info->Close = Mapper195_Close;
-	CHRRAMSIZE =4096;
+
+	// Non-power-of-two PRG dumps (e.g. the 1.25MB 天使之翼2 Chinese hack)
+	// are loaded into a power-of-two padded buffer, so PRGmask8[0] comes
+	// out as 0xFF and the MMC3's initial $E000-$FFFF map ("~0") points at
+	// 0xFF padding instead of the last real bank -> reset vector $FFFF ->
+	// grey screen before any game code runs. Shrink the mask to the actual
+	// 8KB-bank count so "~0" selects the last real bank.
+	if (info->PRGRomSize)
+		PRGmask8[0] = (info->PRGRomSize >> 13) - 1;
+
+	CHRRAMSIZE = 4096;
 	CHRRAM =(uint8_t*)FCEU_gmalloc(CHRRAMSIZE);
 	SetupCartCHRMapping(0x10, CHRRAM, CHRRAMSIZE, 1);
 	AddExState(CHRRAM, CHRRAMSIZE, 0, "CHRR");
