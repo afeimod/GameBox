@@ -22,85 +22,6 @@
 
 ---
 
-## ✨ 主要特性
-
-| 模块 | 功能 |
-| --- | --- |
-| **9 大核心** | NES（FCEUmm）、SNES（snes9x）、GB/GBC/GBA（mGBA）、PCE/TG16（Geargrafx）、DOS（DOSBox-Pure）、Arcade（FBNeo）、MD/SEGA（Genesis-Plus-GX）、Java ME（J2ME-Loader） |
-| **画面** | 多种滤镜（Nearest、Scanline、CRT、Dot、XBR、HQ2X、HQ4X），画面比例（4:3 / 16:9 / 自动 / 拉伸），横竖屏旋转 |
-| **音频** | 48000 Hz 重采样 + AudioTrack BLOCKING 写入，消除 TV HDMI 输出爆音 |
-| **输入** | 屏幕手柄（可自定义布局）、蓝牙手柄 / 键盘 / TV D-pad 焦点导航、自定义按键映射；PCE 布局编辑器支持逐键显示/隐藏（含 Turbo 连发键） |
-| **游戏库** | 横向平台分类（NES / SFC / GB / GBA / PCE / DOS / Arcade / MD / Java），自动扫描 ROM，收藏、最近游玩、搜索、封面 |
-| **游戏库刷新** | 刷新按钮重扫**所有**已导入的文件夹（SAF 文件夹 + 本地文件夹），自动补全新 ROM、清理已删除/失效条目；无导入文件夹时回退扫描标准 ROM 目录 |
-| **存档** | 10 个存档槽位 + 自动存档 + 电池存档（SRAM / Flash / Mapper 电池） |
-| **截图** | 一键截图保存到相册 |
-| **快进/慢放** | 2×/4×/6×/8× 快进 |
-| **游戏内菜单** | 返回键唤起，包含：暂停/恢复、存档/读档、快进、截图、设置（引擎专属选项）、退出 |
-| **引擎独立设置** | 每个核心有独立的设置项（NES NTSC 滤镜、SNES 图层、GBA 颜色预设、Arcade 旋转、MD 区域选择等） |
-| **自定义图标** | 长按游戏卡片可自定义图标，支持从相册选取图片 |
-| **TV 模式** | Android TV 适配，Leanback 启动、横屏 D-pad 焦点、远距离 UI |
-| **J2ME 悬浮菜单** | 全屏沉浸式刘海屏适配，浮动菜单支持滤镜选择、暂停/恢复、屏幕布局、退出 |
-
----
-
-## 📁 目录结构
-
-```
-GameBox-main/
-├── app/                              # 主 module（手机 + TV + 全部核心的 UI）
-│   ├── src/main/
-│   │   ├── java/com/nesstation/app/
-│   │   │   ├── core/
-│   │   │   │   ├── model/            # GameEntry, GamePlatform 等数据模型
-│   │   │   │   ├── storage/          # RomStore, RomScanner, PadLayoutStore
-│   │   │   │   ├── engine/           # NesEngine, SnesEngine, GbaEngine, PceEngine,
-│   │   │   │   │                     # DosEngine, FbNeoEngine, GenesisEngine (9 大引擎)
-│   │   │   │   └── jni/              # NesNative, SnesNative, GbaNative, PceNative,
-│   │   │   │                         # DosNative, FbNeoNative, GenesisNative
-│   │   │   └── ui/                   # Compose UI（Home, Library, Settings,
-│   │   │                             #   EmulatorScreen, etc.）
-│   │   ├── java/javax/microedition/  # J2ME-Loader 引擎代码
-│   │   ├── cpp/m3g/                  # M3G 3D 渲染原生代码（J2ME）
-│   │   ├── assets/
-│   │   │   ├── fbneo/                # FBNeo BIOS 文件目录（自带 README）
-│   │   │   ├── genesis/              # Genesis-Plus-GX BIOS 文件目录
-│   │   │   ├── legal/                # 各核心的开源许可证
-│   │   │   ├── scanner/              # ROM 扫描配置
-│   │   │   └── disksys.rom           # FDS BIOS（已内置）
-│   │   ├── jniLibs/
-│   │   │   ├── arm64-v8a/            # 预编译 .so（FBNeo / Genesis-Plus-GX /
-│   │   │   ├── armeabi-v7a/          #   DOSBox-Pure libretro 核心）
-│   │   │   └── x86_64/
-│   │   └── res/                      # 资源文件
-│   ├── build.gradle.kts              # 构建配置
-│   ├── proguard-rules.pro            # ProGuard/R8 混淆规则
-│   └── multidex-config.pro           # MultiDex 保留规则
-├── core/                             # 原生核心源码 + JNI 桥接
-│   ├── fceumm/                       # FCEUmm 核心（git submodule）
-│   ├── snes9x/                       # snes9x 核心（git submodule）
-│   ├── mgba/                         # mGBA 核心（vendored）
-│   ├── jni/                          # C++ ↔ Kotlin 桥接 + libretro 前端
-│   │   ├── bridge.cpp / rom_loader.cpp         # NES（FCEUmm）
-│   │   ├── snes_bridge.cpp / snes_loader.cpp   # SNES（snes9x）
-│   │   ├── gba_bridge.cpp / gba_loader.cpp     # GBA（mGBA）
-│   │   ├── pce_bridge.cpp / pce_loader.cpp     # PCE/TG16（Geargrafx，dlopen 预编译核心）
-│   │   ├── dos_bridge.cpp / dos_loader.cpp     # DOS（DOSBox-Pure）
-│   │   ├── fbneo_bridge.cpp / fbneo_loader.cpp # Arcade（FBNeo）
-│   │   ├── genesis_bridge.cpp / genesis_loader.cpp  # MD（Genesis-Plus-GX）
-│   │   ├── shared/                   # 共享 libretro.h + 工具
-│   │   └── hqx/                      # HQ2X / HQ4X 视频滤镜算法
-│   ├── cmake/CMakeLists.txt          # CMake 入口
-│   └── native-stub/                  # 占位核心（无 submodule 时用）
-├── dexlib/                           # J2ME DEX 转换库（独立 module）
-├── scripts/
-│   ├── download_prebuilt_cores.sh    # 下载预编译 .so 文件
-│   └── check_bios_files.sh           # 检查 BIOS 文件完整性
-├── .github/workflows/                # CI 构建
-└── docs/                             # 截图、设计说明
-```
-
-> 注意：本仓库 **不包含任何受版权保护的游戏 ROM 或 BIOS 文件**。请仅使用你自己合法获取的游戏文件。BIOS 占位文件在 `app/src/main/assets/fbneo/` 和 `app/src/main/assets/genesis/` 中有详细说明。
-
 ---
 
 ## 🎮 各核心说明
@@ -270,28 +191,6 @@ J2ME 游戏使用 J2ME-Loader 的虚拟键盘系统，支持：
 
 ---
 
-## 🚀 快速开始
-
-### 克隆
-
-```bash
-git clone https://github.com/<your-username>/NesStation.git
-cd NesStation
-git submodule update --init --recursive
-```
-
-### 一键下载预编译核心
-
-FBNeo 和 Genesis-Plus-GX 使用 dlopen() 模式加载预编译的 libretro 核心。
-预编译 .so 文件已包含在仓库中（`app/src/main/jniLibs/`），如需更新到最新版本：
-
-```bash
-./scripts/download_prebuilt_cores.sh                # 全部 3 个核心
-./scripts/download_prebuilt_cores.sh fbneo           # 仅 FBNeo
-./scripts/download_prebuilt_cores.sh genesis         # 仅 Genesis-Plus-GX
-./scripts/download_prebuilt_cores.sh dosbox          # 仅 DOSBox-Pure
-```
-
 ### 检查 BIOS 文件状态
 
 ```bash
@@ -310,96 +209,6 @@ cp /path/to/bios_CD_E.zip app/src/main/assets/genesis/
 cp /path/to/bios_CD_J.zip app/src/main/assets/genesis/
 cp /path/to/bios_CD_U.zip app/src/main/assets/genesis/
 ```
-
-启动 App 时 `NesApp.ensureFbNeoBios()` 和 `ensureGenesisBios()` 会自动解压到 `<filesDir>/fbneo/` 和 `<filesDir>/genesis/`。
-
-### 环境
-
-- Android Studio Hedgehog (2023.1.1) 或更新
-- Android SDK 34
-- NDK 26.1.10909125（或 26.3.11579264）
-- CMake 3.22.1
-- JDK 17
-- Gradle 8.7+
-
-### 构建
-
-```bash
-# 调试构建
-./gradlew :app:assembleDebug
-
-# 安装到已连接的设备
-./gradlew :app:installDebug
-```
-
-### 构建注意事项
-
-1. **J2ME 原生代码编译**：M3G 3D 渲染模块（`app/src/main/cpp/m3g/`）需要 NDK 编译。CMakeLists.txt 中已配置 `-Wno-int-conversion` 等编译器标志以兼容 NDK 26。
-
-2. **DataBinding**：J2ME-Loader 的布局文件使用 DataBinding，已在 `build.gradle.kts` 中启用 `dataBinding { enabled = true }`。
-
-3. **ProGuard/R8**：Release 构建启用了代码混淆。`proguard-rules.pro` 中已添加各核心 JNI 类的 keep 规则（`javax.**`、`ru.playsoftware.j2meloader.**`、`com.mascotcapsule.**`、`com.nesstation.app.core.jni.**` 等）。
-
-4. **MultiDex**：J2ME-Loader 代码量较大，已启用 `multiDexEnabled = true`。
-
-5. **预编译 .so 文件**：FBNeo / Genesis-Plus-GX / DOSBox-Pure / Geargrafx（PCE）的 libretro 核心通过 dlopen() 模式加载，预编译 .so 文件位于 `app/src/main/jniLibs/<abi>/`。FCEUmm / snes9x / mGBA 从源码编译（需要 git submodule）。
-
-6. **`useStubCore`**：如果只想跑起来看 UI，可以在 `gradle.properties` 里设置 `useStubCore=true`，使用占位核心。
-
-### 手动触发 GitHub Actions
-
-在仓库页面 **Actions** 标签 → 选择 `Android Build` → **Run workflow** → 选好变体（`debug` / `release`）→ 运行。
-APK 会在 workflow 完成后作为 artifact 上传。
-
----
-
-## 🧩 游戏内菜单
-
-游戏中按 **返回键** 唤起游戏内菜单（所有核心统一）：
-
-| 菜单项 | 功能 |
-| --- | --- |
-| **继续游戏** | 关闭菜单，恢复游戏 |
-| **暂停 / 恢复** | 暂停或恢复模拟 |
-| **快进** | 2× / 4× / 6× / 8× 速度选择 |
-| **存档** | 选择槽位（0-9）保存当前状态 |
-| **读档** | 选择槽位（0-9）读取保存的状态 |
-| **截图** | 保存当前画面到相册 |
-| **设置** | 引擎专属选项（每个核心不同） |
-| **退出** | 退出游戏，返回游戏库 |
-
-**引擎专属设置**（在设置菜单内，按平台分组）：
-
-- **NES**：NTSC 滤镜、调色板、区域、超频、裁剪过扫描
-- **SNES**：图层开关、减少精灵闪烁、减少卡顿、音频插值、图形透明、高分辨率、阻止无效 VRAM
-- **GBA**：GBC/GBA 颜色预设、帧跳类型、强制 RTC、允许相反方向输入
-- **PCE/TG16**：主机类型、画面比例、过扫描、精灵数量上限、调色板、CD-ROM BIOS、TurboTap、MB128、允许相反方向输入
-- **DOS**：机器型号、CPU 速度、声卡、鼠标输入、键盘布局、Voodoo、暗屏超时
-- **Arcade**：画面比例、旋转、竖屏模式、CPU 速度、跳帧、采样率、音频插值、NeoGeo 模式（MVS/AES）、记忆卡、BIOS 管理
-- **MD/SEGA**：区域、系统型号、画面比例、渲染模式、NTSC 滤镜、LCD 滤镜、过扫描、GG 扩展屏幕、手柄类型（3/6 键）、超频、跳帧、Mega-CD 快速启动、SMS FM 音源、BIOS 管理
-
----
-
-## 🧩 添加新核心
-
-### 从源码编译的核心（NES / SNES / GBA）
-1. 添加 git submodule 到 `core/<name>/`
-2. 在 `core/cmake/CMakeLists.txt` 中添加 `add_library(...)` 配置
-3. 创建 `core/jni/<name>_bridge.cpp` 和 `<name>_loader.cpp`
-4. 创建 `app/src/main/java/.../core/jni/<Name>Native.kt`（JNI 接口）
-5. 创建 `app/src/main/java/.../core/engine/<Name>Engine.kt`（高层引擎类）
-6. 在 `EmulatorEngine.forPlatform()` 中添加平台路由
-7. 在 `PadLayoutStore.kt` 中添加引擎专属设置字段
-8. 在 `EmulatorScreen.kt` 中添加设置 UI 和 `applyCoreOptions()` 分支
-
-### dlopen 模式的核心（PCE / Arcade / MD / DOS）
-1. 用 `./scripts/download_prebuilt_cores.sh <name>` 下载预编译 .so
-2. 步骤同上 3-8
-3. CMakeLists.txt 中 `target_link_libraries(... dl)` 添加 `dl` 库
-4. 在 `NesApp.kt` 中设置 `appContext` 并调用 `ensureLoaded()`
-5. 在 `NesApp.kt` 中添加 `ensure<Bios>()` 方法（如需要 BIOS）
-6. 在 `assets/<name>/` 中添加 BIOS 占位 README
-
 ---
 
 ## 📜 许可证
@@ -421,6 +230,15 @@ APK 会在 workflow 完成后作为 artifact 上传。
 详细的 ROM / BIOS 法律声明见 `app/src/main/assets/legal/ROM_NOTICE.txt`。
 
 ---
+## 捐赠支持
+
+* 想捐钱我喝杯热水（¥0.01 起捐）
+
+![donate](https://github.com/afeimod/NesStation/blob/main/IMG_20260906_153806.jpg?raw=true)
+
+![donate](https://github.com/afeimod/NesStation/blob/main/IMG_20260906_153816.jpg?raw=true)
+
+
 
 ## 🙌 致谢
 
